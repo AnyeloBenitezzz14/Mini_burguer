@@ -1,0 +1,64 @@
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&family=Poppins:wght@300;400;500;600;700&display=swap');
+@import 'tailwindcss';
+
+@theme inline {
+  --color-mustard: #B68C1C;
+  --color-amber: #D29A42;
+  --color-tomato: #A54131;
+  --color-cream: #F4EEDC;
+  --color-charcoal: #36393F;
+  --color-forest: #3A6D5E;
+}
+
+:root {
+  --background: #F4EEDC;
+  --foreground: #36393F;
+  --card: #ffffff;
+  --card-foreground: #36393F;
+  --primary: #B68C1C;
+  --primary-foreground: #ffffff;
+  --secondary: #A54131;
+  --secondary-foreground: #ffffff;
+  --muted: #ede8d8;
+  --muted-foreground: #6b6760;
+  --accent: #D29A42;
+  --accent-foreground: #36393F;
+  --border: rgba(54,57,63,0.12);
+  --ring: #B68C1C;
+  --radius: 1rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: 'Poppins', sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  margin: 0;
+  padding: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+#root {
+  min-width: 0;
+  max-width: 100%;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Montserrat', sans-serif;
+}
+
+/* Hide scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }

@@ -1,0 +1,10137 @@
+import { useState, useRef, useEffect, useCallback } from "react"
+import logoImg from "@/imports/Gemini_Generated_Image_ei2okyei2okyei2o-Photoroom.png"
+import qrImg from "@/imports/image-4.png"
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "app" | "admin"
+type AdminSection = "dashboard" | "roles" | "usuarios" | "cat-insumos" | "insumos" | "proveedores" | "compras" | "perdidas" | "cat-producto" | "producto" | "produccion" | "producto-no-conforme" | "clientes" | "ventas" | "pedidos" | "devoluciones"
+type Theme = "light" | "dark"
+type User = {
+  name: string
+  email: string
+  role: "admin" | "user"
+  cedula?: string
+  phone?: string
+  addresses?: string[]
+}
+type CartItem = {
+  id: number
+  name: string
+  price: number
+  qty: number
+  img: string
+  sauces?: string[]
+  additions?: { name: string; qty: number; price: number }[]
+}
+type ModalMode = "add" | "edit" | "view" | null
+type FieldType = {
+  key: string
+  label: string
+  type: "text" | "email" | "tel" | "number" | "select" | "textarea" | "date" | "time" | "image" | "checkbox"
+  options?: string[]
+}
+type Product = {
+  id: number
+  name: string
+  desc: string
+  price: number
+  priceStr: string
+  img: string
+  cat: string
+  badge: string
+}
+
+// ── Brand ──────────────────────────────────────────────────────────────────────
+const C = {
+  mustard: "#B68C1C",
+  amber: "#D29A42",
+  red: "#A54131",
+  cream: "#F2E5C0",
+  dark: "#191512",
+  forest: "#3A6D5E",
+}
+const WA = "573206332670"
+const ITEMS_PER_PAGE = 6
+const STATUS_OPT = ["Activo", "Inactivo"]
+const DOC_TYPES = [
+  "Cédula de Ciudadanía",
+  "Cédula Extranjería",
+  "NIT",
+  "Pasaporte",
+  "Tarjeta de Identidad",
+]
+const SAUCES = [
+  "Salsa de la casa",
+  "Tártara",
+  "Chowy",
+  "Ajo",
+  "Rosada",
+  "Roja",
+  "Piña",
+  "Tomate",
+  "Mostaza",
+  "Mayonesa",
+  "BBQ",
+]
+const ADDITIONS = [
+  { name: "Queso", price: 8000 },
+  { name: "Tocineta", price: 8000 },
+  { name: "Ensalada", price: 8000 },
+  { name: "Carne", price: 8000 },
+  { name: "Salchicha x3", price: 8000 },
+  { name: "Cebolla", price: 8000 },
+  { name: "1 Huevo", price: 900 },
+  { name: "5 Huevos", price: 4000 },
+]
+
+// ── Products ───────────────────────────────────────────────────────────────────
+const PRODUCTS: Product[] = [
+  {
+    id: 1,
+    name: "Mini",
+    desc: "Hamburguesa pequeña de la casa con salsa secreta.",
+    price: 13000,
+    priceStr: "$13.000",
+    img: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&h=400&fit=crop",
+    cat: "hamburguesas",
+    badge: "Favorita",
+  },
+  {
+    id: 2,
+    name: "Sencilla",
+    desc: "Carne de la casa, vegetales frescos y salsas.",
+    price: 14500,
+    priceStr: "$14.500",
+    img: "https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=500&h=400&fit=crop",
+    cat: "hamburguesas",
+    badge: "",
+  },
+  {
+    id: 3,
+    name: "Tradicional",
+    desc: "Carne, queso cheddar y tocineta crujiente.",
+    price: 16000,
+    priceStr: "$16.000",
+    img: "https://images.unsplash.com/photo-1550317138-10000687a72b?w=500&h=400&fit=crop",
+    cat: "hamburguesas",
+    badge: "",
+  },
+  {
+    id: 4,
+    name: "Super Mini",
+    desc: "Porción mediana especial con carne y vegetales.",
+    price: 15500,
+    priceStr: "$15.500",
+    img: "https://images.unsplash.com/photo-1603073163308-9654c3fb70b5?w=500&h=400&fit=crop",
+    cat: "hamburguesas",
+    badge: "",
+  },
+  {
+    id: 5,
+    name: "Doble",
+    desc: "Doble carne de la casa, queso y salsas especiales.",
+    price: 18500,
+    priceStr: "$18.500",
+    img: "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=500&h=400&fit=crop",
+    cat: "hamburguesas",
+    badge: "Más Pedida",
+  },
+  {
+    id: 6,
+    name: "Triple",
+    desc: "Triple carne de la casa, queso y salsas a elección.",
+    price: 20500,
+    priceStr: "$20.500",
+    img: "https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=500&h=400&fit=crop",
+    cat: "hamburguesas",
+    badge: "",
+  },
+  {
+    id: 7,
+    name: "Pollo",
+    desc: "Pechuga de pollo jugosa, queso y salsas.",
+    price: 17500,
+    priceStr: "$17.500",
+    img: "https://images.unsplash.com/photo-1525059696034-4967a8e1dca2?w=500&h=400&fit=crop",
+    cat: "hamburguesas",
+    badge: "",
+  },
+  {
+    id: 8,
+    name: "Mixta",
+    desc: "Combinación de carne y pollo con queso.",
+    price: 20500,
+    priceStr: "$20.500",
+    img: "https://images.unsplash.com/photo-1547584370-2cc98b8b8dc8?w=500&h=400&fit=crop",
+    cat: "hamburguesas",
+    badge: "Nueva",
+  },
+  {
+    id: 9,
+    name: "Atún",
+    desc: "Atún premium con queso cheddar y tocineta crujiente.",
+    price: 17500,
+    priceStr: "$17.500",
+    img: "https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=500&h=400&fit=crop",
+    cat: "hamburguesas",
+    badge: "",
+  },
+  {
+    id: 10,
+    name: "Mediano",
+    desc: "Salchicha mediana, papitas fosforito y salsas.",
+    price: 14500,
+    priceStr: "$14.500",
+    img: "https://images.unsplash.com/photo-1619740455993-9e612b1af08a?w=500&h=400&fit=crop",
+    cat: "perros",
+    badge: "",
+  },
+  {
+    id: 11,
+    name: "Gran Perro",
+    desc: "Salchicha grande, papitas y salsas variadas.",
+    price: 15500,
+    priceStr: "$15.500",
+    img: "https://images.unsplash.com/photo-1612392062631-94f04cbc4aa3?w=500&h=400&fit=crop",
+    cat: "perros",
+    badge: "",
+  },
+  {
+    id: 12,
+    name: "Super Perro",
+    desc: "Salchicha especial, tocineta, queso y salsas.",
+    price: 17500,
+    priceStr: "$17.500",
+    img: "https://images.unsplash.com/photo-1559729887-3e8a3eea4a37?w=500&h=400&fit=crop",
+    cat: "perros",
+    badge: "Favorito",
+  },
+  {
+    id: 13,
+    name: "Pequeña",
+    desc: "Tocino/tocineta, queso y salsas.",
+    price: 14500,
+    priceStr: "$14.500",
+    img: "https://images.unsplash.com/photo-1526374870839-e155464bb9b2?w=500&h=400&fit=crop",
+    cat: "perras",
+    badge: "",
+  },
+  {
+    id: 14,
+    name: "Gran Perra",
+    desc: "Porción grande de tocineta, queso y salsas.",
+    price: 15500,
+    priceStr: "$15.500",
+    img: "https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=500&h=400&fit=crop",
+    cat: "perras",
+    badge: "",
+  },
+  {
+    id: 15,
+    name: "Super Perra",
+    desc: "Tocineta extra, queso gratinado y salsas de la casa.",
+    price: 17600,
+    priceStr: "$17.600",
+    img: "https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=500&h=400&fit=crop",
+    cat: "perras",
+    badge: "Especial",
+  },
+  {
+    id: 16,
+    name: "Sencilla",
+    desc: "Papas a la francesa doradas y salchicha premium.",
+    price: 13000,
+    priceStr: "$13.000",
+    img: "https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?w=500&h=400&fit=crop",
+    cat: "salchipapas",
+    badge: "",
+  },
+  {
+    id: 17,
+    name: "Especial",
+    desc: "Papas, salchicha, queso fundido y tocineta crujiente.",
+    price: 16000,
+    priceStr: "$16.000",
+    img: "https://images.unsplash.com/photo-1585325701956-60dd9c8399f0?w=500&h=400&fit=crop",
+    cat: "salchipapas",
+    badge: "",
+  },
+  {
+    id: 18,
+    name: "Mega",
+    desc: "Papas, salchicha, 3 huevos, 1 nugget, queso, carne y tocineta.",
+    price: 20000,
+    priceStr: "$20.000",
+    img: "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=500&h=400&fit=crop",
+    cat: "salchipapas",
+    badge: "Mega",
+  },
+  {
+    id: 19,
+    name: "Mega Gourmet",
+    desc: "Papas, salchicha, 3 huevos, pollo, cerdo, jamón, maicitos y queso.",
+    price: 23000,
+    priceStr: "$23.000",
+    img: "https://images.unsplash.com/photo-1596560548464-f010549b84d7?w=500&h=400&fit=crop",
+    cat: "salchipapas",
+    badge: "Gourmet",
+  },
+  {
+    id: 20,
+    name: "Mega Gourmet Q+T",
+    desc: "Mega Gourmet con extra de queso y tocineta gratinada.",
+    price: 27000,
+    priceStr: "$27.000",
+    img: "https://images.unsplash.com/photo-1542574271-7f3b92e6c821?w=500&h=400&fit=crop",
+    cat: "salchipapas",
+    badge: "",
+  },
+  {
+    id: 21,
+    name: "Esp. Gourmet Pers.",
+    desc: "Porción personal gourmet con carnes mixtas y maicitos.",
+    price: 20500,
+    priceStr: "$20.500",
+    img: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=500&h=400&fit=crop",
+    cat: "salchipapas",
+    badge: "",
+  },
+  {
+    id: 22,
+    name: "Super Gourmet",
+    desc: "Papas, salchicha, pollo, jamón, maicitos, queso, tocineta y carne.",
+    price: 33000,
+    priceStr: "$33.000",
+    img: "https://images.unsplash.com/photo-1629108773466-2e8028bbb5f1?w=500&h=400&fit=crop",
+    cat: "salchipapas",
+    badge: "Super",
+  },
+  {
+    id: 23,
+    name: "Chuzo de Pollo",
+    desc: "Pollo, arepa artesanal, ensalada fresca y papas.",
+    price: 19000,
+    priceStr: "$19.000",
+    img: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=500&h=400&fit=crop",
+    cat: "chuzos",
+    badge: "",
+  },
+  {
+    id: 24,
+    name: "Chuzo de Cerdo",
+    desc: "Cerdo a la parrilla, arepa, ensalada y papas.",
+    price: 19000,
+    priceStr: "$19.000",
+    img: "https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?w=500&h=400&fit=crop",
+    cat: "chuzos",
+    badge: "",
+  },
+  {
+    id: 25,
+    name: "Patacón Mixto",
+    desc: "Res, pollo, cerdo, queso, tocineta o salchicha.",
+    price: 18000,
+    priceStr: "$18.000",
+    img: "https://images.unsplash.com/photo-1601924638867-3a6de6b7a500?w=500&h=400&fit=crop",
+    cat: "patacones",
+    badge: "",
+  },
+  {
+    id: 26,
+    name: "Patacón Ranchero",
+    desc: "Estilo ranchero con todos los toppings de la casa.",
+    price: 18000,
+    priceStr: "$18.000",
+    img: "https://images.unsplash.com/photo-1739488078567-064495f2af9e?w=500&h=400&fit=crop",
+    cat: "patacones",
+    badge: "",
+  },
+  {
+    id: 27,
+    name: "Arepa Sencilla",
+    desc: "Arepa artesanal con carne y salsas de la casa.",
+    price: 14000,
+    priceStr: "$14.000",
+    img: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=500&h=400&fit=crop",
+    cat: "arepa-burger",
+    badge: "",
+  },
+  {
+    id: 28,
+    name: "Arepa Especial",
+    desc: "Arepa con carne, queso y adiciones seleccionadas.",
+    price: 15000,
+    priceStr: "$15.000",
+    img: "https://images.unsplash.com/photo-1547584370-2cc98b8b8dc8?w=500&h=400&fit=crop",
+    cat: "arepa-burger",
+    badge: "",
+  },
+  {
+    id: 29,
+    name: "Arepa Gourmet",
+    desc: "Arepa con carne gourmet, queso especial y tocineta.",
+    price: 18000,
+    priceStr: "$18.000",
+    img: "https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?w=500&h=400&fit=crop",
+    cat: "arepa-burger",
+    badge: "Gourmet",
+  },
+  {
+    id: 30,
+    name: "Arepa Desmechada",
+    desc: "Arepa con carne desmechada especial de la casa.",
+    price: 18000,
+    priceStr: "$18.000",
+    img: "https://images.unsplash.com/photo-1601924638867-3a6de6b7a500?w=500&h=400&fit=crop",
+    cat: "arepa-burger",
+    badge: "",
+  },
+  {
+    id: 31,
+    name: "Rellena Pollo/Res",
+    desc: "Rellena de pollo, cerdo o res a elección.",
+    price: 18000,
+    priceStr: "$18.000",
+    img: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=500&h=400&fit=crop",
+    cat: "arepa-rellena",
+    badge: "",
+  },
+  {
+    id: 32,
+    name: "Rellena Q+Tocineta",
+    desc: "Rellena de queso fundido y tocineta crujiente.",
+    price: 18000,
+    priceStr: "$18.000",
+    img: "https://images.unsplash.com/photo-1629108773466-2e8028bbb5f1?w=500&h=400&fit=crop",
+    cat: "arepa-rellena",
+    badge: "",
+  },
+]
+
+const MENU_CATS = [
+  { id: "todos", label: "Todos", emoji: "🍽️" },
+  { id: "hamburguesas", label: "Hamburguesas", emoji: "🍔" },
+  { id: "perros", label: "Perros Cal.", emoji: "🌭" },
+  { id: "perras", label: "Perras", emoji: "🌭" },
+  { id: "salchipapas", label: "Salchipapas", emoji: "🍟" },
+  { id: "chuzos", label: "Chuzos", emoji: "🍢" },
+  { id: "patacones", label: "Patacones", emoji: "🫓" },
+  { id: "arepa-burger", label: "Arepa Burger", emoji: "🫔" },
+  { id: "arepa-rellena", label: "Arepa Rellena", emoji: "🫔" },
+]
+
+// ── Icons ──────────────────────────────────────────────────────────────────────
+const Ico = {
+  menu: (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    >
+      <line x1="3" y1="7" x2="21" y2="7" />
+      <line x1="3" y1="12" x2="21" y2="12" />
+      <line x1="3" y1="17" x2="21" y2="17" />
+    </svg>
+  ),
+  x: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <line x1="18" y1="6" x2="6" y2="18" />
+      <line x1="6" y1="6" x2="18" y2="18" />
+    </svg>
+  ),
+  sun: (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    >
+      <circle cx="12" cy="12" r="5" />
+      <line x1="12" y1="1" x2="12" y2="3" />
+      <line x1="12" y1="21" x2="12" y2="23" />
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" />
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" />
+      <line x1="1" y1="12" x2="3" y2="12" />
+      <line x1="21" y1="12" x2="23" y2="12" />
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" />
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" />
+    </svg>
+  ),
+  moon: (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    >
+      <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+    </svg>
+  ),
+  search: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    >
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
+  plus: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <line x1="5" y1="12" x2="19" y2="12" />
+    </svg>
+  ),
+  eye: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  edit: (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    >
+      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+    </svg>
+  ),
+  trash: (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    >
+      <polyline points="3 6 5 6 21 6" />
+      <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6" />
+      <path d="M10 11v6M14 11v6" />
+      <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
+    </svg>
+  ),
+  ban: (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="4.93" y1="4.93" x2="19.07" y2="19.07" />
+    </svg>
+  ),
+  chevDown: (
+    <svg
+      width="10"
+      height="10"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  ),
+  globe: (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
+    </svg>
+  ),
+  alert: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  ),
+  logout: (
+    <svg
+      width="15"
+      height="15"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" y1="12" x2="9" y2="12" />
+    </svg>
+  ),
+  dashboard: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <rect x="3" y="3" width="7" height="7" />
+      <rect x="14" y="3" width="7" height="7" />
+      <rect x="3" y="14" width="7" height="7" />
+      <rect x="14" y="14" width="7" height="7" />
+    </svg>
+  ),
+  settings: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+    </svg>
+  ),
+  shopping: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <circle cx="9" cy="21" r="1" />
+      <circle cx="20" cy="21" r="1" />
+      <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
+    </svg>
+  ),
+  chef: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M12 2a5 5 0 015 5 5 5 0 01-.5 2.2A5 5 0 0119 14v7H5v-7a5 5 0 012.5-4.8A5 5 0 017 9a5 5 0 0110-4.9" />
+      <line x1="9" y1="14" x2="9" y2="21" />
+      <line x1="12" y1="14" x2="12" y2="21" />
+      <line x1="15" y1="14" x2="15" y2="21" />
+    </svg>
+  ),
+  cash: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <rect x="1" y="4" width="22" height="16" rx="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
+    </svg>
+  ),
+  chart: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <line x1="18" y1="20" x2="18" y2="10" />
+      <line x1="12" y1="20" x2="12" y2="4" />
+      <line x1="6" y1="20" x2="6" y2="14" />
+    </svg>
+  ),
+  star: (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  ),
+  fire: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 01-7 7A7 7 0 013 15c0-2.5.5-4.5 1.5-6" />
+    </svg>
+  ),
+  users: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M23 21v-2a4 4 0 00-3-3.87" />
+      <path d="M16 3.13a4 4 0 010 7.75" />
+    </svg>
+  ),
+  undo: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M3 7v6h6" />
+      <path d="M21 17a9 9 0 00-9-9 9 9 0 00-6 2.3L3 13" />
+    </svg>
+  ),
+  cart: (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <circle cx="9" cy="21" r="1" />
+      <circle cx="20" cy="21" r="1" />
+      <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
+    </svg>
+  ),
+  orders: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="16" y1="13" x2="8" y2="13" />
+      <line x1="16" y1="17" x2="8" y2="17" />
+    </svg>
+  ),
+  upload: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <polyline points="16 16 12 12 8 16" />
+      <line x1="12" y1="12" x2="12" y2="21" />
+      <path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3" />
+    </svg>
+  ),
+  clock: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <polyline points="12 6 12 12 16 14" />
+    </svg>
+  ),
+  trending: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+      <polyline points="17 6 23 6 23 12" />
+    </svg>
+  ),
+  bell: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+      <path d="M13.73 21a2 2 0 01-3.46 0" />
+    </svg>
+  ),
+  shield: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  ),
+  user: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2" />
+      <circle cx="12" cy="7" r="4" />
+    </svg>
+  ),
+  mapPin: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+      <circle cx="12" cy="10" r="3" />
+    </svg>
+  ),
+  download: (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+    >
+      <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" />
+      <polyline points="7 10 12 15 17 10" />
+      <line x1="12" y1="15" x2="12" y2="3" />
+    </svg>
+  ),
+  check: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+}
+
+// ── Theme tokens ───────────────────────────────────────────────────────────────
+function tk(dark: boolean) {
+  return {
+    bg: dark ? "#0D0F14" : "#F0EDE6",
+    sidebarBg: dark ? "#111318" : "#FFFFFF",
+    sidebarBd: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)",
+    sidebarTx: dark ? "rgba(255,255,255,0.92)" : "rgba(30,25,18,0.85)",
+    sidebarMu: dark ? "rgba(255,255,255,0.55)" : "rgba(30,25,18,0.45)",
+    hdrBg: dark ? "#111318" : "#FFFFFF",
+    hdrBd: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)",
+    card: dark ? "#181B22" : "#FFFFFF",
+    cardAlt: dark ? "#1E2128" : "#F8F5EF",
+    border: dark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)",
+    text: dark ? "#EAE4D8" : "#18160F",
+    muted: dark ? "rgba(234,228,216,0.50)" : "rgba(24,22,15,0.48)",
+    subtle: dark ? "rgba(234,228,216,0.22)" : "rgba(24,22,15,0.22)",
+    input: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.04)",
+    inputB: dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.10)",
+    hover: dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)",
+  }
+}
+
+function badgeSt(val: string | number) {
+  const s = String(val)
+  if (
+    [
+      "Activo",
+      "Activa",
+      "OK",
+      "Recibida",
+      "Completada",
+      "Terminado",
+      "Vigente",
+      "Lista",
+      "Entregado",
+      "Entregada",
+      "Resuelta",
+      "Resuelto",
+    ].includes(s)
+  )
+    return { bg: "rgba(58,109,94,0.14)", color: "#2E7D60" }
+  if (
+    [
+      "Pendiente",
+      "En producción",
+      "Iniciada",
+      "En gestión",
+      "En camino",
+      "Borrador",
+      "Confirmado",
+      "Normal",
+      "Listo",
+    ].includes(s)
+  )
+    return { bg: "rgba(182,140,28,0.14)", color: "#9A7010" }
+  if (
+    [
+      "Bajo",
+      "Alta",
+      "Pend. Aprobación",
+      "Producto no conforme",
+      "Pendiente admin",
+      "Cancelada",
+      "Cancelado",
+      "Agotado",
+      "Obsoleta",
+      "Inactivo",
+      "Inactiva",
+      "Anulada",
+      "Anulado",
+    ].includes(s)
+  )
+    return { bg: "rgba(165,65,49,0.14)", color: C.red }
+  return null
+}
+
+function fmt(n: number) {
+  return `$${n.toLocaleString("es-CO")}`
+}
+
+// ── Admin config ───────────────────────────────────────────────────────────────
+type ModConfig = {
+  columns: string[]
+  fields: FieldType[]
+  seed: (string | number | boolean)[][]
+  noExport?: boolean
+  noDelete?: boolean
+  autoId?: boolean
+  statusIndex?: number
+  inactiveStatus?: string
+  hiddenCellIndexes?: number[]
+}
+
+const PERMISSION_MODULES = [
+  { name: "Roles y permisos", finalAction: "Anular" },
+  { name: "Usuarios", finalAction: "Anular" },
+  { name: "Categoría Insumos", finalAction: "Anular" },
+  { name: "Insumos", finalAction: "Anular" },
+  { name: "Proveedores", finalAction: "Anular" },
+  { name: "Compras", finalAction: "Eliminar" },
+  { name: "Pérdida Insumos", finalAction: "Anular" },
+  { name: "Categoría Producto", finalAction: "Anular" },
+  { name: "Productos", finalAction: "Anular" },
+  { name: "Producción", finalAction: "Eliminar" },
+  { name: "Producto No Conforme", finalAction: "Eliminar" },
+  { name: "Clientes", finalAction: "Eliminar" },
+  { name: "Pedidos", finalAction: "Anular" },
+  { name: "Ventas", finalAction: "Anular" },
+  { name: "Devoluciones", finalAction: "Eliminar" },
+] as const
+
+const PRODUCTION_STATUSES = [
+  "Recibida",
+  "Iniciada",
+  "En cocina",
+  "Terminado",
+  "Producto no conforme",
+] as const
+
+const MOD_CFG: Record<string, ModConfig> = {
+  roles: {
+    columns: ["Nombre", "Descripción", "Estado"],
+    fields: [
+      { key: "0", label: "Nombre del rol", type: "text" },
+      { key: "1", label: "Descripción", type: "textarea" },
+    ],
+    seed: [
+      ["Administrador", "Acceso total al sistema", "Activo"],
+      ["Empleado", "Gestión interna del restaurante", "Activo"],
+      ["Domiciliario", "Gestión de entregas a domicilio", "Activo"],
+      ["Cliente", "Acceso a pedidos y seguimiento de compras", "Activo"],
+    ],
+    noExport: true,
+    noDelete: true,
+    statusIndex: 2,
+  },
+  usuarios: {
+    columns: ["Nombre", "Tipo Doc.", "Documento", "Rol", "Correo", "Estado"],
+    fields: [
+      { key: "0", label: "Nombre completo", type: "text" },
+      {
+        key: "1",
+        label: "Tipo de documento",
+        type: "select",
+        options: [
+          "Cédula de Ciudadanía",
+          "Cédula Extranjería",
+          "NIT",
+          "Pasaporte",
+          "Tarjeta de Identidad",
+        ],
+      },
+      { key: "2", label: "Número de documento", type: "text" },
+      {
+        key: "3",
+        label: "Rol",
+        type: "select",
+        options: ["Empleado", "Domiciliario", "Cliente", "Administrador"],
+      },
+      { key: "4", label: "Correo electrónico", type: "email" },
+      { key: "6", label: "Contraseña", type: "text" },
+    ],
+    seed: [
+      [
+        "Admin Parche",
+        "Cédula de Ciudadanía",
+        "12345678",
+        "Administrador",
+        "admin@parche.co",
+        "Activo",
+        "Demo123*",
+      ],
+      [
+        "Juan Rúa",
+        "Cédula de Ciudadanía",
+        "98765432",
+        "Empleado",
+        "juan@parche.co",
+        "Activo",
+        "Demo123*",
+      ],
+      [
+        "María Gómez",
+        "Cédula de Ciudadanía",
+        "45678901",
+        "Domiciliario",
+        "maria@parche.co",
+        "Activo",
+        "Demo123*",
+      ],
+    ],
+    noExport: true,
+    noDelete: true,
+    statusIndex: 5,
+    hiddenCellIndexes: [6],
+  },
+  "cat-insumos": {
+    columns: ["Nombre Categoría", "Descripción", "Estado"],
+    fields: [
+      { key: "0", label: "Nombre categoría", type: "text" },
+      { key: "1", label: "Descripción", type: "textarea" },
+    ],
+    seed: [
+      ["Carnes", "Carnes y proteínas cárnicas", "Activa"],
+      ["Lácteos", "Quesos y derivados lácteos", "Activa"],
+      ["Verduras", "Vegetales y hortalizas", "Activa"],
+      ["Panes", "Panes y masas artesanales", "Activa"],
+      ["Salsas", "Salsas y aderezos", "Activa"],
+    ],
+    noExport: true,
+    noDelete: true,
+    statusIndex: 2,
+  },
+  insumos: {
+    columns: [
+      "Nombre",
+      "Categoría",
+      "Unidad",
+      "Costo Unit.",
+      "Stock Act.",
+      "Estado",
+    ],
+    fields: [
+      { key: "0", label: "Nombre del insumo", type: "text" },
+      {
+        key: "1",
+        label: "Categoría",
+        type: "select",
+        options: ["Carnes", "Lácteos", "Verduras", "Panes", "Salsas"],
+      },
+      {
+        key: "2",
+        label: "Unidad de medida",
+        type: "select",
+        options: ["kg", "g", "L", "ml", "und", "paq"],
+      },
+      { key: "3", label: "Costo unitario", type: "number" },
+      { key: "4", label: "Stock actual", type: "number" },
+      { key: "5", label: "Stock mínimo", type: "number" },
+      { key: "6", label: "Stock máximo", type: "number" },
+      { key: "7", label: "Producto de insumo", type: "checkbox" },
+      { key: "8", label: "Nombre de la ficha técnica", type: "text" },
+      { key: "9", label: "Versión de la ficha", type: "text" },
+      { key: "10", label: "Insumos principales", type: "textarea" },
+      { key: "11", label: "Cómo se prepara", type: "textarea" },
+    ],
+    seed: [
+      ["Carne de res 100g", "Carnes", "g", 1800, 450, 200, 1000, "No", "", "", "", "", "Activo"],
+      ["Queso cheddar", "Lácteos", "kg", 28000, 12, 15, 50, "No", "", "", "", "", "Activo"],
+      ["Pan brioche", "Panes", "und", 900, 80, 30, 200, "Sí", "Ficha técnica - Pan brioche", "v1.0", "Pan brioche", "1. Seleccionar el pan. 2. Preparar según laFicha. 3. Armar y servir.", "Activo"],
+      ["Lechuga", "Verduras", "kg", 4000, 5, 10, 30, "No", "", "", "", "", "Activo"],
+      ["Salchicha", "Carnes", "und", 2500, 60, 25, 150, "No", "", "", "", "", "Activo"],
+    ],
+    noDelete: true,
+    statusIndex: 12,
+    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11],
+  },
+  proveedores: {
+    columns: [
+      "Nombre",
+      "NIT",
+      "Correo",
+      "Teléfono",
+      "Contacto",
+      "Estado",
+    ],
+    fields: [
+      { key: "0", label: "Nombre empresa", type: "text" },
+      { key: "1", label: "NIT", type: "text" },
+      { key: "2", label: "Correo", type: "email" },
+      { key: "3", label: "Teléfono", type: "tel" },
+      { key: "4", label: "Persona de contacto", type: "text" },
+      { key: "5", label: "Dirección", type: "text" },
+    ],
+    seed: [
+      [
+        "Carnes Premium SAS",
+        "900.123.456-1",
+        "ventas@carnes.co",
+        "310-456-7890",
+        "Pedro Álvarez",
+        "Cll 50 #32-10, Medellín",
+        "Activo",
+      ],
+      [
+        "Lácteos del Valle",
+        "800.234.567-2",
+        "info@lacteos.co",
+        "320-987-6543",
+        "Sandra Ríos",
+        "Cra 45 #20-05, Bello",
+        "Activo",
+      ],
+    ],
+    noDelete: true,
+    statusIndex: 6,
+    hiddenCellIndexes: [5],
+  },
+  compras: {
+    columns: ["Proveedor", "Fecha", "Subtotal", "Total", "Estado"],
+    fields: [
+      {
+        key: "0",
+        label: "Proveedor",
+        type: "select",
+        options: [
+          "Carnes Premium SAS",
+          "Lácteos del Valle",
+          "AgroVerde",
+          "Panes Artesanales",
+        ],
+      },
+      { key: "1", label: "Fecha de compra", type: "date" },
+      { key: "2", label: "Fecha de registro", type: "date" },
+      { key: "3", label: "Subtotal", type: "number" },
+      { key: "4", label: "Total", type: "number" },
+      {
+        key: "6",
+        label: "Insumos comprados (nombre | cantidad | precio unitario)",
+        type: "textarea",
+      },
+    ],
+    seed: [
+      [
+        "Carnes Premium SAS",
+        "2024-01-20",
+        "2024-01-20",
+        42500,
+        42500,
+        "Activo",
+        "Carne de res 100g | 20 | 1800\nPan brioche | 5 | 900\nSalsa de la casa | 1 | 2000",
+      ],
+      [
+        "Lácteos del Valle",
+        "2024-01-18",
+        "2024-01-18",
+        28000,
+        28000,
+        "Activo",
+        "Queso cheddar | 1 | 28000",
+      ],
+      [
+        "Panes Artesanales",
+        "2024-01-17",
+        "2024-01-18",
+        22500,
+        22500,
+        "Activo",
+        "Pan brioche | 25 | 900",
+      ],
+    ],
+    noDelete: true,
+    statusIndex: 5,
+    inactiveStatus: "Anulado",
+    hiddenCellIndexes: [2, 6],
+  },
+  perdidas: {
+    columns: ["Insumo", "Cantidad", "Motivo", "Responsable", "Fecha"],
+    fields: [
+      {
+        key: "0",
+        label: "Insumo",
+        type: "select",
+        options: [
+          "Carne de res 100g",
+          "Queso cheddar",
+          "Pan brioche",
+          "Lechuga",
+          "Salchicha",
+        ],
+      },
+      { key: "1", label: "Cantidad", type: "text" },
+      {
+        key: "2",
+        label: "Motivo",
+        type: "select",
+        options: ["Deterioro", "Vencimiento", "Accidente", "Horno", "Otro"],
+      },
+      { key: "3", label: "Responsable", type: "text" },
+      { key: "4", label: "Fecha", type: "date" },
+    ],
+    seed: [
+      ["Lechuga", "0.5 kg", "Deterioro", "María G.", "2024-01-20"],
+      ["Pan brioche", "4 und", "Horno", "María G.", "2024-01-19"],
+      ["Queso cheddar", "0.3 kg", "Vencimiento", "Juan R.", "2024-01-15"],
+    ],
+    noExport: true,
+    noDelete: true,
+  },
+  "cat-producto": {
+    columns: ["Nombre Categoría", "Descripción", "Estado"],
+    fields: [
+      { key: "0", label: "Nombre categoría", type: "text" },
+      { key: "1", label: "Descripción", type: "textarea" },
+    ],
+    seed: [
+      ["Hamburguesas", "Burgers artesanales de la casa", "Activa"],
+      ["Salchipapas", "Papas fritas con salchicha", "Activa"],
+      ["Perros Calientes", "Hot dogs", "Activa"],
+      ["Perras", "Versiones especiales", "Activa"],
+      ["Chuzos", "Carne en palito con papas", "Activa"],
+      ["Patacones", "Patacón relleno", "Activa"],
+      ["Arepa Burger", "Burger en arepa", "Activa"],
+      ["Arepa Rellena", "Arepa rellena", "Activa"],
+    ],
+    noExport: true,
+    noDelete: true,
+    statusIndex: 2,
+  },
+  producto: {
+    columns: ["Imagen", "Nombre", "Categoría", "Precio", "Estado"],
+    fields: [
+      { key: "img", label: "Foto del producto", type: "image" },
+      { key: "0", label: "Nombre", type: "text" },
+      {
+        key: "1",
+        label: "Categoría",
+        type: "select",
+        options: [
+          "Hamburguesas",
+          "Salchipapas",
+          "Perros Calientes",
+          "Perras",
+          "Chuzos",
+          "Patacones",
+          "Arepa Burger",
+          "Arepa Rellena",
+          "Producto de insumo",
+        ],
+      },
+      { key: "2", label: "Precio (COP)", type: "number" },
+      { key: "3", label: "Descripción", type: "textarea" },
+      { key: "5", label: "Nombre de la ficha técnica", type: "text" },
+      { key: "6", label: "Versión de la ficha", type: "text" },
+      { key: "7", label: "Insumos principales", type: "textarea" },
+      { key: "8", label: "Cómo se prepara", type: "textarea" },
+    ],
+    seed: PRODUCTS.slice(0, 10).map((p) => [
+      p.name,
+      p.cat.replace(/-/g, " "),
+      p.price,
+      p.desc,
+      "Activo",
+      "Ficha Mini Burger",
+      "v2.1",
+      `Carne 100g, pan brioche, queso, lechuga, salsa de la casa`,
+      "1. Asar la carne. 2. Tostar el pan. 3. Armar y servir.",
+    ]),
+    noExport: true,
+    noDelete: true,
+    statusIndex: 4,
+  },
+  produccion: {
+    columns: [
+      "Cód. Orden",
+      "Producto",
+      "Cantidad",
+      "Prioridad",
+      "Fecha Creación",
+      "Hora",
+      "Estado",
+    ],
+    fields: [
+      {
+        key: "0",
+        label: "Producto o producto de insumo",
+        type: "select",
+        options: [],
+      },
+      { key: "1", label: "Cantidad", type: "number" },
+      {
+        key: "2",
+        label: "Prioridad / número de llegada",
+        type: "number",
+      },
+      { key: "3", label: "Fecha de creación", type: "date" },
+      { key: "4", label: "Hora de creación", type: "time" },
+    ],
+    seed: [
+      ["OP-0089", "Doble", 2, 1, "2024-01-21", "08:00", "2024-01-21", "10:15", "En cocina", "", 0, "Sí", JSON.stringify([{ status: "Recibida", date: "2024-01-21", time: "08:00" }, { status: "Iniciada", date: "2024-01-21", time: "09:10" }, { status: "En cocina", date: "2024-01-21", time: "10:15" }]), JSON.stringify([{ name: "Doble", quantity: 2 }])],
+      ["OP-0088", "Mini", 4, 2, "2024-01-21", "07:30", "2024-01-21", "11:30", "Terminado", "2024-01-21 11:30", 1, "Sí", JSON.stringify([{ status: "Recibida", date: "2024-01-21", time: "07:30" }, { status: "Iniciada", date: "2024-01-21", time: "08:00" }, { status: "En cocina", date: "2024-01-21", time: "09:00" }, { status: "Terminado", date: "2024-01-21", time: "11:30" }]), JSON.stringify([{ name: "Mini", quantity: 4 }])],
+      ["OP-0087", "Salchipapa Mega", 2, 3, "2024-01-20", "16:45", "2024-01-20", "16:45", "Recibida", "", 0, "No", JSON.stringify([{ status: "Recibida", date: "2024-01-20", time: "16:45" }]), JSON.stringify([{ name: "Salchipapa Mega", quantity: 2 }])],
+    ],
+    autoId: true,
+    statusIndex: 8,
+    hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13],
+  },
+  "producto-no-conforme": {
+    columns: ["Orden", "Producto", "Cantidad", "Motivo", "Fecha"],
+    fields: [
+      { key: "0", label: "ID Orden producción", type: "text" },
+      { key: "1", label: "Producto o producto de insumo", type: "select", options: [] },
+      { key: "2", label: "Productos que se dañaron", type: "textarea" },
+      { key: "3", label: "Cantidad no conforme", type: "number" },
+      {
+        key: "4",
+        label: "Motivo",
+        type: "select",
+        options: [
+          "Tiempo superado",
+          "Error en preparación",
+          "Ingrediente incorrecto",
+          "Daño físico",
+          "Producto perdido",
+          "Otro",
+        ],
+      },
+      { key: "5", label: "Fecha", type: "date" },
+    ],
+    seed: [
+      ["OP-0085", "Mini", "Mini", 1, "Tiempo superado", "2024-01-20"],
+      ["OP-0088", "Doble", "Doble", 2, "Error en preparación", "2024-01-21"],
+    ],
+    hiddenCellIndexes: [2],
+  },
+  clientes: {
+    columns: ["Nombre", "Número de documento", "Teléfono", "Correo", "Estado"],
+    fields: [
+      { key: "0", label: "Nombre completo", type: "text" },
+      {
+        key: "1",
+        label: "Tipo de documento",
+        type: "select",
+        options: [
+          "Cédula de Ciudadanía",
+          "Cédula Extranjería",
+          "NIT",
+          "Pasaporte",
+          "Tarjeta de Identidad",
+        ],
+      },
+      { key: "2", label: "Número de documento", type: "text" },
+      { key: "3", label: "Teléfono", type: "tel" },
+      { key: "4", label: "Correo electrónico", type: "email" },
+      { key: "5", label: "Dirección", type: "text" },
+      { key: "6", label: "Cliente de local", type: "checkbox" },
+    ],
+    seed: [
+      ["Valentina Ríos", "Cédula de Ciudadanía", "1012345678", "310-456-7890", "No", "vale@mail.co", "Cra 58 #42-10, Bello", "Activo"],
+      ["Carlos Mejía", "Cédula de Ciudadanía", "1023456789", "320-987-6543", "No", "carlos@mail.co", "Cll 50 #30-05, Bello", "Activo"],
+      ["Luisa Fernández", "Cédula de Ciudadanía", "1034567890", "315-678-9012", "Sí", "", "Cra 60 #44-20, Bello", "Activo"],
+    ],
+    statusIndex: 7,
+    hiddenCellIndexes: [1, 5, 6],
+  },
+  ventas: {
+    columns: [
+      "Venta",
+      "Cliente",
+      "Total",
+      "Estado de venta",
+      "Estado del pedido",
+    ],
+    fields: [
+      {
+        key: "0",
+        label: "Usuario (vendedor)",
+        type: "select",
+        options: ["Admin Parche", "Juan Rúa", "María Gómez"],
+      },
+      {
+        key: "1",
+        label: "Cliente",
+        type: "select",
+        options: [
+          "Valentina Ríos",
+          "Carlos Mejía",
+          "Luisa Fernández",
+          "Diego Pérez",
+        ],
+      },
+      { key: "2", label: "Fecha", type: "date" },
+      {
+        key: "3",
+        label: "Tipo de venta",
+        type: "select",
+        options: ["Local", "Domicilio", "WhatsApp", "Online"],
+      },
+      {
+        key: "4",
+        label: "Método de pago",
+        type: "select",
+        options: ["Efectivo", "Nequi", "Daviplata", "Tarjeta"],
+      },
+      { key: "5", label: "Subtotal", type: "number" },
+      { key: "6", label: "Total", type: "number" },
+      {
+        key: "7",
+        label: "Estado de venta",
+        type: "select",
+        options: ["Completada", "Pendiente", "Cancelada"],
+      },
+      { key: "8", label: "Pedido asociado", type: "text" },
+      {
+        key: "9",
+        label: "Estado del pedido",
+        type: "select",
+        options: ["Recibido", "En preparación", "En camino", "Entregado", "Cancelado"],
+      },
+    ],
+    seed: [
+      [
+        "VTA-0306",
+        "Juan Rúa",
+        "Diego Pérez",
+        "2024-01-21",
+        "Local",
+        "Efectivo",
+        13000,
+        13000,
+        "Completada",
+        "Sin pedido",
+        "Completada",
+      ],
+      [
+        "VTA-0305",
+        "Juan Rúa",
+        "Luisa Fernández",
+        "2024-01-21",
+        "Domicilio",
+        "Nequi",
+        22000,
+        22000,
+        "Completada",
+        "Sin pedido",
+        "Completada",
+      ],
+    ],
+    noDelete: true,
+    autoId: true,
+    hiddenCellIndexes: [1, 3, 4, 5, 6, 9],
+  },
+  pedidos: {
+    columns: [
+      "Cód. Pedido",
+      "Cliente",
+      "Total",
+      "Estado",
+      "Estado de pago",
+      "Autorización producción",
+    ],
+    fields: [
+      {
+        key: "0",
+        label: "Cliente",
+        type: "select",
+        options: [
+          "Valentina Ríos",
+          "Carlos Mejía",
+          "Luisa Fernández",
+          "Diego Pérez",
+        ],
+      },
+      { key: "1", label: "Productos solicitados", type: "textarea" },
+      {
+        key: "2",
+        label: "Tipo de pedido",
+        type: "select",
+        options: ["Online", "Local"],
+      },
+      {
+        key: "3",
+        label: "Método de pago",
+        type: "select",
+        options: ["Transferencia", "Efectivo", "Pago en el local"],
+      },
+      {
+        key: "4",
+        label: "Modalidad de pago",
+        type: "select",
+        options: ["Anticipado", "Contraentrega"],
+      },
+      { key: "5", label: "Total (COP)", type: "number" },
+      {
+        key: "7",
+        label: "Estado de pago",
+        type: "select",
+        options: ["Pendiente", "Pagado"],
+      },
+      { key: "9", label: "Comprobante de pago", type: "image" },
+    ],
+    seed: [
+      [
+        "PED-0195",
+        "Valentina Ríos",
+        "2 Mini, 1 Salchipapa Sencilla",
+        "Online",
+        "Transferencia",
+        "Anticipado",
+        85000,
+        "En preparación",
+        "Pagado",
+        "No requerida",
+      ],
+      [
+        "PED-0194",
+        "Carlos Mejía",
+        "4 Mini, 2 Sencilla",
+        "Local",
+        "Efectivo",
+        "Contraentrega",
+        168000,
+        "Recibido",
+        "Pendiente",
+        "Pendiente admin",
+      ],
+      [
+        "PED-0193",
+        "Luisa Fernández",
+        "1 Mega Gourmet",
+        "Online",
+        "Pago en el local",
+        "Contraentrega",
+        23000,
+        "Entregado",
+        "Pagado",
+        "No requerida",
+      ],
+      [
+        "PED-0192",
+        "Diego Pérez",
+        "1 Doble, 1 Chuzo de Pollo, 2 gaseosas",
+        "Local",
+        "Efectivo",
+        "Contraentrega",
+        57000,
+        "En camino",
+        "Pendiente",
+        "No requerida",
+      ],
+      [
+        "PED-0191",
+        "Valentina Ríos",
+        "3 Super Gourmet, 1 Mega Gourmet Q+T",
+        "Online",
+        "Transferencia",
+        "Anticipado",
+        122000,
+        "Entregado",
+        "Pagado",
+        "No requerida",
+      ],
+      [
+        "PED-0190",
+        "Carlos Mejía",
+        "5 Mini, 3 Tradicional, 2 porciones de papas",
+        "Online",
+        "Transferencia",
+        "Anticipado",
+        192000,
+        "En preparación",
+        "Pagado",
+        "Autorizada",
+      ],
+    ],
+    noDelete: true,
+    autoId: true,
+    hiddenCellIndexes: [2, 3, 4, 5],
+  },
+  devoluciones: {
+    columns: ["Código", "Cliente", "Motivo", "Fecha"],
+    fields: [
+      { key: "0", label: "Código devolución", type: "text" },
+      { key: "1", label: "ID Venta asociada", type: "text" },
+      {
+        key: "2",
+        label: "Cliente",
+        type: "select",
+        options: [
+          "Valentina Ríos",
+          "Carlos Mejía",
+          "Luisa Fernández",
+          "Diego Pérez",
+        ],
+      },
+      { key: "3", label: "Nombre cliente (texto libre)", type: "text" },
+      {
+        key: "4",
+        label: "Motivo de devolución",
+        type: "select",
+        options: ["Reembolso", "Reposición"],
+      },
+      { key: "5", label: "Fecha", type: "date" },
+    ],
+    seed: [
+      ["DEV-001", "VTA-0305", "Ana López", "Ana López", "Reposición", "2024-01-19"],
+    ],
+    noExport: true,
+    hiddenCellIndexes: [1, 3],
+  },
+}
+
+const supplyAsProduct = (row: (string | number)[]): (string | number)[] => [
+  String(row[0] ?? "Producto de insumo"),
+  "Producto de insumo",
+  Number(row[3] || 0),
+  "Insumo configurado para comercializarse como producto.",
+  String(row[12] ?? "Activo"),
+  String(row[8] || `Ficha técnica - ${String(row[0] ?? "Producto de insumo")}`),
+  String(row[9] || "v1.0"),
+  String(row[10] || row[0] || "Insumo"),
+  String(row[11] || "Insumo producto con ficha técnica y control de inventario."),
+]
+
+const SIDEBAR_MENU = [
+  {
+    key: "dashboard",
+    label: "Dashboard",
+    icon: Ico.dashboard,
+    children: [],
+    color: C.amber,
+  },
+  {
+    key: "configuracion",
+    label: "Configuración",
+    icon: Ico.settings,
+    children: [{ key: "roles", label: "Roles y permisos" }],
+    color: "#A78BFA",
+  },
+  {
+    key: "usuarios",
+    label: "Usuarios",
+    icon: Ico.users,
+    children: [],
+    color: "#8B8CF8",
+  },
+  {
+    key: "compras-g",
+    label: "Compras",
+    icon: Ico.shopping,
+    children: [
+      { key: "cat-insumos", label: "Categ. Insumos" },
+      { key: "insumos", label: "Insumos" },
+      { key: "proveedores", label: "Proveedores" },
+      { key: "compras", label: "Compras" },
+      { key: "perdidas", label: "Pérdida Insumos" },
+    ],
+    color: C.forest,
+  },
+  {
+    key: "prod-g",
+    label: "Producción",
+    icon: Ico.chef,
+    children: [
+      { key: "cat-producto", label: "Categ. Producto" },
+      { key: "producto", label: "Productos" },
+      { key: "produccion", label: "Órdenes de Prod." },
+      { key: "producto-no-conforme", label: "Prod. No Conforme" },
+    ],
+    color: C.red,
+  },
+  {
+    key: "ventas-g",
+    label: "Ventas",
+    icon: Ico.cash,
+    children: [
+      { key: "clientes", label: "Clientes" },
+      { key: "pedidos", label: "Pedidos" },
+      { key: "ventas", label: "Ventas" },
+      { key: "devoluciones", label: "Devoluciones" },
+    ],
+    color: C.mustard,
+  },
+]
+
+// ── Shared UI ──────────────────────────────────────────────────────────────────
+function InputField({
+  label,
+  type = "text",
+  placeholder,
+  value,
+  onChange,
+  required,
+}: {
+  label: string
+  type?: string
+  placeholder?: string
+  value: string
+  onChange: (v: string) => void
+  required?: boolean
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label
+        className="text-xs font-semibold"
+        style={{ color: "rgba(30,30,30,0.5)" }}
+      >
+        {label}
+        {required && " *"}
+      </label>
+      <input
+        type={type}
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required={required}
+        className="w-full px-3 py-2 rounded-xl text-sm outline-none transition-all"
+        style={{
+          background: "rgba(30,30,30,0.05)",
+          border: "1.5px solid rgba(30,30,30,0.12)",
+          color: "#1A1714",
+        }}
+        onFocus={(e) => (e.currentTarget.style.borderColor = C.mustard)}
+        onBlur={(e) =>
+          (e.currentTarget.style.borderColor = "rgba(30,30,30,0.12)")
+        }
+      />
+    </div>
+  )
+}
+
+function AuthLayout({
+  children,
+  title,
+  sub,
+}: {
+  children: React.ReactNode
+  title: string
+  sub: React.ReactNode
+}) {
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center px-4 py-8"
+      style={{ background: "#FAF3E6", fontFamily: "Poppins, sans-serif" }}
+    >
+      <div className="w-full max-w-md">
+        <div className="flex flex-col items-center mb-5">
+          <img
+            src={logoImg}
+            alt="El Parche"
+            className="object-contain mb-2"
+            style={{ width: "100px", height: "100px" }}
+          />
+          <div
+            className="font-black text-xl"
+            style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
+          >
+            El Parche
+          </div>
+          <div
+            className="text-xs mt-0.5"
+            style={{ color: "rgba(30,30,30,0.4)" }}
+          >
+            Mini Burguer
+          </div>
+        </div>
+        <div
+          className="p-6 rounded-3xl"
+          style={{
+            background: "#fff",
+            boxShadow: "0 8px 40px rgba(30,30,30,0.1)",
+          }}
+        >
+          <h2
+            className="font-black text-xl mb-0.5"
+            style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+          >
+            {title}
+          </h2>
+          <div
+            className="text-sm mb-4"
+            style={{ color: "rgba(30,30,30,0.45)" }}
+          >
+            {sub}
+          </div>
+          {children}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LoginPage({
+  onLogin,
+  onRegister,
+  onForgot,
+  onBack,
+}: {
+  onLogin: (u: User) => void
+  onRegister: () => void
+  onForgot: () => void
+  onBack: () => void
+}) {
+  const [email, setEmail] = useState("")
+  const [pass, setPass] = useState("")
+  const [err, setErr] = useState("")
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!email || !pass) {
+      setErr("Completa todos los campos.")
+      return
+    }
+    const role = email.toLowerCase().includes("admin") ? "admin" : "user"
+    const name = email
+      .split("@")[0]
+      .replace(/\./g, " ")
+      .replace(/\b\w/g, (ch) => ch.toUpperCase())
+    onLogin({ name, email, role })
+  }
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center px-4 py-8"
+      style={{ background: "#F7F2E8", fontFamily: "Poppins, sans-serif" }}
+    >
+      <div className="w-full max-w-5xl grid lg:grid-cols-2 gap-8 items-center">
+        <div className="hidden lg:block px-8">
+          <img
+            src={logoImg}
+            alt="El Parche"
+            className="w-28 h-28 object-contain mb-5"
+          />
+          <div
+            className="text-xs font-bold uppercase tracking-widest mb-3"
+            style={{ color: C.mustard }}
+          >
+            Bienvenido a El Parche
+          </div>
+          <h1
+            className="font-black text-4xl leading-tight mb-4"
+            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+          >
+            Tu próximo antojo empieza aquí.
+          </h1>
+          <p
+            className="text-base leading-relaxed max-w-md"
+            style={{ color: "rgba(25,21,18,0.55)" }}
+          >
+            Inicia sesión para guardar tus datos, repetir tus pedidos y seguir
+            cada entrega.
+          </p>
+        </div>
+        <div
+          className="w-full max-w-md mx-auto p-7 sm:p-9 rounded-3xl"
+          style={{
+            background: "#fff",
+            boxShadow: "0 12px 45px rgba(30,30,30,0.10)",
+          }}
+        >
+          <div className="flex items-center gap-3 mb-7 lg:hidden">
+            <img
+              src={logoImg}
+              alt="El Parche"
+              className="w-12 h-12 object-contain"
+            />
+            <div>
+              <div
+                className="font-black"
+                style={{
+                  fontFamily: "Montserrat, sans-serif",
+                  color: C.mustard,
+                }}
+              >
+                El Parche
+              </div>
+              <div className="text-xs" style={{ color: "rgba(30,30,30,0.4)" }}>
+                Mini Burguer
+              </div>
+            </div>
+          </div>
+          <h2
+            className="font-black text-2xl mb-1"
+            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+          >
+            Iniciar sesión
+          </h2>
+          <div
+            className="text-sm mb-6"
+            style={{ color: "rgba(30,30,30,0.45)" }}
+          >
+            Accede a tu cuenta para continuar
+          </div>
+          <form onSubmit={submit} className="flex flex-col gap-4">
+            <InputField
+              label="Correo electrónico"
+              type="email"
+              placeholder="tu@correo.com"
+              value={email}
+              onChange={setEmail}
+              required
+            />
+            <InputField
+              label="Contraseña"
+              type="password"
+              placeholder="••••••••"
+              value={pass}
+              onChange={setPass}
+              required
+            />
+            {err && (
+              <p className="text-xs" style={{ color: C.red }}>
+                {err}
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={onForgot}
+              className="text-xs text-right cursor-pointer"
+              style={{ color: C.mustard }}
+            >
+              ¿Olvidaste tu contraseña?
+            </button>
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Iniciar sesión
+            </button>
+            <div
+              className="flex items-center gap-3 text-xs"
+              style={{ color: "rgba(30,30,30,0.3)" }}
+            >
+              <span
+                className="h-px flex-1"
+                style={{ background: "rgba(30,30,30,0.1)" }}
+              />
+              <span>o</span>
+              <span
+                className="h-px flex-1"
+                style={{ background: "rgba(30,30,30,0.1)" }}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={onRegister}
+              className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer"
+              style={{ background: "rgba(182,140,28,0.10)", color: C.mustard }}
+            >
+              Crear una cuenta
+            </button>
+            <button
+              type="button"
+              onClick={onBack}
+              className="w-full py-2 rounded-xl font-medium text-sm cursor-pointer"
+              style={{
+                background: "rgba(30,30,30,0.05)",
+                color: "rgba(30,30,30,0.5)",
+              }}
+            >
+              ← Volver al inicio
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function RegisterPage({
+  onVerify,
+  onLoginLink,
+  onBack,
+}: {
+  onVerify: (email: string, name: string) => void
+  onLoginLink: () => void
+  onBack: () => void
+}) {
+  const [step, setStep] = useState<"form" | "verifying">("form")
+  const [form, setForm] = useState({
+    name: "",
+    lastname: "",
+    docType: "",
+    docNum: "",
+    email: "",
+    phone: "",
+    pass: "",
+    pass2: "",
+  })
+  const [code, setCode] = useState("")
+  const [err, setErr] = useState("")
+  const [sentCode] = useState("841736")
+  const upd = (k: keyof typeof form) => (v: string) =>
+    setForm((f) => ({ ...f, [k]: v }))
+  const submitForm = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (
+      !form.name ||
+      !form.email ||
+      !form.pass ||
+      !form.docType ||
+      !form.docNum
+    ) {
+      setErr("Completa los campos obligatorios.")
+      return
+    }
+    if (form.pass !== form.pass2) {
+      setErr("Las contraseñas no coinciden.")
+      return
+    }
+    setErr("")
+    setStep("verifying")
+  }
+  const submitCode = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (code.length < 6) {
+      setErr("Ingresa el código de 6 dígitos.")
+      return
+    }
+    onVerify(form.email, `${form.name} ${form.lastname}`.trim())
+  }
+  if (step === "verifying")
+    return (
+      <AuthLayout
+        title="Verifica tu correo"
+        sub={
+          <>
+            Código enviado a <strong>{form.email}</strong>
+          </>
+        }
+      >
+        <form onSubmit={submitCode} className="flex flex-col gap-4">
+          <div className="text-center text-5xl py-2">📧</div>
+          <p
+            className="text-xs text-center"
+            style={{ color: "rgba(30,30,30,0.5)" }}
+          >
+            Ingresa el código de 6 dígitos que enviamos a tu correo. (Demo:{" "}
+            <strong>{sentCode}</strong>)
+          </p>
+          <input
+            maxLength={6}
+            placeholder="000000"
+            value={code}
+            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            className="w-full px-4 py-4 rounded-xl text-center text-2xl font-bold tracking-widest outline-none"
+            style={{
+              background: "rgba(30,30,30,0.05)",
+              border: "1.5px solid rgba(30,30,30,0.12)",
+              color: "#1A1714",
+              letterSpacing: "0.3em",
+            }}
+          />
+          {err && (
+            <p className="text-xs text-center" style={{ color: C.red }}>
+              {err}
+            </p>
+          )}
+          <button
+            type="submit"
+            className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            Verificar y continuar
+          </button>
+          <button
+            type="button"
+            onClick={() => setStep("form")}
+            className="text-xs text-center cursor-pointer"
+            style={{ color: "rgba(30,30,30,0.4)" }}
+          >
+            ← Volver
+          </button>
+          <button
+            type="button"
+            onClick={onBack}
+            className="w-full py-2 rounded-xl font-medium text-sm cursor-pointer"
+            style={{
+              background: "rgba(30,30,30,0.05)",
+              color: "rgba(30,30,30,0.5)",
+            }}
+          >
+            ← Volver al inicio
+          </button>
+        </form>
+      </AuthLayout>
+    )
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center px-3 py-4"
+      style={{ background: "#F7F2E8", fontFamily: "Poppins, sans-serif" }}
+    >
+      <div className="w-full max-w-5xl grid lg:grid-cols-2 gap-5 items-center">
+        <div className="hidden lg:block px-6">
+          <img
+            src={logoImg}
+            alt="El Parche"
+            className="w-24 h-24 object-contain mb-4"
+          />
+          <div
+            className="text-[10px] font-bold uppercase tracking-[0.2em] mb-2"
+            style={{ color: C.mustard }}
+          >
+            Únete a El Parche
+          </div>
+          <h1
+            className="font-black text-3xl leading-tight mb-3"
+            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+          >
+            Crea tu cuenta y pide más fácil.
+          </h1>
+          <p
+            className="text-sm leading-relaxed max-w-md"
+            style={{ color: "rgba(25,21,18,0.55)" }}
+          >
+            Guarda tus datos de entrega y disfruta tus hamburguesas favoritas
+            sin repetir el proceso.
+          </p>
+        </div>
+        <div
+          className="w-full max-w-md mx-auto p-5 rounded-3xl"
+          style={{
+            background: "#fff",
+            boxShadow: "0 12px 35px rgba(30,30,30,0.10)",
+          }}
+        >
+          <div className="flex items-center gap-3 mb-5 lg:hidden">
+            <img
+              src={logoImg}
+              alt="El Parche"
+              className="w-11 h-11 object-contain"
+            />
+            <div>
+              <div
+                className="font-black text-sm"
+                style={{
+                  fontFamily: "Montserrat, sans-serif",
+                  color: C.mustard,
+                }}
+              >
+                El Parche
+              </div>
+              <div
+                className="text-[10px]"
+                style={{ color: "rgba(30,30,30,0.4)" }}
+              >
+                Mini Burguer
+              </div>
+            </div>
+          </div>
+          <h2
+            className="font-black text-xl mb-1"
+            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+          >
+            Crear cuenta
+          </h2>
+          <div
+            className="text-xs mb-4"
+            style={{ color: "rgba(30,30,30,0.45)" }}
+          >
+            ¿Ya tienes cuenta?{" "}
+            <button
+              onClick={onLoginLink}
+              className="font-semibold cursor-pointer"
+              style={{ color: C.mustard }}
+            >
+              Inicia sesión
+            </button>
+          </div>
+          <form onSubmit={submitForm} className="flex flex-col gap-2">
+            <div className="grid grid-cols-2 gap-2">
+              <InputField
+                label="Nombre *"
+                placeholder="Tu nombre"
+                value={form.name}
+                onChange={upd("name")}
+                required
+              />
+              <InputField
+                label="Apellido"
+                placeholder="Tu apellido"
+                value={form.lastname}
+                onChange={upd("lastname")}
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label
+                className="text-[11px] font-semibold"
+                style={{ color: "rgba(30,30,30,0.5)" }}
+              >
+                Tipo de documento *
+              </label>
+              <select
+                value={form.docType}
+                onChange={(e) => upd("docType")(e.target.value)}
+                required
+                className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+                style={{
+                  background: "rgba(30,30,30,0.05)",
+                  border: "1.5px solid rgba(30,30,30,0.12)",
+                  color: form.docType ? "#1A1714" : "rgba(30,30,30,0.35)",
+                }}
+              >
+                <option value="">Selecciona tipo...</option>
+                {DOC_TYPES.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <InputField
+                label="Nº Documento *"
+                placeholder="123456789"
+                value={form.docNum}
+                onChange={upd("docNum")}
+                required
+              />
+              <InputField
+                label="Teléfono"
+                type="tel"
+                placeholder="3XX XXX XXXX"
+                value={form.phone}
+                onChange={upd("phone")}
+              />
+            </div>
+            <InputField
+              label="Correo *"
+              type="email"
+              placeholder="tu@correo.com"
+              value={form.email}
+              onChange={upd("email")}
+              required
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <InputField
+                label="Contraseña *"
+                type="password"
+                placeholder="••••••••"
+                value={form.pass}
+                onChange={upd("pass")}
+                required
+              />
+              <InputField
+                label="Confirmar *"
+                type="password"
+                placeholder="••••••••"
+                value={form.pass2}
+                onChange={upd("pass2")}
+                required
+              />
+            </div>
+            {err && (
+              <p className="text-[11px]" style={{ color: C.red }}>
+                {err}
+              </p>
+            )}
+            <button
+              type="submit"
+              className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Continuar →
+            </button>
+            <button
+              type="button"
+              onClick={onBack}
+              className="w-full py-2 rounded-xl font-medium text-sm cursor-pointer"
+              style={{
+                background: "rgba(30,30,30,0.05)",
+                color: "rgba(30,30,30,0.5)",
+              }}
+            >
+              ← Volver al inicio
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ForgotPage({
+  onReset,
+  onBack,
+}: {
+  onReset: (email: string) => void
+  onBack: () => void
+}) {
+  const [email, setEmail] = useState("")
+  const [sent, setSent] = useState(false)
+  if (sent)
+    return (
+      <AuthLayout title="Correo enviado" sub="Revisa tu bandeja de entrada">
+        <div className="text-center py-2">
+          <div className="text-5xl mb-3">📧</div>
+          <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.55)" }}>
+            Enlace enviado a <strong>{email}</strong>
+          </p>
+          <button
+            onClick={() => onReset(email)}
+            className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            Continuar
+          </button>
+          <button
+            onClick={onBack}
+            className="w-full py-2 rounded-xl text-sm cursor-pointer mt-2"
+            style={{
+              background: "rgba(30,30,30,0.05)",
+              color: "rgba(30,30,30,0.5)",
+            }}
+          >
+            ← Volver
+          </button>
+        </div>
+      </AuthLayout>
+    )
+  return (
+    <AuthLayout
+      title="Recuperar contraseña"
+      sub="Ingresa tu correo y te enviamos el enlace"
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (email) setSent(true)
+        }}
+        className="flex flex-col gap-3"
+      >
+        <InputField
+          label="Correo electrónico"
+          type="email"
+          placeholder="tu@correo.com"
+          value={email}
+          onChange={setEmail}
+          required
+        />
+        <button
+          type="submit"
+          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+          style={{ background: C.mustard, color: "#fff" }}
+        >
+          Enviar enlace
+        </button>
+        <button
+          type="button"
+          onClick={onBack}
+          className="w-full py-2 rounded-xl text-sm cursor-pointer"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            color: "rgba(30,30,30,0.5)",
+          }}
+        >
+          ← Volver
+        </button>
+      </form>
+    </AuthLayout>
+  )
+}
+
+function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
+  const [pass, setPass] = useState("")
+  const [pass2, setPass2] = useState("")
+  const [err, setErr] = useState("")
+  const [ok, setOk] = useState(false)
+  if (ok)
+    return (
+      <AuthLayout title="¡Listo!" sub="Contraseña actualizada">
+        <div className="text-center py-2">
+          <div className="text-5xl mb-3">✅</div>
+          <button
+            onClick={onDone}
+            className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            Iniciar sesión
+          </button>
+        </div>
+      </AuthLayout>
+    )
+  return (
+    <AuthLayout
+      title="Nueva contraseña"
+      sub={
+        <>
+          Para <strong>{email}</strong>
+        </>
+      }
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (pass !== pass2) {
+            setErr("No coinciden.")
+            return
+          }
+          if (pass.length < 6) {
+            setErr("Mínimo 6 caracteres.")
+            return
+          }
+          setOk(true)
+        }}
+        className="flex flex-col gap-3"
+      >
+        <InputField
+          label="Nueva contraseña"
+          type="password"
+          placeholder="••••••••"
+          value={pass}
+          onChange={setPass}
+          required
+        />
+        <InputField
+          label="Confirmar"
+          type="password"
+          placeholder="••••••••"
+          value={pass2}
+          onChange={setPass2}
+          required
+        />
+        {err && (
+          <p className="text-xs" style={{ color: C.red }}>
+            {err}
+          </p>
+        )}
+        <button
+          type="submit"
+          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+          style={{ background: C.mustard, color: "#fff" }}
+        >
+          Guardar
+        </button>
+      </form>
+    </AuthLayout>
+  )
+}
+
+// ── Product Info Modal (info only, centered) ───────────────────────────────────
+function ProductInfoModal({
+  product,
+  onClose,
+  onAddToCart,
+  dark,
+}: {
+  product: Product
+  onClose: () => void
+  onAddToCart: (p: Product) => void
+  dark: boolean
+}) {
+  const CARD = dark ? "#1E1C18" : "#fff"
+  const TEXT = dark ? "#F4EEDC" : "#1A1714"
+  const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
+  const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
+  const cat = MENU_CATS.find((c) => c.id === product.cat)
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,0.7)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded-3xl overflow-hidden"
+        style={{ background: CARD, boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="relative" style={{ height: "200px" }}>
+          <img
+            src={product.img}
+            alt={product.name}
+            className="w-full h-full object-cover"
+          />
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%)",
+            }}
+          />
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
+            style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
+          >
+            {Ico.x}
+          </button>
+          {product.badge && (
+            <span
+              className="absolute top-3 left-3 text-xs font-bold px-2 py-0.5 rounded-full"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              {product.badge}
+            </span>
+          )}
+          {cat && (
+            <span
+              className="absolute bottom-3 left-3 text-xs px-2 py-0.5 rounded-full"
+              style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
+            >
+              {cat.emoji} {cat.label}
+            </span>
+          )}
+        </div>
+        <div className="p-5">
+          <h2
+            className="font-black text-xl mb-1"
+            style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+          >
+            {product.name}
+          </h2>
+          <p className="text-sm leading-relaxed mb-4" style={{ color: MUTED }}>
+            {product.desc}
+          </p>
+          <div
+            className="flex items-center justify-between pt-3"
+            style={{ borderTop: `1px solid ${BORDER}` }}
+          >
+            <span
+              className="font-extrabold text-2xl"
+              style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
+            >
+              {product.priceStr}
+            </span>
+            <button
+              onClick={() => {
+                onClose()
+                onAddToCart(product)
+              }}
+              className="px-5 py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Agregar al carrito
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Add to Cart Modal (centered, with sauces/additions) ────────────────────────
+function AddToCartModal({
+  product,
+  onClose,
+  onAdd,
+  dark,
+}: {
+  product: Product
+  onClose: () => void
+  onAdd: (
+    p: Product,
+    qty: number,
+    sauces: string[],
+    additions: { name: string; qty: number; price: number }[],
+  ) => void
+  dark: boolean
+}) {
+  const [qty, setQty] = useState(1)
+  const [selSauces, setSelSauces] = useState<string[]>([])
+  const [addQtys, setAddQtys] = useState<Record<string, number>>({})
+  const CARD = dark ? "#1E1C18" : "#fff"
+  const TEXT = dark ? "#F4EEDC" : "#1A1714"
+  const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
+  const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
+  const toggleSauce = (s: string) =>
+    setSelSauces((p) => (p.includes(s) ? p.filter((x) => x !== s) : [...p, s]))
+  const changeAdd = (name: string, d: number) =>
+    setAddQtys((p) => ({ ...p, [name]: Math.max(0, (p[name] || 0) + d) }))
+  const addTotal = ADDITIONS.reduce(
+    (s, a) => s + (addQtys[a.name] || 0) * a.price,
+    0,
+  )
+  const unitPrice = product.price + addTotal
+  const total = unitPrice * qty
+  const handleAdd = () => {
+    const adds = ADDITIONS.filter((a) => (addQtys[a.name] || 0) > 0).map(
+      (a) => ({ name: a.name, qty: addQtys[a.name], price: a.price }),
+    )
+    onAdd(product, qty, selSauces, adds)
+    onClose()
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,0.7)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-3xl overflow-hidden flex flex-col"
+        style={{
+          background: CARD,
+          maxHeight: "90vh",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="relative flex-shrink-0" style={{ height: "180px" }}>
+          <img
+            src={product.img}
+            alt={product.name}
+            className="w-full h-full object-cover"
+          />
+          <div
+            className="absolute inset-0"
+            style={{
+              background:
+                "linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 55%)",
+            }}
+          />
+          <button
+            onClick={onClose}
+            className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
+            style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
+          >
+            {Ico.x}
+          </button>
+          <div className="absolute bottom-3 left-4">
+            <div
+              className="font-black text-lg text-white leading-tight"
+              style={{ fontFamily: "Montserrat, sans-serif" }}
+            >
+              {product.name}
+            </div>
+            <div className="font-extrabold text-sm" style={{ color: C.amber }}>
+              {product.priceStr}
+            </div>
+          </div>
+        </div>
+        <div
+          className="overflow-y-auto flex-1 px-5 py-4"
+          style={{ scrollbarWidth: "none" }}
+        >
+          <div className="mb-4">
+            <div className="font-bold text-sm mb-2" style={{ color: TEXT }}>
+              Salsas{" "}
+              <span className="font-normal text-xs" style={{ color: MUTED }}>
+                (gratis)
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {SAUCES.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => toggleSauce(s)}
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer"
+                  style={{
+                    background: selSauces.includes(s)
+                      ? C.mustard
+                      : dark
+                        ? "rgba(244,238,220,0.08)"
+                        : "rgba(30,30,30,0.07)",
+                    color: selSauces.includes(s) ? "#fff" : MUTED,
+                    border: `1.5px solid ${
+                      selSauces.includes(s) ? C.mustard : "transparent"
+                    }`,
+                  }}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mb-2">
+            <div className="font-bold text-sm mb-2" style={{ color: TEXT }}>
+              Adiciones
+            </div>
+            <div
+              className="rounded-2xl overflow-hidden"
+              style={{ border: `1px solid ${BORDER}` }}
+            >
+              {ADDITIONS.map((a, i) => {
+                const q = addQtys[a.name] || 0
+                return (
+                  <div
+                    key={a.name}
+                    className="flex items-center px-4 py-3"
+                    style={{
+                      borderBottom:
+                        i < ADDITIONS.length - 1
+                          ? `1px solid ${BORDER}`
+                          : "none",
+                    }}
+                  >
+                    <div className="flex-1">
+                      <span className="text-sm" style={{ color: TEXT }}>
+                        {a.name}
+                      </span>
+                      {q > 0 && (
+                        <span
+                          className="ml-2 text-xs font-bold"
+                          style={{ color: C.mustard }}
+                        >
+                          +{fmt(a.price * q)}
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className="text-sm font-bold mr-3"
+                      style={{ color: C.amber }}
+                    >
+                      +{fmt(a.price)}
+                    </span>
+                    {q > 0 ? (
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => changeAdd(a.name, -1)}
+                          className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
+                          style={{
+                            background: dark
+                              ? "rgba(244,238,220,0.1)"
+                              : "rgba(30,30,30,0.08)",
+                            color: TEXT,
+                          }}
+                        >
+                          −
+                        </button>
+                        <span
+                          className="w-4 text-center font-bold text-sm"
+                          style={{ color: TEXT }}
+                        >
+                          {q}
+                        </span>
+                        <button
+                          onClick={() => changeAdd(a.name, 1)}
+                          className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
+                          style={{ background: C.mustard, color: "#fff" }}
+                        >
+                          +
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => changeAdd(a.name, 1)}
+                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-lg cursor-pointer"
+                        style={{
+                          background: `${C.mustard}22`,
+                          border: `1.5px solid ${C.mustard}`,
+                          color: C.mustard,
+                        }}
+                      >
+                        +
+                      </button>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+        <div
+          className="px-4 py-4 flex items-center gap-3 flex-shrink-0"
+          style={{ borderTop: `1px solid ${BORDER}`, background: CARD }}
+        >
+          <div
+            className="flex items-center gap-1 flex-shrink-0 rounded-2xl px-1 py-1"
+            style={{
+              background: dark
+                ? "rgba(244,238,220,0.07)"
+                : "rgba(30,30,30,0.06)",
+            }}
+          >
+            <button
+              onClick={() => setQty((q) => Math.max(1, q - 1))}
+              className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
+              style={{ color: TEXT }}
+            >
+              −
+            </button>
+            <span
+              className="w-5 text-center font-black"
+              style={{ color: TEXT }}
+            >
+              {qty}
+            </span>
+            <button
+              onClick={() => setQty((q) => q + 1)}
+              className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
+              style={{ color: TEXT }}
+            >
+              +
+            </button>
+          </div>
+          <button
+            onClick={handleAdd}
+            className="flex-1 py-3.5 rounded-2xl font-bold text-sm cursor-pointer flex items-center justify-between px-5 hover:opacity-90"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            <span>Agregar al carrito</span>
+            <span className="font-extrabold">{fmt(total)}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Product Catalog Grid (shared, landing + client) ────────────────────────────
+function ProductCatalog({
+  onInfoClick,
+  onAddClick,
+  dark,
+}: {
+  onInfoClick: (p: Product) => void
+  onAddClick: (p: Product) => void
+  dark: boolean
+}) {
+  const [activeCat, setActiveCat] = useState("todos")
+  const [search, setSearch] = useState("")
+  const [pg, setPg] = useState(0)
+  const CARD = dark ? "#1E1C18" : "#fff"
+  const TEXT = dark ? "#F4EEDC" : "#1A1714"
+  const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
+  const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
+  const BG = dark ? "#131210" : "#FAF5E8"
+  const filtered = PRODUCTS.filter(
+    (p) =>
+      (activeCat === "todos" || p.cat === activeCat) &&
+      (!search ||
+        p.name.toLowerCase().includes(search.toLowerCase()) ||
+        p.desc.toLowerCase().includes(search.toLowerCase())),
+  )
+  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE)
+  const pageItems = filtered.slice(
+    pg * ITEMS_PER_PAGE,
+    (pg + 1) * ITEMS_PER_PAGE,
+  )
+  const switchCat = (id: string) => {
+    setActiveCat(id)
+    setPg(0)
+  }
+  return (
+    <div>
+      {/* Category tabs */}
+      <div
+        className="flex gap-2 overflow-x-auto pb-2 mb-4"
+        style={{ scrollbarWidth: "none" }}
+      >
+        {MENU_CATS.map((cat) => (
+          <button
+            key={cat.id}
+            onClick={() => switchCat(cat.id)}
+            className="flex-shrink-0 flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl cursor-pointer transition-all"
+            style={{
+              background:
+                activeCat === cat.id
+                  ? C.mustard
+                  : dark
+                    ? "rgba(255,255,255,0.07)"
+                    : "rgba(30,30,30,0.06)",
+              minWidth: "72px",
+            }}
+          >
+            <span className="text-lg leading-none">{cat.emoji}</span>
+            <span
+              className="text-xs font-semibold whitespace-nowrap"
+              style={{ color: activeCat === cat.id ? "#fff" : MUTED }}
+            >
+              {cat.label}
+            </span>
+          </button>
+        ))}
+      </div>
+      {/* Search in catalog */}
+      <div
+        className="flex items-center gap-2 px-3 py-2.5 rounded-xl mb-5"
+        style={{
+          background: dark ? "rgba(255,255,255,0.07)" : "rgba(30,30,30,0.06)",
+          border: `1px solid ${BORDER}`,
+        }}
+      >
+        <span style={{ color: MUTED }}>{Ico.search}</span>
+        <input
+          placeholder="Buscar en el menú..."
+          value={search}
+          onChange={(e) => {
+            setSearch(e.target.value)
+            setPg(0)
+          }}
+          className="flex-1 bg-transparent text-sm outline-none"
+          style={{ color: TEXT }}
+        />
+        {search && (
+          <button
+            onClick={() => {
+              setSearch("")
+              setPg(0)
+            }}
+            className="text-sm cursor-pointer"
+            style={{ color: MUTED }}
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {/* Count */}
+      <p className="text-xs mb-4" style={{ color: MUTED }}>
+        {filtered.length} productos · Página {pg + 1} de{" "}
+        {Math.max(1, totalPages)}
+      </p>
+      {/* Grid — 3 cols, max 2 rows = 6 items */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+        {pageItems.length === 0 && (
+          <div
+            className="col-span-3 text-center py-10 text-sm"
+            style={{ color: MUTED }}
+          >
+            Sin resultados.
+          </div>
+        )}
+        {pageItems.map((p) => (
+          <div
+            key={p.id}
+            className="group relative rounded-2xl overflow-hidden cursor-pointer"
+            style={{
+              aspectRatio: "4/3",
+              background: CARD,
+              boxShadow: dark
+                ? "0 2px 12px rgba(0,0,0,0.3)"
+                : "0 2px 12px rgba(0,0,0,0.07)",
+            }}
+            onClick={() => onInfoClick(p)}
+          >
+            <img
+              src={p.img}
+              alt={p.name}
+              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            />
+            {/* Bottom banner — always visible */}
+            <div
+              className="absolute bottom-0 left-0 right-0 px-3 py-2.5"
+              style={{ background: C.mustard }}
+            >
+              <div className="font-bold text-sm text-white truncate leading-tight">
+                {p.name}
+              </div>
+            </div>
+            {/* Hover overlay */}
+            <div
+              className="absolute inset-0 flex flex-col justify-center items-center p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+              style={{ background: "rgba(10,8,5,0.85)" }}
+            >
+              {p.badge && (
+                <span
+                  className="text-xs font-bold px-2 py-0.5 rounded-full mb-2"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  {p.badge}
+                </span>
+              )}
+              <div
+                className="font-black text-lg text-white mb-1 text-center"
+                style={{ fontFamily: "Montserrat, sans-serif" }}
+              >
+                {p.priceStr}
+              </div>
+              <p
+                className="text-xs text-center mb-3 leading-relaxed"
+                style={{ color: "rgba(255,255,255,0.72)" }}
+              >
+                {p.desc}
+              </p>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onAddClick(p)
+                }}
+                className="px-4 py-2 rounded-full text-sm font-bold cursor-pointer hover:opacity-90"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                + Agregar
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {/* Paginator */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2">
+          <button
+            disabled={pg === 0}
+            onClick={() => setPg(pg - 1)}
+            className="px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
+            style={{
+              background: dark
+                ? "rgba(255,255,255,0.08)"
+                : "rgba(30,30,30,0.08)",
+              color: MUTED,
+            }}
+          >
+            ←
+          </button>
+          {Array.from({ length: totalPages }, (_, i) => (
+            <button
+              key={i}
+              onClick={() => setPg(i)}
+              className="w-8 h-8 rounded-lg text-sm font-bold cursor-pointer"
+              style={{
+                background:
+                  i === pg
+                    ? C.mustard
+                    : dark
+                      ? "rgba(255,255,255,0.08)"
+                      : "rgba(30,30,30,0.08)",
+                color: i === pg ? "#fff" : MUTED,
+              }}
+            >
+              {i + 1}
+            </button>
+          ))}
+          <button
+            disabled={pg >= totalPages - 1}
+            onClick={() => setPg(pg + 1)}
+            className="px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
+            style={{
+              background: dark
+                ? "rgba(255,255,255,0.08)"
+                : "rgba(30,30,30,0.08)",
+              color: MUTED,
+            }}
+          >
+            →
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GuestMenuPage({
+  cart,
+  setCart,
+  onBack,
+  onCheckout,
+}: {
+  cart: CartItem[]
+  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
+  onBack: () => void
+  onCheckout: () => void
+}) {
+  const [infoProduct, setInfoProduct] = useState<Product | null>(null)
+  const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const cartCount = cart.reduce((sum, item) => sum + item.qty, 0)
+  const addToCart = (
+    product: Product,
+    qty: number,
+    sauces: string[],
+    additions: { name: string; qty: number; price: number }[],
+  ) => {
+    setCart((items) => [
+      ...items,
+      {
+        id: Date.now(),
+        name: product.name,
+        price: product.price,
+        qty,
+        img: product.img,
+        sauces,
+        additions,
+      },
+    ])
+    setAddProduct(null)
+  }
+
+  return (
+    <div
+      className="min-h-screen"
+      style={{
+        background: "#FAF5E8",
+        fontFamily: "Poppins, sans-serif",
+        color: C.dark,
+      }}
+    >
+      <header
+        className="sticky top-0 z-30"
+        style={{
+          background: "rgba(250,245,232,0.96)",
+          borderBottom: "1px solid rgba(30,30,30,0.08)",
+          backdropFilter: "blur(12px)",
+        }}
+      >
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-3">
+          <button
+            onClick={onBack}
+            className="text-sm font-semibold cursor-pointer"
+            style={{ color: C.mustard }}
+          >
+            ← Volver
+          </button>
+          <div className="flex items-center gap-2 ml-2">
+            <img
+              src={logoImg}
+              alt="El Parche"
+              className="w-10 h-10 object-contain"
+            />
+            <div>
+              <div
+                className="font-black text-sm"
+                style={{
+                  fontFamily: "Montserrat, sans-serif",
+                  color: C.mustard,
+                }}
+              >
+                El Parche
+              </div>
+              <div className="text-xs" style={{ color: "rgba(30,30,30,0.45)" }}>
+                Menú
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={onCheckout}
+            className="relative ml-auto w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"
+            style={{ background: `${C.mustard}18`, color: C.mustard }}
+          >
+            {Ico.cart}
+            {cartCount > 0 && (
+              <span
+                className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold"
+                style={{ background: C.red, color: "#fff" }}
+              >
+                {cartCount}
+              </span>
+            )}
+          </button>
+        </div>
+      </header>
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
+        <div className="mb-6">
+          <h1
+            className="font-black text-3xl"
+            style={{ fontFamily: "Montserrat, sans-serif" }}
+          >
+            Elige tu pedido
+          </h1>
+          <p className="text-sm mt-1" style={{ color: "rgba(30,30,30,0.5)" }}>
+            Puedes comprar como invitado. Inicia sesión al confirmar para
+            guardar tus datos.
+          </p>
+        </div>
+        <ProductCatalog
+          dark={false}
+          onInfoClick={setInfoProduct}
+          onAddClick={setAddProduct}
+        />
+        {cartCount > 0 && (
+          <button
+            onClick={onCheckout}
+            className="fixed bottom-5 left-4 right-4 sm:left-auto sm:right-6 sm:w-auto px-6 py-3.5 rounded-2xl font-bold text-sm cursor-pointer shadow-lg"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            Ver carrito ({cartCount}) →
+          </button>
+        )}
+      </main>
+      {infoProduct && (
+        <ProductInfoModal
+          product={infoProduct}
+          onClose={() => setInfoProduct(null)}
+          onAddToCart={(product) => {
+            setInfoProduct(null)
+            setAddProduct(product)
+          }}
+          dark={false}
+        />
+      )}
+      {addProduct && (
+        <AddToCartModal
+          product={addProduct}
+          onClose={() => setAddProduct(null)}
+          onAdd={addToCart}
+          dark={false}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Cart Summary (reusable) ────────────────────────────────────────────────────
+function CartSummary({
+  cart,
+  setCart,
+  dark,
+}: {
+  cart: CartItem[]
+  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
+  dark: boolean
+}) {
+  const TEXT = dark ? "#F4EEDC" : "#1A1714"
+  const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
+  const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
+  const CARD = dark ? "#1E1C18" : "#fff"
+  const itemTotal = (i: CartItem) =>
+    (i.price + (i.additions?.reduce((s, a) => s + a.qty * a.price, 0) ?? 0)) *
+    i.qty
+  const subtotal = cart.reduce((s, i) => s + itemTotal(i), 0)
+  const updateQty = (id: number, d: number) =>
+    setCart((c) =>
+      c.map((i) =>
+        i.id === id ? { ...i, qty: Math.max(0, i.qty + d) } : i,
+      ).filter((i) => i.qty > 0),
+    )
+  if (cart.length === 0)
+    return (
+      <div className="text-center py-8">
+        <div className="text-4xl mb-2">🛒</div>
+        <p className="text-sm" style={{ color: MUTED }}>
+          Tu carrito está vacío
+        </p>
+      </div>
+    )
+  return (
+    <div>
+      <div className="space-y-3 mb-4">
+        {cart.map((item) => (
+          <div
+            key={item.id}
+            className="flex items-center gap-3 p-3 rounded-xl"
+            style={{ background: CARD, border: `1px solid ${BORDER}` }}
+          >
+            <img
+              src={item.img}
+              alt={item.name}
+              className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-sm" style={{ color: TEXT }}>
+                {item.name}
+              </div>
+              {item.additions && item.additions.length > 0 && (
+                <div className="text-xs" style={{ color: MUTED }}>
+                  +{item.additions.map((a) => a.name).join(", ")}
+                </div>
+              )}
+              <div className="flex items-center justify-between mt-1">
+                <span
+                  className="font-bold text-sm"
+                  style={{ color: C.mustard }}
+                >
+                  {fmt(itemTotal(item))}
+                </span>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => updateQty(item.id, -1)}
+                    className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-sm font-bold"
+                    style={{
+                      background: dark
+                        ? "rgba(244,238,220,0.1)"
+                        : "rgba(30,30,30,0.08)",
+                      color: TEXT,
+                    }}
+                  >
+                    −
+                  </button>
+                  <span
+                    className="w-5 text-center text-sm font-bold"
+                    style={{ color: TEXT }}
+                  >
+                    {item.qty}
+                  </span>
+                  <button
+                    onClick={() => updateQty(item.id, 1)}
+                    className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-sm font-bold"
+                    style={{ background: C.mustard, color: "#fff" }}
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div
+        className="p-4 rounded-xl"
+        style={{ background: CARD, border: `1px solid ${BORDER}` }}
+      >
+        <div
+          className="flex justify-between text-sm mb-1"
+          style={{ color: MUTED }}
+        >
+          <span>Subtotal</span>
+          <span>{fmt(subtotal)}</span>
+        </div>
+        <div
+          className="flex justify-between text-sm mb-2"
+          style={{ color: MUTED }}
+        >
+          <span>Domicilio (Comuna 3)</span>
+          <span style={{ color: C.forest }}>Gratis</span>
+        </div>
+        <div
+          className="flex justify-between font-black text-base pt-2"
+          style={{
+            borderTop: `1px solid ${BORDER}`,
+            fontFamily: "Montserrat, sans-serif",
+            color: TEXT,
+          }}
+        >
+          <span>Total</span>
+          <span style={{ color: C.mustard }}>{fmt(subtotal)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Checkout Page (split: cart+form | auth) ────────────────────────────────────
+function CheckoutPage({
+  cart,
+  setCart,
+  user,
+  onLogin,
+  onRegisterVerified,
+  onBack,
+  onComplete,
+}: {
+  cart: CartItem[]
+  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
+  user: User | null
+  onLogin: (u: User) => void
+  onRegisterVerified: (email: string, name: string) => void
+  onBack: () => void
+  onComplete: () => void
+}) {
+  const [authTab, setAuthTab] = useState<"login" | "register">("login")
+  const [regStep, setRegStep] = useState<"form" | "verifying">("form")
+  const [loginForm, setLoginForm] = useState({ email: "", pass: "" })
+  const [regForm, setRegForm] = useState({
+    name: "",
+    docType: "",
+    docNum: "",
+    email: "",
+    phone: "",
+    pass: "",
+    pass2: "",
+  })
+  const [delivForm, setDelivForm] = useState({
+    nombre: "",
+    telefono: "",
+    direccion: "",
+    notas: "",
+    pago: "Efectivo",
+  })
+  const [code, setCode] = useState("")
+  const [showQR, setShowQR] = useState(false)
+  const [ordered, setOrdered] = useState(false)
+  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(user ? 2 : 1)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const subtotal = cart.reduce(
+    (s, i) =>
+      s +
+      (i.price +
+        (i.additions?.reduce((a2, b) => a2 + b.qty * b.price, 0) ?? 0)) *
+        i.qty,
+    0,
+  )
+  const delivFilled =
+    delivForm.nombre && delivForm.telefono && delivForm.direccion
+  const canOrder = user && delivFilled
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault()
+    const role = loginForm.email.toLowerCase().includes("admin")
+      ? "admin"
+      : "user"
+    const name = loginForm.email
+      .split("@")[0]
+      .replace(/\./g, " ")
+      .replace(/\b\w/g, (ch) => ch.toUpperCase())
+    onLogin({ name, email: loginForm.email, role })
+    setCheckoutStep(2)
+  }
+  const handleRegisterForm = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!regForm.name || !regForm.email || !regForm.pass || !regForm.docType)
+      return
+    if (regForm.pass !== regForm.pass2) return
+    setRegStep("verifying")
+  }
+  const handleVerify = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (code.length < 6) return
+    onRegisterVerified(regForm.email, regForm.name)
+    setCheckoutStep(2)
+  }
+
+  if (ordered)
+    return (
+      <div
+        className="min-h-screen flex items-center justify-center px-4"
+        style={{ background: "#FAF5E8", fontFamily: "Poppins, sans-serif" }}
+      >
+        <div className="text-center max-w-sm">
+          <div className="text-6xl mb-4">🎉</div>
+          <h2
+            className="font-black text-2xl mb-2"
+            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+          >
+            ¡Pedido enviado!
+          </h2>
+          <p className="text-sm mb-6" style={{ color: "rgba(30,30,30,0.5)" }}>
+            Pronto te avisamos cuando esté listo.
+          </p>
+          <button
+            onClick={() => {
+              setCart([])
+              onComplete()
+            }}
+            className="w-full py-3 rounded-2xl font-bold text-sm cursor-pointer"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            Ver mis pedidos
+          </button>
+        </div>
+      </div>
+    )
+
+  return (
+    <div
+      className="min-h-screen"
+      style={{ background: "#FAF5E8", fontFamily: "Poppins, sans-serif" }}
+    >
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        <div className="flex items-center gap-3 mb-6">
+          <button
+            onClick={onBack}
+            className="text-sm cursor-pointer hover:opacity-70"
+            style={{ color: C.mustard }}
+          >
+            ← Volver
+          </button>
+          <h1
+            className="font-black text-2xl"
+            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+          >
+            Finalizar pedido
+          </h1>
+        </div>
+        <div className="grid grid-cols-3 gap-2 mb-6 max-w-2xl mx-auto">
+          {["Identificación", "Entrega", "Revisión"].map((label, i) => {
+            const step = (i + 1) as 1 | 2 | 3
+            return (
+              <button
+                key={label}
+                onClick={() => {
+                  if (
+                    step === 1 ||
+                    (step === 2 && user) ||
+                    (step === 3 && user && delivFilled)
+                  )
+                    setCheckoutStep(step)
+                }}
+                className="flex items-center gap-2 text-left px-3 py-2 rounded-xl cursor-pointer"
+                style={{
+                  background:
+                    checkoutStep === step
+                      ? `${C.mustard}18`
+                      : "rgba(30,30,30,0.04)",
+                  color:
+                    checkoutStep === step ? C.mustard : "rgba(30,30,30,0.42)",
+                }}
+              >
+                <span
+                  className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
+                  style={{
+                    background:
+                      checkoutStep >= step ? C.mustard : "rgba(30,30,30,0.12)",
+                    color:
+                      checkoutStep >= step ? "#fff" : "rgba(30,30,30,0.45)",
+                  }}
+                >
+                  {step}
+                </span>
+                <span className="text-xs font-semibold">{label}</span>
+              </button>
+            )
+          })}
+        </div>
+        <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-6 lg:items-center">
+          {/* LEFT: Cart + delivery form */}
+          <div>
+            <h2 className="font-bold text-base mb-3" style={{ color: C.dark }}>
+              Tu pedido
+            </h2>
+            <CartSummary cart={cart} setCart={setCart} dark={false} />
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="w-full mt-3 py-3 rounded-xl text-sm font-bold cursor-pointer"
+              style={{ background: "rgba(182,140,28,0.12)", color: C.mustard }}
+            >
+              + Agregar productos al pedido
+            </button>
+            {checkoutStep >= 2 && (
+              <>
+                <h2
+                  className="font-bold text-base mt-5 mb-3"
+                  style={{ color: C.dark }}
+                >
+                  Datos de entrega
+                </h2>
+                <div
+                  className="p-5 rounded-2xl flex flex-col gap-3"
+                  style={{
+                    background: "#fff",
+                    boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+                  }}
+                >
+                  {[
+                    ["nombre", "Nombre completo *", "text"],
+                    ["telefono", "Teléfono *", "tel"],
+                    ["direccion", "Dirección de entrega *", "text"],
+                    ["notas", "Notas para el pedido", "text"],
+                  ].map(([k, lbl, t]) => (
+                    <InputField
+                      key={k}
+                      label={lbl}
+                      type={t}
+                      placeholder={lbl}
+                      value={delivForm[(k as keyof typeof delivForm)]}
+                      onChange={(v) => setDelivForm((f) => ({ ...f, [k]: v }))}
+                    />
+                  ))}
+                  <div className="flex flex-col gap-1">
+                    <label
+                      className="text-xs font-semibold"
+                      style={{ color: "rgba(30,30,30,0.5)" }}
+                    >
+                      Método de pago
+                    </label>
+                    <div className="flex gap-2">
+                      {["Efectivo", "Nequi", "Daviplata"].map((m) => (
+                        <button
+                          key={m}
+                          onClick={() =>
+                            setDelivForm((f) => ({ ...f, pago: m }))
+                          }
+                          className="flex-1 py-2 rounded-xl text-xs font-semibold cursor-pointer"
+                          style={{
+                            background:
+                              delivForm.pago === m
+                                ? C.mustard
+                                : "rgba(30,30,30,0.06)",
+                            color:
+                              delivForm.pago === m
+                                ? "#fff"
+                                : "rgba(30,30,30,0.5)",
+                          }}
+                        >
+                          {m}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                {checkoutStep === 2 && (
+                  <button
+                    onClick={() => setCheckoutStep(3)}
+                    disabled={!delivFilled}
+                    className="w-full mt-4 py-3.5 rounded-2xl font-bold cursor-pointer disabled:opacity-40"
+                    style={{ background: C.mustard, color: "#fff" }}
+                  >
+                    Continuar a revisión →
+                  </button>
+                )}
+                {canOrder && checkoutStep === 3 && (
+                  <button
+                    onClick={() => {
+                      if (delivForm.pago === "Efectivo") {
+                        setOrdered(true)
+                      } else setShowQR(true)
+                    }}
+                    className="w-full mt-4 py-4 rounded-2xl font-bold cursor-pointer hover:opacity-90"
+                    style={{ background: C.mustard, color: "#fff" }}
+                  >
+                    {delivForm.pago === "Efectivo"
+                      ? `Confirmar pedido · ${fmt(subtotal)}`
+                      : `Pagar con ${delivForm.pago} · ${fmt(subtotal)}`}
+                  </button>
+                )}
+                {!canOrder && checkoutStep >= 2 && (
+                  <div
+                    className="mt-4 p-3 rounded-xl text-xs text-center"
+                    style={{
+                      background: "rgba(182,140,28,0.1)",
+                      color: C.mustard,
+                    }}
+                  >
+                    Completa los datos de entrega para continuar.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+          {/* RIGHT: Auth / confirmation summary */}
+          {!user && checkoutStep === 1 ? (
+            <div>
+              <h2
+                className="font-bold text-base mb-3"
+                style={{ color: C.dark }}
+              >
+                Identificación
+              </h2>
+              <div
+                className="p-5 rounded-2xl"
+                style={{
+                  background: "#fff",
+                  boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+                }}
+              >
+                <div
+                  className="flex rounded-xl overflow-hidden mb-5 p-1"
+                  style={{ background: "rgba(30,30,30,0.06)" }}
+                >
+                  {(["login", "register"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      onClick={() => {
+                        setAuthTab(tab)
+                        setRegStep("form")
+                      }}
+                      className="flex-1 py-2 rounded-lg text-sm font-semibold cursor-pointer"
+                      style={{
+                        background: authTab === tab ? C.mustard : "transparent",
+                        color: authTab === tab ? "#fff" : "rgba(30,30,30,0.5)",
+                      }}
+                    >
+                      {tab === "login" ? "Iniciar sesión" : "Registrarse"}
+                    </button>
+                  ))}
+                </div>
+                {authTab === "login" && (
+                  <form onSubmit={handleLogin} className="flex flex-col gap-3">
+                    <InputField
+                      label="Correo"
+                      type="email"
+                      placeholder="tu@correo.com"
+                      value={loginForm.email}
+                      onChange={(v) =>
+                        setLoginForm((f) => ({ ...f, email: v }))
+                      }
+                      required
+                    />
+                    <InputField
+                      label="Contraseña"
+                      type="password"
+                      placeholder="••••••••"
+                      value={loginForm.pass}
+                      onChange={(v) => setLoginForm((f) => ({ ...f, pass: v }))}
+                      required
+                    />
+                    <button
+                      type="submit"
+                      className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      Iniciar sesión
+                    </button>
+                  </form>
+                )}
+                {authTab === "register" && regStep === "form" && (
+                  <form
+                    onSubmit={handleRegisterForm}
+                    className="flex flex-col gap-2.5"
+                  >
+                    <InputField
+                      label="Nombre *"
+                      placeholder="Tu nombre"
+                      value={regForm.name}
+                      onChange={(v) => setRegForm((f) => ({ ...f, name: v }))}
+                      required
+                    />
+                    <div className="flex flex-col gap-1">
+                      <label
+                        className="text-xs font-semibold"
+                        style={{ color: "rgba(30,30,30,0.5)" }}
+                      >
+                        Tipo de documento *
+                      </label>
+                      <select
+                        value={regForm.docType}
+                        onChange={(e) =>
+                          setRegForm((f) => ({ ...f, docType: e.target.value }))
+                        }
+                        className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none"
+                        style={{
+                          background: "rgba(30,30,30,0.05)",
+                          border: "1.5px solid rgba(30,30,30,0.12)",
+                          color: regForm.docType
+                            ? "#1A1714"
+                            : "rgba(30,30,30,0.35)",
+                        }}
+                      >
+                        <option value="">Tipo de documento...</option>
+                        {DOC_TYPES.map((d) => (
+                          <option key={d} value={d}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <InputField
+                      label="Nº Documento *"
+                      placeholder="123456789"
+                      value={regForm.docNum}
+                      onChange={(v) => setRegForm((f) => ({ ...f, docNum: v }))}
+                      required
+                    />
+                    <InputField
+                      label="Teléfono"
+                      type="tel"
+                      placeholder="3XX XXX XXXX"
+                      value={regForm.phone}
+                      onChange={(v) => setRegForm((f) => ({ ...f, phone: v }))}
+                    />
+                    <InputField
+                      label="Correo *"
+                      type="email"
+                      placeholder="tu@correo.com"
+                      value={regForm.email}
+                      onChange={(v) => setRegForm((f) => ({ ...f, email: v }))}
+                      required
+                    />
+                    <InputField
+                      label="Contraseña *"
+                      type="password"
+                      placeholder="••••••••"
+                      value={regForm.pass}
+                      onChange={(v) => setRegForm((f) => ({ ...f, pass: v }))}
+                      required
+                    />
+                    <InputField
+                      label="Confirmar *"
+                      type="password"
+                      placeholder="••••••••"
+                      value={regForm.pass2}
+                      onChange={(v) => setRegForm((f) => ({ ...f, pass2: v }))}
+                      required
+                    />
+                    <button
+                      type="submit"
+                      className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      Crear cuenta →
+                    </button>
+                  </form>
+                )}
+                {authTab === "register" && regStep === "verifying" && (
+                  <form onSubmit={handleVerify} className="flex flex-col gap-4">
+                    <p
+                      className="text-xs text-center"
+                      style={{ color: "rgba(30,30,30,0.5)" }}
+                    >
+                      Código enviado a <strong>{regForm.email}</strong>. (Demo:
+                      841736)
+                    </p>
+                    <input
+                      maxLength={6}
+                      placeholder="000000"
+                      value={code}
+                      onChange={(e) =>
+                        setCode(e.target.value.replace(/\D/g, ""))
+                      }
+                      className="w-full px-4 py-4 rounded-xl text-center text-2xl font-bold tracking-widest outline-none"
+                      style={{
+                        background: "rgba(30,30,30,0.05)",
+                        border: "1.5px solid rgba(30,30,30,0.12)",
+                        color: "#1A1714",
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      Verificar
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+          ) : checkoutStep === 3 ? (
+            <div className="w-full flex justify-center lg:justify-end">
+              <div
+                className="max-w-md w-full p-5 rounded-2xl text-center"
+                style={{
+                  background: "#fff",
+                  boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
+                }}
+              >
+                <h2
+                  className="font-bold text-base mb-4"
+                  style={{ color: C.dark }}
+                >
+                  Resumen de entrega
+                </h2>
+                <div
+                  className="space-y-2 text-sm text-center"
+                  style={{ color: "rgba(30,30,30,0.58)" }}
+                >
+                  <div>
+                    <strong style={{ color: C.dark }}>Recibe:</strong>{" "}
+                    {delivForm.nombre}
+                  </div>
+                  <div>
+                    <strong style={{ color: C.dark }}>Dirección:</strong>{" "}
+                    {delivForm.direccion}
+                  </div>
+                  <div>
+                    <strong style={{ color: C.dark }}>Teléfono:</strong>{" "}
+                    {delivForm.telefono}
+                  </div>
+                  <div>
+                    <strong style={{ color: C.dark }}>Pago:</strong>{" "}
+                    {delivForm.pago}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setCheckoutStep(2)}
+                  className="mt-5 text-xs font-semibold cursor-pointer"
+                  style={{ color: C.mustard }}
+                >
+                  ← Editar datos de entrega
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      {pickerOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center px-4 py-6"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+          onClick={() => setPickerOpen(false)}
+        >
+          <div
+            className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl p-5"
+            style={{ background: "#FAF5E8" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2
+                className="font-black text-xl"
+                style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+              >
+                Agrega algo más
+              </h2>
+              <button
+                onClick={() => setPickerOpen(false)}
+                className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
+                style={{ background: "rgba(30,30,30,0.08)", color: C.dark }}
+              >
+                {Ico.x}
+              </button>
+            </div>
+            <ProductCatalog
+              dark={false}
+              onInfoClick={(p) => setAddProduct(p)}
+              onAddClick={(p) => setAddProduct(p)}
+            />
+          </div>
+        </div>
+      )}
+      {addProduct && (
+        <AddToCartModal
+          product={addProduct}
+          onClose={() => setAddProduct(null)}
+          onAdd={(p, qty, sauces, additions) => {
+            setCart((c) => [
+              ...c,
+              {
+                id: Date.now(),
+                name: p.name,
+                price: p.price,
+                qty,
+                img: p.img,
+                sauces,
+                additions,
+              },
+            ])
+            setAddProduct(null)
+            setPickerOpen(false)
+          }}
+          dark={false}
+        />
+      )}
+      {showQR && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.7)" }}
+        >
+          <div
+            className="w-full max-w-sm rounded-3xl px-6 py-6"
+            style={{ background: "#fff" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3
+                className="font-black text-lg"
+                style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+              >
+                Paga con {delivForm.pago}
+              </h3>
+              <button
+                onClick={() => setShowQR(false)}
+                className="cursor-pointer"
+                style={{ color: "rgba(30,30,30,0.4)" }}
+              >
+                {Ico.x}
+              </button>
+            </div>
+            <div className="flex justify-center mb-4">
+              <img
+                src={qrImg}
+                alt="QR"
+                className="rounded-2xl object-contain"
+                style={{
+                  width: "180px",
+                  height: "180px",
+                  border: `4px solid ${C.mustard}`,
+                }}
+              />
+            </div>
+            <div className="text-center mb-5">
+              <span
+                className="font-black text-2xl"
+                style={{
+                  fontFamily: "Montserrat, sans-serif",
+                  color: C.mustard,
+                }}
+              >
+                {fmt(subtotal)}
+              </span>
+            </div>
+            <button
+              onClick={() => {
+                setShowQR(false)
+                setOrdered(true)
+              }}
+              className="w-full py-3.5 rounded-2xl font-bold text-sm cursor-pointer"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Ya pagué ✓
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Profile Page ───────────────────────────────────────────────────────────────
+function ProfilePage({
+  user,
+  onBack,
+  onLogout,
+  onUpdateUser,
+}: {
+  user: User
+  onBack: () => void
+  onLogout: () => void
+  onUpdateUser: (u: User) => void
+}) {
+  const AVATARS = ["👨‍💼", "👩‍💼", "🧑‍🍳", "👨‍🦱", "👩‍🦰", "🙋", "🧑‍💻"]
+  const [avatarIdx, setAvatarIdx] = useState(0)
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({
+    name: user.name,
+    email: user.email,
+    phone: user.phone || "",
+    cedula: user.cedula || "",
+  })
+  const [addresses, setAddresses] = useState<string[]>(
+    user.addresses || ["Cra 58 #42-10, Bello, Antioquia"],
+  )
+  const [newAddr, setNewAddr] = useState("")
+  const [addingAddr, setAddingAddr] = useState(false)
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const BG = "#FAF5E8"
+  const CARD = "#fff"
+  const TEXT = "#1A1714"
+  const MUTED = "rgba(30,30,30,0.5)"
+  const BORDER = "rgba(30,30,30,0.08)"
+  const ORDERS = [
+    {
+      id: "PED-0197",
+      items: "Mini x2, Salchipapa",
+      total: "$39.000",
+      date: "Ene 21",
+    },
+    {
+      id: "PED-0190",
+      items: "Mega Gourmet x1",
+      total: "$23.000",
+      date: "Ene 15",
+    },
+    {
+      id: "PED-0183",
+      items: "Doble x1, Chuzo Pollo",
+      total: "$37.500",
+      date: "Ene 8",
+    },
+  ]
+  const save = () => {
+    onUpdateUser({ ...user, ...form, addresses })
+    setEditing(false)
+  }
+  return (
+    <div
+      className="min-h-screen"
+      style={{ background: BG, fontFamily: "Poppins, sans-serif" }}
+    >
+      <div className="max-w-2xl mx-auto px-4 py-6">
+        <div className="flex items-center gap-3 mb-6">
+          <button
+            onClick={onBack}
+            className="text-sm cursor-pointer"
+            style={{ color: C.mustard }}
+          >
+            ← Volver
+          </button>
+          <h1
+            className="font-black text-2xl"
+            style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+          >
+            Mi perfil
+          </h1>
+        </div>
+        {/* Avatar */}
+        <div
+          className="flex flex-col items-center mb-6 p-6 rounded-3xl"
+          style={{ background: CARD, boxShadow: "0 2px 16px rgba(0,0,0,0.07)" }}
+        >
+          <button
+            onClick={() => setAvatarIdx((i) => (i + 1) % AVATARS.length)}
+            className="w-20 h-20 rounded-full flex items-center justify-center text-4xl mb-1 cursor-pointer hover:opacity-80"
+            style={{
+              background: `${C.mustard}18`,
+              border: `2px solid ${C.mustard}`,
+            }}
+          >
+            {AVATARS[avatarIdx]}
+          </button>
+          <div
+            className="text-xs mb-3 cursor-pointer"
+            style={{ color: C.mustard }}
+            onClick={() => setAvatarIdx((i) => (i + 1) % AVATARS.length)}
+          >
+            Cambiar foto
+          </div>
+          <div
+            className="font-black text-xl"
+            style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+          >
+            {user.name}
+          </div>
+          <div className="text-sm mt-0.5" style={{ color: MUTED }}>
+            {user.email}
+          </div>
+        </div>
+        {/* Profile data */}
+        <div
+          className="p-5 rounded-2xl mb-4"
+          style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-base" style={{ color: TEXT }}>
+              Datos personales
+            </h2>
+            <button
+              onClick={() => (editing ? save() : setEditing(true))}
+              className="px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+              style={{
+                background: editing ? C.mustard : "rgba(30,30,30,0.07)",
+                color: editing ? "#fff" : MUTED,
+              }}
+            >
+              {editing ? "Guardar" : "Editar"}
+            </button>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {editing ? (
+              <>
+                <InputField
+                  label="Nombre completo"
+                  value={form.name}
+                  onChange={(v) => setForm((f) => ({ ...f, name: v }))}
+                />
+                <InputField
+                  label="Correo"
+                  type="email"
+                  value={form.email}
+                  onChange={(v) => setForm((f) => ({ ...f, email: v }))}
+                />
+                <InputField
+                  label="Teléfono"
+                  type="tel"
+                  value={form.phone}
+                  onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                />
+                <InputField
+                  label="Cédula"
+                  value={form.cedula}
+                  onChange={(v) => setForm((f) => ({ ...f, cedula: v }))}
+                />
+              </>
+            ) : (
+              [
+                ["Nombre", user.name],
+                ["Correo", user.email],
+                ["Teléfono", user.phone || "—"],
+                ["Cédula", user.cedula || "—"],
+              ].map(([l, v]) => (
+                <div key={l}>
+                  <div
+                    className="text-xs font-semibold mb-0.5"
+                    style={{ color: MUTED }}
+                  >
+                    {l}
+                  </div>
+                  <div className="text-sm font-medium" style={{ color: TEXT }}>
+                    {v}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+        {/* Addresses */}
+        <div
+          className="p-5 rounded-2xl mb-4"
+          style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-base" style={{ color: TEXT }}>
+              Mis direcciones
+            </h2>
+            <button
+              onClick={() => setAddingAddr(true)}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              {Ico.plus} Agregar
+            </button>
+          </div>
+          {addresses.map((a, i) => (
+            <div
+              key={i}
+              className="flex items-center gap-2 py-2.5"
+              style={{
+                borderBottom:
+                  i < addresses.length - 1 ? `1px solid ${BORDER}` : "none",
+              }}
+            >
+              <span style={{ color: C.mustard }}>{Ico.mapPin}</span>
+              <span className="flex-1 text-sm" style={{ color: TEXT }}>
+                {a}
+              </span>
+              <button
+                onClick={() =>
+                  setAddresses((arr) => arr.filter((_, j) => j !== i))
+                }
+                className="text-xs cursor-pointer"
+                style={{ color: C.red }}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {addingAddr && (
+            <div className="flex gap-2 mt-3">
+              <input
+                placeholder="Nueva dirección..."
+                value={newAddr}
+                onChange={(e) => setNewAddr(e.target.value)}
+                className="flex-1 px-3 py-2 rounded-xl text-sm outline-none"
+                style={{
+                  background: "rgba(30,30,30,0.05)",
+                  border: "1.5px solid rgba(30,30,30,0.12)",
+                  color: TEXT,
+                }}
+              />
+              <button
+                onClick={() => {
+                  if (newAddr) {
+                    setAddresses((a) => [...a, newAddr])
+                    setNewAddr("")
+                    setAddingAddr(false)
+                  }
+                }}
+                className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                +
+              </button>
+            </div>
+          )}
+        </div>
+        {/* Purchase history */}
+        <div
+          className="p-5 rounded-2xl mb-4"
+          style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+        >
+          <h2 className="font-bold text-base mb-4" style={{ color: TEXT }}>
+            Historial de compras
+          </h2>
+          <div className="space-y-3">
+            {ORDERS.map((o) => (
+              <div
+                key={o.id}
+                className="flex items-center justify-between py-2.5"
+                style={{ borderBottom: `1px solid ${BORDER}` }}
+              >
+                <div>
+                  <div
+                    className="text-sm font-semibold"
+                    style={{ color: TEXT }}
+                  >
+                    {o.id}
+                  </div>
+                  <div className="text-xs" style={{ color: MUTED }}>
+                    {o.items} · {o.date}
+                  </div>
+                </div>
+                <span
+                  className="font-bold text-sm"
+                  style={{ color: C.mustard }}
+                >
+                  {o.total}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 text-xs text-center" style={{ color: MUTED }}>
+            Total gastado: <strong style={{ color: TEXT }}>$99.500</strong>
+          </div>
+        </div>
+        {/* Actions */}
+        <div className="flex flex-col gap-2">
+          <button
+            onClick={onLogout}
+            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+            style={{ background: `${C.red}12`, color: C.red }}
+          >
+            Cerrar sesión
+          </button>
+          <button
+            onClick={() => setShowDeleteModal(true)}
+            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+            style={{
+              background: "rgba(30,30,30,0.05)",
+              color: "rgba(30,30,30,0.4)",
+            }}
+          >
+            Eliminar cuenta
+          </button>
+        </div>
+      </div>
+      {showDeleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+        >
+          <div
+            className="w-full max-w-xs p-6 rounded-2xl text-center"
+            style={{
+              background: "#fff",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+            }}
+          >
+            <div className="text-4xl mb-3">⚠️</div>
+            <h3
+              className="font-black text-lg mb-2"
+              style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+            >
+              ¿Eliminar cuenta?
+            </h3>
+            <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.5)" }}>
+              Esta acción es permanente y no se puede deshacer. Perderás todos
+              tus datos y pedidos.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+                style={{
+                  background: "rgba(30,30,30,0.06)",
+                  color: "rgba(30,30,30,0.5)",
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false)
+                  onLogout()
+                }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer"
+                style={{ background: C.red, color: "#fff" }}
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Client Web App ─────────────────────────────────────────────────────────────
+function ClientApp({
+  user,
+  onLogout,
+  onAdmin,
+  onCheckout,
+  onProfile,
+  cart,
+  setCart,
+  pendingOrder,
+  onClearPending,
+}: {
+  user: User
+  onLogout: () => void
+  onAdmin: () => void
+  onCheckout: () => void
+  onProfile: () => void
+  cart: CartItem[]
+  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
+  pendingOrder?: { id: string; items: string; total: string } | null
+  onClearPending?: () => void
+}) {
+  const [view, setView] = useState<"menu" | "cart" | "orders">("menu")
+  const [theme, setTheme] = useState<Theme>("light")
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [infoProduct, setInfoProduct] = useState<Product | null>(null)
+  const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const dropRef = useRef<HTMLDivElement>(null)
+  const dark = theme === "dark"
+  const BG = dark ? "#131210" : "#FAF5E8"
+  const TEXT = dark ? "#F4EEDC" : "#1A1714"
+  const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
+  const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.09)"
+
+  useEffect(() => {
+    const fn = (e: MouseEvent) => {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node))
+        setProfileOpen(false)
+    }
+    document.addEventListener("mousedown", fn)
+    return () => document.removeEventListener("mousedown", fn)
+  }, [])
+
+  const cartCount = cart.reduce((s, i) => s + i.qty, 0)
+  const addToCart = (
+    p: Product,
+    qty: number,
+    sauces: string[],
+    additions: { name: string; qty: number; price: number }[],
+  ) =>
+    setCart((c) => [
+      ...c,
+      {
+        id: Date.now(),
+        name: p.name,
+        price: p.price,
+        qty,
+        img: p.img,
+        sauces,
+        additions,
+      },
+    ])
+  const quickAdd = (p: Product) =>
+    setCart((c) => {
+      const ex = c.find(
+        (x) => x.name === p.name && (x.additions?.length ?? 0) === 0,
+      )
+      if (ex)
+        return c.map((x) => (x.id === ex.id ? { ...x, qty: x.qty + 1 } : x))
+      return [
+        ...c,
+        { id: Date.now(), name: p.name, price: p.price, qty: 1, img: p.img },
+      ]
+    })
+
+  const ORDERS = [
+    {
+      id: "PED-0197",
+      items: "Mini x2, Salchipapa Sencilla",
+      total: "$39.000",
+      status: "En camino",
+      step: 3,
+    },
+    {
+      id: "PED-0190",
+      items: "Mega Gourmet x1",
+      total: "$23.000",
+      status: "Entregado",
+      step: 4,
+    },
+  ]
+  const STEPS = [
+    "Recibido",
+    "Confirmado",
+    "En cocina",
+    "En camino",
+    "Entregado",
+  ]
+
+  if (view === "profile" as string) return null
+
+  return (
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ background: BG, fontFamily: "Poppins, sans-serif", color: TEXT }}
+    >
+      {/* Header */}
+      <header
+        className="sticky top-0 z-40"
+        style={{
+          background: dark ? "rgba(19,18,16,0.97)" : "rgba(250,245,232,0.97)",
+          borderBottom: `1px solid ${BORDER}`,
+          backdropFilter: "blur(12px)",
+        }}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-4 h-16">
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <img
+              src={logoImg}
+              alt="El Parche"
+              className="h-11 w-11 object-contain"
+            />
+            <div>
+              <div
+                className="font-black text-sm leading-none"
+                style={{
+                  fontFamily: "Montserrat, sans-serif",
+                  color: C.mustard,
+                }}
+              >
+                El Parche
+              </div>
+              <div style={{ color: MUTED, fontSize: "0.6rem" }}>
+                Mini Burguer
+              </div>
+            </div>
+          </div>
+          <div className="hidden md:flex items-center gap-1 ml-2">
+            {(["menu", "orders"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer"
+                style={{
+                  background: view === v ? `${C.mustard}15` : "transparent",
+                  color: view === v ? C.mustard : MUTED,
+                }}
+              >
+                {v === "menu" ? "Menú" : "Mis Pedidos"}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() =>
+                setTheme((t) => (t === "light" ? "dark" : "light"))
+              }
+              className="w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
+              style={{ background: BORDER, color: TEXT }}
+            >
+              {dark ? Ico.sun : Ico.moon}
+            </button>
+            <button
+              onClick={() => setView("cart")}
+              className="relative w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
+              style={{
+                background: view === "cart" ? `${C.mustard}20` : BORDER,
+                color: view === "cart" ? C.mustard : TEXT,
+              }}
+            >
+              {Ico.cart}
+              {cartCount > 0 && (
+                <span
+                  className="absolute -top-0.5 -right-0.5 w-4 h-4 flex items-center justify-center text-xs font-bold rounded-full"
+                  style={{
+                    background: C.red,
+                    color: "#fff",
+                    fontSize: "0.6rem",
+                  }}
+                >
+                  {cartCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setView("orders")}
+              className="md:hidden w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
+              style={{
+                background: view === "orders" ? `${C.mustard}20` : BORDER,
+                color: view === "orders" ? C.mustard : TEXT,
+              }}
+            >
+              {Ico.orders}
+            </button>
+            <div className="relative" ref={dropRef}>
+              <button
+                onClick={() => setProfileOpen(!profileOpen)}
+                className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm cursor-pointer"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                {user.name.charAt(0).toUpperCase()}
+              </button>
+              {profileOpen && (
+                <div
+                  className="absolute right-0 top-11 w-52 rounded-2xl overflow-hidden z-50"
+                  style={{
+                    background: dark ? "#1E1C18" : "#fff",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+                    border: `1px solid ${BORDER}`,
+                  }}
+                >
+                  <div
+                    className="px-4 py-3.5"
+                    style={{ borderBottom: `1px solid ${BORDER}` }}
+                  >
+                    <div
+                      className="font-semibold text-sm"
+                      style={{ color: TEXT }}
+                    >
+                      {user.name}
+                    </div>
+                    <div className="text-xs" style={{ color: MUTED }}>
+                      {user.email}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false)
+                      onProfile()
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm cursor-pointer"
+                    style={{ color: C.mustard }}
+                  >
+                    Mi perfil
+                  </button>
+                  {user.role === "admin" && (
+                    <button
+                      onClick={() => {
+                        setProfileOpen(false)
+                        onAdmin()
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-sm cursor-pointer"
+                      style={{ color: C.amber }}
+                    >
+                      Panel Admin
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false)
+                      onLogout()
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm cursor-pointer"
+                    style={{ color: C.red }}
+                  >
+                    Cerrar sesión
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6">
+        {view === "menu" && (
+          <div>
+            <div className="mb-5">
+              <h2
+                className="font-black text-2xl"
+                style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+              >
+                Nuestro Menú
+              </h2>
+              <p className="text-sm mt-0.5" style={{ color: MUTED }}>
+                Haz clic en cualquier producto para ver los detalles
+              </p>
+            </div>
+            <ProductCatalog
+              dark={dark}
+              onInfoClick={(p) => setInfoProduct(p)}
+              onAddClick={(p) => setAddProduct(p)}
+            />
+            <div
+              className="mt-6 flex items-center gap-3 px-4 py-3 rounded-xl"
+              style={{
+                background: `${C.forest}12`,
+                border: `1px solid ${C.forest}22`,
+              }}
+            >
+              <span className="text-2xl">🧅</span>
+              <span className="text-sm font-medium" style={{ color: C.forest }}>
+                Especialidad: <strong>cebolla marinada</strong> — 100% gratis
+                con tu pedido.
+              </span>
+            </div>
+          </div>
+        )}
+        {view === "cart" && (
+          <div className="max-w-lg mx-auto">
+            <h2
+              className="font-black text-2xl mb-5"
+              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            >
+              Carrito
+            </h2>
+            <CartSummary cart={cart} setCart={setCart} dark={dark} />
+            {cart.length > 0 && (
+              <button
+                onClick={onCheckout}
+                className="w-full mt-4 py-4 rounded-2xl font-bold text-sm cursor-pointer hover:opacity-90"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                Confirmar pedido →
+              </button>
+            )}
+            {cart.length === 0 && (
+              <div className="text-center mt-4">
+                <button
+                  onClick={() => setView("menu")}
+                  className="px-8 py-3 rounded-full font-bold text-sm cursor-pointer"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  Ver menú
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+        {view === "orders" && (
+          <div className="max-w-2xl mx-auto">
+            <h2
+              className="font-black text-2xl mb-5"
+              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            >
+              Mis pedidos
+            </h2>
+            {pendingOrder && (
+              <div
+                className="mb-4 p-4 rounded-2xl flex items-start justify-between gap-3"
+                style={{
+                  background: `${C.forest}18`,
+                  border: `1.5px solid ${C.forest}40`,
+                }}
+              >
+                <div>
+                  <div
+                    className="font-bold text-sm"
+                    style={{ color: C.forest }}
+                  >
+                    🎉 Tu pedido está en preparación...
+                  </div>
+                  <div className="text-xs mt-1" style={{ color: MUTED }}>
+                    {pendingOrder.id} · {pendingOrder.items} ·{" "}
+                    <strong>{pendingOrder.total}</strong>
+                  </div>
+                </div>
+                {onClearPending && (
+                  <button
+                    onClick={onClearPending}
+                    className="text-sm cursor-pointer flex-shrink-0"
+                    style={{ color: MUTED }}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="space-y-4">
+              {ORDERS.map((o) => (
+                <div
+                  key={o.id}
+                  className="p-5 rounded-2xl"
+                  style={{
+                    background: dark ? "#1E1C18" : "#fff",
+                    border: `1px solid ${BORDER}`,
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <div
+                        className="font-bold text-sm"
+                        style={{ color: TEXT }}
+                      >
+                        {o.id}
+                      </div>
+                      <div className="text-xs" style={{ color: MUTED }}>
+                        {o.items}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-bold" style={{ color: C.mustard }}>
+                        {o.total}
+                      </div>
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full font-medium"
+                        style={{ ...(badgeSt(o.status) || {}) }}
+                      >
+                        {o.status}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center">
+                    {STEPS.map((s, i) => (
+                      <div key={s} className="flex items-center flex-1">
+                        <div className="flex flex-col items-center">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{
+                              background: i <= o.step ? C.mustard : BORDER,
+                            }}
+                          />
+                          <div
+                            className="text-center mt-1"
+                            style={{
+                              color: i === o.step ? C.mustard : MUTED,
+                              fontSize: "0.56rem",
+                            }}
+                          >
+                            {s}
+                          </div>
+                        </div>
+                        {i < STEPS.length - 1 && (
+                          <div
+                            className="h-0.5 flex-1 mb-4"
+                            style={{
+                              background: i < o.step ? C.mustard : BORDER,
+                            }}
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      {infoProduct && (
+        <ProductInfoModal
+          product={infoProduct}
+          onClose={() => setInfoProduct(null)}
+          onAddToCart={(p) => setAddProduct(p)}
+          dark={dark}
+        />
+      )}
+      {addProduct && (
+        <AddToCartModal
+          product={addProduct}
+          onClose={() => setAddProduct(null)}
+          onAdd={addToCart}
+          dark={dark}
+        />
+      )}
+
+      {/* Quick-add feedback suppressed — quickAdd used from ProductCatalog + button */}
+      <div style={{ display: "none" }} onClick={() => quickAdd(PRODUCTS[0])} />
+    </div>
+  )
+}
+
+// ── Landing Page ───────────────────────────────────────────────────────────────
+function LandingPage({
+  onLogin,
+  onAdmin,
+  onGuestMenu,
+  onCheckout,
+  cart,
+  setCart,
+}: {
+  onLogin: () => void
+  onAdmin: () => void
+  onGuestMenu: () => void
+  onCheckout: () => void
+  cart: CartItem[]
+  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
+}) {
+  const [dark, setDark] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const [waBubble, setWaBubble] = useState(true)
+  const [legalModal, setLegalModal] = useState<"envios" | "legal" | null>(null)
+  const [infoProduct, setInfoProduct] = useState<Product | null>(null)
+  const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const BG = dark ? "#13110E" : "#FAF4E8"
+  const TEXT = dark ? "#F0E8D6" : "#18140A"
+  const MUTED = dark ? "rgba(240,232,214,0.48)" : "rgba(24,20,10,0.5)"
+  const BORDER = dark ? "rgba(240,232,214,0.07)" : "rgba(24,20,10,0.08)"
+  const HDR_BG = scrolled
+    ? dark
+      ? "rgba(19,17,14,0.96)"
+      : "rgba(250,244,232,0.96)"
+    : "transparent"
+  const cartCount = cart.reduce((s, i) => s + i.qty, 0)
+  useEffect(() => {
+    const fn = () => setScrolled(window.scrollY > 30)
+    window.addEventListener("scroll", fn)
+    return () => window.removeEventListener("scroll", fn)
+  }, [])
+  const addToCart = (
+    p: Product,
+    qty: number,
+    sauces: string[],
+    additions: { name: string; qty: number; price: number }[],
+  ) =>
+    setCart((c) => [
+      ...c,
+      {
+        id: Date.now(),
+        name: p.name,
+        price: p.price,
+        qty,
+        img: p.img,
+        sauces,
+        additions,
+      },
+    ])
+  const NAVLINKS = [
+    { label: "Inicio", href: "#inicio" },
+    { label: "Menú", href: "#menu" },
+    { label: "Nosotros", href: "#nosotros" },
+    { label: "Pedidos", href: "#pedidos" },
+    { label: "Contacto", href: "#contacto" },
+  ]
+  const goToMenu = onGuestMenu
+
+  return (
+    <div
+      style={{ background: BG, fontFamily: "Poppins, sans-serif", color: TEXT }}
+    >
+      {/* HEADER */}
+      <header
+        className="fixed top-0 left-0 right-0 z-50 transition-all duration-200"
+        style={{
+          background: HDR_BG,
+          boxShadow: scrolled ? `0 1px 0 ${BORDER}` : "none",
+          backdropFilter: scrolled ? "blur(14px)" : "none",
+        }}
+      >
+        <div className="max-w-7xl mx-auto px-5 sm:px-8 flex items-center justify-between h-16 md:h-20">
+          <a href="#inicio" className="flex items-center gap-2.5">
+            <img
+              src={logoImg}
+              alt="El Parche"
+              className="h-14 w-14 sm:h-16 sm:w-16 object-contain"
+            />
+            <div>
+              <div
+                className="font-black text-base sm:text-lg leading-tight"
+                style={{
+                  fontFamily: "Montserrat, sans-serif",
+                  color: C.mustard,
+                }}
+              >
+                El Parche
+              </div>
+              <div
+                style={{
+                  color: scrolled ? MUTED : "rgba(255,255,255,0.65)",
+                  fontSize: "0.62rem",
+                }}
+              >
+                Mini Burguer
+              </div>
+            </div>
+          </a>
+          <nav className="hidden lg:flex items-center gap-8">
+            {NAVLINKS.map((l) => (
+              <a
+                key={l.href}
+                href={l.href}
+                className="text-sm font-medium hover:opacity-60 transition-opacity"
+                style={{ color: scrolled ? TEXT : "#fff" }}
+              >
+                {l.label}
+              </a>
+            ))}
+          </nav>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setDark(!dark)}
+              className="w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
+              style={{ background: BORDER, color: scrolled ? TEXT : "#fff" }}
+            >
+              {dark ? Ico.sun : Ico.moon}
+            </button>
+            {/* Cart */}
+            <button
+              onClick={onCheckout}
+              className="relative w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
+              style={{ background: BORDER, color: scrolled ? TEXT : "#fff" }}
+            >
+              {Ico.cart}
+              {cartCount > 0 && (
+                <span
+                  className="absolute -top-0.5 -right-0.5 w-4 h-4 flex items-center justify-center text-xs font-bold rounded-full"
+                  style={{
+                    background: C.red,
+                    color: "#fff",
+                    fontSize: "0.6rem",
+                  }}
+                >
+                  {cartCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={onAdmin}
+              className="hidden sm:inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-full font-semibold border cursor-pointer hover:opacity-70"
+              style={{
+                color: scrolled ? TEXT : "#fff",
+                borderColor: scrolled ? BORDER : "rgba(255,255,255,0.3)",
+              }}
+            >
+              {Ico.settings} Admin
+            </button>
+            <button
+              onClick={onLogin}
+              className="hidden sm:inline-flex px-3.5 py-2 rounded-full text-xs font-semibold cursor-pointer hover:opacity-80"
+              style={{
+                color: scrolled ? TEXT : "#fff",
+                border: `1px solid ${
+                  scrolled ? BORDER : "rgba(255,255,255,0.35)"
+                }`,
+              }}
+            >
+              Iniciar sesión
+            </button>
+            <button
+              onClick={goToMenu}
+              className="hidden sm:inline-flex px-5 py-2.5 rounded-full text-sm font-bold cursor-pointer hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Pide Ahora
+            </button>
+            <button
+              className="lg:hidden w-10 h-10 flex items-center justify-center rounded-full cursor-pointer"
+              onClick={() => setMenuOpen(!menuOpen)}
+              style={{
+                color: scrolled ? TEXT : "#fff",
+                background: menuOpen ? BORDER : "transparent",
+              }}
+            >
+              {menuOpen ? Ico.x : Ico.menu}
+            </button>
+          </div>
+        </div>
+        {menuOpen && (
+          <div
+            className="lg:hidden px-5 py-5 flex flex-col gap-1"
+            style={{
+              background: dark
+                ? "rgba(19,17,14,0.98)"
+                : "rgba(250,244,232,0.98)",
+              borderTop: `1px solid ${BORDER}`,
+            }}
+          >
+            {NAVLINKS.map((l) => (
+              <a
+                key={l.href}
+                href={l.href}
+                onClick={() => setMenuOpen(false)}
+                className="text-sm font-semibold py-3 px-3 rounded-xl"
+                style={{ color: TEXT, borderBottom: `1px solid ${BORDER}` }}
+              >
+                {l.label}
+              </a>
+            ))}
+            <div className="pt-3 flex flex-col gap-2">
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  onLogin()
+                }}
+                className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+                style={{ color: TEXT, border: `1px solid ${BORDER}` }}
+              >
+                Iniciar sesión
+              </button>
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  goToMenu()
+                }}
+                className="w-full py-3.5 rounded-2xl font-bold text-sm cursor-pointer"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                Pide Ahora
+              </button>
+            </div>
+          </div>
+        )}
+      </header>
+
+      {/* HERO */}
+      <section
+        id="inicio"
+        className="relative min-h-screen flex items-center overflow-hidden"
+      >
+        <img
+          src="https://images.unsplash.com/photo-1550547660-d9450f859349?w=1600&h=900&fit=crop&auto=format"
+          alt="Burger artesanal"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              "linear-gradient(135deg, rgba(10,8,5,0.82) 0%, rgba(15,10,5,0.55) 60%, rgba(20,14,8,0.35) 100%)",
+          }}
+        />
+        <div className="relative z-10 max-w-7xl mx-auto px-5 sm:px-8 w-full pt-20 pb-16">
+          <div className="max-w-2xl">
+            <div
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6 text-xs font-semibold"
+              style={{
+                background: "rgba(182,140,28,0.2)",
+                border: "1px solid rgba(182,140,28,0.35)",
+                color: C.amber,
+              }}
+            >
+              🔥 Desde 2013 en Bello, Antioquia
+            </div>
+            <h1
+              style={{
+                fontFamily: "Montserrat, sans-serif",
+                fontWeight: 800,
+                fontSize: "clamp(2.6rem,8vw,5.5rem)",
+                lineHeight: 1.04,
+                color: "#FAF3E0",
+                letterSpacing: "-0.025em",
+              }}
+            >
+              El sabor que
+              <br />
+              <span style={{ color: C.mustard }}>te reúne</span>
+            </h1>
+            <p
+              className="mt-4 mb-8 text-base sm:text-lg leading-relaxed"
+              style={{
+                color: "rgba(250,243,224,0.62)",
+                maxWidth: "480px",
+                fontWeight: 300,
+              }}
+            >
+              Mini burgers artesanales preparadas al momento con ingredientes
+              frescos. Local y domicilio en Bello.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={goToMenu}
+                className="flex items-center gap-2 px-7 py-4 rounded-2xl font-bold text-base cursor-pointer hover:opacity-90"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                Pedir ahora
+              </button>
+              <a
+                href={`https://wa.me/${WA}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-7 py-4 rounded-2xl font-semibold text-base"
+                style={{
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1.5px solid rgba(255,255,255,0.25)",
+                  color: "#fff",
+                  backdropFilter: "blur(8px)",
+                }}
+              >
+                WhatsApp
+              </a>
+            </div>
+            <div className="flex items-center gap-8 mt-8">
+              {[
+                ["4.9", "Calificación"],
+                ["200+", "Reseñas"],
+                ["10+", "Años"],
+              ].map(([val, lbl]) => (
+                <div key={lbl}>
+                  <div
+                    className="font-black text-xl"
+                    style={{
+                      fontFamily: "Montserrat, sans-serif",
+                      color: C.amber,
+                    }}
+                  >
+                    {val}
+                  </div>
+                  <div
+                    className="text-xs"
+                    style={{ color: "rgba(250,243,224,0.4)" }}
+                  >
+                    {lbl}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* PROMO BANNERS */}
+      <section className="py-6 px-5 sm:px-8" style={{ background: BG }}>
+        <div className="max-w-7xl mx-auto grid sm:grid-cols-2 gap-4">
+          <div
+            className="rounded-2xl px-6 py-5 flex items-center gap-5"
+            style={{ background: C.forest }}
+          >
+            <div className="text-4xl flex-shrink-0">🛵</div>
+            <div>
+              <div
+                className="font-black text-lg text-white"
+                style={{ fontFamily: "Montserrat, sans-serif" }}
+              >
+                Domicilio 100% Gratis
+              </div>
+              <div
+                className="text-sm mt-0.5"
+                style={{ color: "rgba(255,255,255,0.75)" }}
+              >
+                En la <strong style={{ color: "#fff" }}>Comuna 3</strong> — sin
+                monto mínimo.
+              </div>
+            </div>
+          </div>
+          <div
+            className="rounded-2xl px-6 py-5 flex items-center gap-5"
+            style={{ background: C.red }}
+          >
+            <div className="text-4xl flex-shrink-0">🧅</div>
+            <div>
+              <div
+                className="font-black text-lg text-white"
+                style={{ fontFamily: "Montserrat, sans-serif" }}
+              >
+                Cebolla Marinada
+              </div>
+              <div
+                className="text-sm mt-0.5"
+                style={{ color: "rgba(255,255,255,0.8)" }}
+              >
+                Nuestra especialidad —{" "}
+                <strong style={{ color: "#fff" }}>100% Gratis</strong>.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* MENU SECTION */}
+      <section id="menu" className="py-12 sm:py-20" style={{ background: BG }}>
+        <div className="max-w-7xl mx-auto px-5 sm:px-8">
+          <div className="mb-8">
+            <div
+              className="inline-block text-xs font-bold tracking-widest uppercase px-4 py-1.5 rounded-full mb-3"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              Nuestro Menú
+            </div>
+            <h2
+              style={{
+                fontFamily: "Montserrat, sans-serif",
+                fontWeight: 800,
+                color: TEXT,
+                fontSize: "clamp(2rem,6vw,3.5rem)",
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Todo lo que <span style={{ color: C.red }}>preparamos</span>
+            </h2>
+          </div>
+          <ProductCatalog
+            dark={dark}
+            onInfoClick={(p) => setInfoProduct(p)}
+            onAddClick={(p) => setAddProduct(p)}
+          />
+          {cartCount > 0 && (
+            <div
+              className="mt-6 flex items-center justify-between p-4 rounded-2xl"
+              style={{ background: C.mustard }}
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">🛒</span>
+                <div>
+                  <div className="font-bold text-sm text-white">
+                    {cartCount} producto{cartCount > 1 ? "s" : ""} en tu carrito
+                  </div>
+                  <div
+                    className="text-xs"
+                    style={{ color: "rgba(255,255,255,0.75)" }}
+                  >
+                    Listo para ordenar
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={onCheckout}
+                className="px-5 py-2.5 rounded-xl font-bold text-sm cursor-pointer"
+                style={{ background: "#fff", color: C.mustard }}
+              >
+                Ver carrito →
+              </button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* CÓMO FUNCIONA */}
+      <section
+        className="py-16 sm:py-24 px-5 sm:px-8"
+        style={{ background: dark ? "#0A0805" : C.dark }}
+      >
+        <div className="max-w-5xl mx-auto">
+          <h2
+            className="mb-10"
+            style={{
+              fontFamily: "Montserrat, sans-serif",
+              fontWeight: 800,
+              color: "#FAF3E0",
+              fontSize: "clamp(2rem,6vw,3.5rem)",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            ¿Cómo <span style={{ color: C.mustard }}>funciona?</span>
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            {[
+              {
+                n: "01",
+                t: "Elige tu pedido",
+                d: "Explora el menú y selecciona lo que quieras.",
+              },
+              {
+                n: "02",
+                t: "Lo preparamos",
+                d: "Todo al momento con ingredientes frescos.",
+              },
+              {
+                n: "03",
+                t: "Lo disfrutas",
+                d: "En el local o a tu puerta, siempre caliente.",
+              },
+            ].map((s, i) => (
+              <div
+                key={i}
+                className="p-6 sm:p-8 rounded-2xl"
+                style={{
+                  background: "rgba(250,243,224,0.04)",
+                  border: "1px solid rgba(250,243,224,0.07)",
+                }}
+              >
+                <div
+                  className="font-black text-5xl mb-4"
+                  style={{
+                    fontFamily: "Montserrat, sans-serif",
+                    color: `${C.mustard}22`,
+                  }}
+                >
+                  {s.n}
+                </div>
+                <h3
+                  className="font-semibold text-base mb-2"
+                  style={{ color: "#FAF3E0" }}
+                >
+                  {s.t}
+                </h3>
+                <p
+                  className="text-sm leading-relaxed"
+                  style={{ color: "rgba(250,243,224,0.45)", fontWeight: 300 }}
+                >
+                  {s.d}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* NOSOTROS — expanded */}
+      <section
+        id="nosotros"
+        className="py-16 sm:py-24 px-5 sm:px-8"
+        style={{ background: BG }}
+      >
+        <div className="max-w-7xl mx-auto">
+          <div
+            className="inline-block text-xs font-bold tracking-widest uppercase px-4 py-1.5 rounded-full mb-4"
+            style={{ background: `${C.mustard}12`, color: C.mustard }}
+          >
+            Nuestra Historia
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start mb-12">
+            <div>
+              <h2
+                className="mb-4"
+                style={{
+                  fontFamily: "Montserrat, sans-serif",
+                  fontWeight: 800,
+                  color: TEXT,
+                  fontSize: "clamp(1.8rem,5vw,3rem)",
+                  letterSpacing: "-0.02em",
+                  lineHeight: 1.1,
+                }}
+              >
+                Más que un restaurante,
+                <br />
+                <span style={{ color: C.red }}>somos el parche</span>
+              </h2>
+              <p
+                className="text-base leading-relaxed mb-4"
+                style={{ color: MUTED, fontWeight: 300 }}
+              >
+                Desde 2013, El Parche de las Mini Burguer nació en el corazón de
+                Bello como un pequeño sueño familiar. Hoy somos uno de los
+                puntos de encuentro más queridos del norte del Valle de Aburrá.
+              </p>
+              <p
+                className="text-base leading-relaxed"
+                style={{ color: MUTED, fontWeight: 300 }}
+              >
+                Cada hamburguesa, perro caliente o salchipapa que sale de
+                nuestra cocina lleva el mismo amor y cuidado del primer día.
+                Ingredientes frescos, recetas propias y el calor de siempre.
+              </p>
+            </div>
+            <div className="relative">
+              <img
+                src="https://images.unsplash.com/photo-1554919428-20d72fa44a99?w=700&h=520&fit=crop&auto=format"
+                alt="Interior El Parche"
+                className="rounded-3xl object-cover w-full"
+                style={{ height: "280px" }}
+              />
+              <div
+                className="absolute bottom-4 right-4 p-4 rounded-2xl"
+                style={{ background: C.mustard }}
+              >
+                <div
+                  className="font-black text-2xl text-white"
+                  style={{ fontFamily: "Montserrat, sans-serif" }}
+                >
+                  2013
+                </div>
+                <div className="text-xs text-white opacity-80">
+                  Fundados en Bello
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* Misión, Visión, Valores */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-10">
+            {[
+              {
+                icon: "🎯",
+                title: "Misión",
+                text: "Preparar mini burgers artesanales de alta calidad con ingredientes frescos, llevando sabor y alegría a cada cliente de Bello y sus alrededores.",
+              },
+              {
+                icon: "🚀",
+                title: "Visión",
+                text: "Ser el restaurante de fast food artesanal más querido del norte del Valle de Aburrá para 2026, expandiendo nuestras sedes sin perder la esencia familiar.",
+              },
+              {
+                icon: "💛",
+                title: "Valores",
+                text: "Calidad sin compromisos, honestidad con nuestros clientes, pasión en cada preparación, puntualidad en entregas y servicio cálido y cercano.",
+              },
+            ].map((v) => (
+              <div
+                key={v.title}
+                className="p-6 rounded-2xl"
+                style={{
+                  background: dark
+                    ? "rgba(255,255,255,0.04)"
+                    : "rgba(30,30,30,0.04)",
+                  border: `1px solid ${BORDER}`,
+                }}
+              >
+                <div className="text-3xl mb-3">{v.icon}</div>
+                <h3
+                  className="font-black text-lg mb-2"
+                  style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+                >
+                  {v.title}
+                </h3>
+                <p
+                  className="text-sm leading-relaxed"
+                  style={{ color: MUTED, fontWeight: 300 }}
+                >
+                  {v.text}
+                </p>
+              </div>
+            ))}
+          </div>
+          {/* Equipo */}
+          <h3
+            className="font-black text-xl mb-5"
+            style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+          >
+            Nuestro equipo
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {[
+              {
+                name: "La Familia Fundadora",
+                role: "Dirección General",
+                emoji: "👨‍👩‍👧",
+              },
+              {
+                name: "Equipo de Cocina",
+                role: "Preparación & Calidad",
+                emoji: "👨‍🍳",
+              },
+              {
+                name: "Equipo de Servicio",
+                role: "Atención al cliente",
+                emoji: "🤝",
+              },
+              { name: "Repartidores", role: "Domicilios Express", emoji: "🛵" },
+            ].map((m) => (
+              <div
+                key={m.name}
+                className="p-5 rounded-2xl text-center"
+                style={{
+                  background: dark
+                    ? "rgba(255,255,255,0.04)"
+                    : "rgba(30,30,30,0.04)",
+                }}
+              >
+                <div className="text-4xl mb-2">{m.emoji}</div>
+                <div className="font-bold text-sm" style={{ color: TEXT }}>
+                  {m.name}
+                </div>
+                <div className="text-xs mt-0.5" style={{ color: MUTED }}>
+                  {m.role}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section
+        id="pedidos"
+        className="py-16 sm:py-24 px-5 sm:px-8"
+        style={{ background: dark ? "#0A0805" : C.dark }}
+      >
+        <div className="max-w-xl mx-auto text-center">
+          <h2
+            className="mb-4"
+            style={{
+              fontFamily: "Montserrat, sans-serif",
+              fontWeight: 800,
+              color: "#FAF3E0",
+              fontSize: "clamp(2rem,7vw,3.5rem)",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            ¿Listo para <span style={{ color: C.mustard }}>pedir?</span>
+          </h2>
+          <p
+            className="mb-8 text-base"
+            style={{ color: "rgba(250,243,224,0.48)", fontWeight: 300 }}
+          >
+            Agrega productos al carrito sin necesidad de registro. ¡Pruébalo
+            ahora!
+          </p>
+          <div className="flex flex-wrap gap-3 justify-center">
+            <button
+              onClick={() =>
+                document
+                  .getElementById("menu")
+                  ?.scrollIntoView({ behavior: "smooth" })
+              }
+              className="px-8 py-4 rounded-2xl font-bold text-base cursor-pointer hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Ver el menú
+            </button>
+            {cartCount > 0 && (
+              <button
+                onClick={onCheckout}
+                className="px-8 py-4 rounded-2xl font-bold text-base cursor-pointer"
+                style={{
+                  background: "rgba(255,255,255,0.1)",
+                  border: "1.5px solid rgba(255,255,255,0.25)",
+                  color: "#fff",
+                }}
+              >
+                Mi carrito ({cartCount})
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer
+        id="contacto"
+        className="pt-14 pb-6 px-5 sm:px-8"
+        style={{ background: "#0E0C09" }}
+      >
+        <div className="max-w-7xl mx-auto">
+          <div
+            className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 pb-10"
+            style={{ borderBottom: "1px solid rgba(250,243,224,0.07)" }}
+          >
+            <div className="flex flex-col items-start gap-4">
+              <img
+                src={logoImg}
+                alt="El Parche"
+                className="object-contain"
+                style={{ width: "100px", height: "100px" }}
+              />
+              <div>
+                <div
+                  className="font-black text-xl leading-tight"
+                  style={{
+                    fontFamily: "Montserrat, sans-serif",
+                    color: C.mustard,
+                  }}
+                >
+                  El Parche
+                </div>
+                <div
+                  className="text-sm font-medium"
+                  style={{ color: "rgba(250,243,224,0.4)" }}
+                >
+                  de las Mini Burguer
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                {[
+                  {
+                    href: `https://www.instagram.com/elparchedelasminiburguers`,
+                    bg: "linear-gradient(135deg,#f09433,#e6683c,#dc2743)",
+                    path: "M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z",
+                  },
+                  {
+                    href: `https://wa.me/${WA}`,
+                    bg: "#25D366",
+                    path: "M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z",
+                  },
+                  {
+                    href: "https://www.facebook.com/elparchedelasminiburguers",
+                    bg: "#1877F2",
+                    path: "M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z",
+                  },
+                ].map(({ href, bg, path }) => (
+                  <a
+                    key={href}
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-10 h-10 rounded-full flex items-center justify-center hover:opacity-80"
+                    style={{ background: bg }}
+                  >
+                    <svg
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="white"
+                    >
+                      <path d={path} />
+                    </svg>
+                  </a>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h4
+                className="font-bold text-sm mb-5 uppercase tracking-wider"
+                style={{
+                  fontFamily: "Montserrat, sans-serif",
+                  color: "#FAF3E0",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                Contacto
+              </h4>
+              <ul className="flex flex-col gap-3 text-sm">
+                <li className="flex gap-2.5 items-start">
+                  <span style={{ color: C.amber, marginTop: "2px" }}>📍</span>
+                  <span style={{ color: "rgba(250,243,224,0.45)" }}>
+                    051053, Cra. 58A #42c-28, Bello, Antioquia
+                  </span>
+                </li>
+                <li className="flex gap-2.5 items-center">
+                  <span style={{ color: C.amber }}>📞</span>
+                  <a href="tel:+573206332670" style={{ color: C.amber }}>
+                    320 633 2670
+                  </a>
+                </li>
+                <li className="flex gap-2.5 items-center">
+                  <span style={{ color: C.amber }}>✉️</span>
+                  <a
+                    href="mailto:Elparchedelasminiburguers@gmail.com"
+                    style={{ color: C.amber, fontSize: "0.72rem" }}
+                  >
+                    Elparchedelasminiburguers@gmail.com
+                  </a>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h4
+                className="font-bold text-sm mb-5 uppercase tracking-wider"
+                style={{
+                  fontFamily: "Montserrat, sans-serif",
+                  color: "#FAF3E0",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                Horario
+              </h4>
+              <div
+                className="p-4 rounded-xl"
+                style={{
+                  background: "rgba(250,243,224,0.04)",
+                  border: "1px solid rgba(250,243,224,0.06)",
+                }}
+              >
+                <div className="flex justify-between py-1">
+                  <span
+                    className="text-sm"
+                    style={{ color: "rgba(250,243,224,0.5)" }}
+                  >
+                    Lun – Dom
+                  </span>
+                  <span
+                    className="text-sm font-semibold"
+                    style={{ color: C.amber }}
+                  >
+                    6:00 – 11:30 pm
+                  </span>
+                </div>
+                <div
+                  className="mt-3 pt-3 text-xs"
+                  style={{
+                    color: "rgba(250,243,224,0.3)",
+                    borderTop: "1px solid rgba(250,243,224,0.06)",
+                  }}
+                >
+                  🚀 Domicilio gratis en{" "}
+                  <span style={{ color: C.amber }}>Comuna 3</span>
+                </div>
+              </div>
+            </div>
+            <div>
+              <h4
+                className="font-bold text-sm mb-5 uppercase tracking-wider"
+                style={{
+                  fontFamily: "Montserrat, sans-serif",
+                  color: "#FAF3E0",
+                  letterSpacing: "0.08em",
+                }}
+              >
+                Legal
+              </h4>
+              <ul className="flex flex-col gap-2">
+                <li>
+                  <button
+                    onClick={() => setLegalModal("envios")}
+                    className="text-sm cursor-pointer hover:opacity-70 text-left"
+                    style={{
+                      color: "rgba(250,243,224,0.4)",
+                      background: "none",
+                      border: "none",
+                    }}
+                  >
+                    Política de Envíos
+                  </button>
+                </li>
+                <li>
+                  <button
+                    onClick={() => setLegalModal("legal")}
+                    className="text-sm cursor-pointer hover:opacity-70 text-left"
+                    style={{
+                      color: "rgba(250,243,224,0.4)",
+                      background: "none",
+                      border: "none",
+                    }}
+                  >
+                    Aviso Legal
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </div>
+          <div
+            className="pt-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs"
+            style={{ color: "rgba(250,243,224,0.2)" }}
+          >
+            <span>© 2024 El Parche de las Mini Burguer · Bello, Antioquia</span>
+            <button
+              onClick={onAdmin}
+              style={{
+                color: "rgba(250,243,224,0.18)",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+              }}
+            >
+              Admin
+            </button>
+          </div>
+        </div>
+      </footer>
+
+      {/* WhatsApp bubble */}
+      {waBubble && (
+        <div
+          className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2"
+          style={{ filter: "drop-shadow(0 8px 24px rgba(0,0,0,0.18))" }}
+        >
+          <div
+            className="flex items-center gap-2 px-4 py-3 rounded-2xl rounded-br-sm"
+            style={{
+              background: "#fff",
+              boxShadow: "0 4px 20px rgba(0,0,0,0.12)",
+            }}
+          >
+            <span
+              className="text-sm font-medium flex-1"
+              style={{ color: "#1A1714" }}
+            >
+              ¿Cómo podemos ayudarte? 👋
+            </span>
+            <button
+              onClick={() => setWaBubble(false)}
+              className="w-5 h-5 flex items-center justify-center rounded-full cursor-pointer flex-shrink-0"
+              style={{ background: "rgba(0,0,0,0.07)", color: "#666" }}
+            >
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                strokeLinecap="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+          </div>
+          <a
+            href={`https://wa.me/${WA}?text=Hola%20El%20Parche%2C%20quiero%20hacer%20mi%20pedido`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-14 h-14 rounded-full flex items-center justify-center"
+            style={{
+              background: "#25D366",
+              boxShadow: "0 4px 16px rgba(37,211,102,0.4)",
+            }}
+          >
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+            </svg>
+          </a>
+        </div>
+      )}
+      {!waBubble && (
+        <a
+          href={`https://wa.me/${WA}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full flex items-center justify-center"
+          style={{
+            background: "#25D366",
+            boxShadow: "0 4px 16px rgba(37,211,102,0.4)",
+          }}
+        >
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="white">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+          </svg>
+        </a>
+      )}
+
+      {infoProduct && (
+        <ProductInfoModal
+          product={infoProduct}
+          onClose={() => setInfoProduct(null)}
+          onAddToCart={(p) => {
+            setInfoProduct(null)
+            setAddProduct(p)
+          }}
+          dark={dark}
+        />
+      )}
+      {addProduct && (
+        <AddToCartModal
+          product={addProduct}
+          onClose={() => setAddProduct(null)}
+          onAdd={addToCart}
+          dark={dark}
+        />
+      )}
+
+      {legalModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.65)" }}
+          onClick={() => setLegalModal(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl overflow-hidden"
+            style={{ background: "#fff", maxHeight: "80vh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className="flex items-center justify-between px-6 py-4"
+              style={{ borderBottom: "1px solid rgba(0,0,0,0.08)" }}
+            >
+              <h3 className="font-bold text-base" style={{ color: "#18140A" }}>
+                {legalModal === "envios" ? "Política de Envíos" : "Aviso Legal"}
+              </h3>
+              <button
+                onClick={() => setLegalModal(null)}
+                className="cursor-pointer"
+                style={{ color: "rgba(30,30,30,0.4)" }}
+              >
+                {Ico.x}
+              </button>
+            </div>
+            <div
+              className="px-6 py-5 overflow-y-auto text-sm leading-relaxed"
+              style={{
+                color: "rgba(24,20,10,0.65)",
+                maxHeight: "60vh",
+                scrollbarWidth: "none",
+              }}
+            >
+              {legalModal === "envios" ? (
+                <div className="flex flex-col gap-3">
+                  <p>
+                    Envío gratis en <strong>Comuna 3</strong>. Para otras zonas
+                    se informa el costo antes de confirmar. Tiempo estimado
+                    30–60 minutos en la Comuna 3.
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <p>
+                    El consumo de nuestros productos es responsabilidad del
+                    cliente. Garantizamos calidad e higiene. Prohibida la
+                    reproducción de marca sin autorización.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Admin Panel ────────────────────────────────────────────────────────────────
+type AdminNotification = {
+  id: number
+  type: "warn" | "danger" | "info"
+  title: string
+  message: string
+  module: string
+  time: string
+  target: AdminSection
+}
+
+const ADMIN_NOTIFICATIONS: AdminNotification[] = [
+  {
+    id: 1,
+    type: "warn",
+    title: "Stock bajo",
+    message: "El queso cheddar tiene 12 kg; el mínimo es 15 kg.",
+    module: "Insumos",
+    time: "Hace 5 min",
+    target: "insumos",
+  },
+  {
+    id: 2,
+    type: "danger",
+    title: "Pedido por aprobar",
+    message: "El pedido PED-0195 supera $150.000 y requiere autorización.",
+    module: "Pedidos",
+    time: "Hace 18 min",
+    target: "pedidos",
+  },
+  {
+    id: 3,
+    type: "warn",
+    title: "Reabastecimiento pendiente",
+    message: "La lechuga está en niveles críticos y debe reabastecerse hoy.",
+    module: "Insumos",
+    time: "Hace 42 min",
+    target: "insumos",
+  },
+  {
+    id: 4,
+    type: "info",
+    title: "Fichas técnicas",
+    message: "Hay 3 fichas técnicas pendientes de revisión esta semana.",
+    module: "Productos",
+    time: "Hace 1 h",
+    target: "producto",
+  },
+]
+
+function AdminPanel({
+  onSwitchToClient,
+  user,
+}: {
+  onSwitchToClient: () => void
+  user: User | null
+}) {
+  const [theme, setTheme] = useState<Theme>("light")
+  const [section, setSection] = useState<AdminSection>("dashboard")
+  const [open, setOpen] = useState<string[]>(["ventas-g"])
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [readNotifications, setReadNotifications] = useState<Set<number>>(
+    () => new Set(),
+  )
+  const dropRef = useRef<HTMLDivElement>(null)
+  const notificationsRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const dark = theme === "dark"
+  const t = tk(dark)
+  const unreadNotifications =
+    ADMIN_NOTIFICATIONS.length - readNotifications.size
+
+  const [rows, setRows] = useState<Record<string, (string | number)[][]>>(() => {
+    const initialRows = Object.fromEntries(
+      Object.entries(MOD_CFG).map(([key, config]) => [
+        key,
+        config.seed.map((row) => [...row] as (string | number)[]),
+      ]),
+    ) as Record<string, (string | number)[][]>
+    const supplyProducts = (initialRows.insumos || [])
+      .filter((row) => String(row[7]).toLowerCase() === "sí")
+      .map(supplyAsProduct)
+    initialRows.producto = [...supplyProducts, ...(initialRows.producto || [])]
+    const duplicatedSales = (initialRows.pedidos || [])
+      .filter(
+        (order) =>
+          String(order[8]).toLowerCase() === "pagado" &&
+          !["En camino", "Entregado"].includes(String(order[6])),
+      )
+      .map((order, index) => [
+        `VTA-AUTO-${String(index + 1).padStart(2, "0")}`,
+        "Admin Parche",
+        order[1],
+        order[2],
+        order[3],
+        order[4],
+        order[6],
+        order[6],
+        "Pendiente",
+        order[0],
+        order[6],
+      ])
+    initialRows.ventas = [...duplicatedSales, ...(initialRows.ventas || [])]
+    return initialRows
+  })
+  const [anulled, setAnulled] = useState<Record<string, Set<number>>>({})
+  const [prodImgs, setProdImgs] = useState<Record<number, string>>({})
+  const [paymentProofs, setPaymentProofs] = useState<Record<number, string>>({})
+  const [paymentProofDraft, setPaymentProofDraft] = useState("")
+  const [search, setSearch] = useState<Record<string, string>>({})
+  const [pg, setPg] = useState<Record<string, number>>({})
+  const [modal, setModal] = useState<{
+    mode: ModalMode
+    section: string
+    idx: number | null
+  }>({ mode: null, section: "", idx: null })
+  const [formData, setFormData] = useState<Record<string, string>>({})
+  const [imgPreview, setImgPreview] = useState("")
+  const [pedidoProductoSelect, setPedidoProductoSelect] = useState("")
+  const [productionItems, setProductionItems] = useState<{ name: string; quantity: number }[]>([])
+  const [productionProductSelect, setProductionProductSelect] = useState("")
+  const [productionItemQuantity, setProductionItemQuantity] = useState("1")
+  const [productionFormError, setProductionFormError] = useState("")
+  const [pncTarget, setPncTarget] = useState<number | null>(null)
+  const [pncForm, setPncForm] = useState<Record<string, string>>({})
+  const [pncError, setPncError] = useState("")
+  const [quickClientOpen, setQuickClientOpen] = useState(false)
+  const [quickClientForm, setQuickClientForm] = useState<Record<string, string>>({})
+  const [clientFormError, setClientFormError] = useState("")
+  const [quickClientError, setQuickClientError] = useState("")
+  const [delTarget, setDelTarget] = useState<{
+    section: string
+    idx: number
+  } | null>(null)
+  const [chartFilter, setChartFilter] =
+    useState<"hoy" | "semana" | "mes" | "año">("semana")
+  const [rolesPerms, setRolesPerms] =
+    useState<Record<string, Record<string, string[]>>>({})
+
+  useEffect(() => {
+    const fn = (e: MouseEvent) => {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node))
+        setProfileOpen(false)
+      if (
+        notificationsRef.current &&
+        !notificationsRef.current.contains(e.target as Node)
+      )
+        setNotificationsOpen(false)
+    }
+    document.addEventListener("mousedown", fn)
+    return () => document.removeEventListener("mousedown", fn)
+  }, [])
+
+  const toggleGrp = (k: string) =>
+    setOpen((g) => (g.includes(k) ? g.filter((x) => x !== k) : [...g, k]))
+  const sectionLabel =
+    SIDEBAR_MENU.find((item) => item.key === section)?.label ??
+    SIDEBAR_MENU.flatMap((item) => item.children).find(
+      (child) => child.key === section,
+    )?.label ??
+    ""
+  const markNotificationRead = (id: number) => {
+    setReadNotifications((current) => {
+      if (current.has(id)) return current
+      const next = new Set(current)
+      next.add(id)
+      return next
+    })
+  }
+  const markAllNotificationsRead = () =>
+    setReadNotifications(
+      new Set(ADMIN_NOTIFICATIONS.map((notification) => notification.id)),
+    )
+
+  const getAutoTechVersion = (existingRows: (string | number)[][] = []) => {
+    const versions = existingRows
+      .map((r) => String(r[6] ?? "").trim())
+      .filter(Boolean)
+      .map((value) => {
+        const match = /^v?(\d+)(?:\.(\d+))?$/i.exec(value)
+        if (!match) return null
+        return { major: Number(match[1]), minor: Number(match[2] || "0") }
+      })
+      .filter((item): item is { major: number; minor: number } => item !== null)
+
+    const maxMajor = versions.length
+      ? Math.max(...versions.map((item) => item.major))
+      : 0
+    const maxMinor = versions.filter((item) => item.major === maxMajor).length
+      ? Math.max(
+          ...versions
+            .filter((item) => item.major === maxMajor)
+            .map((item) => item.minor),
+        )
+      : 0
+
+    return `v${maxMajor + 1}.${maxMinor}`
+  }
+
+  const getAvailableInsumos = () => {
+    const sourceRows = rows.insumos || []
+    const options = sourceRows
+      .map((row) => String(row[0] ?? "").trim())
+      .filter(Boolean)
+
+    return [
+      ...new Set(
+        options.length
+          ? options
+          : [
+              "Carne de res 100g",
+              "Queso cheddar",
+              "Pan brioche",
+              "Lechuga",
+              "Salchicha",
+              "Tomate",
+              "Cebolla",
+              "Papas",
+              "Salsa de la casa",
+            ],
+      ),
+    ].sort((a, b) => a.localeCompare(b))
+  }
+
+  const getAvailableProductos = () => {
+    const options = (rows.producto || [])
+      .map((row) => String(row[0] ?? "").trim())
+      .filter(Boolean)
+    return [
+      ...new Set(
+        options.length ? options : PRODUCTS.map((product) => product.name),
+      ),
+    ].sort((a, b) => a.localeCompare(b))
+  }
+
+  const getProductionOrderItems = (row: (string | number)[] | undefined) => {
+    if (!row) return []
+    try {
+      const items = JSON.parse(String(row[13] ?? "[]"))
+      if (Array.isArray(items) && items.length) {
+        return items
+          .map((item) => ({
+            name: String(item.name ?? "").trim(),
+            quantity: Math.max(1, Number(item.quantity) || 1),
+          }))
+          .filter((item) => item.name)
+      }
+    } catch {
+      // Use the legacy single-product fields.
+    }
+    const name = String(row[1] ?? "").trim()
+    return name ? [{ name, quantity: Math.max(1, Number(row[2]) || 1) }] : []
+  }
+
+  const getNonconformingProductOptions = () => {
+    const options = (rows.produccion || [])
+      .map((row) => String(row[1] ?? "").trim())
+      .filter(Boolean)
+    return [...new Set(options)].sort((a, b) => a.localeCompare(b))
+  }
+
+  const getProductSupplyOptions = () =>
+    [...new Set(
+      (rows.producto || [])
+        .filter((product) => product[1] === "Producto de insumo")
+        .map((product) => String(product[0] ?? ""))
+        .filter(Boolean),
+    )].sort((a, b) => a.localeCompare(b))
+
+  const getCurrentDateTimeParts = () => {
+    const now = new Date()
+    return {
+      date: [
+        now.getFullYear(),
+        String(now.getMonth() + 1).padStart(2, "0"),
+        String(now.getDate()).padStart(2, "0"),
+      ].join("-"),
+      time: `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`,
+    }
+  }
+
+  const getNextProductionPriority = (
+    productionRows: (string | number)[][] = rows.produccion || [],
+  ) =>
+    productionRows.length
+      ? Math.max(
+          0,
+          ...productionRows.map((row) => Number(row[3]) || 0),
+        ) + 1
+      : 1
+
+  const getNextProductionCode = (
+    productionRows: (string | number)[][] = rows.produccion || [],
+  ) => {
+    const lastNumber = Math.max(
+      0,
+      ...productionRows.map((row) => {
+        const match = /^OP-(\d+)$/i.exec(String(row[0] ?? ""))
+        return match ? Number(match[1]) : 0
+      }),
+    )
+    return `OP-${String(lastNumber + 1).padStart(4, "0")}`
+  }
+
+  const getNextOrderCode = (
+    orderRows: (string | number)[][] = rows.pedidos || [],
+  ) => {
+    const lastNumber = Math.max(
+      0,
+      ...orderRows.map((row) => {
+        const match = /^PED-(\d+)$/i.exec(String(row[0] ?? ""))
+        return match ? Number(match[1]) : 0
+      }),
+    )
+    return `PED-${String(lastNumber + 1).padStart(4, "0")}`
+  }
+
+  const openAdd = (sec: string) => {
+    const cfg = MOD_CFG[sec]
+    if (!cfg) return
+    const initialFields = Object.fromEntries(
+      cfg.fields.filter((f) => f.type !== "image").map((f) => [f.key, ""]),
+    )
+    if (sec === "producto") {
+      initialFields["6"] = getAutoTechVersion(rows.producto || [])
+    }
+    if (sec === "insumos") {
+      initialFields["7"] = "No"
+    }
+    if (sec === "clientes") {
+      initialFields["6"] = "No"
+      setClientFormError("")
+    }
+    if (sec === "produccion") {
+      const currentDateTime = getCurrentDateTimeParts()
+      setProductionItems([])
+      setProductionProductSelect("")
+      setProductionItemQuantity("1")
+      setProductionFormError("")
+      initialFields["2"] = String(getNextProductionPriority())
+      initialFields["3"] = currentDateTime.date
+      initialFields["4"] = currentDateTime.time
+    }
+    if (sec === "compras") {
+      const today = new Date()
+      const registrationDate = [
+        today.getFullYear(),
+        String(today.getMonth() + 1).padStart(2, "0"),
+        String(today.getDate()).padStart(2, "0"),
+      ].join("-")
+      initialFields["1"] = registrationDate
+      initialFields["2"] = registrationDate
+    }
+    setFormData(initialFields)
+    setPedidoProductoSelect("")
+    setPaymentProofDraft("")
+    setImgPreview("")
+    setModal({ mode: "add", section: sec, idx: null })
+  }
+  const openEdit = (sec: string, idx: number) => {
+    const cfg = MOD_CFG[sec]
+    if (!cfg) return
+    const row = rows[sec][idx]
+    const dataFields = cfg.fields.filter((f) => f.type !== "image")
+    const rowOffset = cfg.autoId ? 1 : 0
+    const nextForm = Object.fromEntries(
+      dataFields.map((field) => {
+        const fieldIndex = Number(field.key)
+        const rowIndex = Number.isFinite(fieldIndex)
+          ? fieldIndex + rowOffset
+          : row.length - 1
+        return [field.key, String(row[rowIndex] ?? "")]
+      }),
+    )
+    if (sec === "clientes") setClientFormError("")
+    if (sec === "produccion") {
+      setProductionItems(getProductionOrderItems(row))
+      setProductionProductSelect("")
+      setProductionItemQuantity("1")
+      setProductionFormError("")
+    }
+    if (sec === "producto" && !nextForm["6"]) {
+      nextForm["6"] = getAutoTechVersion(rows.producto || [])
+    }
+    setFormData(nextForm)
+    setPedidoProductoSelect("")
+    setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
+    setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
+    setModal({ mode: "edit", section: sec, idx })
+  }
+  const openView = (sec: string, idx: number) => {
+    setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
+    setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
+    if (sec === "produccion") {
+      setProductionItems(getProductionOrderItems(rows.produccion?.[idx]))
+      setProductionFormError("")
+    }
+    setModal({ mode: "view", section: sec, idx })
+  }
+
+  const saveModal = () => {
+    const sec = modal.section
+    const config = MOD_CFG[sec]
+    if (!config) return
+
+    if (sec === "produccion" && !productionItems.length) {
+      setProductionFormError("Agrega al menos un producto o producto de insumo.")
+      return
+    }
+    if (
+      sec === "producto-no-conforme" &&
+      !getProductSupplyOptions().includes(String(formData["1"] ?? ""))
+    ) return
+    if (sec === "clientes") {
+      const isLocalClient = String(formData["6"] ?? "").toLowerCase() === "sí"
+      const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
+      const missingField = requiredFields.find(
+        (key) => !String(formData[key] ?? "").trim(),
+      )
+      if (missingField) {
+        setClientFormError(
+          isLocalClient
+            ? "Completa nombre, tipo y número de documento y teléfono."
+            : "Completa todos los campos obligatorios del cliente.",
+        )
+        return
+      }
+    }
+    const previousRow =
+      modal.idx !== null ? rows[sec]?.[modal.idx] : undefined
+    const dataFields = config.fields.filter((field) => field.type !== "image")
+    const newRow: (string | number)[] = []
+
+    dataFields.forEach((field) => {
+      const index = Number(field.key)
+      if (Number.isFinite(index)) newRow[index] = formData[field.key] ?? ""
+      else newRow.push(formData[field.key] ?? "")
+    })
+
+    if (sec === "producto") {
+      newRow[6] =
+        String(formData["6"] || "").trim() ||
+        getAutoTechVersion(rows.producto || [])
+      newRow[7] = String(formData["7"] || "").trim()
+      newRow[8] = String(formData["8"] || "").trim()
+    }
+
+    if (sec === "pedidos") {
+      const total = Number(formData["5"] || 0)
+      newRow[5] = total
+      newRow[6] = "Recibido"
+      newRow[7] = String(formData["7"] || "Pendiente").trim()
+      newRow[8] = "Pendiente admin"
+    }
+
+    if (config.autoId) {
+      const prefix =
+        sec === "produccion"
+          ? "OP"
+          : sec === "ventas"
+            ? "VTA"
+            : sec === "pedidos"
+              ? "PED"
+              : "ID"
+      const generatedId =
+        sec === "produccion"
+          ? getNextProductionCode(rows.produccion || [])
+          : sec === "pedidos"
+            ? getNextOrderCode(rows.pedidos || [])
+            : `${prefix}-${String(Math.floor(Math.random() * 9000) + 1000)}`
+      newRow.unshift(
+        modal.mode === "add" ? generatedId : String(previousRow?.[0] ?? generatedId),
+      )
+    }
+
+    if (sec === "produccion") {
+      const currentDateTime = getCurrentDateTimeParts()
+      newRow[1] = productionItems.map((item) => item.name).join(", ")
+      newRow[2] = productionItems.reduce(
+        (total, item) => total + item.quantity,
+        0,
+      )
+      newRow[13] = JSON.stringify(productionItems)
+      newRow[6] = previousRow?.[6] ?? currentDateTime.date
+      newRow[7] = previousRow?.[7] ?? currentDateTime.time
+      newRow[8] = previousRow?.[8] ?? "Recibida"
+      if (newRow[8] === "Terminado") {
+        newRow[9] = previousRow?.[9] || `${currentDateTime.date} ${currentDateTime.time}`
+        newRow[10] = previousRow?.[10] || 1
+      } else {
+        newRow[9] = ""
+        newRow[10] = 0
+      }
+      newRow[11] =
+        previousRow?.[11] ?? (newRow[8] === "Recibida" ? "No" : "Sí")
+      newRow[12] =
+        previousRow?.[12] ??
+        JSON.stringify([
+          {
+            status: "Recibida",
+            date: currentDateTime.date,
+            time: currentDateTime.time,
+          },
+        ])
+    }
+
+    if (config.statusIndex !== undefined) {
+      const defaultStatus =
+        sec === "cat-insumos" || sec === "cat-producto"
+          ? "Activa"
+          : "Activo"
+      newRow[config.statusIndex] = previousRow?.[config.statusIndex] ?? defaultStatus
+    }
+
+    setRows((current) => {
+      const updated = [...(current[sec] || [])]
+      if (modal.mode === "add") updated.unshift(newRow)
+      else if (modal.mode === "edit" && modal.idx !== null)
+        updated[modal.idx] = newRow
+
+      if (sec === "insumos") {
+        const previousName = String(previousRow?.[0] ?? "")
+        const productRows = (current.producto || []).filter(
+          (product) =>
+            !(
+              product[1] === "Producto de insumo" &&
+              product[0] === previousName
+            ),
+        )
+        if (String(newRow[7]).toLowerCase() === "sí") {
+          const generatedProduct = supplyAsProduct(newRow)
+          const existingIndex = productRows.findIndex(
+            (product) =>
+              product[1] === "Producto de insumo" &&
+              product[0] === generatedProduct[0],
+          )
+          if (existingIndex >= 0) productRows[existingIndex] = generatedProduct
+          else productRows.unshift(generatedProduct)
+        }
+        return { ...current, insumos: updated, producto: productRows }
+      }
+
+      return { ...current, [sec]: updated }
+    })
+    if (sec === "producto" && imgPreview) {
+      const imageIndex = modal.mode === "add" ? 0 : modal.idx!
+      setProdImgs((current) => ({ ...current, [imageIndex]: imgPreview }))
+    }
+    if (sec === "pedidos" && paymentProofDraft) {
+      const proofIndex = modal.mode === "add" ? 0 : modal.idx!
+      setPaymentProofs((current) => ({
+        ...current,
+        [proofIndex]: paymentProofDraft,
+      }))
+    }
+    if (sec === "pedidos" && String(newRow[8]) === "Pagado") {
+      setRows((current) => {
+        const salesRows = [...(current.ventas || [])]
+        if (salesRows.some((sale) => sale[9] === newRow[0])) return current
+        salesRows.unshift([
+          `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
+          "Admin Parche",
+          newRow[1],
+          newRow[2],
+          newRow[3],
+          newRow[4],
+          newRow[6],
+          newRow[6],
+          "Pendiente",
+          newRow[0],
+          newRow[6],
+        ])
+        return { ...current, ventas: salesRows }
+      })
+    }
+    if (sec === "roles" && modal.mode === "add") {
+      setRolesPerms((current) => ({ ...current, [String(newRow[0])]: {} }))
+    }
+    if (sec === "clientes") setClientFormError("")
+    if (sec === "produccion") setProductionFormError("")
+    setModal({ mode: null, section: "", idx: null })
+  }
+
+  const isStatusActive = (value: string | number) => {
+    const status = String(value)
+    return !["Inactivo", "Inactiva", "Anulado", "Anulada"].includes(status)
+  }
+
+  const isStatusLocked = (sec: string, row: (string | number)[]) =>
+    sec === "roles" && String(row[0] ?? "").trim().toLowerCase() === "administrador"
+
+  const toggleStatus = (
+    sec: string,
+    rowIndex: number,
+    statusIndex: number,
+  ) => {
+    const currentRows = rows[sec] || []
+    const currentRow = currentRows[rowIndex]
+    if (!currentRow || isStatusLocked(sec, currentRow)) return
+
+    const currentValue = String(
+      currentRow[statusIndex] ??
+        (sec === "cat-insumos" || sec === "cat-producto"
+          ? "Activa"
+          : "Activo"),
+    )
+    const feminine = currentValue.toLowerCase().endsWith("a")
+    const inactiveStatus =
+      MOD_CFG[sec]?.inactiveStatus ?? (feminine ? "Inactiva" : "Inactivo")
+    const activeStatus = feminine ? "Activa" : "Activo"
+    const nextValue = isStatusActive(currentValue)
+      ? inactiveStatus
+      : activeStatus
+
+    setRows((current) => {
+      const updated = [...(current[sec] || [])]
+      const updatedRow = [...updated[rowIndex]]
+      updatedRow[statusIndex] = nextValue
+      updated[rowIndex] = updatedRow
+
+      if (sec === "insumos" && String(updatedRow[7]).toLowerCase() === "sí") {
+        const productRows = (current.producto || []).map((product) =>
+          product[1] === "Producto de insumo" && product[0] === updatedRow[0]
+            ? (() => {
+                const updatedProduct = [...product]
+                updatedProduct[4] = nextValue
+                return updatedProduct
+              })()
+            : product,
+        )
+        return { ...current, insumos: updated, producto: productRows }
+      }
+
+      return { ...current, [sec]: updated }
+    })
+  }
+
+  const StatusSwitch = ({
+    sec,
+    rowIndex,
+    statusIndex,
+    entityName,
+  }: {
+    sec: string
+    rowIndex: number
+    statusIndex: number
+    entityName: string
+  }) => {
+    const row = rows[sec]?.[rowIndex]
+    if (!row) return null
+    const value = row[statusIndex] ?? "Activo"
+    const active = isStatusActive(value)
+    const label = String(value)
+    const locked = isStatusLocked(sec, row)
+
+    return (
+      <div className="flex max-w-full flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={active}
+          aria-label={`${label} ${entityName}`}
+          title={locked ? "El estado del administrador no se puede cambiar" : label}
+          disabled={locked}
+          onClick={() => toggleStatus(sec, rowIndex, statusIndex)}
+          className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${locked ? "cursor-not-allowed opacity-75" : "cursor-pointer"}`}
+          style={{ background: active ? "#3A6D5E" : dark ? "#4A4E57" : "#C7C4BD" }}
+        >
+          <span
+            className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform"
+            style={{ transform: active ? "translateX(16px)" : "translateX(0)" }}
+          />
+        </button>
+        <span className="text-[10px] font-semibold" style={{ color: active ? "#2E7D60" : C.red }}>{label}</span>
+      </div>
+    )
+  }
+
+  const approveOrderForProduction = (orderIndex: number) => {
+    const order = rows.pedidos?.[orderIndex]
+    const proof = paymentProofs[orderIndex]
+    if (
+      !order ||
+      String(order[8]).toLowerCase() !== "pagado" ||
+      !proof ||
+      String(order[9]) === "Autorizada"
+    ) return
+
+    const currentDateTime = getCurrentDateTimeParts()
+    const availableProducts = getAvailableProductos()
+    const requestedItems = String(order[2] ?? "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => {
+        const product = availableProducts.find((name) =>
+          item.toLowerCase().includes(name.toLowerCase()),
+        )
+        const quantityMatch = item.match(/\b(\d+)\b/)
+        return {
+          product: product || "",
+          quantity: quantityMatch ? Number(quantityMatch[1]) : 1,
+        }
+      })
+      .filter((item) => Boolean(item.product))
+
+    setRows((current) => {
+      const orderRows = [...(current.pedidos || [])]
+      const updatedOrder = [...orderRows[orderIndex]]
+      updatedOrder[9] = "Autorizada"
+      orderRows[orderIndex] = updatedOrder
+
+      const productionRows = [...(current.produccion || [])]
+      let priority = Math.max(
+        0,
+        ...productionRows.map((row) => Number(row[3]) || 0),
+      )
+      requestedItems.forEach((item) => {
+        priority += 1
+        productionRows.unshift([
+          getNextProductionCode(productionRows),
+          item.product,
+          item.quantity,
+          priority,
+          currentDateTime.date,
+          currentDateTime.time,
+          currentDateTime.date,
+          currentDateTime.time,
+          "Iniciada",
+          "",
+          0,
+          "Sí",
+          JSON.stringify([
+            {
+              status: "Iniciada",
+              date: currentDateTime.date,
+              time: currentDateTime.time,
+            },
+          ]),
+          JSON.stringify([{ name: item.product, quantity: item.quantity }]),
+        ])
+      })
+
+      let salesRows = [...(current.ventas || [])]
+      const notShipped = !["En camino", "Entregado"].includes(
+        String(updatedOrder[6]),
+      )
+      const alreadyDuplicated = salesRows.some(
+        (sale) => sale[9] === updatedOrder[0],
+      )
+      if (notShipped && !alreadyDuplicated) {
+        salesRows.unshift([
+          `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
+          "Admin Parche",
+          updatedOrder[1],
+          currentDateTime.date,
+          updatedOrder[3],
+          updatedOrder[4],
+          updatedOrder[6],
+          updatedOrder[6],
+          "Pendiente",
+          updatedOrder[0],
+          updatedOrder[6],
+        ])
+      }
+
+      return {
+        ...current,
+        pedidos: orderRows,
+        produccion: productionRows,
+        ventas: salesRows,
+      }
+    })
+  }
+
+  const saveQuickClient = () => {
+    const isLocalClient = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
+    const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
+    if (requiredFields.some((key) => !String(quickClientForm[key] ?? "").trim())) {
+      setQuickClientError(
+        isLocalClient
+          ? "Completa nombre, tipo y número de documento y teléfono."
+          : "Completa todos los campos obligatorios del cliente.",
+      )
+      return
+    }
+    const name = String(quickClientForm["0"]).trim()
+    const newClient: (string | number)[] = [
+      name,
+      quickClientForm["1"],
+      quickClientForm["2"],
+      quickClientForm["3"],
+      isLocalClient ? "Sí" : "No",
+      quickClientForm["4"] || "",
+      quickClientForm["5"] || "",
+      "Activo",
+    ]
+    setRows((current) => ({
+      ...current,
+      clientes: [newClient, ...(current.clientes || [])],
+    }))
+    setFormData((current) => ({ ...current, "1": name }))
+    setQuickClientForm({})
+    setQuickClientError("")
+    setQuickClientOpen(false)
+  }
+
+  const openProductionPnc = (rowIndex: number) => {
+    const order = rows.produccion?.[rowIndex]
+    if (!order) return
+    const currentDateTime = getCurrentDateTimeParts()
+    const orderItems = getProductionOrderItems(order)
+    setPncForm({
+      "0": String(order[0] ?? ""),
+      "1": orderItems[0]?.name ?? String(order[1] ?? ""),
+      "2": orderItems[0]?.name ?? String(order[1] ?? ""),
+      "3": String(orderItems[0]?.quantity ?? order[2] ?? 1),
+      "4": "Producto perdido",
+      "5": currentDateTime.date,
+    })
+    setPncError("")
+    setPncTarget(rowIndex)
+  }
+
+  const saveProductionPnc = () => {
+    if (pncTarget === null) return
+    const order = rows.produccion?.[pncTarget]
+    if (!order) return
+    const availableProducts = getNonconformingProductOptions()
+    const affectedProduct = String(pncForm["1"] ?? "").trim()
+    if (!availableProducts.includes(affectedProduct)) {
+      setPncError("Solo puedes registrar productos que estén en producción.")
+      return
+    }
+
+    const currentDateTime = getCurrentDateTimeParts()
+    const nextStatus = "Producto no conforme"
+    const pncRecord: (string | number)[] = [
+      pncForm["0"] || order[0],
+      affectedProduct,
+      pncForm["2"] || affectedProduct,
+      Number(pncForm["3"] || order[2] || 1),
+      pncForm["4"] || "Producto perdido",
+      pncForm["5"] || currentDateTime.date,
+    ]
+
+    setRows((current) => {
+      const productionRows = [...(current.produccion || [])]
+      const updatedOrder = [...productionRows[pncTarget]]
+      const history = parseProductionHistory(updatedOrder[12])
+      history.push({
+        status: nextStatus,
+        date: currentDateTime.date,
+        time: currentDateTime.time,
+      })
+      updatedOrder[4] = currentDateTime.date
+      updatedOrder[5] = currentDateTime.time
+      updatedOrder[6] = currentDateTime.date
+      updatedOrder[7] = currentDateTime.time
+      updatedOrder[8] = nextStatus
+      updatedOrder[9] = ""
+      updatedOrder[10] = 0
+      updatedOrder[11] = "Sí"
+      updatedOrder[12] = JSON.stringify(history)
+      productionRows[pncTarget] = updatedOrder
+
+      const nextPriority =
+        Math.max(0, ...productionRows.map((row) => Number(row[3]) || 0)) + 1
+      const restartedOrder: (string | number)[] = [
+        getNextProductionCode(productionRows),
+        updatedOrder[1],
+        updatedOrder[2],
+        nextPriority,
+        currentDateTime.date,
+        currentDateTime.time,
+        currentDateTime.date,
+        currentDateTime.time,
+        "Iniciada",
+        "",
+        0,
+        "Sí",
+        JSON.stringify([
+          {
+            status: "Iniciada",
+            date: currentDateTime.date,
+            time: currentDateTime.time,
+          },
+        ]),
+        updatedOrder[13],
+      ]
+      productionRows.unshift(restartedOrder)
+
+      return {
+        ...current,
+        produccion: productionRows,
+        "producto-no-conforme": [
+          pncRecord,
+          ...(current["producto-no-conforme"] || []),
+        ],
+      }
+    })
+    setPncTarget(null)
+    setPncForm({})
+    setPncError("")
+  }
+
+  const changeProductionStatus = (
+    rowIndex: number,
+    nextStatus: (typeof PRODUCTION_STATUSES)[number],
+  ) => {
+    setRows((current) => {
+      const productionRows = [...(current.produccion || [])]
+      const currentRow = productionRows[rowIndex]
+      if (!currentRow) return current
+
+      const currentDateTime = getCurrentDateTimeParts()
+      const updatedRow = [...currentRow]
+      updatedRow[4] = currentDateTime.date
+      updatedRow[5] = currentDateTime.time
+      updatedRow[6] = currentDateTime.date
+      updatedRow[7] = currentDateTime.time
+      updatedRow[8] = nextStatus
+      let history: { status: string; date: string; time: string }[] = []
+      try {
+        const storedHistory = JSON.parse(String(currentRow[12] ?? "[]"))
+        if (Array.isArray(storedHistory)) history = storedHistory
+      } catch {
+        history = []
+      }
+      history.push({
+        status: nextStatus,
+        date: currentDateTime.date,
+        time: currentDateTime.time,
+      })
+      updatedRow[12] = JSON.stringify(history)
+      updatedRow[11] =
+        nextStatus !== "Recibida" || String(currentRow[11]).toLowerCase() === "sí"
+          ? "Sí"
+          : "No"
+
+      if (nextStatus === "Terminado") {
+        if (currentRow[8] !== "Terminado") {
+          updatedRow[9] = `${currentDateTime.date} ${currentDateTime.time}`
+          const lastDeparture = Math.max(
+            0,
+            ...productionRows.map((row) => Number(row[10]) || 0),
+          )
+          updatedRow[10] = lastDeparture + 1
+        }
+      } else {
+        updatedRow[9] = ""
+        updatedRow[10] = 0
+      }
+      productionRows[rowIndex] = updatedRow
+
+      if (nextStatus === "Producto no conforme") {
+        const newPriority =
+          Math.max(0, ...productionRows.map((row) => Number(row[3]) || 0)) + 1
+        const newOrderCode = getNextProductionCode(productionRows)
+        const restartedOrder: (string | number)[] = [
+          newOrderCode,
+          updatedRow[1],
+          updatedRow[2],
+          newPriority,
+          currentDateTime.date,
+          currentDateTime.time,
+          currentDateTime.date,
+          currentDateTime.time,
+          "Iniciada",
+          "",
+          0,
+          "Sí",
+          JSON.stringify([
+            { status: "Iniciada", date: currentDateTime.date, time: currentDateTime.time },
+          ]),
+          updatedRow[13],
+        ]
+        productionRows.unshift(restartedOrder)
+      }
+
+      return { ...current, produccion: productionRows }
+    })
+  }
+
+  const ProductionStatusSelect = ({ rowIndex }: { rowIndex: number }) => {
+    const value = String(
+      rows.produccion?.[rowIndex]?.[8] ?? "Recibida",
+    ) as (typeof PRODUCTION_STATUSES)[number]
+    const statusColor =
+      value === "Producto no conforme"
+        ? C.red
+        : value === "Terminado"
+          ? "#2E7D60"
+          : value === "En cocina"
+            ? C.mustard
+            : t.text
+    return (
+      <div className="relative w-full min-w-0 max-w-[180px]">
+        <span
+          className="pointer-events-none absolute left-2.5 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
+          style={{ background: statusColor, boxShadow: `0 0 0 3px ${statusColor}18` }}
+        />
+        <span className="pointer-events-none absolute right-2 top-1/2 flex -translate-y-1/2 items-center" style={{ color: t.muted }}>
+          {Ico.chevDown}
+        </span>
+        <select
+          value={value}
+          title="Cambiar estado de producción"
+          aria-label="Estado de la orden de producción"
+          onChange={(event) => {
+            const nextStatus = event.target.value as (typeof PRODUCTION_STATUSES)[number]
+            if (nextStatus === "Producto no conforme") {
+              openProductionPnc(rowIndex)
+              return
+            }
+            changeProductionStatus(rowIndex, nextStatus)
+          }}
+          className="h-9 w-full min-w-0 appearance-none rounded-xl py-2 pl-7 pr-7 text-xs font-semibold outline-none cursor-pointer"
+          style={{
+            background: value === "Producto no conforme" ? `${C.red}10` : value === "Terminado" ? "rgba(58,109,94,0.10)" : t.input,
+            border: `1px solid ${value === "Producto no conforme" ? `${C.red}30` : t.inputB}`,
+            color: statusColor,
+            fontFamily: "Poppins, sans-serif",
+          }}
+        >
+          {PRODUCTION_STATUSES.map((status) => (
+            <option key={status} value={status}>{status}</option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  const doAnul = (sec: string, idx: number) => {
+    setAnulled((a) => {
+      const s = new Set(a[sec] || [])
+      s.add(idx)
+      return { ...a, [sec]: s }
+    })
+    setRows((r) => {
+      const u = [...(r[sec] || [])]
+      const row = [...u[idx]]
+      const lastIdx = row.length - 1
+      if (
+        typeof row[lastIdx] === "string" &&
+        (row[lastIdx] === "Activo" ||
+          row[lastIdx] === "Activa" ||
+          row[lastIdx] === "Completada")
+      )
+        row[lastIdx] = "Inactivo"
+      u[idx] = row
+      return { ...r, [sec]: u }
+    })
+  }
+  const reactivate = (sec: string, idx: number) => {
+    setAnulled((a) => {
+      const s = new Set(a[sec] || [])
+      s.delete(idx)
+      return { ...a, [sec]: s }
+    })
+    setRows((r) => {
+      const u = [...(r[sec] || [])]
+      const row = [...u[idx]]
+      const lastIdx = row.length - 1
+      if (typeof row[lastIdx] === "string") row[lastIdx] = "Activo"
+      u[idx] = row
+      return { ...r, [sec]: u }
+    })
+  }
+  const confirmDelete = () => {
+    if (!delTarget) return
+    setRows((r) => {
+      const u = [...(r[delTarget.section] || [])]
+      u.splice(delTarget.idx, 1)
+      return { ...r, [delTarget.section]: u }
+    })
+    setDelTarget(null)
+  }
+  const handleFile = (file: File) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      if (e.target?.result) setImgPreview(e.target.result as string)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const parsePurchaseItems = (value: string | number | undefined) =>
+    String(value ?? "")
+      .split(/\n|;/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [name, quantity, unitPrice] = line.split("|").map((part) => part.trim())
+        const parsedQuantity = Number(quantity || 0)
+        const parsedUnitPrice = Number(unitPrice || 0)
+        return {
+          name: name || "Producto",
+          quantity: quantity || "0",
+          unitPrice,
+          total: parsedQuantity * parsedUnitPrice,
+        }
+      })
+
+  const parseProductionHistory = (
+    value: string | number | undefined,
+  ): { status: string; date: string; time: string }[] => {
+    try {
+      const history = JSON.parse(String(value ?? "[]"))
+      return Array.isArray(history)
+        ? (history as { status: string; date: string; time: string }[])
+        : []
+    } catch {
+      return []
+    }
+  }
+
+  const PAGE_SIZE = 6
+
+  // Dashboard data
+  const now = new Date()
+  const weekLabels = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(now)
+    d.setDate(d.getDate() - (6 - i))
+    return d.toLocaleDateString("es-CO", { weekday: "short" })
+  })
+  const getWeekRanges = () => {
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const weeks: string[] = []
+    let d = new Date(monthStart)
+    let wn = 1
+    while (d.getMonth() === now.getMonth()) {
+      const start = d.getDate()
+      const end = Math.min(
+        start + 6,
+        new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(),
+      )
+      const mes = now.toLocaleDateString("es-CO", { month: "short" })
+      weeks.push(`Sem ${wn} (${start}-${end} ${mes})`)
+      d.setDate(d.getDate() + 7)
+      wn++
+    }
+    return weeks
+  }
+  const CHART_DATA: Record<string, {
+    labels: string[]
+    values: number[]
+    values2: number[]
+  }> = {
+    hoy: {
+      labels: ["8am", "10am", "12pm", "2pm", "4pm", "6pm", "8pm", "10pm"],
+      values: [12, 28, 65, 87, 54, 92, 74, 38],
+      values2: [5, 8, 12, 15, 9, 18, 11, 6],
+    },
+    semana: {
+      labels: weekLabels,
+      values: [55, 73, 61, 88, 72, 95, 64],
+      values2: [8, 12, 5, 15, 10, 6, 9],
+    },
+    mes: {
+      labels: getWeekRanges(),
+      values: [68, 82, 75, 91],
+      values2: [12, 8, 15, 10],
+    },
+    año: {
+      labels: [
+        "Ene",
+        "Feb",
+        "Mar",
+        "Abr",
+        "May",
+        "Jun",
+        "Jul",
+        "Ago",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dic",
+      ],
+      values: [55, 70, 65, 80, 75, 90, 85, 70, 65, 80, 88, 95],
+      values2: [10, 12, 8, 15, 11, 9, 13, 10, 8, 12, 9, 11],
+    },
+  }
+  const chart = CHART_DATA[chartFilter]
+
+  const TOP = [
+    { name: "Mini", units: 284, pct: 100 },
+    { name: "Salchipapa Sencilla", units: 241, pct: 85 },
+    { name: "Mediano (Perro)", units: 198, pct: 70 },
+    { name: "Super Gourmet", units: 167, pct: 59 },
+    { name: "Mega Gourmet", units: 143, pct: 50 },
+  ]
+  const KPI = [
+    {
+      icon: Ico.cash,
+      label: "Ventas hoy",
+      val: "$420.000",
+      badge: "+12%",
+      good: true,
+    },
+    { icon: Ico.orders, label: "Pedidos", val: "18", badge: "+8%", good: true },
+    {
+      icon: Ico.users,
+      label: "Clientes nuevos",
+      val: "7",
+      badge: "+15%",
+      good: true,
+    },
+    {
+      icon: Ico.undo,
+      label: "Devoluciones",
+      val: "2",
+      badge: "-2",
+      good: false,
+    },
+  ]
+  const ALERTS = ADMIN_NOTIFICATIONS
+  const RETURN_REASONS = [
+    { label: "Tiempo superado", pct: 45 },
+    { label: "Pedido incompleto", pct: 30 },
+    { label: "Ingrediente incorrecto", pct: 15 },
+    { label: "Otro", pct: 10 },
+  ]
+
+  const Dashboard = () => (
+    <div className="min-w-0 space-y-5">
+      <div className="flex items-start gap-4">
+        <div className="flex-1">
+          <h2 className="font-semibold text-lg" style={{ color: t.text }}>
+            Bienvenido, {user?.name?.split(" ")[0] ?? "Admin"}
+          </h2>
+          <p className="text-xs mt-0.5 capitalize" style={{ color: t.muted }}>
+            {new Date().toLocaleDateString("es-CO", {
+              weekday: "long",
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+            })}
+          </p>
+        </div>
+      </div>
+
+      {/* KPI */}
+      <div className="grid min-w-0 grid-cols-2 gap-4 xl:grid-cols-4">
+        {KPI.map(({ icon, label, val, badge, good }) => (
+          <div
+            key={label}
+            className="min-w-0 rounded-2xl p-5"
+            style={{ background: t.card, border: `1px solid ${t.border}` }}
+          >
+            <div className="flex items-start justify-between mb-3">
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center"
+                style={{ background: t.input, color: C.mustard }}
+              >
+                {icon}
+              </div>
+              <span
+                className="text-xs font-bold px-2 py-0.5 rounded-full"
+                style={{
+                  background: good
+                    ? "rgba(58,109,94,0.15)"
+                    : "rgba(165,65,49,0.12)",
+                  color: good ? "#2E7D60" : C.red,
+                }}
+              >
+                {badge}
+              </span>
+            </div>
+            <div
+              className="break-words font-black text-xl sm:text-2xl"
+              style={{ fontFamily: "Montserrat, sans-serif", color: t.text }}
+            >
+              {val}
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: t.muted }}>
+              {label}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Charts row */}
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_260px]">
+        {/* Sales vs Losses */}
+        <div
+          className="min-w-0 rounded-2xl p-5"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+        >
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="font-semibold text-sm" style={{ color: t.text }}>
+                Ventas vs Pérdidas
+              </div>
+              <div className="flex items-center gap-3 mt-1">
+                <div className="flex items-center gap-1">
+                  <div
+                    className="w-2.5 h-2.5 rounded-sm"
+                    style={{ background: "#2E7D60" }}
+                  />
+                  <span className="text-xs" style={{ color: t.muted }}>
+                    Ventas
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div
+                    className="w-2.5 h-2.5 rounded-sm"
+                    style={{ background: "#A54131" }}
+                  />
+                  <span className="text-xs" style={{ color: t.muted }}>
+                    Pérdidas
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div
+              className="flex max-w-full flex-wrap gap-1 rounded-lg p-0.5"
+              style={{ background: t.input, border: `1px solid ${t.border}` }}
+            >
+              {(["hoy", "semana", "mes", "año"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setChartFilter(f)}
+                  className="px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer capitalize"
+                  style={{
+                    background: chartFilter === f ? C.mustard : "transparent",
+                    color: chartFilter === f ? "#fff" : t.muted,
+                  }}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* KPI row */}
+          <div className="grid grid-cols-4 gap-2 mb-3">
+            {[
+              ["Ventas totales", "$1.2M", "#2E7D60"],
+              ["Pérdidas", "$48K", "#A54131"],
+              ["Margen neto", "96%", "#2E7D60"],
+              ["Promedio en dinero", "$18.2K", C.mustard],
+            ].map(([lbl, val, col]) => (
+              <div
+                key={String(lbl)}
+                className="px-2 py-2 rounded-xl text-center"
+                style={{ background: t.input }}
+              >
+                <div
+                  className="font-black text-sm"
+                  style={{
+                    fontFamily: "Montserrat,sans-serif",
+                    color: String(col),
+                  }}
+                >
+                  {val}
+                </div>
+                <div
+                  className="text-xs mt-0.5"
+                  style={{ color: t.muted, fontSize: "0.58rem" }}
+                >
+                  {lbl}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="relative" style={{ height: "140px" }}>
+            <div className="absolute inset-0 flex items-end gap-1">
+              {chart.values.map((v, i) => {
+                const max = Math.max(...chart.values, ...chart.values2) * 1.1
+                const hV = Math.round((v / max) * 120)
+                const hL = Math.round((chart.values2[i] / max) * 120)
+                const valLabel =
+                  v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`
+                const lossLabel =
+                  chart.values2[i] >= 1000
+                    ? `$${Math.round(chart.values2[i] / 1000)}k`
+                    : `$${chart.values2[i]}`
+                return (
+                  <div
+                    key={i}
+                    className="flex-1 flex flex-col items-center gap-0.5"
+                  >
+                    <div
+                      className="flex items-end gap-0.5 w-full"
+                      style={{ height: "120px" }}
+                    >
+                      <div className="flex-1 flex flex-col items-center justify-end">
+                        <span
+                          style={{
+                            fontSize: "0.5rem",
+                            color: "#2E7D60",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {valLabel}
+                        </span>
+                        <div
+                          style={{
+                            width: "100%",
+                            height: `${hV}px`,
+                            background: "#2E7D60",
+                            borderRadius: "3px 3px 0 0",
+                            minHeight: "4px",
+                          }}
+                        />
+                      </div>
+                      <div className="flex-1 flex flex-col items-center justify-end">
+                        <span
+                          style={{
+                            fontSize: "0.5rem",
+                            color: "#A54131",
+                            fontWeight: 700,
+                          }}
+                        >
+                          {lossLabel}
+                        </span>
+                        <div
+                          style={{
+                            width: "100%",
+                            height: `${hL}px`,
+                            background: "#A54131",
+                            borderRadius: "3px 3px 0 0",
+                            minHeight: "4px",
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <span
+                      style={{
+                        color: t.subtle,
+                        fontSize: "0.5rem",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        maxWidth: "40px",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {chart.labels[i]}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+        {/* Top products */}
+        <div
+          className="min-w-0 rounded-2xl p-5"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <span style={{ color: C.amber }}>{Ico.fire}</span>
+            <div className="font-semibold text-sm" style={{ color: t.text }}>
+              Más vendidos
+            </div>
+          </div>
+          <div className="space-y-3">
+            {TOP.map((p, i) => (
+              <div key={p.name}>
+                <div className="flex items-center justify-between mb-1">
+                  <span
+                    className="text-xs font-bold"
+                    style={{ color: i === 0 ? C.mustard : t.subtle }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span
+                    className="text-xs flex-1 mx-2 truncate"
+                    style={{ color: t.text }}
+                  >
+                    {p.name}
+                  </span>
+                  <span className="text-xs" style={{ color: t.muted }}>
+                    {p.units}
+                  </span>
+                </div>
+                <div
+                  className="w-full rounded-full h-1.5"
+                  style={{ background: t.input }}
+                >
+                  <div
+                    className="h-1.5 rounded-full"
+                    style={{
+                      width: `${p.pct}%`,
+                      background: i === 0 ? C.mustard : "rgba(182,140,28,0.35)",
+                    }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom row */}
+      <div className="grid min-w-0 gap-5 lg:grid-cols-3">
+        {/* Production times */}
+        <div
+          className="min-w-0 rounded-2xl p-5"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <span style={{ color: "#4FC3F7" }}>{Ico.clock}</span>
+            <div className="font-semibold text-sm" style={{ color: t.text }}>
+              Tiempos en producción
+            </div>
+          </div>
+          <div className="space-y-3">
+            {[
+              ["Tiempo promedio", "14 min", true],
+              ["Órdenes a tiempo", "87%", true],
+              ["Órdenes retrasadas", "3", false],
+              ["Tiempo por orden", "11 min", true],
+            ].map(([lbl, val, good]) => (
+              <div
+                key={String(lbl)}
+                className="flex items-center justify-between"
+              >
+                <span className="text-xs" style={{ color: t.muted }}>
+                  {lbl}
+                </span>
+                <span
+                  className="text-sm font-bold"
+                  style={{ color: good ? "#2E7D60" : C.red }}
+                >
+                  {val}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Return reasons */}
+        <div
+          className="min-w-0 rounded-2xl p-5"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <span style={{ color: C.red }}>{Ico.undo}</span>
+            <div className="font-semibold text-sm" style={{ color: t.text }}>
+              Motivos de devolución
+            </div>
+          </div>
+          <div className="space-y-2.5">
+            {RETURN_REASONS.map((r) => (
+              <div key={r.label}>
+                <div className="flex justify-between mb-1">
+                  <span className="text-xs" style={{ color: t.muted }}>
+                    {r.label}
+                  </span>
+                  <span className="text-xs font-bold" style={{ color: t.text }}>
+                    {r.pct}%
+                  </span>
+                </div>
+                <div
+                  className="h-1.5 rounded-full w-full"
+                  style={{ background: t.input }}
+                >
+                  <div
+                    className="h-1.5 rounded-full"
+                    style={{ width: `${r.pct}%`, background: C.red }}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Annual performance */}
+        <div
+          className="min-w-0 rounded-2xl p-5"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <span style={{ color: C.mustard }}>{Ico.trending}</span>
+            <div className="font-semibold text-sm" style={{ color: t.text }}>
+              Desempeño anual
+            </div>
+          </div>
+          <div className="space-y-3">
+            {[
+              ["Ventas este año", "$12.4M", "+23% vs año anterior"],
+              ["Mejor mes", "Diciembre", "$1.8M"],
+              ["Mejor categoría", "Hamburguesas", "41% de ventas"],
+              ["Promedio en dinero", "$18.200", "+$800 vs mes ant."],
+            ].map(([lbl, val, sub]) => (
+              <div key={String(lbl)}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs" style={{ color: t.muted }}>
+                    {lbl}
+                  </span>
+                  <span className="text-sm font-bold" style={{ color: t.text }}>
+                    {val}
+                  </span>
+                </div>
+                <div className="text-xs" style={{ color: t.subtle }}>
+                  {sub}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="mt-5 rounded-2xl overflow-hidden"
+        style={{ background: t.card, border: `1px solid ${t.border}` }}
+      >
+        <div
+          className="flex items-center gap-2 px-4 py-3"
+          style={{ borderBottom: `1px solid ${t.border}` }}
+        >
+          <span style={{ color: C.red }}>{Ico.bell}</span>
+          <span
+            className="text-xs font-bold uppercase tracking-wide"
+            style={{ color: t.text }}
+          >
+            Alertas del admin
+          </span>
+          <span
+            className="ml-auto text-xs px-2 py-0.5 rounded-full font-bold"
+            style={{ background: `${C.red}20`, color: C.red }}
+          >
+            {ALERTS.length}
+          </span>
+        </div>
+        <div className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-4">
+          {ALERTS.map((a) => (
+            <button
+              key={a.id}
+              onClick={() => {
+                markNotificationRead(a.id)
+                setSection(a.target)
+              }}
+              className="flex items-start gap-3 rounded-xl p-3 text-left cursor-pointer"
+              style={{ background: t.input, border: `1px solid ${t.border}` }}
+            >
+              <span
+                className="mt-0.5 flex-shrink-0"
+                style={{
+                  color:
+                    a.type === "danger"
+                      ? C.red
+                      : a.type === "warn"
+                        ? C.mustard
+                        : "#4FC3F7",
+                }}
+              >
+                {Ico.alert}
+              </span>
+              <span className="min-w-0">
+                <span
+                  className="block text-xs font-semibold"
+                  style={{ color: t.text }}
+                >
+                  {a.title}
+                </span>
+                <span
+                  className="block text-xs leading-snug break-words"
+                  style={{ color: t.muted }}
+                >
+                  {a.message}
+                </span>
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+
+  const GenericTable = () => {
+    const cfg = MOD_CFG[section]
+    if (!cfg) return null
+
+    const isProducto = section === "producto"
+    const noDelete = !!cfg.noDelete
+    const noExp = !!cfg.noExport
+    const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))
+    const sRows = section === "produccion"
+      ? indexedRows.sort((first, second) => {
+          const statusOrder: Record<string, number> = {
+            Recibida: 0,
+            Iniciada: 1,
+            "En cocina": 2,
+            Terminado: 3,
+            "Producto no conforme": 4,
+          }
+          const statusDifference =
+            (statusOrder[String(first.row[8])] ?? 9) -
+            (statusOrder[String(second.row[8])] ?? 9)
+          if (statusDifference !== 0) return statusDifference
+          if (String(first.row[8]) === "Terminado") {
+            return (Number(first.row[10]) || 0) - (Number(second.row[10]) || 0)
+          }
+          return (Number(first.row[3]) || 0) - (Number(second.row[3]) || 0)
+        })
+      : indexedRows
+    const q = (search[section] || "").toLowerCase()
+    const filtered = sRows.filter(
+        ({ row }) =>
+          !q || row.some((cell) => String(cell).toLowerCase().includes(q)),
+      )
+    const cur = pg[section] || 0
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+    const pageRows = filtered.slice(cur * PAGE_SIZE, (cur + 1) * PAGE_SIZE)
+    const setP = (page: number) =>
+      setPg((current) => ({ ...current, [section]: page }))
+    const anulSet = anulled[section] || new Set<number>()
+    const visibleColumns = cfg.columns.filter(
+      (_, index) => !(isProducto && index === 0),
+    )
+    const getDisplayCellIndexes = (row: (string | number)[]) =>
+      isProducto
+        ? [0, 1, 2, 4]
+        : row
+            .map((_, index) => index)
+            .filter((index) => !cfg.hiddenCellIndexes?.includes(index))
+    const getDisplayCells = (row: (string | number)[]) =>
+      getDisplayCellIndexes(row).map((index) => row[index])
+    const columnCount = Math.max(
+      visibleColumns.length,
+      ...pageRows.map(({ row }) => getDisplayCells(row).length),
+      1,
+    )
+
+    const exportRows = () => {
+      const csvCell = (value: string | number) =>
+        `"${String(value).replace(/"/g, '""')}"`
+      const exportData = filtered.map(({ row }) => getDisplayCells(row))
+      const csv = [visibleColumns, ...exportData]
+        .map((line) => line.map(csvCell).join(","))
+        .join("\n")
+      const blob = new Blob(["\ufeff" + csv], {
+        type: "text/csv;charset=utf-8;",
+      })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement("a")
+      link.href = url
+      link.download = `${section}.csv`
+      link.click()
+      URL.revokeObjectURL(url)
+    }
+
+    const renderCellValue = (
+      cell: string | number,
+      primary = false,
+      isLow = false,
+    ) => {
+      const badge = badgeSt(cell)
+      const color = isLow ? C.red : primary ? t.text : t.muted
+      if (badge) {
+        return (
+          <span
+            className="inline-block max-w-full rounded-full px-2 py-1 text-[10px] font-semibold leading-tight break-words [overflow-wrap:anywhere]"
+            style={{ background: badge.bg, color: badge.color }}
+          >
+            {cell}
+          </span>
+        )
+      }
+      return <span style={{ color }}>{String(cell)}</span>
+    }
+
+    const renderStatusControl = (rowIndex: number, rowCellIndex: number) => {
+      if (cfg.statusIndex === undefined || rowCellIndex !== cfg.statusIndex) {
+        return null
+      }
+      if (section === "produccion") {
+        return <ProductionStatusSelect rowIndex={rowIndex} />
+      }
+      return (
+        <StatusSwitch
+          sec={section}
+          rowIndex={rowIndex}
+          statusIndex={cfg.statusIndex}
+          entityName={String(rows[section]?.[rowIndex]?.[0] ?? "registro")}
+        />
+      )
+    }
+
+    const renderActions = (rowIndex: number, isAnulled: boolean) => {
+      const detailActionLabel = section === "compras" ? "Ver compra" : "Ver detalle"
+      const purchaseStatus =
+        section === "compras" && cfg.statusIndex !== undefined
+          ? String(rows[section]?.[rowIndex]?.[cfg.statusIndex] ?? "Activo")
+          : ""
+      const purchaseIsActive = isStatusActive(purchaseStatus)
+      const productionStatus = String(
+        section === "produccion"
+          ? rows.produccion?.[rowIndex]?.[8] ?? "Recibida"
+          : "",
+      )
+      const deleteBlocked =
+        section === "produccion" &&
+        (productionStatus !== "Recibida" ||
+          String(rows.produccion?.[rowIndex]?.[11] ?? "No").toLowerCase() === "sí")
+      const deleteButton = (
+        <button
+          type="button"
+          title={deleteBlocked ? "La orden ya se inició y no se puede eliminar" : "Eliminar"}
+          aria-label={deleteBlocked ? "Eliminación bloqueada" : "Eliminar"}
+          disabled={deleteBlocked}
+          onClick={() => {
+            if (!deleteBlocked) setDelTarget({ section, idx: rowIndex })
+          }}
+          className={`flex h-7 w-7 items-center justify-center rounded-lg ${deleteBlocked ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:opacity-80"}`}
+          style={{ color: C.red, background: `${C.red}12` }}
+        >
+          {Ico.trash}
+        </button>
+      )
+
+      return (
+        <div className="flex flex-shrink-0 items-center justify-end gap-1">
+          <button
+            type="button"
+            title={detailActionLabel}
+            aria-label={detailActionLabel}
+            onClick={() => openView(section, rowIndex)}
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+            style={{ color: C.amber, background: `${C.amber}15` }}
+          >
+            {Ico.eye}
+          </button>
+          {!isAnulled && (
+            <button
+              type="button"
+              title="Editar"
+              aria-label="Editar"
+              onClick={() => openEdit(section, rowIndex)}
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+              style={{ color: C.mustard, background: `${C.mustard}15` }}
+            >
+              {Ico.edit}
+            </button>
+          )}
+          {section === "compras" && cfg.statusIndex !== undefined && (
+            <button
+              type="button"
+              title={purchaseIsActive ? "Anular" : "Reactivar"}
+              aria-label={purchaseIsActive ? "Anular" : "Reactivar"}
+              onClick={() => toggleStatus(section, rowIndex, cfg.statusIndex!)}
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+              style={{ color: purchaseIsActive ? C.red : "#2E7D60", background: purchaseIsActive ? `${C.red}12` : "rgba(46,125,96,0.12)" }}
+            >
+              {purchaseIsActive ? Ico.ban : Ico.undo}
+            </button>
+          )}
+          {cfg.statusIndex !== undefined ? (
+            !noDelete && deleteButton
+          ) : noDelete ? (
+            isAnulled ? (
+              <button
+                type="button"
+                title="Reactivar"
+                aria-label="Reactivar"
+                onClick={() => reactivate(section, rowIndex)}
+                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+              >
+                {Ico.undo}
+              </button>
+            ) : (
+              <button
+                type="button"
+                title="Anular"
+                aria-label="Anular"
+                onClick={() => doAnul(section, rowIndex)}
+                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                style={{ color: C.red, background: `${C.red}12` }}
+              >
+                {Ico.ban}
+              </button>
+            )
+          ) : (
+            deleteButton
+          )}
+        </div>
+      )
+    }
+
+    return (
+      <div className="min-w-0">
+        <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
+          <div
+            className="flex w-full min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 sm:w-auto"
+            style={{ background: t.input, border: `1px solid ${t.inputB}` }}
+          >
+            <span className="flex-shrink-0" style={{ color: t.muted }}>
+              {Ico.search}
+            </span>
+            <input
+              placeholder="Buscar..."
+              value={search[section] || ""}
+              onChange={(event) => {
+                setSearch((current) => ({
+                  ...current,
+                  [section]: event.target.value,
+                }))
+                setP(0)
+              }}
+              className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+              style={{ color: t.text }}
+            />
+            {search[section] && (
+              <button
+                type="button"
+                aria-label="Limpiar búsqueda"
+                onClick={() => {
+                  setSearch((current) => ({ ...current, [section]: "" }))
+                  setP(0)
+                }}
+                className="flex-shrink-0 cursor-pointer"
+                style={{ color: t.muted }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {!noExp && (
+            <button
+              type="button"
+              onClick={exportRows}
+              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs cursor-pointer"
+              style={{
+                background: t.input,
+                border: `1px solid ${t.inputB}`,
+                color: t.muted,
+              }}
+            >
+              {Ico.download} Exportar
+            </button>
+          )}
+          {section === "ventas" && (
+            <button
+              type="button"
+              onClick={() => {
+                setSection("devoluciones")
+                setSidebarOpen(false)
+                openAdd("devoluciones")
+              }}
+              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold cursor-pointer"
+              style={{ background: `${C.red}12`, color: C.red }}
+            >
+              {Ico.undo} Nueva devolución
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => openAdd(section)}
+            className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold cursor-pointer hover:opacity-90"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            {Ico.plus} Nuevo
+          </button>
+        </div>
+
+        <div
+          className="min-w-0 overflow-hidden rounded-2xl"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+        >
+          <div className="hidden min-[1180px]:block">
+            <table className="w-full table-fixed text-xs">
+              <colgroup>
+                {isProducto && <col style={{ width: "60px" }} />}
+                {Array.from({ length: columnCount }, (_, index) => (
+                  <col key={index} />
+                ))}
+                <col style={{ width: "108px" }} />
+              </colgroup>
+              <thead>
+                <tr
+                  style={{
+                    borderBottom: `1px solid ${t.border}`,
+                    background: t.cardAlt,
+                  }}
+                >
+                  {isProducto && (
+                    <th
+                      scope="col"
+                      className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-wide"
+                      style={{ color: t.muted }}
+                    >
+                      Img
+                    </th>
+                  )}
+                  {Array.from({ length: columnCount }, (_, index) => (
+                    <th
+                      key={index}
+                      scope="col"
+                      className="px-2 py-3 text-left align-top text-[10px] font-bold uppercase leading-tight tracking-wide break-words [overflow-wrap:anywhere]"
+                      style={{ color: t.muted }}
+                    >
+                      {visibleColumns[index] || `Dato ${index + 1}`}
+                    </th>
+                  ))}
+                  <th
+                    scope="col"
+                    className="px-2 py-3 text-right text-[10px] font-bold uppercase tracking-wide"
+                    style={{ color: t.muted }}
+                  >
+                    Acciones
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {pageRows.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={columnCount + (isProducto ? 2 : 1)}
+                      className="px-4 py-12 text-center text-sm"
+                      style={{ color: t.subtle }}
+                    >
+                      Sin registros{q ? ` para "${q}"` : ""}
+                    </td>
+                  </tr>
+                )}
+                {pageRows.map(({ row, index: originalIndex }, rowIndex) => {
+                  const isAnulled = anulSet.has(originalIndex)
+                  const isLow =
+                    section === "insumos" &&
+                    Number(row[4]) <= Number(row[5])
+                  const isSupplyProduct =
+                    section === "insumos" &&
+                    String(row[7]).toLowerCase() === "sí"
+                  const isLocalClient =
+                    section === "clientes" &&
+                    String(row[6]).toLowerCase() === "sí"
+                  const displayCellIndexes = getDisplayCellIndexes(row)
+                  const displayCells = getDisplayCells(row)
+                  return (
+                    <tr
+                      key={originalIndex}
+                      style={{
+                        borderBottom:
+                          rowIndex < pageRows.length - 1
+                            ? `1px solid ${t.border}`
+                            : "none",
+                        opacity: isAnulled ? 0.45 : 1,
+                        background: isLow ? "rgba(165,65,49,0.18)" : "transparent",
+                      }}
+                      onMouseEnter={(event) =>
+                        (event.currentTarget.style.background = isLow
+                          ? "rgba(165,65,49,0.28)"
+                          : t.hover)
+                      }
+                      onMouseLeave={(event) =>
+                        (event.currentTarget.style.background = isLow
+                          ? "rgba(165,65,49,0.18)"
+                          : "transparent")
+                      }
+                    >
+                      {isProducto && (
+                        <td className="px-2 py-3 align-top">
+                          <div
+                            className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg"
+                            style={{ background: t.input }}
+                          >
+                            {prodImgs[originalIndex] ? (
+                              <img
+                                src={prodImgs[originalIndex]}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center text-lg">
+                                🍔
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                      {displayCells.map((cell, cellIndex) => {
+                        const rowCellIndex = displayCellIndexes[cellIndex]
+                        return (
+                          <td
+                            key={rowCellIndex}
+                            className="min-w-0 px-2 py-3 align-top text-xs leading-snug break-words [overflow-wrap:anywhere]"
+                          >
+                            {rowCellIndex === cfg.statusIndex ? (
+                              renderStatusControl(originalIndex, rowCellIndex)
+                            ) : cellIndex === 0 && (isSupplyProduct || isLocalClient) ? (
+                              <div className="min-w-0">
+                                {renderCellValue(cell, true, isLow)}
+                                <span className="mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                                  {isLocalClient ? "Cliente de local" : "Producto de insumo"}
+                                </span>
+                              </div>
+                            ) : (
+                              renderCellValue(cell, cellIndex === 0, isLow)
+                            )}
+                          </td>
+                        )
+                      })}
+                      <td className="px-2 py-3 align-top">
+                        {renderActions(originalIndex, isAnulled)}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="min-[1180px]:hidden">
+            {pageRows.length === 0 ? (
+              <div
+                className="px-4 py-12 text-center text-sm"
+                style={{ color: t.subtle }}
+              >
+                Sin registros{q ? ` para "${q}"` : ""}
+              </div>
+            ) : (
+              pageRows.map(({ row, index: originalIndex }, rowIndex) => {
+                const isAnulled = anulSet.has(originalIndex)
+                const isLow =
+                  section === "insumos" &&
+                  Number(row[4]) <= Number(row[5])
+                const isSupplyProduct =
+                  section === "insumos" &&
+                  String(row[7]).toLowerCase() === "sí"
+                const isLocalClient =
+                  section === "clientes" &&
+                  String(row[6]).toLowerCase() === "sí"
+                const displayCellIndexes = getDisplayCellIndexes(row)
+                const displayCells = getDisplayCells(row)
+                return (
+                  <article
+                    key={originalIndex}
+                    className="min-w-0 p-3 sm:p-4"
+                    style={{
+                      borderBottom:
+                        rowIndex < pageRows.length - 1
+                          ? `1px solid ${t.border}`
+                          : "none",
+                      opacity: isAnulled ? 0.45 : 1,
+                      background: isLow ? "rgba(165,65,49,0.18)" : "transparent",
+                    }}
+                  >
+                    <div className="flex min-w-0 items-start gap-2">
+                      {isProducto && (
+                        <div
+                          className="h-11 w-11 flex-shrink-0 overflow-hidden rounded-xl"
+                          style={{ background: t.input }}
+                        >
+                          {prodImgs[originalIndex] ? (
+                            <img
+                              src={prodImgs[originalIndex]}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-xl">
+                              🍔
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      <div className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words [overflow-wrap:anywhere]">
+                        {renderCellValue(displayCells[0] ?? "—", true, isLow)}
+                        {(isSupplyProduct || isLocalClient) && (
+                          <span className="mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                            {isLocalClient ? "Cliente de local" : "Producto de insumo"}
+                          </span>
+                        )}
+                      </div>
+                      {renderActions(originalIndex, isAnulled)}
+                    </div>
+                    <dl className="mt-3 grid min-w-0 grid-cols-[minmax(0,6.5rem)_minmax(0,1fr)] gap-x-3 gap-y-2">
+                      {displayCells.slice(1).map((cell, cellIndex) => {
+                        const visibleIndex = cellIndex + 1
+                        const rowCellIndex = displayCellIndexes[visibleIndex]
+                        return (
+                          <div key={rowCellIndex} className="contents">
+                            <dt
+                              className="min-w-0 text-[11px] font-semibold leading-snug break-words [overflow-wrap:anywhere]"
+                              style={{ color: t.subtle }}
+                            >
+                              {visibleColumns[visibleIndex] ||
+                                `Dato ${visibleIndex + 1}`}
+                            </dt>
+                            <dd
+                              className="min-w-0 text-xs leading-snug break-words [overflow-wrap:anywhere]"
+                              style={{ fontWeight: 500 }}
+                            >
+                              {rowCellIndex === cfg.statusIndex ? (
+                                renderStatusControl(originalIndex, rowCellIndex)
+                              ) : (
+                                renderCellValue(cell)
+                              )}
+                            </dd>
+                          </div>
+                        )
+                      })}
+                    </dl>
+                  </article>
+                )
+              })
+            )}
+          </div>
+
+          <div
+            className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+            style={{ borderTop: `1px solid ${t.border}` }}
+          >
+            <span className="text-xs" style={{ color: t.subtle }}>
+              {filtered.length} registros · Pág {cur + 1}/{totalPages}
+            </span>
+            <div className="flex flex-wrap justify-end gap-1">
+              <button
+                type="button"
+                disabled={cur === 0}
+                onClick={() => setP(cur - 1)}
+                className="h-7 w-7 rounded text-xs cursor-pointer disabled:opacity-30"
+                style={{ background: t.input, color: t.muted }}
+              >
+                ←
+              </button>
+              {Array.from({ length: Math.min(totalPages, 5) }, (_, index) => (
+                <button
+                  key={index}
+                  type="button"
+                  onClick={() => setP(index)}
+                  className="h-7 w-7 rounded text-xs font-semibold cursor-pointer"
+                  style={{
+                    background: index === cur ? C.mustard : "transparent",
+                    color: index === cur ? "#fff" : t.muted,
+                  }}
+                >
+                  {index + 1}
+                </button>
+              ))}
+              <button
+                type="button"
+                disabled={cur >= totalPages - 1}
+                onClick={() => setP(cur + 1)}
+                className="h-7 w-7 rounded text-xs cursor-pointer disabled:opacity-30"
+                style={{ background: t.input, color: t.muted }}
+              >
+                →
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Roles permissions matrix for create/edit
+  const RolesPermMatrix = ({ roleName }: { roleName: string }) => {
+    const perms = rolesPerms[roleName] || {}
+    const commonActions = ["Ver", "Crear", "Editar"]
+    const toggle = (mod: string, action: string) => {
+      setRolesPerms((rp) => {
+        const cur = rp[roleName]?.[mod] || []
+        const next = cur.includes(action)
+          ? cur.filter((a) => a !== action)
+          : [...cur, action]
+        return { ...rp, [roleName]: { ...(rp[roleName] || {}), [mod]: next } }
+      })
+    }
+    return (
+      <div className="mt-3">
+        <div className="text-xs font-bold mb-2" style={{ color: t.muted }}>
+          Permisos por módulo
+        </div>
+        <div
+          className="min-w-0 overflow-hidden rounded-xl"
+          style={{ border: `1px solid ${t.border}` }}
+        >
+          <div
+            className="grid min-w-0 items-center px-2.5 py-2"
+            style={{
+              gridTemplateColumns:
+                "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
+              background: t.cardAlt,
+              borderBottom: `1px solid ${t.border}`,
+            }}
+          >
+            <div
+              className="min-w-0 text-[10px] font-bold break-words"
+              style={{ color: t.muted }}
+            >
+              Módulo
+            </div>
+            {commonActions.map((action) => (
+              <div
+                key={action}
+                className="min-w-0 text-center text-[10px] font-bold leading-tight break-words"
+                style={{ color: t.muted }}
+              >
+                {action}
+              </div>
+            ))}
+            <div
+              className="min-w-0 text-center text-[10px] font-bold leading-tight break-words"
+              style={{ color: t.muted }}
+            >
+              Anular / Eliminar
+            </div>
+          </div>
+          {PERMISSION_MODULES.map(({ name, finalAction }, index) => {
+            const moduleActions = [...commonActions, finalAction]
+            return (
+              <div
+                key={name}
+                className="grid min-w-0 items-center px-2.5 py-2"
+                style={{
+                  gridTemplateColumns:
+                    "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
+                  borderBottom:
+                    index < PERMISSION_MODULES.length - 1
+                      ? `1px solid ${t.border}`
+                      : "none",
+                }}
+              >
+                <div
+                  className="min-w-0 text-xs leading-snug break-words"
+                  style={{ color: t.text }}
+                >
+                  {name}
+                </div>
+                {moduleActions.map((action) => (
+                  <div key={action} className="flex min-w-0 justify-center">
+                    <input
+                      type="checkbox"
+                      title={action}
+                      aria-label={`${action} ${name}`}
+                      checked={(perms[name] || []).includes(action)}
+                      onChange={() => toggle(name, action)}
+                      className="cursor-pointer"
+                      style={{
+                        accentColor: C.mustard,
+                        width: "14px",
+                        height: "14px",
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
+
+  const CRUDModal = () => {
+    if (!modal.mode) return null
+    const cfg = MOD_CFG[modal.section]
+    if (!cfg) return null
+    const isView = modal.mode === "view"
+    const isRoles = modal.section === "roles"
+    const isProduct = modal.section === "producto"
+    const isPedido = modal.section === "pedidos"
+    const isPurchase = modal.section === "compras"
+    const isSupply = modal.section === "insumos"
+    const isProduction = modal.section === "produccion"
+    const isPnc = modal.section === "producto-no-conforme"
+    const isSales = modal.section === "ventas"
+    const isReturns = modal.section === "devoluciones"
+    const isClient = modal.section === "clientes"
+    const row = modal.idx !== null ? rows[modal.section]?.[modal.idx] : null
+    const dataFields = cfg.fields.filter((f) => f.type !== "image")
+    const showSupplyTechnicalSheet =
+      isSupply &&
+      String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
+    const formDataFields = isProduction
+      ? dataFields.filter((field) => !["0", "1"].includes(field.key))
+      : isSupply
+        ? dataFields.filter(
+            (field) =>
+              !["8", "9", "10", "11"].includes(field.key) ||
+              showSupplyTechnicalSheet,
+          )
+        : dataFields
+    const productMainFields = isProduct
+      ? dataFields.filter((field) => ["0", "1", "2", "3"].includes(field.key))
+      : dataFields
+    const productTechFields = isProduct
+      ? dataFields.filter((field) => Number(field.key) >= 5)
+      : []
+    const rowOffset = cfg.autoId ? 1 : 0
+    const availableProductos = isPedido ? getAvailableProductos() : []
+    const availableProductionProducts = isProduction
+      ? getAvailableProductos()
+      : []
+    const availablePncProducts = isPnc ? getProductSupplyOptions() : []
+    const clientOptions = (rows.clientes || [])
+      .map((client) => String(client[0] ?? ""))
+      .filter(Boolean)
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center px-4"
+        style={{ background: "rgba(0,0,0,0.65)" }}
+        onClick={() => setModal({ mode: null, section: "", idx: null })}
+      >
+        <div
+          className="flex min-w-0 w-full max-w-5xl flex-col overflow-hidden rounded-2xl"
+          style={{
+            background: t.card,
+            border: `1px solid ${t.border}`,
+            maxHeight: "88vh",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: `1px solid ${t.border}` }}
+          >
+            <h3 className="font-semibold text-base" style={{ color: t.text }}>
+              {modal.mode === "add"
+                ? "Nuevo registro"
+                : modal.mode === "edit"
+                  ? "Editar registro"
+                  : "Ver detalle"}
+            </h3>
+            <button
+              onClick={() => setModal({ mode: null, section: "", idx: null })}
+              className="w-8 h-8 flex items-center justify-center rounded-xl cursor-pointer"
+              style={{ background: t.input, color: t.muted }}
+            >
+              {Ico.x}
+            </button>
+          </div>
+          <div
+            className="flex min-w-0 flex-col gap-3 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-5"
+            style={{ maxHeight: "65vh", scrollbarWidth: "none" }}
+          >
+            {/* Image field */}
+            {isProduct && cfg.fields.some((f) => f.type === "image") && (
+              <div className="flex flex-col gap-2">
+                <label
+                  className="text-xs font-semibold"
+                  style={{ color: t.muted }}
+                >
+                  Foto del producto
+                </label>
+                {isView ? (
+                  imgPreview ? (
+                    <img
+                      src={imgPreview}
+                      alt=""
+                      className="w-full h-36 object-cover rounded-xl"
+                    />
+                  ) : (
+                    <div
+                      className="w-full h-24 rounded-xl flex items-center justify-center text-4xl"
+                      style={{ background: t.input }}
+                    >
+                      🍔
+                    </div>
+                  )
+                ) : (
+                  <div>
+                    {imgPreview && (
+                      <img
+                        src={imgPreview}
+                        alt=""
+                        className="w-full h-32 object-cover rounded-xl mb-2"
+                      />
+                    )}
+                    <div
+                      className="border-2 border-dashed rounded-xl p-4 text-center cursor-pointer hover:opacity-80 mb-2"
+                      style={{ borderColor: t.inputB }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => {
+                        e.preventDefault()
+                        const f = e.dataTransfer.files[0]
+                        if (f) handleFile(f)
+                      }}
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <div
+                        className="flex items-center justify-center gap-2 text-xs"
+                        style={{ color: t.muted }}
+                      >
+                        {Ico.upload} Arrastra o selecciona una imagen
+                      </div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={(e) => {
+                          const f = e.target.files?.[0]
+                          if (f) handleFile(f)
+                        }}
+                      />
+                    </div>
+                    <input
+                      type="url"
+                      placeholder="o pega una URL de imagen..."
+                      value={imgPreview.startsWith("http") ? imgPreview : ""}
+                      onChange={(e) => setImgPreview(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl text-xs outline-none"
+                      style={{
+                        background: t.input,
+                        border: `1px solid ${t.inputB}`,
+                        color: t.text,
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+            {isPedido && (
+              <div className="flex min-w-0 flex-col gap-2">
+                <label className="text-xs font-semibold" style={{ color: t.muted }}>Comprobante de pago</label>
+                {isView ? (
+                  paymentProofDraft ? (
+                    <img src={paymentProofDraft} alt="Comprobante de pago" className="max-h-64 w-full rounded-xl object-contain" style={{ background: t.input }} />
+                  ) : (
+                    <div className="rounded-xl px-4 py-6 text-center text-xs" style={{ background: t.input, color: t.muted }}>El cliente todavía no ha subido un comprobante.</div>
+                  )
+                ) : (
+                  <div className="min-w-0 rounded-xl border-2 border-dashed p-4 text-center" style={{ borderColor: t.inputB }}>
+                    {paymentProofDraft && <img src={paymentProofDraft} alt="Vista previa" className="mb-3 max-h-40 w-full rounded-lg object-contain" />}
+                    <button type="button" onClick={() => document.getElementById("payment-proof-input")?.click()} className="cursor-pointer text-xs font-semibold" style={{ color: C.mustard }}>Seleccionar imagen o PDF del comprobante</button>
+                    <input id="payment-proof-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" onChange={(event) => {
+                      const file = event.target.files?.[0]
+                      if (!file) return
+                      if (file.type === "application/pdf") {
+                        setPaymentProofDraft(URL.createObjectURL(file))
+                      } else {
+                        const reader = new FileReader()
+                        reader.onload = (loadEvent) => {
+                          if (loadEvent.target?.result) setPaymentProofDraft(String(loadEvent.target.result))
+                        }
+                        reader.readAsDataURL(file)
+                      }
+                    }} />
+                    <input type="url" placeholder="O pega una URL del comprobante" value={paymentProofDraft.startsWith("http") || paymentProofDraft.startsWith("blob:") ? paymentProofDraft : ""} onChange={(event) => setPaymentProofDraft(event.target.value)} className="mt-3 w-full min-w-0 rounded-lg px-3 py-2 text-xs" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
+                  </div>
+                )}
+              </div>
+            )}
+            {isProduct ? (
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-3">
+                  <div
+                    className="text-xs font-bold uppercase tracking-wide"
+                    style={{ color: t.muted }}
+                  >
+                    Producto
+                  </div>
+                  {productMainFields.map((f) => {
+                    const val = isView
+                      ? String(row ? (row[Number(f.key)] ?? "—") : "—")
+                      : formData[f.key] || ""
+                    return (
+                      <div key={f.key} className="flex flex-col gap-1.5">
+                        <label
+                          className="text-xs font-semibold"
+                          style={{ color: t.muted }}
+                        >
+                          {f.label}
+                        </label>
+                        {isView ? (
+                          <div
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
+                            style={{ background: t.input, color: t.text }}
+                          >
+                            {val}
+                          </div>
+                        ) : f.type === "select" ? (
+                          <select
+                            value={val}
+                            onChange={(e) =>
+                              setFormData((d) => ({
+                                ...d,
+                                [f.key]: e.target.value,
+                              }))
+                            }
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${t.inputB}`,
+                              color: val ? t.text : t.muted,
+                            }}
+                          >
+                            <option value="">Selecciona...</option>
+                            {f.options?.map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </select>
+                        ) : f.type === "textarea" ? (
+                          <textarea
+                            value={val}
+                            onChange={(e) =>
+                              setFormData((d) => ({
+                                ...d,
+                                [f.key]: e.target.value,
+                              }))
+                            }
+                            rows={3}
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${t.inputB}`,
+                              color: t.text,
+                            }}
+                          />
+                        ) : (
+                          <input
+                            type={f.type}
+                            value={val}
+                            onChange={(e) =>
+                              setFormData((d) => ({
+                                ...d,
+                                [f.key]: e.target.value,
+                              }))
+                            }
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${t.inputB}`,
+                              color: t.text,
+                            }}
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+                <div className="flex flex-col gap-3">
+                  <div
+                    className="text-xs font-bold uppercase tracking-wide"
+                    style={{ color: t.muted }}
+                  >
+                    Ficha técnica
+                  </div>
+                  {productTechFields.map((f) => {
+                    const fieldRowIndex = Number(f.key)
+                    const val = isView
+                      ? String(row ? (row[fieldRowIndex] ?? "—") : "—")
+                      : formData[f.key] || ""
+                    const existingInsumos =
+                      isProduct && f.key === "7"
+                        ? (val || "")
+                            .split(",")
+                            .map((v) => v.trim())
+                            .filter(Boolean)
+                        : []
+                    const availableInsumos = getAvailableInsumos()
+                    return (
+                      <div key={f.key} className="flex flex-col gap-1.5">
+                        <label
+                          className="text-xs font-semibold"
+                          style={{ color: t.muted }}
+                        >
+                          {f.label}
+                        </label>
+                        {isProduct && f.key === "6" && !isView ? (
+                          <input
+                            type="text"
+                            value={
+                              val || getAutoTechVersion(rows.producto || [])
+                            }
+                            readOnly
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
+                            style={{
+                              background: "rgba(30,30,30,0.05)",
+                              border: `1.5px solid ${t.inputB}`,
+                              color: t.muted,
+                            }}
+                          />
+                        ) : isProduct && f.key === "7" && !isView ? (
+                          <div className="flex flex-col gap-2">
+                            <div className="flex flex-wrap gap-2">
+                              {existingInsumos.length === 0 ? (
+                                <div
+                                  className="text-xs px-2.5 py-1.5 rounded-full"
+                                  style={{
+                                    background: t.input,
+                                    color: t.muted,
+                                  }}
+                                >
+                                  Sin insumos seleccionados
+                                </div>
+                              ) : (
+                                existingInsumos.map((insumo) => (
+                                  <button
+                                    key={insumo}
+                                    type="button"
+                                    onClick={() => {
+                                      const next = existingInsumos.filter(
+                                        (item) => item !== insumo,
+                                      )
+                                      setFormData((d) => ({
+                                        ...d,
+                                        [f.key]: next.join(", "),
+                                      }))
+                                    }}
+                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs cursor-pointer"
+                                    style={{
+                                      background: `${C.mustard}15`,
+                                      color: C.mustard,
+                                      border: `1px solid ${C.mustard}35`,
+                                    }}
+                                  >
+                                    <span>{insumo}</span>
+                                    <span>×</span>
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <select
+                                value=""
+                                onChange={(event) => {
+                                  const selectedInsumo = event.target.value
+                                  if (!selectedInsumo) return
+                                  setFormData((current) => {
+                                    const currentItems = String(
+                                      current[f.key] ?? "",
+                                    )
+                                      .split(",")
+                                      .map((item) => item.trim())
+                                      .filter(Boolean)
+                                    if (currentItems.includes(selectedInsumo)) {
+                                      return current
+                                    }
+                                    return {
+                                      ...current,
+                                      [f.key]: [
+                                        ...currentItems,
+                                        selectedInsumo,
+                                      ].join(", "),
+                                    }
+                                  })
+                                }}
+                                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                                style={{
+                                  background: t.input,
+                                  border: `1.5px solid ${t.inputB}`,
+                                  color: t.text,
+                                }}
+                              >
+                                <option value="">
+                                  Selecciona un insumo para agregarlo...
+                                </option>
+                                {availableInsumos
+                                  .filter(
+                                    (insumo) =>
+                                      !existingInsumos.includes(insumo),
+                                  )
+                                  .map((insumo) => (
+                                    <option key={insumo} value={insumo}>
+                                      {insumo}
+                                    </option>
+                                  ))}
+                              </select>
+                              <span className="text-[10px]" style={{ color: t.subtle }}>
+                                El insumo se selecciona automáticamente al elegirlo.
+                              </span>
+                            </div>
+                          </div>
+                        ) : isView ? (
+                          <div
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
+                            style={{ background: t.input, color: t.text }}
+                          >
+                            {val}
+                          </div>
+                        ) : f.type === "select" ? (
+                          <select
+                            value={val}
+                            onChange={(e) =>
+                              setFormData((d) => ({
+                                ...d,
+                                [f.key]: e.target.value,
+                              }))
+                            }
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${t.inputB}`,
+                              color: val ? t.text : t.muted,
+                            }}
+                          >
+                            <option value="">Selecciona...</option>
+                            {f.options?.map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </select>
+                        ) : f.type === "textarea" ? (
+                          <textarea
+                            value={val}
+                            onChange={(e) =>
+                              setFormData((d) => ({
+                                ...d,
+                                [f.key]: e.target.value,
+                              }))
+                            }
+                            rows={4}
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${t.inputB}`,
+                              color: t.text,
+                            }}
+                          />
+                        ) : (
+                          <input
+                            type={f.type}
+                            value={val}
+                            onChange={(e) =>
+                              setFormData((d) => ({
+                                ...d,
+                                [f.key]: e.target.value,
+                              }))
+                            }
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${t.inputB}`,
+                              color: t.text,
+                            }}
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              <>
+                {showSupplyTechnicalSheet && (
+                  <div className="mt-1 border-t pt-4" style={{ borderColor: t.border }}>
+                    <div className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
+                      Ficha técnica del producto de insumo
+                    </div>
+                    <p className="mb-3 mt-1 text-xs" style={{ color: t.muted }}>
+                      Completa la ficha como en el formulario de productos.
+                    </p>
+                  </div>
+                )}
+                {isProduction && (
+                  <section className="rounded-2xl p-4" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Productos de la orden</h4>
+                    </div>
+                    {productionItems.length ? (
+                      <div className="mb-3 flex flex-col gap-2">
+                        {productionItems.map((item, index) => (
+                          <div key={`${item.name}-${index}`} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-xs" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+                            <span className="min-w-0 font-semibold break-words" style={{ color: t.text }}>{item.name}</span>
+                            <div className="flex flex-shrink-0 items-center gap-2">
+                              <span style={{ color: t.muted }}>× {item.quantity}</span>
+                              {!isView && <button type="button" aria-label={`Quitar ${item.name}`} onClick={() => setProductionItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg" style={{ color: C.red, background: `${C.red}10` }}>{Ico.x}</button>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mb-3 rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>Agrega al menos un producto o producto de insumo.</div>
+                    )}
+                    {!isView && (
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_100px_auto]">
+                        <select value={productionProductSelect} onChange={(event) => setProductionProductSelect(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: productionProductSelect ? t.text : t.muted }}>
+                          <option value="">Selecciona un producto...</option>
+                          {availableProductionProducts.filter((product) => !productionItems.some((item) => item.name === product)).map((product) => {
+                            const isSupply = rows.producto?.some((item) => item[0] === product && item[1] === "Producto de insumo")
+                            return <option key={product} value={product}>{product}{isSupply ? " · Producto de insumo" : ""}</option>
+                          })}
+                        </select>
+                        <input type="number" min="1" value={productionItemQuantity} onChange={(event) => setProductionItemQuantity(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
+                        <button type="button" onClick={() => {
+                          if (!productionProductSelect) return
+                          const quantity = Math.max(1, Number(productionItemQuantity) || 1)
+                          setProductionItems((current) => [...current, { name: productionProductSelect, quantity }])
+                          setProductionProductSelect("")
+                          setProductionItemQuantity("1")
+                          setProductionFormError("")
+                        }} className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer" style={{ background: C.mustard, color: "#fff" }}>Agregar</button>
+                      </div>
+                    )}
+                    <p className="mt-2 text-[10px]" style={{ color: t.muted }}>El selector incluye productos normales y productos de insumo.</p>
+                    {productionFormError && <p className="mt-2 text-xs font-medium" style={{ color: C.red }}>{productionFormError}</p>}
+                  </section>
+                )}
+                {formDataFields.map((f) => {
+                if (isView && isPurchase && f.key === "6") return null
+                const fieldRowIndex = Number(f.key) + rowOffset
+                const val = isView
+                  ? String(row ? (row[fieldRowIndex] ?? "—") : "—")
+                  : formData[f.key] || ""
+                const fieldOptions =
+                  isProduction && f.key === "0"
+                    ? availableProductionProducts
+                    : isPnc && f.key === "1"
+                      ? availablePncProducts
+                      : (isSales && f.key === "1") ||
+                          (isPedido && f.key === "0") ||
+                          (isReturns && f.key === "2")
+                        ? clientOptions
+                        : f.options
+                const existingProductos =
+                  isPedido && f.key === "1"
+                    ? val
+                        .split(",")
+                        .map((item) => item.trim())
+                        .filter(Boolean)
+                    : []
+                const isLocalClient =
+                  isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
+                const requiredClientField =
+                  isClient &&
+                  !isView &&
+                  (["0", "1", "2", "3"].includes(f.key) ||
+                    (!isLocalClient && ["4", "5"].includes(f.key)))
+                const updateFieldValue = (value: string) => {
+                  if (isSales && f.key === "1" && value === "__new_client__") {
+                    setQuickClientForm({})
+                    setQuickClientError("")
+                    setQuickClientOpen(true)
+                    return
+                  }
+                  setFormData((current) => ({ ...current, [f.key]: value }))
+                }
+                return (
+                  <div key={f.key} className="flex flex-col gap-1.5">
+                    <label
+                      className="text-xs font-semibold"
+                      style={{ color: t.muted }}
+                    >
+                      {f.label}
+                      {requiredClientField && " *"}
+                    </label>
+                    {isPedido && f.key === "1" && !isView ? (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap gap-2">
+                          {existingProductos.length === 0 ? (
+                            <div
+                              className="text-xs px-2.5 py-1.5 rounded-full"
+                              style={{ background: t.input, color: t.muted }}
+                            >
+                              Sin productos seleccionados
+                            </div>
+                          ) : (
+                            existingProductos.map((producto) => (
+                              <button
+                                key={producto}
+                                type="button"
+                                onClick={() => {
+                                  const next = existingProductos.filter(
+                                    (item) => item !== producto,
+                                  )
+                                  setFormData((d) => ({
+                                    ...d,
+                                    [f.key]: next.join(", "),
+                                  }))
+                                }}
+                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs cursor-pointer"
+                                style={{
+                                  background: `${C.mustard}15`,
+                                  color: C.mustard,
+                                  border: `1px solid ${C.mustard}35`,
+                                }}
+                              >
+                                <span>{producto}</span>
+                                <span>×</span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <select
+                            value={pedidoProductoSelect}
+                            onChange={(e) =>
+                              setPedidoProductoSelect(e.target.value)
+                            }
+                            className="w-full min-w-0 flex-1 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${t.inputB}`,
+                              color: t.text,
+                            }}
+                          >
+                            <option value="">Selecciona un producto...</option>
+                            {availableProductos
+                              .filter(
+                                (producto) =>
+                                  !existingProductos.includes(producto),
+                              )
+                              .map((producto) => (
+                                <option key={producto} value={producto}>
+                                  {producto}
+                                </option>
+                              ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!pedidoProductoSelect) return
+                              setFormData((d) => ({
+                                ...d,
+                                [f.key]: [
+                                  ...existingProductos,
+                                  pedidoProductoSelect,
+                                ].join(", "),
+                              }))
+                              setPedidoProductoSelect("")
+                            }}
+                            className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold cursor-pointer"
+                            style={{ background: C.mustard, color: "#fff" }}
+                          >
+                            Agregar
+                          </button>
+                        </div>
+                      </div>
+                    ) : isView ? (
+                      <div
+                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
+                        style={{ background: t.input, color: t.text }}
+                      >
+                        {val}
+                      </div>
+                    ) : f.type === "checkbox" ? (
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-checked={String(val).toLowerCase() === "sí"}
+                        onClick={() =>
+                          setFormData((current) => {
+                            const enabled =
+                              String(current[f.key] ?? "No").toLowerCase() === "sí"
+                            if (isClient) {
+                              return { ...current, [f.key]: enabled ? "No" : "Sí" }
+                            }
+                            if (enabled) {
+                              return {
+                                ...current,
+                                [f.key]: "No",
+                                "8": "",
+                                "9": "",
+                                "10": "",
+                                "11": "",
+                              }
+                            }
+                            const productName = current["0"] || "Producto de insumo"
+                            return {
+                              ...current,
+                              [f.key]: "Sí",
+                              "8": `Ficha técnica - ${productName}`,
+                              "9": "v1.0",
+                              "10": productName,
+                              "11": "",
+                            }
+                          })
+                        }
+                        className="flex w-full min-w-0 cursor-pointer items-start gap-3 rounded-xl px-3.5 py-3 text-left"
+                        style={{ background: t.input, border: `1px solid ${t.inputB}` }}
+                      >
+                        <span
+                          className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md"
+                          style={{
+                            background: String(val).toLowerCase() === "sí" ? C.mustard : "transparent",
+                            border: `1.5px solid ${String(val).toLowerCase() === "sí" ? C.mustard : t.inputB}`,
+                            color: "#fff",
+                          }}
+                        >
+                          {String(val).toLowerCase() === "sí" ? Ico.check : null}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-semibold" style={{ color: t.text }}>
+                            {isClient ? "Cliente de local" : "Sí, es producto de insumo"}
+                          </span>
+                          <span className="mt-0.5 block text-xs leading-snug" style={{ color: t.muted }}>
+                            {isClient
+                              ? "Permite registrar el cliente sin correo ni dirección."
+                              : "Al activarlo se abrirá la ficha técnica y el insumo aparecerá en el módulo Productos."}
+                          </span>
+                        </span>
+                      </button>
+                    ) : f.type === "select" ? (
+                      <select
+                        value={val}
+                        onChange={(e) => updateFieldValue(e.target.value)}
+                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                        style={{
+                          background: t.input,
+                          border: `1.5px solid ${t.inputB}`,
+                          color: val ? t.text : t.muted,
+                        }}
+                      >
+                        <option value="">Selecciona...</option>
+                        {fieldOptions?.map((o) => (
+                          <option key={o} value={o}>
+                            {o}
+                          </option>
+                        ))}
+                        {isSales && f.key === "1" && (
+                          <option value="__new_client__">+ Registrar nuevo cliente</option>
+                        )}
+                      </select>
+                    ) : f.type === "textarea" ? (
+                      <textarea
+                        value={val}
+                        onChange={(e) =>
+                          setFormData((d) => ({
+                            ...d,
+                            [f.key]: e.target.value,
+                          }))
+                        }
+                        rows={3}
+                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
+                        style={{
+                          background: t.input,
+                          border: `1.5px solid ${t.inputB}`,
+                          color: t.text,
+                        }}
+                      />
+                    ) : (
+                      <input
+                        type={f.type}
+                        value={val}
+                        onChange={(e) =>
+                          setFormData((d) => ({
+                            ...d,
+                            [f.key]: e.target.value,
+                          }))
+                        }
+                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
+                        style={{
+                          background: t.input,
+                          border: `1.5px solid ${t.inputB}`,
+                          color: t.text,
+                        }}
+                      />
+                    )}
+                  </div>
+                )
+                })}
+              </>
+            )}
+            {isClient && !isView && clientFormError && (
+              <div className="rounded-xl px-3 py-2.5 text-xs font-medium" style={{ background: `${C.red}10`, color: C.red }}>
+                {clientFormError}
+              </div>
+            )}
+            {/* Section-specific view detail extras */}
+            {isView && modal.section === "cat-insumos" && (
+              <div
+                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
+                style={{ background: t.input, color: t.muted }}
+              >
+                Insumos asociados:{" "}
+                <strong style={{ color: t.text }}>
+                  {[3, 5, 2, 4, 6][modal.idx! % 5] ?? 3}
+                </strong>
+              </div>
+            )}
+            {isView && modal.section === "insumos" && (
+              <div
+                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
+                style={{ background: t.input }}
+              >
+                <div
+                  className="text-xs font-semibold mb-1"
+                  style={{ color: t.muted }}
+                >
+                  Proveedor
+                </div>
+                <div style={{ color: t.text }}>
+                  {[
+                    "Carnes Premium SAS",
+                    "Lácteos del Valle",
+                    "Panes Artesanales",
+                    "AgroVerde",
+                    "Carnes Premium SAS",
+                  ][modal.idx! % 5] ?? "Carnes Premium SAS"}
+                </div>
+              </div>
+            )}
+            {isView && modal.section === "proveedores" && (
+              <div
+                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
+                style={{ background: t.input }}
+              >
+                <span style={{ color: t.muted }}>Insumos asociados: </span>
+                <strong style={{ color: t.text }}>
+                  {[5, 3][modal.idx! % 2]}
+                </strong>
+              </div>
+            )}
+            {isView && isPurchase && (
+              <div
+                className="min-w-0 overflow-hidden rounded-xl"
+                style={{ border: `1px dashed ${t.inputB}`, background: t.card }}
+              >
+                <div
+                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-3"
+                  style={{ background: t.cardAlt, borderBottom: `1px solid ${t.border}` }}
+                >
+                  <div>
+                    <div className="text-sm font-bold" style={{ color: t.text }}>Ticket de compra</div>
+                    <div className="mt-0.5 text-[10px]" style={{ color: t.muted }}>Detalle de insumos y valores</div>
+                  </div>
+                  <span className="rounded-full px-2.5 py-1 text-[10px] font-bold" style={{ background: String(row?.[5]) === "Anulado" ? `${C.red}18` : "rgba(58,109,94,0.14)", color: String(row?.[5]) === "Anulado" ? C.red : "#2E7D60" }}>
+                    {String(row?.[5] ?? "Activo")}
+                  </span>
+                </div>
+                <div className="grid gap-2 px-4 py-3 text-xs sm:grid-cols-3" style={{ color: t.muted }}>
+                  <span><strong style={{ color: t.text }}>Proveedor:</strong> {String(row?.[0] ?? "—")}</span>
+                  <span><strong style={{ color: t.text }}>Compra:</strong> {String(row?.[1] ?? "—")}</span>
+                  <span><strong style={{ color: t.text }}>Registro:</strong> {String(row?.[2] ?? "—")}</span>
+                </div>
+                <div className="min-w-0 border-t border-dashed px-4 py-3" style={{ borderColor: t.inputB }}>
+                  <div className="mb-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted, fontFamily: "Montserrat, sans-serif" }}>Insumos comprados</div>
+                  {parsePurchaseItems(row?.[6]).length ? (
+                    parsePurchaseItems(row?.[6]).map((item, index) => (
+                      <div key={`${item.name}-${index}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 border-b py-2.5 text-xs last:border-b-0" style={{ borderColor: t.border }}>
+                        <span className="min-w-0 font-semibold break-words" style={{ color: t.text }}>{item.name}</span>
+                        <span className="text-right font-bold" style={{ color: C.mustard }}>{fmt(item.total)}</span>
+                        <span className="col-span-2 text-[10px]" style={{ color: t.muted }}>{item.quantity} und × {fmt(Number(item.unitPrice || 0))}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>No se registraron insumos comprados.</div>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-dashed px-4 py-3 text-xs" style={{ borderColor: t.inputB }}>
+                  <span style={{ color: t.muted }}>Subtotal: <strong style={{ color: t.text }}>{fmt(Number(row?.[3] || 0))}</strong></span>
+                  <span className="text-sm" style={{ color: t.text }}>Total: <strong style={{ color: C.mustard }}>{fmt(Number(row?.[4] || 0))}</strong></span>
+                </div>
+              </div>
+            )}
+            {isView && modal.section === "cat-producto" && (
+              <div
+                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
+                style={{ background: t.input }}
+              >
+                Productos en esta categoría:{" "}
+                <strong style={{ color: t.text }}>
+                  {[9, 7, 3, 3, 2, 2, 4, 2][modal.idx! % 8] ?? 4}
+                </strong>
+              </div>
+            )}
+            {isView && isProduction && (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl px-3.5 py-3 sm:col-span-2" style={{ background: t.input }}>
+                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Productos de la orden</span>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {getProductionOrderItems(row ?? undefined).map((item, index) => (
+                      <span key={`${item.name}-${index}`} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={{ background: `${C.mustard}12`, color: C.mustard }}>
+                        {item.name} × {item.quantity}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl px-3.5 py-3 text-sm" style={{ background: t.input }}>
+                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Estado actual</span>
+                  <strong className="mt-1 block" style={{ color: String(row?.[8]) === "Producto no conforme" ? C.red : t.text }}>{String(row?.[8] ?? "Recibida")}</strong>
+                </div>
+                <div className="rounded-xl px-3.5 py-3 text-sm" style={{ background: t.input }}>
+                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Prioridad de llegada</span>
+                  <strong className="mt-1 block" style={{ color: t.text }}>#{String(row?.[3] ?? "—")}</strong>
+                </div>
+                <div className="rounded-xl px-3.5 py-3 text-sm" style={{ background: t.input }}>
+                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Creada</span>
+                  <strong className="mt-1 block" style={{ color: t.text }}>{String(row?.[4] ?? "—")} · {String(row?.[5] ?? "—")}</strong>
+                </div>
+                <div className="rounded-xl px-3.5 py-3 text-sm" style={{ background: t.input }}>
+                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Última actualización</span>
+                  <strong className="mt-1 block" style={{ color: t.text }}>{String(row?.[6] ?? "—")} · {String(row?.[7] ?? "—")}</strong>
+                </div>
+                <div className="rounded-xl px-3.5 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
+                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Salida de producción</span>
+                  <strong className="mt-1 block" style={{ color: C.mustard }}>{String(row?.[9] || "Pendiente")}</strong>
+                </div>
+                <div className="rounded-xl px-3.5 py-3 sm:col-span-2" style={{ background: t.input }}>
+                  <span className="block text-xs font-semibold" style={{ color: t.text }}>Actualizaciones consecutivas</span>
+                  <div className="mt-3 flex flex-col gap-2">
+                    {parseProductionHistory(row?.[12]).map((update, index) => (
+                      <div key={`${String(update.status)}-${String(update.date)}-${index}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                        <span className="flex items-center gap-2 font-semibold" style={{ color: update.status === "Producto no conforme" ? C.red : t.text }}>
+                          <span style={{ color: C.mustard }}>{index + 1}.</span>
+                          {String(update.status)}
+                        </span>
+                        <span style={{ color: t.muted }}>{String(update.date)} · {String(update.time)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+            {isView && isPedido && (
+              <div className="rounded-xl p-4" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <span className="text-xs" style={{ color: t.muted }}>Estado: <strong style={{ color: t.text }}>{String(row?.[7] ?? "Recibido")}</strong></span>
+                  <span className="text-xs" style={{ color: t.muted }}>Pago: <strong style={{ color: String(row?.[8]) === "Pagado" ? "#2E7D60" : C.red }}>{String(row?.[8] ?? "Pendiente")}</strong></span>
+                  <span className="text-xs" style={{ color: t.muted }}>Autorización: <strong style={{ color: String(row?.[9]) === "Autorizada" ? "#2E7D60" : C.mustard }}>{String(row?.[9] ?? "Pendiente admin")}</strong></span>
+                </div>
+                <button
+                  type="button"
+                  disabled={String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!] || String(row?.[9]) === "Autorizada"}
+                  onClick={() => approveOrderForProduction(modal.idx!)}
+                  className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  {String(row?.[9]) === "Autorizada" ? "Producción ya autorizada" : "Autorizar y enviar a producción"}
+                </button>
+              </div>
+            )}
+            {/* Roles permissions matrix */}
+            {isRoles && !isView && (
+              <RolesPermMatrix roleName={formData["0"] || ""} />
+            )}
+            {isRoles && isView && row && (
+              <RolesPermMatrix roleName={String(row[0])} />
+            )}
+          </div>
+          <div
+            className="px-5 py-4 flex gap-3"
+            style={{ borderTop: `1px solid ${t.border}` }}
+          >
+            <button
+              onClick={() => setModal({ mode: null, section: "", idx: null })}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+              style={{ background: t.input, color: t.muted }}
+            >
+              Cancelar
+            </button>
+            {!isView && (
+              <button
+                onClick={saveModal}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                Guardar
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const ProductionPncModal = () => {
+    if (pncTarget === null) return null
+    const orderItems = getProductionOrderItems(rows.produccion?.[pncTarget ?? -1] ?? undefined)
+    const productOptions = orderItems.length
+      ? orderItems.map((item) => item.name)
+      : getNonconformingProductOptions()
+    const controlStyle = {
+      background: t.input,
+      border: `1px solid ${t.inputB}`,
+      color: t.text,
+      fontFamily: "Poppins, sans-serif",
+    }
+    return (
+      <div
+        className="fixed inset-0 z-[70] flex items-end justify-center px-3 pb-3 pt-8 sm:items-center sm:px-4 sm:pb-4"
+        style={{ background: "rgba(18,16,14,0.68)", backdropFilter: "blur(3px)" }}
+        onClick={() => setPncTarget(null)}
+      >
+        <div
+          className="flex max-h-[92vh] w-full max-w-2xl min-w-0 flex-col overflow-hidden rounded-3xl"
+          style={{
+            background: t.card,
+            border: `1px solid ${t.border}`,
+            boxShadow: "0 24px 70px rgba(0,0,0,0.28)",
+            fontFamily: "Poppins, sans-serif",
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div
+            className="flex items-center gap-3 px-5 py-4 sm:px-6"
+            style={{ background: t.cardAlt, borderBottom: `1px solid ${t.border}` }}
+          >
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.red}14`, color: C.red }}>
+              {Ico.alert}
+            </span>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-base font-bold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                Producto no conforme
+              </h3>
+              <p className="mt-0.5 text-xs" style={{ color: t.muted }}>
+                Registra la pérdida y reinicia la orden de producción.
+              </p>
+            </div>
+            <button type="button" onClick={() => setPncTarget(null)} className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl" style={{ background: t.input, color: t.muted }}>
+              {Ico.x}
+            </button>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+              <div>
+                <span className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: t.muted }}>Orden afectada</span>
+                <strong className="mt-1 block text-sm" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>{pncForm["0"]}</strong>
+              </div>
+              <span className="rounded-full px-3 py-1 text-[10px] font-bold" style={{ background: `${C.red}12`, color: C.red }}>Se generates una nueva orden</span>
+            </div>
+
+            <section className="rounded-2xl p-4" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+              <div className="mb-3 flex items-center gap-2">
+                <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Producto y daño</h4>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
+                  Producto o producto de insumo
+                  <select value={pncForm["1"] || ""} onChange={(event) => {
+                    const selectedProduct = event.target.value
+                    const selectedItem = orderItems.find((item) => item.name === selectedProduct)
+                    setPncForm((current) => ({
+                      ...current,
+                      "1": selectedProduct,
+                      "2": selectedProduct,
+                      "3": String(selectedItem?.quantity ?? current["3"] ?? 1),
+                    }))
+                  }} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle}>
+                    <option value="">Selecciona...</option>
+                    {productOptions.map((product) => <option key={product} value={product}>{product}</option>)}
+                  </select>
+                </label>
+                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
+                  Cantidad
+                  <input type="number" min="1" value={pncForm["3"] || "1"} onChange={(event) => setPncForm((current) => ({ ...current, "3": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                </label>
+                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold sm:col-span-2" style={{ color: t.muted }}>
+                  Productos que se dañaron
+                  <textarea rows={2} value={pncForm["2"] || ""} onChange={(event) => setPncForm((current) => ({ ...current, "2": event.target.value }))} className="w-full min-w-0 resize-none rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                </label>
+              </div>
+            </section>
+
+            <section className="rounded-2xl p-4" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+              <div className="mb-3 flex items-center gap-2">
+                <span className="h-4 w-1 rounded-full" style={{ background: C.red }} />
+                <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Clasificación del registro</h4>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
+                  Motivo
+                  <select value={pncForm["4"] || "Producto perdido"} onChange={(event) => setPncForm((current) => ({ ...current, "4": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle}>
+                    {["Tiempo superado", "Error en preparación", "Ingrediente incorrecto", "Daño físico", "Producto perdido", "Otro"].map((reason) => <option key={reason}>{reason}</option>)}
+                  </select>
+                </label>
+                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
+                  Fecha del registro
+                  <input type="date" value={pncForm["5"] || ""} onChange={(event) => setPncForm((current) => ({ ...current, "5": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                </label>
+              </div>
+            </section>
+
+            {pncError && (
+              <div className="rounded-xl px-3 py-2.5 text-xs font-medium" style={{ background: `${C.red}10`, color: C.red }}>
+                {pncError}
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 px-4 py-4 sm:flex-row sm:justify-end sm:px-6" style={{ background: t.cardAlt, borderTop: `1px solid ${t.border}` }}>
+            <button type="button" onClick={() => setPncTarget(null)} className="rounded-xl px-5 py-2.5 text-sm font-semibold cursor-pointer" style={{ background: t.input, color: t.muted }}>
+              Cancelar
+            </button>
+            <button type="button" onClick={saveProductionPnc} className="rounded-xl px-5 py-2.5 text-sm font-bold cursor-pointer" style={{ background: C.red, color: "#fff", fontFamily: "Montserrat, sans-serif" }}>
+              Registrar y reiniciar orden
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const QuickClientModal = () => {
+    if (!quickClientOpen) return null
+    const quickIsLocal = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
+    const field = (key: string, label: string, type = "text", options?: string[]) => (
+      <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
+        {label}
+        {options ? (
+          <select value={quickClientForm[key] || ""} onChange={(event) => setQuickClientForm((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}>
+            <option value="">Selecciona...</option>
+            {options.map((option) => <option key={option}>{option}</option>)}
+          </select>
+        ) : (
+          <input type={type} value={quickClientForm[key] || ""} onChange={(event) => setQuickClientForm((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
+        )}
+      </label>
+    )
+    return (
+      <div className="fixed inset-0 z-[75] flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.68)" }} onClick={() => setQuickClientOpen(false)}>
+        <div className="flex max-h-[90vh] w-full max-w-lg min-w-0 flex-col overflow-hidden rounded-2xl" style={{ background: t.card, border: `1px solid ${t.border}` }} onClick={(event) => event.stopPropagation()}>
+          <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${t.border}` }}>
+            <div><h3 className="text-base font-semibold" style={{ color: t.text }}>Registrar cliente</h3><p className="text-xs" style={{ color: t.muted }}>Correo y dirección obligatorios, excepto para clientes de local.</p></div>
+            <button type="button" onClick={() => setQuickClientOpen(false)} className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl" style={{ background: t.input, color: t.muted }}>{Ico.x}</button>
+          </div>
+          <div className="grid min-w-0 gap-3 overflow-y-auto px-5 py-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">{field("0", "Nombre completo *")}</div>
+            <div className="sm:col-span-2">{field("3", "Teléfono *", "tel")}</div>
+            {field("1", "Tipo de documento *", "text", ["Cédula de Ciudadanía", "Cédula Extranjería", "NIT", "Pasaporte", "Tarjeta de Identidad"])}
+            {field("2", "Número de documento *")}
+            {field("4", quickIsLocal ? "Correo electrónico (opcional)" : "Correo electrónico *", "email")}
+            <div className="sm:col-span-2">{field("5", quickIsLocal ? "Dirección (opcional)" : "Dirección *")}</div>
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={quickIsLocal}
+              onClick={() => setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))}
+              className="flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 text-left sm:col-span-2"
+              style={{ background: t.input, border: `1px solid ${t.inputB}` }}
+            >
+              <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md" style={{ background: quickIsLocal ? C.mustard : "transparent", border: `1.5px solid ${quickIsLocal ? C.mustard : t.inputB}`, color: "#fff" }}>{quickIsLocal ? Ico.check : null}</span>
+              <span><strong className="block text-sm" style={{ color: t.text }}>Cliente de local</strong><span className="block text-xs" style={{ color: t.muted }}>No requiere correo electrónico ni dirección.</span></span>
+            </button>
+            {quickClientError && <p className="text-xs font-medium sm:col-span-2" style={{ color: C.red }}>{quickClientError}</p>}
+          </div>
+          <div className="flex gap-3 px-5 py-4" style={{ borderTop: `1px solid ${t.border}` }}>
+            <button type="button" onClick={() => setQuickClientOpen(false)} className="flex-1 rounded-xl py-2.5 text-sm font-semibold cursor-pointer" style={{ background: t.input, color: t.muted }}>Cancelar</button>
+            <button type="button" onClick={saveQuickClient} className="flex-1 rounded-xl py-2.5 text-sm font-bold cursor-pointer" style={{ background: C.mustard, color: "#fff" }}>Registrar cliente</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const DelModal = () => {
+    if (!delTarget) return null
+    const deleteBlocked =
+      delTarget.section === "produccion" &&
+      (String(rows.produccion?.[delTarget.idx]?.[8] ?? "Recibida") !== "Recibida" ||
+        String(rows.produccion?.[delTarget.idx]?.[11] ?? "No").toLowerCase() === "sí")
+    if (deleteBlocked) return null
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center px-4"
+        style={{ background: "rgba(0,0,0,0.65)" }}
+      >
+        <div
+          className="w-full max-w-xs p-6 rounded-2xl text-center"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+        >
+          <div
+            className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
+            style={{ background: "rgba(165,65,49,0.1)", color: C.red }}
+          >
+            {Ico.trash}
+          </div>
+          <h3
+            className="font-semibold text-base mb-1"
+            style={{ color: t.text }}
+          >
+            ¿Eliminar registro?
+          </h3>
+          <p className="text-sm mb-5" style={{ color: t.muted }}>
+            Esta acción no se puede deshacer.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setDelTarget(null)}
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+              style={{ background: t.input, color: t.muted }}
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={() => {
+                setRows((r) => {
+                  if (
+                    delTarget.section === "produccion" &&
+                    (String(r.produccion?.[delTarget.idx]?.[8] ?? "Recibida") !== "Recibida" ||
+                      String(r.produccion?.[delTarget.idx]?.[11] ?? "No").toLowerCase() === "sí")
+                  ) return r
+                  const u = [...(r[delTarget.section] || [])]
+                  u.splice(delTarget.idx, 1)
+                  return { ...r, [delTarget.section]: u }
+                })
+                setDelTarget(null)
+              }}
+              className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
+              style={{ background: C.red, color: "#fff" }}
+            >
+              Eliminar
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const SidebarContent = () => (
+    <>
+      <div
+        className="flex items-center justify-between px-4 py-4"
+        style={{ borderBottom: `1px solid ${t.sidebarBd}` }}
+      >
+        <div className="flex items-center gap-2.5 min-w-0">
+          <img
+            src={logoImg}
+            alt="Logo"
+            className="w-11 h-11 object-contain flex-shrink-0"
+          />
+          <div className="min-w-0">
+            <div
+              className="font-semibold text-sm truncate"
+              style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
+            >
+              El Parche
+            </div>
+            <div className="text-xs" style={{ color: t.sidebarMu }}>
+              Mini Burguer · Admin
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={() => setSidebarOpen(false)}
+          className="lg:hidden w-7 h-7 flex items-center justify-center rounded-lg cursor-pointer"
+          style={{ color: t.sidebarMu, background: t.inputB }}
+        >
+          {Ico.x}
+        </button>
+      </div>
+      <nav
+        className="flex-1 overflow-y-auto py-3 px-2"
+        style={{ scrollbarWidth: "none" }}
+      >
+        {SIDEBAR_MENU.map((g) => {
+          const leaf = g.children.length === 0
+          const active = leaf && section === g.key
+          const anyChild = g.children.some((c) => c.key === section)
+          return (
+            <div key={g.key} className="mb-0.5">
+              <button
+                onClick={() => {
+                  if (leaf) {
+                    setSection(g.key as AdminSection)
+                    setSidebarOpen(false)
+                  } else toggleGrp(g.key)
+                }}
+                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer"
+                style={{
+                  background: active
+                    ? `${g.color}18`
+                    : anyChild
+                      ? dark
+                        ? "rgba(255,255,255,0.04)"
+                        : "rgba(0,0,0,0.03)"
+                      : "transparent",
+                }}
+              >
+                <span
+                  className="flex-shrink-0"
+                  style={{ color: active || anyChild ? g.color : t.sidebarMu }}
+                >
+                  {g.icon}
+                </span>
+                <span
+                  className="flex-1 text-xs font-medium truncate"
+                  style={{ color: active ? g.color : t.sidebarTx }}
+                >
+                  {g.label}
+                </span>
+                {!leaf && (
+                  <span
+                    style={{
+                      color: t.sidebarMu,
+                      transform: open.includes(g.key)
+                        ? "rotate(180deg)"
+                        : "none",
+                      transition: "transform 0.2s",
+                      display: "inline-flex",
+                    }}
+                  >
+                    {Ico.chevDown}
+                  </span>
+                )}
+              </button>
+              {!leaf && open.includes(g.key) && (
+                <div
+                  className="ml-5 mt-0.5 flex flex-col gap-0.5 pl-2"
+                  style={{ borderLeft: `1.5px solid ${t.sidebarBd}` }}
+                >
+                  {g.children.map((item) => (
+                    <button
+                      key={item.key}
+                      onClick={() => {
+                        setSection(item.key as AdminSection)
+                        setSidebarOpen(false)
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-lg cursor-pointer"
+                      style={{
+                        background:
+                          section === item.key ? `${g.color}14` : "transparent",
+                      }}
+                    >
+                      <span
+                        className="text-xs font-medium"
+                        style={{
+                          color: section === item.key ? g.color : t.sidebarTx,
+                        }}
+                      >
+                        {item.label}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </nav>
+      <div
+        className="px-3 py-3"
+        style={{ borderTop: `1px solid ${t.sidebarBd}` }}
+      >
+        <button
+          onClick={onSwitchToClient}
+          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80"
+          style={{ color: t.sidebarMu }}
+        >
+          {Ico.globe}
+          <span>{user ? "Vista de cliente" : "Ver sitio"}</span>
+        </button>
+      </div>
+    </>
+  )
+
+  return (
+    <div
+      className="flex h-screen overflow-hidden"
+      style={{ background: t.bg, fontFamily: "Poppins, sans-serif" }}
+    >
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 lg:hidden"
+          style={{ background: "rgba(0,0,0,0.55)" }}
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      <aside
+        className={`fixed lg:relative inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        }`}
+        style={{
+          width: "240px",
+          background: t.sidebarBg,
+          borderRight: `1px solid ${t.sidebarBd}`,
+          flexShrink: 0,
+        }}
+      >
+        <SidebarContent />
+      </aside>
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Header */}
+        <header
+          className="flex items-center gap-3 px-4 py-3 flex-shrink-0"
+          style={{ background: t.hdrBg, borderBottom: `1px solid ${t.hdrBd}` }}
+        >
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="lg:hidden p-2 rounded-xl cursor-pointer"
+            style={{ color: t.muted, background: t.input }}
+          >
+            {Ico.menu}
+          </button>
+          <div className="ml-auto flex items-center gap-2">
+            {/* Admin notifications */}
+            <div className="relative" ref={notificationsRef}>
+              <button
+                type="button"
+                title="Notificaciones"
+                aria-label={`Notificaciones, ${unreadNotifications} sin leer`}
+                aria-expanded={notificationsOpen}
+                aria-haspopup="dialog"
+                onClick={() => {
+                  setNotificationsOpen((open) => !open)
+                  setProfileOpen(false)
+                }}
+                className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl"
+                style={{
+                  background: notificationsOpen ? t.inputB : t.input,
+                  color: notificationsOpen ? C.mustard : t.muted,
+                }}
+              >
+                {Ico.bell}
+                {unreadNotifications > 0 && (
+                  <span
+                    className="absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-0.5 font-bold"
+                    style={{
+                      background: C.red,
+                      color: "#fff",
+                      fontSize: "0.5rem",
+                    }}
+                  >
+                    {unreadNotifications}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <div
+                  role="dialog"
+                  aria-label="Notificaciones del administrador"
+                  className="fixed left-4 right-4 top-16 z-[60] min-w-0 overflow-hidden rounded-2xl sm:absolute sm:left-auto sm:right-0 sm:top-11 sm:w-[360px]"
+                  style={{
+                    background: t.card,
+                    boxShadow: "0 16px 48px rgba(0,0,0,0.22)",
+                    border: `1px solid ${t.border}`,
+                  }}
+                >
+                  <div
+                    className="flex min-w-0 items-center gap-2 px-4 py-3"
+                    style={{ borderBottom: `1px solid ${t.border}` }}
+                  >
+                    <span style={{ color: C.mustard }}>{Ico.bell}</span>
+                    <div className="min-w-0 flex-1">
+                      <h2
+                        className="text-sm font-semibold"
+                        style={{ color: t.text }}
+                      >
+                        Notificaciones
+                      </h2>
+                      <p className="text-[11px]" style={{ color: t.muted }}>
+                        {unreadNotifications > 0
+                          ? `${unreadNotifications} sin leer`
+                          : "Estás al día"}
+                      </p>
+                    </div>
+                    {unreadNotifications > 0 && (
+                      <button
+                        type="button"
+                        onClick={markAllNotificationsRead}
+                        className="flex flex-shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold cursor-pointer"
+                        style={{
+                          color: C.mustard,
+                          background: `${C.mustard}12`,
+                        }}
+                      >
+                        {Ico.check} Marcar leídas
+                      </button>
+                    )}
+                  </div>
+
+                  <div
+                    className="min-w-0 overflow-y-auto"
+                    style={{ maxHeight: "min(420px, 58vh)" }}
+                  >
+                    {ADMIN_NOTIFICATIONS.map((notification) => {
+                      const isRead = readNotifications.has(notification.id)
+                      const color =
+                        notification.type === "danger"
+                          ? C.red
+                          : notification.type === "warn"
+                            ? C.mustard
+                            : "#4FC3F7"
+                      return (
+                        <button
+                          key={notification.id}
+                          type="button"
+                          onClick={() => {
+                            markNotificationRead(notification.id)
+                            setSection(notification.target)
+                            setNotificationsOpen(false)
+                          }}
+                          className="flex w-full min-w-0 cursor-pointer items-start gap-3 px-4 py-3 text-left transition-colors"
+                          style={{
+                            background: isRead ? t.card : t.input,
+                            borderBottom: `1px solid ${t.border}`,
+                          }}
+                        >
+                          <span
+                            className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg"
+                            style={{ color, background: `${color}16` }}
+                          >
+                            {Ico.alert}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex min-w-0 items-start gap-2">
+                              <span
+                                className="min-w-0 flex-1 text-xs font-semibold break-words [overflow-wrap:anywhere]"
+                                style={{ color: t.text }}
+                              >
+                                {notification.title}
+                              </span>
+                              {!isRead && (
+                                <span
+                                  className="mt-1 h-2 w-2 flex-shrink-0 rounded-full"
+                                  style={{ background: C.red }}
+                                />
+                              )}
+                            </span>
+                            <span
+                              className="mt-0.5 block text-xs leading-snug break-words [overflow-wrap:anywhere]"
+                              style={{ color: t.muted }}
+                            >
+                              {notification.message}
+                            </span>
+                            <span
+                              className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]"
+                              style={{ color: t.subtle }}
+                            >
+                              <span>{notification.module}</span>
+                              <span>·</span>
+                              <span>{notification.time}</span>
+                            </span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="px-4 py-3" style={{ background: t.cardAlt }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSection("dashboard")
+                        setNotificationsOpen(false)
+                      }}
+                      className="w-full cursor-pointer text-center text-xs font-semibold"
+                      style={{ color: C.mustard }}
+                    >
+                      Ver todas en el Dashboard
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() =>
+                setTheme((th) => (th === "light" ? "dark" : "light"))
+              }
+              className="w-8 h-8 flex items-center justify-center rounded-xl cursor-pointer"
+              style={{
+                background: t.input,
+                border: `1px solid ${t.inputB}`,
+                color: t.muted,
+              }}
+            >
+              {dark ? Ico.sun : Ico.moon}
+            </button>
+            <button
+              onClick={onSwitchToClient}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              {Ico.globe} {user ? "App" : "Sitio"}
+            </button>
+            <div className="relative" ref={dropRef}>
+              <button
+                onClick={() => {
+                  setProfileOpen((open) => !open)
+                  setNotificationsOpen(false)
+                }}
+                className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm cursor-pointer"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                {user?.name?.charAt(0) ?? "A"}
+              </button>
+              {profileOpen && (
+                <div
+                  className="absolute right-0 top-10 w-48 rounded-xl overflow-hidden z-50"
+                  style={{
+                    background: t.card,
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
+                    border: `1px solid ${t.border}`,
+                  }}
+                >
+                  <div
+                    className="px-4 py-3"
+                    style={{ borderBottom: `1px solid ${t.border}` }}
+                  >
+                    <div
+                      className="font-semibold text-xs"
+                      style={{ color: t.text }}
+                    >
+                      {user?.name ?? "Administrador"}
+                    </div>
+                    <div className="text-xs" style={{ color: t.muted }}>
+                      {user?.email ?? "admin@parche.co"}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false)
+                      onSwitchToClient()
+                    }}
+                    className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-xs cursor-pointer"
+                    style={{ color: C.red }}
+                  >
+                    {Ico.logout}
+                    <span>Cerrar sesión</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+        <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6">
+          <div className="mb-5">
+            <h1 className="font-semibold text-lg" style={{ color: t.text }}>
+              {sectionLabel}
+            </h1>
+          </div>
+          {section === "dashboard" && <Dashboard />}
+          {section !== "dashboard" && <GenericTable />}
+        </main>
+      </div>
+      <CRUDModal />
+      <ProductionPncModal />
+      <QuickClientModal />
+      <DelModal />
+    </div>
+  )
+}
+
+// ── App Root ───────────────────────────────────────────────────────────────────
+export default function App() {
+  const [page, setPage] = useState<Page>("landing")
+  const [user, setUser] = useState<User | null>(null)
+  const [cart, setCart] = useState<CartItem[]>([])
+  const [forgotEmail, setForgotEmail] = useState("")
+  const [pendingOrder, setPendingOrder] = useState<{
+    id: string
+    items: string
+    total: string
+  } | null>(null)
+
+  const login = (u: User) => {
+    setUser(u)
+    setPage("app")
+  }
+  const logout = () => {
+    setUser(null)
+    setCart([])
+    setPage("landing")
+  }
+  const goCheckout = () => {
+    setPage("checkout")
+  }
+  const goGuestMenu = () => {
+    setPage("guest-menu")
+  }
+
+  if (page === "login")
+    return (
+      <LoginPage
+        onLogin={login}
+        onRegister={() => setPage("register")}
+        onForgot={() => setPage("forgot")}
+        onBack={() => setPage("landing")}
+      />
+    )
+  if (page === "register")
+    return (
+      <RegisterPage
+        onVerify={() => {
+          setPage("login")
+        }}
+        onLoginLink={() => setPage("login")}
+        onBack={() => setPage("landing")}
+      />
+    )
+  if (page === "forgot")
+    return (
+      <ForgotPage
+        onReset={(e) => {
+          setForgotEmail(e)
+          setPage("reset")
+        }}
+        onBack={() => setPage("login")}
+      />
+    )
+  if (page === "reset")
+    return <ResetPage email={forgotEmail} onDone={() => setPage("login")} />
+  if (page === "guest-menu")
+    return (
+      <GuestMenuPage
+        cart={cart}
+        setCart={setCart}
+        onBack={() => setPage("landing")}
+        onCheckout={goCheckout}
+      />
+    )
+  if (page === "checkout")
+    return (
+      <CheckoutPage
+        cart={cart}
+        setCart={setCart}
+        user={user}
+        onLogin={login}
+        onRegisterVerified={(email, name) =>
+          login({ name, email, role: "user" })
+        }
+        onBack={() => setPage(user ? "app" : "landing")}
+        onComplete={() => {
+          setPendingOrder({
+            id: `PED-${Math.floor(Math.random() * 9000) + 1000}`,
+            items: cart.map((i) => i.name).join(", "),
+            total: fmt(
+              cart.reduce(
+                (s, i) =>
+                  s +
+                  (i.price +
+                    (i.additions?.reduce((a, b) => a + b.qty * b.price, 0) ??
+                      0)) *
+                    i.qty,
+                0,
+              ),
+            ),
+          })
+          setCart([])
+          setPage("app")
+        }}
+      />
+    )
+  if (page === "app" && user)
+    return (
+      <ClientApp
+        user={user}
+        onLogout={logout}
+        onAdmin={() => setPage("admin")}
+        onCheckout={goCheckout}
+        onProfile={() => setPage("profile" as Page)}
+        cart={cart}
+        setCart={setCart}
+        pendingOrder={pendingOrder}
+        onClearPending={() => setPendingOrder(null)}
+      />
+    )
+  if (page === "profile" as Page && user)
+    return (
+      <ProfilePage
+        user={user}
+        onBack={() => setPage("app")}
+        onLogout={logout}
+        onUpdateUser={(u) => setUser(u)}
+      />
+    )
+  if (page === "admin")
+    return (
+      <AdminPanel
+        onSwitchToClient={() => setPage(user ? "app" : "landing")}
+        user={user}
+      />
+    )
+  return (
+    <LandingPage
+      onLogin={() => setPage("login")}
+      onAdmin={() => setPage("admin")}
+      onGuestMenu={goGuestMenu}
+      onCheckout={goCheckout}
+      cart={cart}
+      setCart={setCart}
+    />
+  )
+}
