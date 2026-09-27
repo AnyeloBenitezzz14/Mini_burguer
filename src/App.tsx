@@ -23,6 +23,23 @@ type CartItem = {
   sauces?: string[]
   additions?: { name: string; qty: number; price: number }[]
 }
+type DeliveryInfo = {
+  nombre: string
+  telefono: string
+  direccion: string
+  notas: string
+  pago: string
+  voucher?: string
+}
+type Order = DeliveryInfo & {
+  id: string
+  email: string
+  cliente: string
+  date: string
+  items: CartItem[]
+  total: number
+  status: string
+}
 type ModalMode = "add" | "edit" | "view" | null
 type FieldType = {
   key: string
@@ -971,6 +988,8 @@ function badgeSt(val: string | number) {
   if (
     [
       "Pendiente",
+      "Por confirmar",
+      "Recibido",
       "En producción",
       "Iniciada",
       "En gestión",
@@ -1815,7 +1834,7 @@ function InputField({
         style={{ color: "rgba(30,30,30,0.5)" }}
       >
         {label}
-        {required && " *"}
+        {required && !label.trim().endsWith("*") && " *"}
       </label>
       <input
         type={type}
@@ -3286,24 +3305,308 @@ function GuestMenuPage({
   )
 }
 
+// ── Orders (shared by client app, profile and checkout) ───────────────────────
+const ORDER_STEPS = ["Recibido", "Confirmado", "En cocina", "En camino", "Entregado"]
+// Orders from this total up need the owner's confirmation
+const APPROVAL_MIN = 150000
+
+const itemTotal = (i: CartItem) =>
+  (i.price + (i.additions?.reduce((a, b) => a + b.qty * b.price, 0) ?? 0)) *
+  i.qty
+const cartTotal = (items: CartItem[]) =>
+  items.reduce((s, i) => s + itemTotal(i), 0)
+
+function loadLS<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(key)
+    return v ? (JSON.parse(v) as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+function saveLS(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // quota exceeded / storage blocked: state stays in memory for this session
+  }
+}
+
+// ponytail: all orders live in this browser's localStorage (client + admin
+// share it); move to a backend when the shop needs multiple devices.
+const loadOrders = () => loadLS<Order[]>("orders", [])
+const saveOrders = (orders: Order[]) => saveLS("orders", orders)
+
+// Downscale to keep vouchers small enough for localStorage
+function readVoucher(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => {
+      const s = Math.min(1, 1000 / Math.max(img.width, img.height))
+      const c = document.createElement("canvas")
+      c.width = img.width * s
+      c.height = img.height * s
+      c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height)
+      URL.revokeObjectURL(img.src)
+      resolve(c.toDataURL("image/jpeg", 0.8))
+    }
+    img.onerror = reject
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+function VoucherInput({
+  value,
+  onChange,
+}: {
+  value?: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <label
+      className="block cursor-pointer rounded-2xl p-3 text-center text-xs font-semibold"
+      style={{ border: `1.5px dashed ${C.mustard}`, color: C.mustard }}
+    >
+      {value && (
+        <img
+          src={value}
+          alt="Comprobante de pago"
+          className="mx-auto max-h-48 rounded-xl mb-2 object-contain"
+        />
+      )}
+      {value ? "Cambiar comprobante" : "📎 Subir comprobante de pago"}
+      <input
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={async (e) => {
+          const f = e.target.files?.[0]
+          if (f) onChange(await readVoucher(f))
+        }}
+      />
+    </label>
+  )
+}
+
+function OrderList({
+  orders,
+  dark,
+  onSelect,
+}: {
+  orders: Order[]
+  dark: boolean
+  onSelect: (o: Order) => void
+}) {
+  const TEXT = dark ? "#F4EEDC" : "#1A1714"
+  const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
+  const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.09)"
+  if (orders.length === 0)
+    return (
+      <div className="text-center py-10 text-sm" style={{ color: MUTED }}>
+        Aún no has hecho pedidos.
+      </div>
+    )
+  return (
+    <div className="space-y-3">
+      {orders.map((o) => {
+        const badge = badgeSt(o.status)
+        return (
+          <button
+            key={o.id}
+            onClick={() => onSelect(o)}
+            className="w-full text-left p-4 rounded-2xl cursor-pointer hover:opacity-90"
+            style={{
+              background: dark ? "#1E1C18" : "#fff",
+              border: `1px solid ${BORDER}`,
+            }}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="font-bold text-sm" style={{ color: TEXT }}>
+                  {o.id}
+                </div>
+                <div className="text-xs truncate" style={{ color: MUTED }}>
+                  {o.date} · {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
+                </div>
+              </div>
+              <div className="text-right flex-shrink-0">
+                <div className="font-bold" style={{ color: C.mustard }}>
+                  {fmt(o.total)}
+                </div>
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full font-medium"
+                  style={{ background: badge?.bg, color: badge?.color }}
+                >
+                  {o.status}
+                </span>
+              </div>
+            </div>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function OrderDetailModal({
+  order,
+  dark,
+  onClose,
+  onVoucher,
+}: {
+  order: Order
+  dark: boolean
+  onClose: () => void
+  onVoucher: (id: string, voucher: string) => void
+}) {
+  const TEXT = dark ? "#F4EEDC" : "#1A1714"
+  const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
+  const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.09)"
+  // Big orders show "Por confirmar" as their first step until the owner approves
+  const steps =
+    order.status === "Por confirmar"
+      ? ["Por confirmar", ...ORDER_STEPS.slice(1)]
+      : ORDER_STEPS
+  const step = steps.indexOf(order.status)
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6"
+      style={{ background: "rgba(0,0,0,0.6)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl p-6"
+        style={{ background: dark ? "#1E1C18" : "#fff", color: TEXT }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-1">
+          <h3
+            className="font-black text-lg"
+            style={{ fontFamily: "Montserrat, sans-serif" }}
+          >
+            Pedido {order.id}
+          </h3>
+          <button
+            onClick={onClose}
+            className="cursor-pointer"
+            style={{ color: MUTED }}
+            aria-label="Cerrar"
+          >
+            {Ico.x}
+          </button>
+        </div>
+        <div className="text-xs mb-5" style={{ color: MUTED }}>
+          {order.date}
+        </div>
+
+        <div className="flex items-center mb-6">
+          {steps.map((s, i) => (
+            <div key={s} className="flex items-center flex-1">
+              <div className="flex flex-col items-center">
+                <div
+                  className="w-3 h-3 rounded-full"
+                  style={{ background: i <= step ? C.mustard : BORDER }}
+                />
+                <div
+                  className="text-center mt-1"
+                  style={{
+                    color: i === step ? C.mustard : MUTED,
+                    fontSize: "0.56rem",
+                  }}
+                >
+                  {s}
+                </div>
+              </div>
+              {i < steps.length - 1 && (
+                <div
+                  className="h-0.5 flex-1 mb-4"
+                  style={{ background: i < step ? C.mustard : BORDER }}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="space-y-2 mb-4">
+          {order.items.map((i) => (
+            <div
+              key={i.id}
+              className="flex justify-between gap-3 text-sm pb-2"
+              style={{ borderBottom: `1px solid ${BORDER}` }}
+            >
+              <div>
+                <div className="font-semibold">
+                  {i.name} x{i.qty}
+                </div>
+                {!!i.sauces?.length && (
+                  <div className="text-xs" style={{ color: MUTED }}>
+                    Salsas: {i.sauces.join(", ")}
+                  </div>
+                )}
+                {!!i.additions?.length && (
+                  <div className="text-xs" style={{ color: MUTED }}>
+                    Adiciones:{" "}
+                    {i.additions.map((a) => `${a.name} x${a.qty}`).join(", ")}
+                  </div>
+                )}
+              </div>
+              <span className="font-semibold">{fmt(itemTotal(i))}</span>
+            </div>
+          ))}
+          <div className="flex justify-between font-black">
+            <span>Total</span>
+            <span style={{ color: C.mustard }}>{fmt(order.total)}</span>
+          </div>
+        </div>
+
+        <div className="space-y-1 text-sm mb-4" style={{ color: MUTED }}>
+          <div>
+            <strong style={{ color: TEXT }}>Recibe:</strong> {order.nombre}
+          </div>
+          <div>
+            <strong style={{ color: TEXT }}>Dirección:</strong> {order.direccion}
+          </div>
+          <div>
+            <strong style={{ color: TEXT }}>Teléfono:</strong> {order.telefono}
+          </div>
+          {order.notas && (
+            <div>
+              <strong style={{ color: TEXT }}>Notas:</strong> {order.notas}
+            </div>
+          )}
+          <div>
+            <strong style={{ color: TEXT }}>Pago:</strong> {order.pago}
+          </div>
+        </div>
+
+        {order.pago !== "Efectivo" && (
+          <VoucherInput
+            value={order.voucher}
+            onChange={(v) => onVoucher(order.id, v)}
+          />
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Cart Summary (reusable) ────────────────────────────────────────────────────
 function CartSummary({
   cart,
   setCart,
   dark,
+  showTotals = true,
 }: {
   cart: CartItem[]
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
   dark: boolean
+  showTotals?: boolean
 }) {
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
   const CARD = dark ? "#1E1C18" : "#fff"
-  const itemTotal = (i: CartItem) =>
-    (i.price + (i.additions?.reduce((s, a) => s + a.qty * a.price, 0) ?? 0)) *
-    i.qty
-  const subtotal = cart.reduce((s, i) => s + itemTotal(i), 0)
+  const subtotal = cartTotal(cart)
   const updateQty = (id: number, d: number) =>
     setCart((c) =>
       c.map((i) =>
@@ -3381,6 +3684,7 @@ function CartSummary({
           </div>
         ))}
       </div>
+      {showTotals && (
       <div
         className="p-4 rounded-xl"
         style={{ background: CARD, border: `1px solid ${BORDER}` }}
@@ -3411,6 +3715,7 @@ function CartSummary({
           <span style={{ color: C.mustard }}>{fmt(subtotal)}</span>
         </div>
       </div>
+      )}
     </div>
   )
 }
@@ -3423,14 +3728,16 @@ function CheckoutPage({
   onLogin,
   onRegisterVerified,
   onBack,
+  onPlaceOrder,
   onComplete,
 }: {
   cart: CartItem[]
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
   user: User | null
   onLogin: (u: User) => void
-  onRegisterVerified: (email: string, name: string) => void
+  onRegisterVerified: (u: User) => void
   onBack: () => void
+  onPlaceOrder: (info: DeliveryInfo) => void
   onComplete: () => void
 }) {
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
@@ -3452,20 +3759,34 @@ function CheckoutPage({
     notas: "",
     pago: "Efectivo",
   })
+  // Prefill delivery data from the account as soon as there is one
+  useEffect(() => {
+    if (!user) return
+    setDelivForm((f) => ({
+      ...f,
+      nombre: f.nombre || user.name,
+      telefono: f.telefono || user.phone || "",
+      direccion: f.direccion || user.addresses?.[0] || "",
+    }))
+  }, [user])
   const [code, setCode] = useState("")
-  const [showQR, setShowQR] = useState(false)
+  const [voucher, setVoucher] = useState("")
   const [ordered, setOrdered] = useState(false)
+  const [placedTotal, setPlacedTotal] = useState(0)
   const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(user ? 2 : 1)
+  // Guests see only their cart until they press "Hacer pedido"
+  const [showAuth, setShowAuth] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
-  const subtotal = cart.reduce(
-    (s, i) =>
-      s +
-      (i.price +
-        (i.additions?.reduce((a2, b) => a2 + b.qty * b.price, 0) ?? 0)) *
-        i.qty,
-    0,
-  )
+  const subtotal = cartTotal(cart)
+  const placeOrder = () => {
+    onPlaceOrder({ ...delivForm, voucher: needsVoucher ? voucher : undefined })
+    setPlacedTotal(subtotal)
+    setOrdered(true)
+  }
+  // Nequi / Daviplata must attach the payment receipt before continuing
+  const needsVoucher = delivForm.pago !== "Efectivo"
+  const payReady = !needsVoucher || !!voucher
   const delivFilled =
     delivForm.nombre && delivForm.telefono && delivForm.direccion
   const canOrder = user && delivFilled
@@ -3492,9 +3813,47 @@ function CheckoutPage({
   const handleVerify = (e: React.FormEvent) => {
     e.preventDefault()
     if (code.length < 6) return
-    onRegisterVerified(regForm.email, regForm.name)
+    onRegisterVerified({
+      name: regForm.name,
+      email: regForm.email,
+      role: "user",
+      phone: regForm.phone,
+      cedula: regForm.docNum,
+    })
     setCheckoutStep(2)
   }
+
+  const MUTED = "rgba(30,30,30,0.55)"
+  const LINE = "rgba(30,30,30,0.08)"
+  const CARD_ST = {
+    background: "#fff",
+    border: `1px solid ${LINE}`,
+    boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
+  }
+  const PAY_OPTS = [
+    { id: "Efectivo", desc: "Pagas al recibir tu pedido" },
+    { id: "Nequi", desc: "Transferencia con código QR" },
+    { id: "Daviplata", desc: "Transferencia con código QR" },
+  ]
+  const cta = !user
+    ? showAuth
+      ? null
+      : {
+          label: "Hacer pedido",
+          onClick: () => setShowAuth(true),
+          disabled: cart.length === 0,
+        }
+    : checkoutStep === 2
+      ? {
+          label: "Continuar a revisión",
+          onClick: () => setCheckoutStep(3),
+          disabled: !delivFilled || !payReady,
+        }
+      : {
+          label: "Confirmar pedido",
+          onClick: placeOrder,
+          disabled: cart.length === 0 || !canOrder || !payReady,
+        }
 
   if (ordered)
     return (
@@ -3502,23 +3861,56 @@ function CheckoutPage({
         className="min-h-screen flex items-center justify-center px-4"
         style={{ background: "#FAF5E8", fontFamily: "Poppins, sans-serif" }}
       >
-        <div className="text-center max-w-sm">
-          <div className="text-6xl mb-4">🎉</div>
+        <div className="w-full max-w-md p-8 rounded-3xl text-center" style={CARD_ST}>
+          <div
+            className="w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center"
+            style={{ background: `${C.forest}18`, color: C.forest }}
+          >
+            <svg
+              width="30"
+              height="30"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
           <h2
             className="font-black text-2xl mb-2"
             style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
           >
             ¡Pedido enviado!
           </h2>
-          <p className="text-sm mb-6" style={{ color: "rgba(30,30,30,0.5)" }}>
-            Pronto te avisamos cuando esté listo.
+          <p className="text-sm mb-6" style={{ color: MUTED }}>
+            {placedTotal >= APPROVAL_MIN
+              ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
+              : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
+            Puedes seguir su estado en &quot;Mis pedidos&quot;.
           </p>
+          <div
+            className="text-left text-sm rounded-2xl p-4 mb-6 space-y-2"
+            style={{ background: "rgba(30,30,30,0.03)" }}
+          >
+            {[
+              ["Entrega en", delivForm.direccion],
+              ["Recibe", delivForm.nombre],
+              ["Método de pago", delivForm.pago],
+            ].map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-4">
+                <span style={{ color: MUTED }}>{k}</span>
+                <span className="font-semibold text-right" style={{ color: C.dark }}>
+                  {v}
+                </span>
+              </div>
+            ))}
+          </div>
           <button
-            onClick={() => {
-              setCart([])
-              onComplete()
-            }}
-            className="w-full py-3 rounded-2xl font-bold text-sm cursor-pointer"
+            onClick={onComplete}
+            className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
             style={{ background: C.mustard, color: "#fff" }}
           >
             Ver mis pedidos
@@ -3532,193 +3924,138 @@ function CheckoutPage({
       className="min-h-screen"
       style={{ background: "#FAF5E8", fontFamily: "Poppins, sans-serif" }}
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
-        <div className="flex items-center gap-3 mb-6">
+      <header
+        className="sticky top-0 z-30"
+        style={{
+          background: "rgba(250,245,232,0.95)",
+          borderBottom: `1px solid ${LINE}`,
+          backdropFilter: "blur(12px)",
+        }}
+      >
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
           <button
             onClick={onBack}
-            className="text-sm cursor-pointer hover:opacity-70"
-            style={{ color: C.mustard }}
+            className="text-sm font-medium cursor-pointer hover:opacity-70"
+            style={{ color: MUTED }}
           >
-            ← Volver
+            ← Seguir comprando
           </button>
-          <h1
-            className="font-black text-2xl"
-            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+          <div className="flex items-center gap-2">
+            <img src={logoImg} alt="El Parche" className="h-9 w-9 object-contain" />
+            <span
+              className="font-black hidden sm:inline"
+              style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
+            >
+              El Parche
+            </span>
+          </div>
+          <span
+            className="flex items-center gap-1.5 text-xs font-semibold"
+            style={{ color: C.forest }}
           >
-            Finalizar pedido
-          </h1>
+            {Ico.shield}
+            <span className="hidden sm:inline">Compra segura</span>
+          </span>
         </div>
-        <div className="grid grid-cols-3 gap-2 mb-6 max-w-2xl mx-auto">
+      </header>
+
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+        <h1
+          className="font-black text-2xl sm:text-3xl text-center mb-6"
+          style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+        >
+          Finalizar pedido
+        </h1>
+
+        {/* Stepper */}
+        <ol className="flex items-center max-w-xl mx-auto mb-10">
           {["Identificación", "Entrega", "Revisión"].map((label, i) => {
             const step = (i + 1) as 1 | 2 | 3
+            const done = checkoutStep > step || (step === 1 && !!user)
+            const active = checkoutStep === step && !done
+            const reachable =
+              (step === 1 && !user) ||
+              (step === 2 && !!user) ||
+              (step === 3 && !!user && !!delivFilled && payReady)
             return (
-              <button
-                key={label}
-                onClick={() => {
-                  if (
-                    step === 1 ||
-                    (step === 2 && user) ||
-                    (step === 3 && user && delivFilled)
-                  )
+              <li key={label} className={`flex items-center ${i < 2 ? "flex-1" : ""}`}>
+                <button
+                  onClick={() => {
+                    if (!reachable) return
                     setCheckoutStep(step)
-                }}
-                className="flex items-center gap-2 text-left px-3 py-2 rounded-xl cursor-pointer"
-                style={{
-                  background:
-                    checkoutStep === step
-                      ? `${C.mustard}18`
-                      : "rgba(30,30,30,0.04)",
-                  color:
-                    checkoutStep === step ? C.mustard : "rgba(30,30,30,0.42)",
-                }}
-              >
-                <span
-                  className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
-                  style={{
-                    background:
-                      checkoutStep >= step ? C.mustard : "rgba(30,30,30,0.12)",
-                    color:
-                      checkoutStep >= step ? "#fff" : "rgba(30,30,30,0.45)",
+                    if (step === 1) setShowAuth(true)
                   }}
+                  className="flex items-center gap-2"
+                  style={{ cursor: reachable ? "pointer" : "default" }}
                 >
-                  {step}
-                </span>
-                <span className="text-xs font-semibold">{label}</span>
-              </button>
+                  <span
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                    style={{
+                      background: done || active ? C.mustard : "#fff",
+                      color: done || active ? "#fff" : MUTED,
+                      border: done || active ? "none" : "1.5px solid rgba(30,30,30,0.15)",
+                    }}
+                  >
+                    {done ? Ico.check : step}
+                  </span>
+                  <span
+                    className="text-sm font-semibold hidden sm:inline"
+                    style={{ color: done || active ? C.dark : MUTED }}
+                  >
+                    {label}
+                  </span>
+                </button>
+                {i < 2 && (
+                  <span
+                    className="flex-1 h-0.5 mx-3 rounded-full"
+                    style={{ background: done ? C.mustard : "rgba(30,30,30,0.12)" }}
+                  />
+                )}
+              </li>
             )
           })}
-        </div>
-        <div className="grid lg:grid-cols-[1.2fr_0.8fr] gap-6 lg:items-center">
-          {/* LEFT: Cart + delivery form */}
-          <div>
-            <h2 className="font-bold text-base mb-3" style={{ color: C.dark }}>
-              Tu pedido
-            </h2>
-            <CartSummary cart={cart} setCart={setCart} dark={false} />
-            <button
-              onClick={() => setPickerOpen(true)}
-              className="w-full mt-3 py-3 rounded-xl text-sm font-bold cursor-pointer"
-              style={{ background: "rgba(182,140,28,0.12)", color: C.mustard }}
-            >
-              + Agregar productos al pedido
-            </button>
-            {checkoutStep >= 2 && (
-              <>
-                <h2
-                  className="font-bold text-base mt-5 mb-3"
-                  style={{ color: C.dark }}
-                >
-                  Datos de entrega
+        </ol>
+
+        <div className="grid lg:grid-cols-[1fr_380px] gap-6 items-start">
+          {/* LEFT: current step */}
+          <div className="flex flex-col gap-6 min-w-0">
+            {!user && !showAuth && (
+              <section className="p-6 rounded-2xl" style={CARD_ST}>
+                <h2 className="font-bold text-lg mb-1" style={{ color: C.dark }}>
+                  Tu carrito
                 </h2>
-                <div
-                  className="p-5 rounded-2xl flex flex-col gap-3"
-                  style={{
-                    background: "#fff",
-                    boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
-                  }}
+                <p className="text-sm mb-5" style={{ color: MUTED }}>
+                  Revisa tus productos antes de hacer el pedido.
+                </p>
+                <CartSummary cart={cart} setCart={setCart} dark={false} showTotals={false} />
+                <button
+                  onClick={() => setPickerOpen(true)}
+                  className="w-full py-3 rounded-xl text-sm font-semibold cursor-pointer hover:opacity-80"
+                  style={{ border: `1.5px dashed ${C.mustard}`, color: C.mustard }}
                 >
-                  {[
-                    ["nombre", "Nombre completo *", "text"],
-                    ["telefono", "Teléfono *", "tel"],
-                    ["direccion", "Dirección de entrega *", "text"],
-                    ["notas", "Notas para el pedido", "text"],
-                  ].map(([k, lbl, t]) => (
-                    <InputField
-                      key={k}
-                      label={lbl}
-                      type={t}
-                      placeholder={lbl}
-                      value={delivForm[(k as keyof typeof delivForm)]}
-                      onChange={(v) => setDelivForm((f) => ({ ...f, [k]: v }))}
-                    />
-                  ))}
-                  <div className="flex flex-col gap-1">
-                    <label
-                      className="text-xs font-semibold"
-                      style={{ color: "rgba(30,30,30,0.5)" }}
-                    >
-                      Método de pago
-                    </label>
-                    <div className="flex gap-2">
-                      {["Efectivo", "Nequi", "Daviplata"].map((m) => (
-                        <button
-                          key={m}
-                          onClick={() =>
-                            setDelivForm((f) => ({ ...f, pago: m }))
-                          }
-                          className="flex-1 py-2 rounded-xl text-xs font-semibold cursor-pointer"
-                          style={{
-                            background:
-                              delivForm.pago === m
-                                ? C.mustard
-                                : "rgba(30,30,30,0.06)",
-                            color:
-                              delivForm.pago === m
-                                ? "#fff"
-                                : "rgba(30,30,30,0.5)",
-                          }}
-                        >
-                          {m}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-                {checkoutStep === 2 && (
-                  <button
-                    onClick={() => setCheckoutStep(3)}
-                    disabled={!delivFilled}
-                    className="w-full mt-4 py-3.5 rounded-2xl font-bold cursor-pointer disabled:opacity-40"
-                    style={{ background: C.mustard, color: "#fff" }}
-                  >
-                    Continuar a revisión →
-                  </button>
-                )}
-                {canOrder && checkoutStep === 3 && (
-                  <button
-                    onClick={() => {
-                      if (delivForm.pago === "Efectivo") {
-                        setOrdered(true)
-                      } else setShowQR(true)
-                    }}
-                    className="w-full mt-4 py-4 rounded-2xl font-bold cursor-pointer hover:opacity-90"
-                    style={{ background: C.mustard, color: "#fff" }}
-                  >
-                    {delivForm.pago === "Efectivo"
-                      ? `Confirmar pedido · ${fmt(subtotal)}`
-                      : `Pagar con ${delivForm.pago} · ${fmt(subtotal)}`}
-                  </button>
-                )}
-                {!canOrder && checkoutStep >= 2 && (
-                  <div
-                    className="mt-4 p-3 rounded-xl text-xs text-center"
-                    style={{
-                      background: "rgba(182,140,28,0.1)",
-                      color: C.mustard,
-                    }}
-                  >
-                    Completa los datos de entrega para continuar.
-                  </div>
-                )}
-              </>
+                  + Agregar más productos
+                </button>
+              </section>
             )}
-          </div>
-          {/* RIGHT: Auth / confirmation summary */}
-          {!user && checkoutStep === 1 ? (
-            <div>
-              <h2
-                className="font-bold text-base mb-3"
-                style={{ color: C.dark }}
-              >
-                Identificación
-              </h2>
-              <div
-                className="p-5 rounded-2xl"
-                style={{
-                  background: "#fff",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
-                }}
-              >
+
+            {!user && showAuth && (
+              <section className="p-6 rounded-2xl" style={CARD_ST}>
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <h2 className="font-bold text-lg" style={{ color: C.dark }}>
+                    Identifícate
+                  </h2>
+                  <button
+                    onClick={() => setShowAuth(false)}
+                    className="text-xs font-semibold cursor-pointer hover:opacity-70"
+                    style={{ color: C.mustard }}
+                  >
+                    ← Volver al carrito
+                  </button>
+                </div>
+                <p className="text-sm mb-5" style={{ color: MUTED }}>
+                  Inicia sesión o crea tu cuenta para guardar tu pedido y
+                  seguir su estado.
+                </p>
                 <div
                   className="flex rounded-xl overflow-hidden mb-5 p-1"
                   style={{ background: "rgba(30,30,30,0.06)" }}
@@ -3732,8 +4069,10 @@ function CheckoutPage({
                       }}
                       className="flex-1 py-2 rounded-lg text-sm font-semibold cursor-pointer"
                       style={{
-                        background: authTab === tab ? C.mustard : "transparent",
-                        color: authTab === tab ? "#fff" : "rgba(30,30,30,0.5)",
+                        background: authTab === tab ? "#fff" : "transparent",
+                        color: authTab === tab ? C.dark : "rgba(30,30,30,0.5)",
+                        boxShadow:
+                          authTab === tab ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
                       }}
                     >
                       {tab === "login" ? "Iniciar sesión" : "Registrarse"}
@@ -3889,54 +4228,294 @@ function CheckoutPage({
                     </button>
                   </form>
                 )}
-              </div>
-            </div>
-          ) : checkoutStep === 3 ? (
-            <div className="w-full flex justify-center lg:justify-end">
-              <div
-                className="max-w-md w-full p-5 rounded-2xl text-center"
-                style={{
-                  background: "#fff",
-                  boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
-                }}
-              >
-                <h2
-                  className="font-bold text-base mb-4"
-                  style={{ color: C.dark }}
-                >
-                  Resumen de entrega
+              </section>
+            )}
+
+            {user && checkoutStep === 2 && (
+              <>
+                <section className="p-6 rounded-2xl" style={CARD_ST}>
+                  <h2 className="font-bold text-lg mb-1" style={{ color: C.dark }}>
+                    Datos de entrega
+                  </h2>
+                  <p className="text-sm mb-5" style={{ color: MUTED }}>
+                    ¿A dónde llevamos tu pedido?
+                  </p>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    {[
+                      ["nombre", "Nombre completo *", "text", "Quién recibe"],
+                      ["telefono", "Teléfono *", "tel", "3XX XXX XXXX"],
+                      ["direccion", "Dirección de entrega *", "text", "Calle, número, barrio"],
+                      ["notas", "Notas para el pedido", "text", "Ej: sin cebolla, timbre dañado"],
+                    ].map(([k, lbl, t, ph]) => (
+                      <div
+                        key={k}
+                        className={k === "direccion" || k === "notas" ? "sm:col-span-2" : ""}
+                      >
+                        <InputField
+                          label={lbl}
+                          type={t}
+                          placeholder={ph}
+                          value={delivForm[k as keyof typeof delivForm]}
+                          onChange={(v) => setDelivForm((f) => ({ ...f, [k]: v }))}
+                        />
+                        {k === "direccion" && (user.addresses?.length ?? 0) > 1 && (
+                          <div className="flex flex-wrap gap-2 mt-2">
+                            {user.addresses!.map((a) => (
+                              <button
+                                key={a}
+                                type="button"
+                                onClick={() => setDelivForm((f) => ({ ...f, direccion: a }))}
+                                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer"
+                                style={{
+                                  border: `1px solid ${delivForm.direccion === a ? C.mustard : LINE}`,
+                                  background: delivForm.direccion === a ? `${C.mustard}12` : "#fff",
+                                  color: delivForm.direccion === a ? C.mustard : MUTED,
+                                }}
+                              >
+                                {Ico.mapPin} {a}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+                <section className="p-6 rounded-2xl" style={CARD_ST}>
+                  <h2 className="font-bold text-lg mb-5" style={{ color: C.dark }}>
+                    Método de pago
+                  </h2>
+                  <div className="grid sm:grid-cols-3 gap-3">
+                    {PAY_OPTS.map((m) => {
+                      const sel = delivForm.pago === m.id
+                      return (
+                        <button
+                          key={m.id}
+                          onClick={() => setDelivForm((f) => ({ ...f, pago: m.id }))}
+                          className="text-left p-4 rounded-xl cursor-pointer"
+                          style={{
+                            border: `1.5px solid ${sel ? C.mustard : LINE}`,
+                            background: sel ? `${C.mustard}0D` : "#fff",
+                          }}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-semibold text-sm" style={{ color: C.dark }}>
+                              {m.id}
+                            </span>
+                            <span
+                              className="w-4 h-4 rounded-full flex-shrink-0"
+                              style={{
+                                border: `1.5px solid ${sel ? C.mustard : "rgba(30,30,30,0.25)"}`,
+                                boxShadow: sel ? `inset 0 0 0 3px #fff, inset 0 0 0 8px ${C.mustard}` : "none",
+                              }}
+                            />
+                          </div>
+                          <div className="text-xs" style={{ color: MUTED }}>
+                            {m.desc}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {needsVoucher && (
+                    <div
+                      className="mt-5 p-5 rounded-xl grid sm:grid-cols-[auto_1fr] gap-5 items-center"
+                      style={{ background: "rgba(30,30,30,0.03)", border: `1px solid ${LINE}` }}
+                    >
+                      <div className="flex flex-col items-center">
+                        <img
+                          src={qrImg}
+                          alt={`Código QR de ${delivForm.pago}`}
+                          className="rounded-xl object-contain p-2 bg-white"
+                          style={{ width: 160, height: 160, border: `1px solid ${LINE}` }}
+                        />
+                        <div className="text-xs mt-2" style={{ color: MUTED }}>
+                          Total a pagar
+                        </div>
+                        <div
+                          className="font-black text-xl"
+                          style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
+                        >
+                          {fmt(subtotal)}
+                        </div>
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-sm mb-1" style={{ color: C.dark }}>
+                          Paga con {delivForm.pago} y sube el comprobante
+                        </h3>
+                        <ol className="text-xs mb-4 space-y-1 list-decimal pl-4" style={{ color: MUTED }}>
+                          <li>Escanea el código QR desde tu app de {delivForm.pago}.</li>
+                          <li>Paga el total exacto.</li>
+                          <li>Sube la captura del comprobante aquí.</li>
+                        </ol>
+                        <VoucherInput value={voucher} onChange={setVoucher} />
+                      </div>
+                    </div>
+                  )}
+                </section>
+              </>
+            )}
+
+            {user && checkoutStep === 3 && (
+              <section className="p-6 rounded-2xl" style={CARD_ST}>
+                <h2 className="font-bold text-lg mb-5" style={{ color: C.dark }}>
+                  Revisa y confirma
                 </h2>
-                <div
-                  className="space-y-2 text-sm text-center"
-                  style={{ color: "rgba(30,30,30,0.58)" }}
-                >
-                  <div>
-                    <strong style={{ color: C.dark }}>Recibe:</strong>{" "}
-                    {delivForm.nombre}
+                {[
+                  {
+                    title: "Entrega",
+                    rows: [
+                      ["Recibe", delivForm.nombre],
+                      ["Teléfono", delivForm.telefono],
+                      ["Dirección", delivForm.direccion],
+                      ...(delivForm.notas ? [["Notas", delivForm.notas]] : []),
+                    ],
+                  },
+                  {
+                    title: "Pago",
+                    rows: [
+                      ["Método", delivForm.pago],
+                      ...(needsVoucher
+                        ? [["Comprobante", voucher ? "Adjunto ✓" : "Falta"]]
+                        : []),
+                    ],
+                  },
+                ].map((g) => (
+                  <div
+                    key={g.title}
+                    className="pb-4 mb-4"
+                    style={{ borderBottom: `1px solid ${LINE}` }}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h3
+                        className="text-xs font-bold uppercase tracking-wider"
+                        style={{ color: MUTED }}
+                      >
+                        {g.title}
+                      </h3>
+                      <button
+                        onClick={() => setCheckoutStep(2)}
+                        className="text-xs font-semibold cursor-pointer hover:opacity-70"
+                        style={{ color: C.mustard }}
+                      >
+                        Editar
+                      </button>
+                    </div>
+                    {g.rows.map(([k, v]) => (
+                      <div key={k} className="flex justify-between gap-4 text-sm py-0.5">
+                        <span style={{ color: MUTED }}>{k}</span>
+                        <span className="font-medium text-right" style={{ color: C.dark }}>
+                          {v}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <strong style={{ color: C.dark }}>Dirección:</strong>{" "}
-                    {delivForm.direccion}
+                ))}
+                <p className="text-xs" style={{ color: MUTED }}>
+                  {delivForm.pago === "Efectivo"
+                    ? "Pagarás en efectivo al recibir tu pedido."
+                    : `Enviaremos tu comprobante de ${delivForm.pago} junto con el pedido.`}
+                  {subtotal >= APPROVAL_MIN &&
+                    ` Como tu pedido supera ${fmt(APPROVAL_MIN)}, El Parche debe confirmarlo antes de prepararlo.`}
+                </p>
+              </section>
+            )}
+          </div>
+
+          {/* RIGHT: order summary */}
+          <aside className="p-6 rounded-2xl lg:sticky lg:top-24" style={CARD_ST}>
+            <h2 className="font-bold text-lg mb-4" style={{ color: C.dark }}>
+              Resumen del pedido
+            </h2>
+            {cart.length === 0 ? (
+              <p className="text-sm py-4 text-center" style={{ color: MUTED }}>
+                Tu carrito está vacío.
+              </p>
+            ) : (
+              <div className="space-y-3 mb-4 max-h-72 overflow-y-auto pr-1">
+                {cart.map((i) => (
+                  <div key={i.id} className="flex items-center gap-3">
+                    <div className="relative flex-shrink-0">
+                      <img src={i.img} alt={i.name} className="w-12 h-12 rounded-lg object-cover" />
+                      <span
+                        className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold"
+                        style={{ background: C.dark, color: "#fff" }}
+                      >
+                        {i.qty}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-semibold truncate" style={{ color: C.dark }}>
+                        {i.name}
+                      </div>
+                      {!!i.additions?.length && (
+                        <div className="text-xs truncate" style={{ color: MUTED }}>
+                          + {i.additions.map((a) => a.name).join(", ")}
+                        </div>
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold" style={{ color: C.dark }}>
+                      {fmt(itemTotal(i))}
+                    </span>
                   </div>
-                  <div>
-                    <strong style={{ color: C.dark }}>Teléfono:</strong>{" "}
-                    {delivForm.telefono}
-                  </div>
-                  <div>
-                    <strong style={{ color: C.dark }}>Pago:</strong>{" "}
-                    {delivForm.pago}
-                  </div>
-                </div>
-                <button
-                  onClick={() => setCheckoutStep(2)}
-                  className="mt-5 text-xs font-semibold cursor-pointer"
-                  style={{ color: C.mustard }}
-                >
-                  ← Editar datos de entrega
-                </button>
+                ))}
+              </div>
+            )}
+            {user && (
+              <button
+                onClick={() => setPickerOpen(true)}
+                className="text-xs font-semibold cursor-pointer hover:opacity-70 mb-4"
+                style={{ color: C.mustard }}
+              >
+                + Agregar productos
+              </button>
+            )}
+            <div className="space-y-2 text-sm pt-4" style={{ borderTop: `1px solid ${LINE}` }}>
+              <div className="flex justify-between" style={{ color: MUTED }}>
+                <span>Subtotal</span>
+                <span>{fmt(subtotal)}</span>
+              </div>
+              <div className="flex justify-between" style={{ color: MUTED }}>
+                <span>Domicilio (Comuna 3)</span>
+                <span style={{ color: C.forest }}>Gratis</span>
               </div>
             </div>
-          ) : null}
+            <div
+              className="flex justify-between items-baseline font-black text-lg pt-4 mt-4"
+              style={{
+                borderTop: `1px solid ${LINE}`,
+                fontFamily: "Montserrat, sans-serif",
+                color: C.dark,
+              }}
+            >
+              <span>Total</span>
+              <span style={{ color: C.mustard }}>{fmt(subtotal)}</span>
+            </div>
+            {cta ? (
+              <button
+                onClick={cta.onClick}
+                disabled={cta.disabled}
+                className="w-full mt-5 py-3.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                {cta.label} →
+              </button>
+            ) : (
+              <p
+                className="mt-5 p-3 rounded-xl text-xs text-center"
+                style={{ background: `${C.mustard}12`, color: C.mustard }}
+              >
+                Inicia sesión o regístrate para continuar.
+              </p>
+            )}
+            {user && checkoutStep >= 2 && (!delivFilled || !payReady) && (
+              <p className="mt-3 text-xs text-center" style={{ color: MUTED }}>
+                {!delivFilled
+                  ? "Completa nombre, teléfono y dirección para continuar."
+                  : `Sube el comprobante de ${delivForm.pago} para continuar.`}
+              </p>
+            )}
+          </aside>
         </div>
       </div>
       {pickerOpen && (
@@ -3996,66 +4575,6 @@ function CheckoutPage({
           dark={false}
         />
       )}
-      {showQR && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center px-4"
-          style={{ background: "rgba(0,0,0,0.7)" }}
-        >
-          <div
-            className="w-full max-w-sm rounded-3xl px-6 py-6"
-            style={{ background: "#fff" }}
-          >
-            <div className="flex items-center justify-between mb-4">
-              <h3
-                className="font-black text-lg"
-                style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
-              >
-                Paga con {delivForm.pago}
-              </h3>
-              <button
-                onClick={() => setShowQR(false)}
-                className="cursor-pointer"
-                style={{ color: "rgba(30,30,30,0.4)" }}
-              >
-                {Ico.x}
-              </button>
-            </div>
-            <div className="flex justify-center mb-4">
-              <img
-                src={qrImg}
-                alt="QR"
-                className="rounded-2xl object-contain"
-                style={{
-                  width: "180px",
-                  height: "180px",
-                  border: `4px solid ${C.mustard}`,
-                }}
-              />
-            </div>
-            <div className="text-center mb-5">
-              <span
-                className="font-black text-2xl"
-                style={{
-                  fontFamily: "Montserrat, sans-serif",
-                  color: C.mustard,
-                }}
-              >
-                {fmt(subtotal)}
-              </span>
-            </div>
-            <button
-              onClick={() => {
-                setShowQR(false)
-                setOrdered(true)
-              }}
-              className="w-full py-3.5 rounded-2xl font-bold text-sm cursor-pointer"
-              style={{ background: C.mustard, color: "#fff" }}
-            >
-              Ya pagué ✓
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -4066,12 +4585,18 @@ function ProfilePage({
   onBack,
   onLogout,
   onUpdateUser,
+  orders,
+  onVoucher,
 }: {
   user: User
   onBack: () => void
   onLogout: () => void
   onUpdateUser: (u: User) => void
+  orders: Order[]
+  onVoucher: (id: string, voucher: string) => void
 }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selected = orders.find((o) => o.id === selectedId)
   const AVATARS = ["👨‍💼", "👩‍💼", "🧑‍🍳", "👨‍🦱", "👩‍🦰", "🙋", "🧑‍💻"]
   const [avatarIdx, setAvatarIdx] = useState(0)
   const [editing, setEditing] = useState(false)
@@ -4081,9 +4606,10 @@ function ProfilePage({
     phone: user.phone || "",
     cedula: user.cedula || "",
   })
-  const [addresses, setAddresses] = useState<string[]>(
-    user.addresses || ["Cra 58 #42-10, Bello, Antioquia"],
-  )
+  // Saved straight to the account so checkout can prefill them
+  const addresses = user.addresses || []
+  const setAddresses = (next: string[]) =>
+    onUpdateUser({ ...user, addresses: next })
   const [newAddr, setNewAddr] = useState("")
   const [addingAddr, setAddingAddr] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
@@ -4092,26 +4618,6 @@ function ProfilePage({
   const TEXT = "#1A1714"
   const MUTED = "rgba(30,30,30,0.5)"
   const BORDER = "rgba(30,30,30,0.08)"
-  const ORDERS = [
-    {
-      id: "PED-0197",
-      items: "Mini x2, Salchipapa",
-      total: "$39.000",
-      date: "Ene 21",
-    },
-    {
-      id: "PED-0190",
-      items: "Mega Gourmet x1",
-      total: "$23.000",
-      date: "Ene 15",
-    },
-    {
-      id: "PED-0183",
-      items: "Doble x1, Chuzo Pollo",
-      total: "$37.500",
-      date: "Ene 8",
-    },
-  ]
   const save = () => {
     onUpdateUser({ ...user, ...form, addresses })
     setEditing(false)
@@ -4269,7 +4775,7 @@ function ProfilePage({
               </span>
               <button
                 onClick={() =>
-                  setAddresses((arr) => arr.filter((_, j) => j !== i))
+                  setAddresses(addresses.filter((_, j) => j !== i))
                 }
                 className="text-xs cursor-pointer"
                 style={{ color: C.red }}
@@ -4293,8 +4799,8 @@ function ProfilePage({
               />
               <button
                 onClick={() => {
-                  if (newAddr) {
-                    setAddresses((a) => [...a, newAddr])
+                  if (newAddr.trim()) {
+                    setAddresses([...addresses, newAddr.trim()])
                     setNewAddr("")
                     setAddingAddr(false)
                   }
@@ -4315,35 +4821,16 @@ function ProfilePage({
           <h2 className="font-bold text-base mb-4" style={{ color: TEXT }}>
             Historial de compras
           </h2>
-          <div className="space-y-3">
-            {ORDERS.map((o) => (
-              <div
-                key={o.id}
-                className="flex items-center justify-between py-2.5"
-                style={{ borderBottom: `1px solid ${BORDER}` }}
-              >
-                <div>
-                  <div
-                    className="text-sm font-semibold"
-                    style={{ color: TEXT }}
-                  >
-                    {o.id}
-                  </div>
-                  <div className="text-xs" style={{ color: MUTED }}>
-                    {o.items} · {o.date}
-                  </div>
-                </div>
-                <span
-                  className="font-bold text-sm"
-                  style={{ color: C.mustard }}
-                >
-                  {o.total}
-                </span>
-              </div>
-            ))}
-          </div>
+          <OrderList
+            orders={orders}
+            dark={false}
+            onSelect={(o) => setSelectedId(o.id)}
+          />
           <div className="mt-3 text-xs text-center" style={{ color: MUTED }}>
-            Total gastado: <strong style={{ color: TEXT }}>$99.500</strong>
+            Total gastado:{" "}
+            <strong style={{ color: TEXT }}>
+              {fmt(orders.reduce((s, o) => s + o.total, 0))}
+            </strong>
           </div>
         </div>
         {/* Actions */}
@@ -4367,6 +4854,14 @@ function ProfilePage({
           </button>
         </div>
       </div>
+      {selected && (
+        <OrderDetailModal
+          order={selected}
+          dark={false}
+          onClose={() => setSelectedId(null)}
+          onVoucher={onVoucher}
+        />
+      )}
       {showDeleteModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center px-4"
@@ -4428,8 +4923,9 @@ function ClientApp({
   onProfile,
   cart,
   setCart,
-  pendingOrder,
-  onClearPending,
+  orders,
+  onVoucher,
+  initialView = "menu",
 }: {
   user: User
   onLogout: () => void
@@ -4438,10 +4934,13 @@ function ClientApp({
   onProfile: () => void
   cart: CartItem[]
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
-  pendingOrder?: { id: string; items: string; total: string } | null
-  onClearPending?: () => void
+  orders: Order[]
+  onVoucher: (id: string, voucher: string) => void
+  initialView?: "menu" | "cart" | "orders"
 }) {
-  const [view, setView] = useState<"menu" | "cart" | "orders">("menu")
+  const [view, setView] = useState<"menu" | "cart" | "orders">(initialView)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selected = orders.find((o) => o.id === selectedId)
   const [theme, setTheme] = useState<Theme>("light")
   const [profileOpen, setProfileOpen] = useState(false)
   const [infoProduct, setInfoProduct] = useState<Product | null>(null)
@@ -4493,30 +4992,6 @@ function ClientApp({
         { id: Date.now(), name: p.name, price: p.price, qty: 1, img: p.img },
       ]
     })
-
-  const ORDERS = [
-    {
-      id: "PED-0197",
-      items: "Mini x2, Salchipapa Sencilla",
-      total: "$39.000",
-      status: "En camino",
-      step: 3,
-    },
-    {
-      id: "PED-0190",
-      items: "Mega Gourmet x1",
-      total: "$23.000",
-      status: "Entregado",
-      step: 4,
-    },
-  ]
-  const STEPS = [
-    "Recibido",
-    "Confirmado",
-    "En cocina",
-    "En camino",
-    "Entregado",
-  ]
 
   if (view === "profile" as string) return null
 
@@ -4756,109 +5231,23 @@ function ClientApp({
             >
               Mis pedidos
             </h2>
-            {pendingOrder && (
-              <div
-                className="mb-4 p-4 rounded-2xl flex items-start justify-between gap-3"
-                style={{
-                  background: `${C.forest}18`,
-                  border: `1.5px solid ${C.forest}40`,
-                }}
-              >
-                <div>
-                  <div
-                    className="font-bold text-sm"
-                    style={{ color: C.forest }}
-                  >
-                    🎉 Tu pedido está en preparación...
-                  </div>
-                  <div className="text-xs mt-1" style={{ color: MUTED }}>
-                    {pendingOrder.id} · {pendingOrder.items} ·{" "}
-                    <strong>{pendingOrder.total}</strong>
-                  </div>
-                </div>
-                {onClearPending && (
-                  <button
-                    onClick={onClearPending}
-                    className="text-sm cursor-pointer flex-shrink-0"
-                    style={{ color: MUTED }}
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-            )}
-            <div className="space-y-4">
-              {ORDERS.map((o) => (
-                <div
-                  key={o.id}
-                  className="p-5 rounded-2xl"
-                  style={{
-                    background: dark ? "#1E1C18" : "#fff",
-                    border: `1px solid ${BORDER}`,
-                  }}
-                >
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <div
-                        className="font-bold text-sm"
-                        style={{ color: TEXT }}
-                      >
-                        {o.id}
-                      </div>
-                      <div className="text-xs" style={{ color: MUTED }}>
-                        {o.items}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-bold" style={{ color: C.mustard }}>
-                        {o.total}
-                      </div>
-                      <span
-                        className="text-xs px-2 py-0.5 rounded-full font-medium"
-                        style={{ ...(badgeSt(o.status) || {}) }}
-                      >
-                        {o.status}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex items-center">
-                    {STEPS.map((s, i) => (
-                      <div key={s} className="flex items-center flex-1">
-                        <div className="flex flex-col items-center">
-                          <div
-                            className="w-3 h-3 rounded-full"
-                            style={{
-                              background: i <= o.step ? C.mustard : BORDER,
-                            }}
-                          />
-                          <div
-                            className="text-center mt-1"
-                            style={{
-                              color: i === o.step ? C.mustard : MUTED,
-                              fontSize: "0.56rem",
-                            }}
-                          >
-                            {s}
-                          </div>
-                        </div>
-                        {i < STEPS.length - 1 && (
-                          <div
-                            className="h-0.5 flex-1 mb-4"
-                            style={{
-                              background: i < o.step ? C.mustard : BORDER,
-                            }}
-                          />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <OrderList
+              orders={orders}
+              dark={dark}
+              onSelect={(o) => setSelectedId(o.id)}
+            />
           </div>
         )}
       </main>
 
+      {selected && (
+        <OrderDetailModal
+          order={selected}
+          dark={dark}
+          onClose={() => setSelectedId(null)}
+          onVoucher={onVoucher}
+        />
+      )}
       {infoProduct && (
         <ProductInfoModal
           product={infoProduct}
@@ -6050,8 +6439,25 @@ function AdminPanel({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dark = theme === "dark"
   const t = tk(dark)
-  const unreadNotifications =
-    ADMIN_NOTIFICATIONS.length - readNotifications.size
+  // Orders placed by clients in the web store
+  const [clientOrders] = useState(loadOrders)
+  const notifications: AdminNotification[] = [
+    ...clientOrders
+      .filter((o) => o.status === "Por confirmar")
+      .map((o, i) => ({
+        id: 1000 + i,
+        type: "warn" as const,
+        title: "Pedido por confirmar",
+        message: `${o.cliente} hizo el pedido ${o.id} por ${fmt(o.total)}${
+          o.voucher ? " y subió el comprobante de pago" : ""
+        }.`,
+        module: "Pedidos",
+        time: o.date,
+        target: "pedidos" as const,
+      })),
+    ...ADMIN_NOTIFICATIONS,
+  ]
+  const unreadNotifications = notifications.length - readNotifications.size
 
   const [rows, setRows] = useState<Record<string, (string | number)[][]>>(() => {
     const initialRows = Object.fromEntries(
@@ -6060,6 +6466,25 @@ function AdminPanel({
         config.seed.map((row) => [...row] as (string | number)[]),
       ]),
     ) as Record<string, (string | number)[][]>
+    initialRows.pedidos = [
+      ...clientOrders.map((o) => [
+        o.id,
+        o.cliente,
+        o.items.map((i) => `${i.qty} ${i.name}`).join(", "),
+        "Online",
+        o.pago === "Efectivo" ? "Efectivo" : "Transferencia",
+        o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
+        o.total,
+        o.status,
+        o.voucher ? "Pagado" : "Pendiente",
+        o.status === "Por confirmar"
+          ? "Pendiente admin"
+          : o.total >= APPROVAL_MIN
+            ? "Autorizada"
+            : "No requerida",
+      ]),
+      ...(initialRows.pedidos || []),
+    ]
     const supplyProducts = (initialRows.insumos || [])
       .filter((row) => String(row[7]).toLowerCase() === "sí")
       .map(supplyAsProduct)
@@ -6088,7 +6513,12 @@ function AdminPanel({
   })
   const [anulled, setAnulled] = useState<Record<string, Set<number>>>({})
   const [prodImgs, setProdImgs] = useState<Record<number, string>>({})
-  const [paymentProofs, setPaymentProofs] = useState<Record<number, string>>({})
+  const [paymentProofs, setPaymentProofs] = useState<Record<number, string>>(
+    () =>
+      Object.fromEntries(
+        clientOrders.flatMap((o, i) => (o.voucher ? [[i, o.voucher]] : [])),
+      ),
+  )
   const [paymentProofDraft, setPaymentProofDraft] = useState("")
   const [search, setSearch] = useState<Record<string, string>>({})
   const [pg, setPg] = useState<Record<string, number>>({})
@@ -6152,7 +6582,7 @@ function AdminPanel({
   }
   const markAllNotificationsRead = () =>
     setReadNotifications(
-      new Set(ADMIN_NOTIFICATIONS.map((notification) => notification.id)),
+      new Set(notifications.map((notification) => notification.id)),
     )
 
   const getAutoTechVersion = (existingRows: (string | number)[][] = []) => {
@@ -6529,12 +6959,19 @@ function AdminPanel({
       const imageIndex = modal.mode === "add" ? 0 : modal.idx!
       setProdImgs((current) => ({ ...current, [imageIndex]: imgPreview }))
     }
-    if (sec === "pedidos" && paymentProofDraft) {
-      const proofIndex = modal.mode === "add" ? 0 : modal.idx!
-      setPaymentProofs((current) => ({
-        ...current,
-        [proofIndex]: paymentProofDraft,
-      }))
+    if (sec === "pedidos" && (paymentProofDraft || modal.mode === "add")) {
+      setPaymentProofs((current) => {
+        // New orders are unshifted, so existing proofs move down one row
+        const next =
+          modal.mode === "add"
+            ? Object.fromEntries(
+                Object.entries(current).map(([k, v]) => [Number(k) + 1, v]),
+              )
+            : { ...current }
+        if (paymentProofDraft)
+          next[modal.mode === "add" ? 0 : modal.idx!] = paymentProofDraft
+        return next
+      })
     }
     if (sec === "pedidos" && String(newRow[8]) === "Pagado") {
       setRows((current) => {
@@ -6662,12 +7099,20 @@ function AdminPanel({
   const approveOrderForProduction = (orderIndex: number) => {
     const order = rows.pedidos?.[orderIndex]
     const proof = paymentProofs[orderIndex]
+    const payOnDelivery = String(order?.[5]) === "Contraentrega"
     if (
       !order ||
-      String(order[8]).toLowerCase() !== "pagado" ||
-      !proof ||
+      (!payOnDelivery &&
+        (String(order[8]).toLowerCase() !== "pagado" || !proof)) ||
       String(order[9]) === "Autorizada"
     ) return
+
+    // Let the client see the owner's confirmation
+    saveOrders(
+      loadOrders().map((o) =>
+        o.id === order[0] ? { ...o, status: "Confirmado" } : o,
+      ),
+    )
 
     const currentDateTime = getCurrentDateTimeParts()
     const availableProducts = getAvailableProductos()
@@ -6691,6 +7136,7 @@ function AdminPanel({
       const orderRows = [...(current.pedidos || [])]
       const updatedOrder = [...orderRows[orderIndex]]
       updatedOrder[9] = "Autorizada"
+      if (updatedOrder[7] === "Por confirmar") updatedOrder[7] = "Confirmado"
       orderRows[orderIndex] = updatedOrder
 
       const productionRows = [...(current.produccion || [])]
@@ -7196,7 +7642,7 @@ function AdminPanel({
       good: false,
     },
   ]
-  const ALERTS = ADMIN_NOTIFICATIONS
+  const ALERTS = notifications
   const RETURN_REASONS = [
     { label: "Tiempo superado", pct: 45 },
     { label: "Pedido incompleto", pct: 30 },
@@ -9281,12 +9727,12 @@ function AdminPanel({
                 </div>
                 <button
                   type="button"
-                  disabled={String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!] || String(row?.[9]) === "Autorizada"}
+                  disabled={(String(row?.[5]) !== "Contraentrega" && (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) || String(row?.[9]) === "Autorizada"}
                   onClick={() => approveOrderForProduction(modal.idx!)}
                   className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ background: C.mustard, color: "#fff" }}
                 >
-                  {String(row?.[9]) === "Autorizada" ? "Producción ya autorizada" : "Autorizar y enviar a producción"}
+                  {String(row?.[9]) === "Autorizada" ? "Producción ya autorizada" : "Confirmar pedido y enviar a producción"}
                 </button>
               </div>
             )}
@@ -9826,7 +10272,7 @@ function AdminPanel({
                     className="min-w-0 overflow-y-auto"
                     style={{ maxHeight: "min(420px, 58vh)" }}
                   >
-                    {ADMIN_NOTIFICATIONS.map((notification) => {
+                    {notifications.map((notification) => {
                       const isRead = readNotifications.has(notification.id)
                       const color =
                         notification.type === "danger"
@@ -9998,23 +10444,40 @@ function AdminPanel({
 export default function App() {
   const [page, setPage] = useState<Page>("landing")
   const [user, setUser] = useState<User | null>(null)
-  const [cart, setCart] = useState<CartItem[]>([])
+  // The cart is kept in the browser, so it survives logout and reloads
+  const [cart, setCart] = useState<CartItem[]>(() => loadLS("cart", []))
   const [forgotEmail, setForgotEmail] = useState("")
-  const [pendingOrder, setPendingOrder] = useState<{
-    id: string
-    items: string
-    total: string
-  } | null>(null)
+  const [, setOrdersVersion] = useState(0)
+  const [clientView, setClientView] = useState<"menu" | "orders">("menu")
 
-  const login = (u: User) => {
+  useEffect(() => saveLS("cart", cart), [cart])
+
+  // Re-read on every render so status changes made in the admin panel show up
+  const orders = user
+    ? loadOrders().filter((o) => o.email === user.email)
+    : []
+
+  // Profile (phone, cédula, addresses) is saved per email, so it survives logout
+  const updateUser = (u: User) => {
     setUser(u)
-    setPage("app")
+    saveLS(`profile:${u.email}`, u)
+  }
+  const login = (u: User, next: Page = "app") => {
+    const saved = loadLS<User | null>(`profile:${u.email}`, null)
+    updateUser(saved ? { ...u, ...saved, role: u.role } : u)
+    setClientView("menu")
+    setPage(next)
   }
   const logout = () => {
     setUser(null)
-    setCart([])
     setPage("landing")
   }
+  const updateOrders = (fn: (o: Order[]) => Order[]) => {
+    saveOrders(fn(loadOrders()))
+    setOrdersVersion((v) => v + 1)
+  }
+  const setVoucher = (id: string, voucher: string) =>
+    updateOrders((os) => os.map((o) => (o.id === id ? { ...o, voucher } : o)))
   const goCheckout = () => {
     setPage("checkout")
   }
@@ -10068,28 +10531,31 @@ export default function App() {
         cart={cart}
         setCart={setCart}
         user={user}
-        onLogin={login}
-        onRegisterVerified={(email, name) =>
-          login({ name, email, role: "user" })
-        }
+        onLogin={(u) => login(u, "checkout")}
+        onRegisterVerified={(u) => login(u, "checkout")}
         onBack={() => setPage(user ? "app" : "landing")}
-        onComplete={() => {
-          setPendingOrder({
-            id: `PED-${Math.floor(Math.random() * 9000) + 1000}`,
-            items: cart.map((i) => i.name).join(", "),
-            total: fmt(
-              cart.reduce(
-                (s, i) =>
-                  s +
-                  (i.price +
-                    (i.additions?.reduce((a, b) => a + b.qty * b.price, 0) ??
-                      0)) *
-                    i.qty,
-                0,
-              ),
-            ),
-          })
+        onPlaceOrder={(info) => {
+          if (!user) return
+          updateOrders((os) => [
+            {
+              ...info,
+              email: user.email,
+              cliente: user.name,
+              id: `PED-${Date.now().toString().slice(-6)}`,
+              date: new Date().toLocaleString("es-CO", {
+                dateStyle: "medium",
+                timeStyle: "short",
+              }),
+              items: cart,
+              total: cartTotal(cart),
+              status: cartTotal(cart) >= APPROVAL_MIN ? "Por confirmar" : "Recibido",
+            },
+            ...os,
+          ])
           setCart([])
+        }}
+        onComplete={() => {
+          setClientView("orders")
           setPage("app")
         }}
       />
@@ -10104,8 +10570,9 @@ export default function App() {
         onProfile={() => setPage("profile" as Page)}
         cart={cart}
         setCart={setCart}
-        pendingOrder={pendingOrder}
-        onClearPending={() => setPendingOrder(null)}
+        orders={orders}
+        onVoucher={setVoucher}
+        initialView={clientView}
       />
     )
   if (page === "profile" as Page && user)
@@ -10114,7 +10581,9 @@ export default function App() {
         user={user}
         onBack={() => setPage("app")}
         onLogout={logout}
-        onUpdateUser={(u) => setUser(u)}
+        onUpdateUser={updateUser}
+        orders={orders}
+        onVoucher={setVoucher}
       />
     )
   if (page === "admin")
