@@ -1241,7 +1241,6 @@ const MOD_CFG: Record<string, ModConfig> = {
         "Activo",
       ],
     ],
-    noDelete: true,
     statusIndex: 6,
     hiddenCellIndexes: [5],
   },
@@ -1435,7 +1434,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13],
   },
   "producto-no-conforme": {
-    columns: ["Orden", "Producto", "Cantidad", "Motivo", "Fecha"],
+    columns: ["Orden", "Producto", "Cantidad", "Motivo", "Fecha", "Estado"],
     fields: [
       { key: "0", label: "ID Orden producción", type: "text" },
       { key: "1", label: "Producto o producto de insumo", type: "select", options: [] },
@@ -1457,9 +1456,12 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "5", label: "Fecha", type: "date" },
     ],
     seed: [
-      ["OP-0085", "Mini", "Mini", 1, "Tiempo superado", "2024-01-20"],
-      ["OP-0088", "Doble", "Doble", 2, "Error en preparación", "2024-01-21"],
+      ["OP-0085", "Mini", "Mini", 1, "Tiempo superado", "2024-01-20", "Activo"],
+      ["OP-0088", "Doble", "Doble", 2, "Error en preparación", "2024-01-21", "Activo"],
     ],
+    noDelete: true,
+    statusIndex: 6,
+    inactiveStatus: "Anulado",
     hiddenCellIndexes: [2],
   },
   clientes: {
@@ -1707,7 +1709,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     hiddenCellIndexes: [2, 3, 4, 5],
   },
   devoluciones: {
-    columns: ["Código", "Cliente", "Motivo", "Fecha"],
+    columns: ["Código", "Cliente", "Acción tomada", "Descripción", "Fecha"],
     fields: [
       { key: "0", label: "Código devolución", type: "text" },
       { key: "1", label: "ID Venta asociada", type: "text" },
@@ -1725,16 +1727,20 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "3", label: "Nombre cliente (texto libre)", type: "text" },
       {
         key: "4",
-        label: "Motivo de devolución",
+        label: "Acción tomada",
         type: "select",
-        options: ["Reembolso", "Reposición"],
+        options: ["Reembolso", "Reposición", "Nota de crédito", "Reparación"],
       },
-      { key: "5", label: "Fecha", type: "date" },
+      { key: "5", label: "Descripción de la acción", type: "textarea" },
+      { key: "6", label: "Fecha", type: "date" },
     ],
     seed: [
-      ["DEV-001", "VTA-0305", "Ana López", "Ana López", "Reposición", "2024-01-19"],
+      ["DEV-001", "VTA-0305", "Ana López", "Ana López", "Reposición", "Se repuso el producto por uno nuevo en buen estado.", "2024-01-19", "Activo"],
     ],
     noExport: true,
+    noDelete: true,
+    statusIndex: 7,
+    inactiveStatus: "Inactivo",
     hiddenCellIndexes: [1, 3],
   },
 }
@@ -1760,10 +1766,10 @@ const SIDEBAR_MENU = [
     color: C.amber,
   },
   {
-    key: "configuracion",
-    label: "Configuración",
-    icon: Ico.settings,
-    children: [{ key: "roles", label: "Roles y permisos" }],
+    key: "roles",
+    label: "Roles y permisos",
+    icon: Ico.shield,
+    children: [],
     color: "#A78BFA",
   },
   {
@@ -2069,6 +2075,31 @@ function LoginPage({
                 style={{ background: "rgba(30,30,30,0.1)" }}
               />
             </div>
+            <button
+              type="button"
+              onClick={onRegister}
+              className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer flex items-center justify-center gap-2"
+              style={{ background: "#fff", color: "#1A1714", border: "1.5px solid rgba(30,30,30,0.12)" }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+              </svg>
+              Continuar con Google
+            </button>
+            <button
+              type="button"
+              onClick={onRegister}
+              className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer flex items-center justify-center gap-2"
+              style={{ background: "#000", color: "#fff" }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
+              </svg>
+              Continuar con Apple
+            </button>
             <button
               type="button"
               onClick={onRegister}
@@ -5168,6 +5199,7 @@ function ClientApp({
   const [profileOpen, setProfileOpen] = useState(false)
   const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const [showLogoutModal, setShowLogoutModal] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
   const dark = theme === "dark"
   const BG = dark ? "#131210" : "#FAF5E8"
@@ -5375,7 +5407,7 @@ function ClientApp({
                   <button
                     onClick={() => {
                       setProfileOpen(false)
-                      onLogout()
+                      setShowLogoutModal(true)
                     }}
                     className="w-full text-left px-4 py-2.5 text-sm cursor-pointer"
                     style={{ color: C.red }}
@@ -5494,6 +5526,55 @@ function ClientApp({
           onAdd={addToCart}
           dark={dark}
         />
+      )}
+
+      {/* Logout confirmation modal */}
+      {showLogoutModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+        >
+          <div
+            className="w-full max-w-xs p-6 rounded-2xl text-center"
+            style={{
+              background: dark ? "#1E1C18" : "#fff",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+            }}
+          >
+            <div className="text-4xl mb-3">🚪</div>
+            <h3
+              className="font-black text-lg mb-2"
+              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            >
+              ¿Cerrar sesión?
+            </h3>
+            <p className="text-sm mb-5" style={{ color: MUTED }}>
+              ¿Estás seguro de que deseas cerrar sesión? Tendrás que iniciar sesión nuevamente para acceder a tu cuenta.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+                style={{
+                  background: dark ? "rgba(255,255,255,0.08)" : "rgba(30,30,30,0.06)",
+                  color: MUTED,
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  setShowLogoutModal(false)
+                  onLogout()
+                }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer"
+                style={{ background: C.red, color: "#fff" }}
+              >
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Quick-add feedback suppressed — quickAdd used from ProductCatalog + button */}
@@ -6665,6 +6746,7 @@ function AdminPanel({
   const [readNotifications, setReadNotifications] = useState<Set<number>>(
     () => new Set(),
   )
+  const [showLogoutModal, setShowLogoutModal] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -6797,6 +6879,19 @@ function AdminPanel({
     }
     document.addEventListener("mousedown", fn)
     return () => document.removeEventListener("mousedown", fn)
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent
+      const newUser = customEvent.detail as (string | number)[]
+      setRows((current) => ({
+        ...current,
+        usuarios: [newUser, ...(current.usuarios || [])],
+      }))
+    }
+    window.addEventListener("user-registered", handler)
+    return () => window.removeEventListener("user-registered", handler)
   }, [])
 
   const toggleGrp = (k: string) =>
@@ -7299,6 +7394,20 @@ function AdminPanel({
         allowed: false,
         targetLabel,
         reason: `La eliminación está desactivada en el módulo «${moduleName}». Conserva el registro y utiliza la acción de anulación disponible para mantener su historial.`,
+      }
+    }
+
+    if (sec === "proveedores") {
+      const providerName = String(row?.[0] ?? "")
+      const hasPurchases = (rows.compras || []).some(
+        (purchase) => String(purchase[0] ?? "") === providerName
+      )
+      if (hasPurchases) {
+        return {
+          allowed: false,
+          targetLabel,
+          reason: `El proveedor «${providerName}» está asociado a una o más compras registradas. No se puede eliminar para mantener la trazabilidad de las transacciones.`,
+        }
       }
     }
 
@@ -10924,7 +11033,7 @@ function AdminPanel({
                   <button
                     onClick={() => {
                       setProfileOpen(false)
-                      onSwitchToClient()
+                      setShowLogoutModal(true)
                     }}
                     className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-xs cursor-pointer"
                     style={{ color: C.red }}
@@ -10952,6 +11061,58 @@ function AdminPanel({
       <QuickClientModal />
       <AnulModal />
       <DelModal />
+      {showLogoutModal && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.65)" }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-logout-title"
+            className="w-full max-w-sm rounded-2xl p-6 text-center"
+            style={{ background: t.card, border: `1px solid ${t.border}` }}
+          >
+            <div
+              className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full"
+              style={{ background: `${C.red}12`, color: C.red }}
+            >
+              {Ico.logout}
+            </div>
+            <h3
+              id="admin-logout-title"
+              className="mb-3 text-base font-semibold"
+              style={{ color: t.text }}
+            >
+              ¿Cerrar sesión?
+            </h3>
+            <p className="mb-5 text-sm leading-relaxed" style={{ color: t.text }}>
+              ¿Estás seguro de que deseas cerrar sesión? Tendrás que iniciar sesión nuevamente para acceder al panel de administración.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowLogoutModal(false)}
+                className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
+                style={{ background: t.input, color: t.muted }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowLogoutModal(false)
+                  onSwitchToClient()
+                }}
+                className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
+                style={{ background: C.red, color: "#fff" }}
+              >
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -11013,7 +11174,21 @@ export default function App() {
   if (page === "register")
     return (
       <RegisterPage
-        onVerify={() => {
+        onVerify={(email, name) => {
+          // Add the new user to the admin users module
+          const newUser: (string | number)[] = [
+            name,
+            "Cédula de Ciudadanía",
+            "",
+            "Cliente",
+            email,
+            "Activo",
+            "",
+          ]
+          // We'll use a custom event to communicate with the AdminPanel
+          window.dispatchEvent(
+            new CustomEvent("user-registered", { detail: newUser })
+          )
           setPage("login")
         }}
         onLoginLink={() => setPage("login")}
