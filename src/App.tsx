@@ -139,7 +139,7 @@ const PRODUCTS: Product[] = [
     desc: "Porción mediana especial con carne y vegetales.",
     price: 15500,
     priceStr: "$15.500",
-    img: "https://images.unsplash.com/photo-1603073163308-9654c3fb70b5?w=500&h=400&fit=crop",
+    img: "https://images.unsplash.com/photo-1550547660-d9450f859349?w=500&h=400&fit=crop",
     cat: "hamburguesas",
     badge: "",
   },
@@ -209,7 +209,7 @@ const PRODUCTS: Product[] = [
     desc: "Salchicha grande, papitas y salsas variadas.",
     price: 15500,
     priceStr: "$15.500",
-    img: "https://images.unsplash.com/photo-1612392062631-94f04cbc4aa3?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/45/Hot_dog_XXL.jpg/500px-Hot_dog_XXL.jpg",
     cat: "perros",
     badge: "",
   },
@@ -219,7 +219,7 @@ const PRODUCTS: Product[] = [
     desc: "Salchicha especial, tocineta, queso y salsas.",
     price: 17500,
     priceStr: "$17.500",
-    img: "https://images.unsplash.com/photo-1559729887-3e8a3eea4a37?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b6/Hot_dog_gourmet.jpg/500px-Hot_dog_gourmet.jpg",
     cat: "perros",
     badge: "Favorito",
   },
@@ -229,7 +229,7 @@ const PRODUCTS: Product[] = [
     desc: "Tocino/tocineta, queso y salsas.",
     price: 14500,
     priceStr: "$14.500",
-    img: "https://images.unsplash.com/photo-1526374870839-e155464bb9b2?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cb/Hot_dog_with_bacon_and_cheese_and_dressed_with_ketchup_and_mustard_from_Five_Guys_1.jpg/500px-Hot_dog_with_bacon_and_cheese_and_dressed_with_ketchup_and_mustard_from_Five_Guys_1.jpg",
     cat: "perras",
     badge: "",
   },
@@ -239,7 +239,7 @@ const PRODUCTS: Product[] = [
     desc: "Porción grande de tocineta, queso y salsas.",
     price: 15500,
     priceStr: "$15.500",
-    img: "https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/70/Texas_Tommy_from_Ishkabibble%27s%2C_Philadelphia.jpg/500px-Texas_Tommy_from_Ishkabibble%27s%2C_Philadelphia.jpg",
     cat: "perras",
     badge: "",
   },
@@ -249,7 +249,7 @@ const PRODUCTS: Product[] = [
     desc: "Tocineta extra, queso gratinado y salsas de la casa.",
     price: 17600,
     priceStr: "$17.600",
-    img: "https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/49/Chili_dog_topped_with_bacon.jpg/500px-Chili_dog_topped_with_bacon.jpg",
     cat: "perras",
     badge: "Especial",
   },
@@ -259,7 +259,7 @@ const PRODUCTS: Product[] = [
     desc: "Papas a la francesa doradas y salchicha premium.",
     price: 13000,
     priceStr: "$13.000",
-    img: "https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9e/Salchipapas_20220704_121159.jpg/500px-Salchipapas_20220704_121159.jpg",
     cat: "salchipapas",
     badge: "",
   },
@@ -269,7 +269,7 @@ const PRODUCTS: Product[] = [
     desc: "Papas, salchicha, queso fundido y tocineta crujiente.",
     price: 16000,
     priceStr: "$16.000",
-    img: "https://images.unsplash.com/photo-1585325701956-60dd9c8399f0?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0c/Salchipapa_Jaime.jpg/500px-Salchipapa_Jaime.jpg",
     cat: "salchipapas",
     badge: "",
   },
@@ -279,7 +279,7 @@ const PRODUCTS: Product[] = [
     desc: "Papas, salchicha, 3 huevos, 1 nugget, queso, carne y tocineta.",
     price: 20000,
     priceStr: "$20.000",
-    img: "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=500&h=400&fit=crop",
+    img: "https://upload.wikimedia.org/wikipedia/commons/8/81/Salchipapa_especial.jpg",
     cat: "salchipapas",
     badge: "Mega",
   },
@@ -289,7 +289,7 @@ const PRODUCTS: Product[] = [
     desc: "Papas, salchicha, 3 huevos, pollo, cerdo, jamón, maicitos y queso.",
     price: 23000,
     priceStr: "$23.000",
-    img: "https://images.unsplash.com/photo-1596560548464-f010549b84d7?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ea/Salchipapa_Coste%C3%B1o.jpg/500px-Salchipapa_Coste%C3%B1o.jpg",
     cat: "salchipapas",
     badge: "Gourmet",
   },
@@ -299,7 +299,7 @@ const PRODUCTS: Product[] = [
     desc: "Mega Gourmet con extra de queso y tocineta gratinada.",
     price: 27000,
     priceStr: "$27.000",
-    img: "https://images.unsplash.com/photo-1542574271-7f3b92e6c821?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2e/Salchipapa_Coste%C3%B1a.jpg/500px-Salchipapa_Coste%C3%B1a.jpg",
     cat: "salchipapas",
     badge: "",
   },
@@ -309,7 +309,7 @@ const PRODUCTS: Product[] = [
     desc: "Porción personal gourmet con carnes mixtas y maicitos.",
     price: 20500,
     priceStr: "$20.500",
-    img: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=500&h=400&fit=crop",
+    img: "https://upload.wikimedia.org/wikipedia/commons/5/5c/Salchipapas_Plaza_de_Armas.jpg",
     cat: "salchipapas",
     badge: "",
   },
@@ -319,7 +319,7 @@ const PRODUCTS: Product[] = [
     desc: "Papas, salchicha, pollo, jamón, maicitos, queso, tocineta y carne.",
     price: 33000,
     priceStr: "$33.000",
-    img: "https://images.unsplash.com/photo-1629108773466-2e8028bbb5f1?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/65/Salchipapa_Coste%C3%B1o_4.jpg/500px-Salchipapa_Coste%C3%B1o_4.jpg",
     cat: "salchipapas",
     badge: "Super",
   },
@@ -329,7 +329,7 @@ const PRODUCTS: Product[] = [
     desc: "Pollo, arepa artesanal, ensalada fresca y papas.",
     price: 19000,
     priceStr: "$19.000",
-    img: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c2/Skewered_Chicken_Thighs.jpg/500px-Skewered_Chicken_Thighs.jpg",
     cat: "chuzos",
     badge: "",
   },
@@ -339,7 +339,7 @@ const PRODUCTS: Product[] = [
     desc: "Cerdo a la parrilla, arepa, ensalada y papas.",
     price: 19000,
     priceStr: "$19.000",
-    img: "https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/61/DFC_4715_Sizzling_skewers_of_grilled_pork_served_with_crispy_fries_and_a_cool_tzatziki_dip_-_comfort_food_done_right.jpg/500px-DFC_4715_Sizzling_skewers_of_grilled_pork_served_with_crispy_fries_and_a_cool_tzatziki_dip_-_comfort_food_done_right.jpg",
     cat: "chuzos",
     badge: "",
   },
@@ -349,7 +349,7 @@ const PRODUCTS: Product[] = [
     desc: "Res, pollo, cerdo, queso, tocineta o salchicha.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1601924638867-3a6de6b7a500?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Tostones_con_salami.jpg/500px-Tostones_con_salami.jpg",
     cat: "patacones",
     badge: "",
   },
@@ -359,7 +359,7 @@ const PRODUCTS: Product[] = [
     desc: "Estilo ranchero con todos los toppings de la casa.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1739488078567-064495f2af9e?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/Tostones_rellenos_con_camarones.jpg/500px-Tostones_rellenos_con_camarones.jpg",
     cat: "patacones",
     badge: "",
   },
@@ -369,7 +369,7 @@ const PRODUCTS: Product[] = [
     desc: "Arepa artesanal con carne y salsas de la casa.",
     price: 14000,
     priceStr: "$14.000",
-    img: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/48/Chorizo_Arepa.jpg/500px-Chorizo_Arepa.jpg",
     cat: "arepa-burger",
     badge: "",
   },
@@ -379,7 +379,7 @@ const PRODUCTS: Product[] = [
     desc: "Arepa con carne, queso y adiciones seleccionadas.",
     price: 15000,
     priceStr: "$15.000",
-    img: "https://images.unsplash.com/photo-1547584370-2cc98b8b8dc8?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a7/Bacon_%26_Fried_Onion_Arepa.jpg/500px-Bacon_%26_Fried_Onion_Arepa.jpg",
     cat: "arepa-burger",
     badge: "",
   },
@@ -389,7 +389,7 @@ const PRODUCTS: Product[] = [
     desc: "Arepa con carne gourmet, queso especial y tocineta.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?w=500&h=400&fit=crop",
+    img: "https://upload.wikimedia.org/wikipedia/commons/d/d9/Colombian_Food%2C_Arepas.jpg",
     cat: "arepa-burger",
     badge: "Gourmet",
   },
@@ -399,7 +399,7 @@ const PRODUCTS: Product[] = [
     desc: "Arepa con carne desmechada especial de la casa.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1601924638867-3a6de6b7a500?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d8/Arepa_de_carne_mechada.jpg/500px-Arepa_de_carne_mechada.jpg",
     cat: "arepa-burger",
     badge: "",
   },
@@ -409,7 +409,7 @@ const PRODUCTS: Product[] = [
     desc: "Rellena de pollo, cerdo o res a elección.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/45/El_Humero_-_arepa_rellena.jpg/500px-El_Humero_-_arepa_rellena.jpg",
     cat: "arepa-rellena",
     badge: "",
   },
@@ -419,7 +419,7 @@ const PRODUCTS: Product[] = [
     desc: "Rellena de queso fundido y tocineta crujiente.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1629108773466-2e8028bbb5f1?w=500&h=400&fit=crop",
+    img: "https://upload.wikimedia.org/wikipedia/commons/f/fb/Tri-rellena.jpg",
     cat: "arepa-rellena",
     badge: "",
   },
@@ -542,6 +542,20 @@ const Ico = {
     >
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  eyeOff: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
+      <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   ),
   edit: (
@@ -1811,6 +1825,109 @@ const SIDEBAR_MENU = [
   },
 ]
 
+// ── Auth validation ────────────────────────────────────────────────────────────
+type FieldErrors = Record<string, string>
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/
+const NAME_RE = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' ]+$/
+const DEMO_CODE = "841736"
+const DOC_RULES: Record<string, { re: RegExp; msg: string }> = {
+  "Cédula de Ciudadanía": {
+    re: /^\d{6,10}$/,
+    msg: "La cédula debe tener entre 6 y 10 números, sin puntos ni espacios.",
+  },
+  "Cédula Extranjería": {
+    re: /^\d{6,12}$/,
+    msg: "La cédula de extranjería debe tener entre 6 y 12 números.",
+  },
+  NIT: {
+    re: /^\d{9}(-\d)?$/,
+    msg: "El NIT debe tener 9 números y puede llevar el dígito de verificación (ej: 900123456-7).",
+  },
+  Pasaporte: {
+    re: /^[A-Za-z0-9]{5,12}$/,
+    msg: "El pasaporte debe tener entre 5 y 12 letras o números, sin espacios.",
+  },
+  "Tarjeta de Identidad": {
+    re: /^\d{10,11}$/,
+    msg: "La tarjeta de identidad debe tener 10 u 11 números.",
+  },
+}
+
+function emailError(email: string) {
+  if (!email.trim()) return "Ingresa tu correo electrónico."
+  if (!EMAIL_RE.test(email.trim()))
+    return "Escribe un correo válido, por ejemplo nombre@correo.com."
+  return ""
+}
+
+function validateLogin(email: string, pass: string): FieldErrors {
+  const e: FieldErrors = {}
+  const em = emailError(email)
+  if (em) e.email = em
+  if (!pass) e.pass = "Ingresa tu contraseña."
+  else if (pass.length < 8) e.pass = "La contraseña tiene mínimo 8 caracteres."
+  return e
+}
+
+function validateRegister(f: {
+  name: string
+  lastname?: string
+  docType: string
+  docNum: string
+  email: string
+  phone: string
+  pass: string
+  pass2: string
+}): FieldErrors {
+  const e: FieldErrors = {}
+  const name = f.name.trim()
+  if (!name) e.name = "Ingresa tu nombre."
+  else if (!NAME_RE.test(name)) e.name = "El nombre solo puede tener letras y espacios."
+  else if (name.length < 2) e.name = "El nombre debe tener al menos 2 letras."
+  if (f.lastname?.trim() && !NAME_RE.test(f.lastname.trim()))
+    e.lastname = "El apellido solo puede tener letras y espacios."
+  if (!f.docType) e.docType = "Selecciona el tipo de documento."
+  const doc = f.docNum.trim()
+  if (!doc) e.docNum = "Ingresa tu número de documento."
+  else if (f.docType && !DOC_RULES[f.docType]?.re.test(doc))
+    e.docNum = DOC_RULES[f.docType].msg
+  const phone = f.phone.replace(/\s/g, "")
+  if (phone && !/^3\d{9}$/.test(phone))
+    e.phone = "El celular debe tener 10 números y empezar por 3."
+  const em = emailError(f.email)
+  if (em) e.email = em
+  else if (loadLS(`profile:${f.email.trim().toLowerCase()}`, null))
+    e.email = "Ya existe una cuenta con este correo. Inicia sesión."
+  if (!f.pass) e.pass = "Crea una contraseña."
+  else {
+    const missing = [
+      f.pass.length < 8 && "mínimo 8 caracteres",
+      !/[A-Z]/.test(f.pass) && "una mayúscula",
+      !/[a-z]/.test(f.pass) && "una minúscula",
+      !/\d/.test(f.pass) && "un número",
+    ].filter(Boolean)
+    if (missing.length) e.pass = `La contraseña necesita ${missing.join(", ")}.`
+  }
+  if (!f.pass2) e.pass2 = "Confirma tu contraseña."
+  else if (f.pass2 !== f.pass) e.pass2 = "Las contraseñas no coinciden."
+  return e
+}
+
+function codeError(code: string) {
+  if (code.length < 6) return "El código tiene 6 números."
+  if (code !== DEMO_CODE) return "El código no es correcto. Revisa el que te enviamos."
+  return ""
+}
+
+function FieldError({ msg }: { msg?: string }) {
+  if (!msg) return null
+  return (
+    <p className="text-[11px] leading-snug" style={{ color: C.red }} role="alert">
+      {msg}
+    </p>
+  )
+}
+
 // ── Shared UI ──────────────────────────────────────────────────────────────────
 function InputField({
   label,
@@ -1819,6 +1936,7 @@ function InputField({
   value,
   onChange,
   required,
+  error,
 }: {
   label: string
   type?: string
@@ -1826,7 +1944,12 @@ function InputField({
   value: string
   onChange: (v: string) => void
   required?: boolean
+  error?: string
 }) {
+  const baseBorder = error ? C.red : "rgba(30,30,30,0.12)"
+  // Password fields get an eye button to show/hide what was typed
+  const isPassword = type === "password"
+  const [showPass, setShowPass] = useState(false)
   return (
     <div className="flex flex-col gap-1">
       <label
@@ -1836,23 +1959,37 @@ function InputField({
         {label}
         {required && !label.trim().endsWith("*") && " *"}
       </label>
-      <input
-        type={type}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        required={required}
-        className="w-full px-3 py-2 rounded-xl text-sm outline-none transition-all"
-        style={{
-          background: "rgba(30,30,30,0.05)",
-          border: "1.5px solid rgba(30,30,30,0.12)",
-          color: "#1A1714",
-        }}
-        onFocus={(e) => (e.currentTarget.style.borderColor = C.mustard)}
-        onBlur={(e) =>
-          (e.currentTarget.style.borderColor = "rgba(30,30,30,0.12)")
-        }
-      />
+      <div className="relative">
+        <input
+          type={isPassword && showPass ? "text" : type}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          required={required}
+          aria-invalid={!!error}
+          className={`w-full px-3 py-2 rounded-xl text-sm outline-none transition-all ${isPassword ? "pr-10" : ""}`}
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: `1.5px solid ${baseBorder}`,
+            color: "#1A1714",
+          }}
+          onFocus={(e) => (e.currentTarget.style.borderColor = error ? C.red : C.mustard)}
+          onBlur={(e) => (e.currentTarget.style.borderColor = baseBorder)}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setShowPass((s) => !s)}
+            aria-label={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
+            aria-pressed={showPass}
+            className="absolute inset-y-0 right-0 px-3 flex items-center cursor-pointer hover:opacity-70 [&_svg]:w-4 [&_svg]:h-4"
+            style={{ color: "rgba(30,30,30,0.45)" }}
+          >
+            {showPass ? Ico.eyeOff : Ico.eye}
+          </button>
+        )}
+      </div>
+      <FieldError msg={error} />
     </div>
   )
 }
@@ -1931,19 +2068,19 @@ function LoginPage({
 }) {
   const [email, setEmail] = useState("")
   const [pass, setPass] = useState("")
-  const [err, setErr] = useState("")
+  // Errors show after the first submit and update live while typing
+  const [tried, setTried] = useState(false)
+  const errors = tried ? validateLogin(email, pass) : {}
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email || !pass) {
-      setErr("Completa todos los campos.")
-      return
-    }
+    setTried(true)
+    if (Object.keys(validateLogin(email, pass)).length) return
     const role = email.toLowerCase().includes("admin") ? "admin" : "user"
     const name = email
       .split("@")[0]
       .replace(/\./g, " ")
       .replace(/\b\w/g, (ch) => ch.toUpperCase())
-    onLogin({ name, email, role })
+    onLogin({ name, email: email.trim().toLowerCase(), role })
   }
   return (
     <div
@@ -2017,7 +2154,7 @@ function LoginPage({
           >
             Accede a tu cuenta para continuar
           </div>
-          <form onSubmit={submit} className="flex flex-col gap-4">
+          <form onSubmit={submit} noValidate className="flex flex-col gap-4">
             <InputField
               label="Correo electrónico"
               type="email"
@@ -2025,6 +2162,7 @@ function LoginPage({
               value={email}
               onChange={setEmail}
               required
+              error={errors.email}
             />
             <InputField
               label="Contraseña"
@@ -2033,12 +2171,8 @@ function LoginPage({
               value={pass}
               onChange={setPass}
               required
+              error={errors.pass}
             />
-            {err && (
-              <p className="text-xs" style={{ color: C.red }}>
-                {err}
-              </p>
-            )}
             <button
               type="button"
               onClick={onForgot}
@@ -2099,11 +2233,13 @@ function RegisterPage({
   onLoginLink,
   onBack,
 }: {
-  onVerify: (email: string, name: string) => void
+  onVerify: (u: User) => void
   onLoginLink: () => void
   onBack: () => void
 }) {
   const [step, setStep] = useState<"form" | "verifying">("form")
+  const [tried, setTried] = useState(false)
+  const [codeTried, setCodeTried] = useState(false)
   const [form, setForm] = useState({
     name: "",
     lastname: "",
@@ -2115,36 +2251,27 @@ function RegisterPage({
     pass2: "",
   })
   const [code, setCode] = useState("")
-  const [err, setErr] = useState("")
-  const [sentCode] = useState("841736")
+  const errors = tried ? validateRegister(form) : {}
+  const err = codeTried ? codeError(code) : ""
   const upd = (k: keyof typeof form) => (v: string) =>
     setForm((f) => ({ ...f, [k]: v }))
   const submitForm = (e: React.FormEvent) => {
     e.preventDefault()
-    if (
-      !form.name ||
-      !form.email ||
-      !form.pass ||
-      !form.docType ||
-      !form.docNum
-    ) {
-      setErr("Completa los campos obligatorios.")
-      return
-    }
-    if (form.pass !== form.pass2) {
-      setErr("Las contraseñas no coinciden.")
-      return
-    }
-    setErr("")
+    setTried(true)
+    if (Object.keys(validateRegister(form)).length) return
     setStep("verifying")
   }
   const submitCode = (e: React.FormEvent) => {
     e.preventDefault()
-    if (code.length < 6) {
-      setErr("Ingresa el código de 6 dígitos.")
-      return
-    }
-    onVerify(form.email, `${form.name} ${form.lastname}`.trim())
+    setCodeTried(true)
+    if (codeError(code)) return
+    onVerify({
+      name: `${form.name.trim()} ${form.lastname.trim()}`.trim(),
+      email: form.email.trim().toLowerCase(),
+      role: "user",
+      phone: form.phone.replace(/\s/g, ""),
+      cedula: form.docNum.trim(),
+    })
   }
   if (step === "verifying")
     return (
@@ -2163,26 +2290,24 @@ function RegisterPage({
             style={{ color: "rgba(30,30,30,0.5)" }}
           >
             Ingresa el código de 6 dígitos que enviamos a tu correo. (Demo:{" "}
-            <strong>{sentCode}</strong>)
+            <strong>{DEMO_CODE}</strong>)
           </p>
           <input
             maxLength={6}
             placeholder="000000"
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            inputMode="numeric"
+            aria-invalid={!!err}
             className="w-full px-4 py-4 rounded-xl text-center text-2xl font-bold tracking-widest outline-none"
             style={{
               background: "rgba(30,30,30,0.05)",
-              border: "1.5px solid rgba(30,30,30,0.12)",
+              border: `1.5px solid ${err ? C.red : "rgba(30,30,30,0.12)"}`,
               color: "#1A1714",
               letterSpacing: "0.3em",
             }}
           />
-          {err && (
-            <p className="text-xs text-center" style={{ color: C.red }}>
-              {err}
-            </p>
-          )}
+          <FieldError msg={err} />
           <button
             type="submit"
             className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
@@ -2294,73 +2419,82 @@ function RegisterPage({
               Inicia sesión
             </button>
           </div>
-          <form onSubmit={submitForm} className="flex flex-col gap-2">
-            <div className="grid grid-cols-2 gap-2">
-              <InputField
-                label="Nombre *"
-                placeholder="Tu nombre"
-                value={form.name}
-                onChange={upd("name")}
-                required
-              />
-              <InputField
-                label="Apellido"
-                placeholder="Tu apellido"
-                value={form.lastname}
-                onChange={upd("lastname")}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label
-                className="text-[11px] font-semibold"
-                style={{ color: "rgba(30,30,30,0.5)" }}
-              >
-                Tipo de documento *
-              </label>
-              <select
-                value={form.docType}
-                onChange={(e) => upd("docType")(e.target.value)}
-                required
-                className="w-full px-3 py-2 rounded-xl text-sm outline-none"
-                style={{
-                  background: "rgba(30,30,30,0.05)",
-                  border: "1.5px solid rgba(30,30,30,0.12)",
-                  color: form.docType ? "#1A1714" : "rgba(30,30,30,0.35)",
-                }}
-              >
-                <option value="">Selecciona tipo...</option>
-                {DOC_TYPES.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
+          <form onSubmit={submitForm} noValidate className="flex flex-col gap-2">
+            {/* Document type first, its number right next to it */}
+            <div className="grid grid-cols-2 gap-2 items-start">
+              <div className="flex flex-col gap-1 min-w-0">
+                <label
+                  className="text-xs font-semibold"
+                  style={{ color: "rgba(30,30,30,0.5)" }}
+                >
+                  Tipo de documento *
+                </label>
+                <select
+                  value={form.docType}
+                  onChange={(e) => upd("docType")(e.target.value)}
+                  aria-invalid={!!errors.docType}
+                  className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+                  style={{
+                    background: "rgba(30,30,30,0.05)",
+                    border: `1.5px solid ${errors.docType ? C.red : "rgba(30,30,30,0.12)"}`,
+                    color: form.docType ? "#1A1714" : "rgba(30,30,30,0.35)",
+                  }}
+                >
+                  <option value="">Selecciona tipo...</option>
+                  {DOC_TYPES.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+                <FieldError msg={errors.docType} />
+              </div>
               <InputField
                 label="Nº Documento *"
                 placeholder="123456789"
                 value={form.docNum}
                 onChange={upd("docNum")}
                 required
+                error={errors.docNum}
               />
+            </div>
+            <div className="grid grid-cols-2 gap-2 items-start">
+              <InputField
+                label="Nombre *"
+                placeholder="Tu nombre"
+                value={form.name}
+                onChange={upd("name")}
+                required
+                error={errors.name}
+              />
+              <InputField
+                label="Apellido"
+                placeholder="Tu apellido"
+                value={form.lastname}
+                onChange={upd("lastname")}
+                error={errors.lastname}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2 items-start">
               <InputField
                 label="Teléfono"
                 type="tel"
                 placeholder="3XX XXX XXXX"
                 value={form.phone}
                 onChange={upd("phone")}
+                error={errors.phone}
+              />
+              <InputField
+                label="Correo *"
+                type="email"
+                placeholder="tu@correo.com"
+                value={form.email}
+                onChange={upd("email")}
+                required
+                error={errors.email}
               />
             </div>
-            <InputField
-              label="Correo *"
-              type="email"
-              placeholder="tu@correo.com"
-              value={form.email}
-              onChange={upd("email")}
-              required
-            />
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 items-start">
               <InputField
                 label="Contraseña *"
                 type="password"
@@ -2368,6 +2502,7 @@ function RegisterPage({
                 value={form.pass}
                 onChange={upd("pass")}
                 required
+                error={errors.pass}
               />
               <InputField
                 label="Confirmar *"
@@ -2376,11 +2511,12 @@ function RegisterPage({
                 value={form.pass2}
                 onChange={upd("pass2")}
                 required
+                error={errors.pass2}
               />
             </div>
-            {err && (
-              <p className="text-[11px]" style={{ color: C.red }}>
-                {err}
+            {!errors.pass && (
+              <p className="text-[11px]" style={{ color: "rgba(30,30,30,0.45)" }}>
+                Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
               </p>
             )}
             <button
@@ -2811,66 +2947,53 @@ function AddToCartModal({
                           : "none",
                     }}
                   >
-                    <div className="flex-1">
+                    <div className="flex-1 min-w-0 flex items-baseline gap-2">
                       <span className="text-sm" style={{ color: TEXT }}>
                         {a.name}
                       </span>
-                      {q > 0 && (
-                        <span
-                          className="ml-2 text-xs font-bold"
-                          style={{ color: C.mustard }}
-                        >
-                          +{fmt(a.price * q)}
-                        </span>
-                      )}
+                      <span
+                        className="text-xs font-semibold whitespace-nowrap"
+                        style={{ color: C.amber }}
+                      >
+                        {fmt(a.price)}
+                      </span>
                     </div>
-                    <span
-                      className="text-sm font-bold mr-3"
-                      style={{ color: C.amber }}
-                    >
-                      +{fmt(a.price)}
-                    </span>
-                    {q > 0 ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => changeAdd(a.name, -1)}
-                          className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
-                          style={{
-                            background: dark
-                              ? "rgba(244,238,220,0.1)"
-                              : "rgba(30,30,30,0.08)",
-                            color: TEXT,
-                          }}
-                        >
-                          −
-                        </button>
-                        <span
-                          className="w-4 text-center font-bold text-sm"
-                          style={{ color: TEXT }}
-                        >
-                          {q}
-                        </span>
-                        <button
-                          onClick={() => changeAdd(a.name, 1)}
-                          className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
-                          style={{ background: C.mustard, color: "#fff" }}
-                        >
-                          +
-                        </button>
-                      </div>
-                    ) : (
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => changeAdd(a.name, -1)}
+                        disabled={q === 0}
+                        aria-label={`Quitar ${a.name}`}
+                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                        style={{
+                          background: dark
+                            ? "rgba(244,238,220,0.1)"
+                            : "rgba(30,30,30,0.08)",
+                          color: TEXT,
+                        }}
+                      >
+                        −
+                      </button>
+                      <span
+                        className="w-5 text-center font-bold text-sm"
+                        style={{ color: TEXT }}
+                      >
+                        {q}
+                      </span>
                       <button
                         onClick={() => changeAdd(a.name, 1)}
-                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-lg cursor-pointer"
-                        style={{
-                          background: `${C.mustard}22`,
-                          border: `1.5px solid ${C.mustard}`,
-                          color: C.mustard,
-                        }}
+                        aria-label={`Agregar ${a.name}`}
+                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
+                        style={{ background: C.mustard, color: "#fff" }}
                       >
                         +
                       </button>
-                    )}
+                      <span
+                        className="w-16 text-right text-sm font-bold"
+                        style={{ color: q > 0 ? C.mustard : MUTED }}
+                      >
+                        {q > 0 ? `+${fmt(a.price * q)}` : "—"}
+                      </span>
+                    </div>
                   </div>
                 )
               })}
@@ -2937,6 +3060,12 @@ function ProductCatalog({
   const [activeCat, setActiveCat] = useState("todos")
   const [search, setSearch] = useState("")
   const [pg, setPg] = useState(0)
+  const topRef = useRef<HTMLDivElement>(null)
+  // Changing page brings the menu back into view
+  const goPage = (i: number) => {
+    setPg(i)
+    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
   const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
@@ -2959,7 +3088,7 @@ function ProductCatalog({
     setPg(0)
   }
   return (
-    <div>
+    <div ref={topRef}>
       {/* Category tabs */}
       <div
         className="flex gap-2 overflow-x-auto pb-2 mb-4"
@@ -3108,7 +3237,7 @@ function ProductCatalog({
         <div className="flex items-center justify-center gap-2">
           <button
             disabled={pg === 0}
-            onClick={() => setPg(pg - 1)}
+            onClick={() => goPage(pg - 1)}
             className="px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
             style={{
               background: dark
@@ -3122,7 +3251,7 @@ function ProductCatalog({
           {Array.from({ length: totalPages }, (_, i) => (
             <button
               key={i}
-              onClick={() => setPg(i)}
+              onClick={() => goPage(i)}
               className="w-8 h-8 rounded-lg text-sm font-bold cursor-pointer"
               style={{
                 background:
@@ -3139,7 +3268,7 @@ function ProductCatalog({
           ))}
           <button
             disabled={pg >= totalPages - 1}
-            onClick={() => setPg(pg + 1)}
+            onClick={() => goPage(pg + 1)}
             className="px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
             style={{
               background: dark
@@ -3791,34 +3920,42 @@ function CheckoutPage({
     delivForm.nombre && delivForm.telefono && delivForm.direccion
   const canOrder = user && delivFilled
 
+  // Errors show after the first submit of each form and update while typing
+  const [loginTried, setLoginTried] = useState(false)
+  const [regTried, setRegTried] = useState(false)
+  const [codeTried, setCodeTried] = useState(false)
+  const loginErrors = loginTried ? validateLogin(loginForm.email, loginForm.pass) : {}
+  const regErrors = regTried ? validateRegister(regForm) : {}
+  const codeErr = codeTried ? codeError(code) : ""
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault()
-    const role = loginForm.email.toLowerCase().includes("admin")
-      ? "admin"
-      : "user"
-    const name = loginForm.email
+    setLoginTried(true)
+    if (Object.keys(validateLogin(loginForm.email, loginForm.pass)).length) return
+    const email = loginForm.email.trim().toLowerCase()
+    const role = email.includes("admin") ? "admin" : "user"
+    const name = email
       .split("@")[0]
       .replace(/\./g, " ")
       .replace(/\b\w/g, (ch) => ch.toUpperCase())
-    onLogin({ name, email: loginForm.email, role })
+    onLogin({ name, email, role })
     setCheckoutStep(2)
   }
   const handleRegisterForm = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!regForm.name || !regForm.email || !regForm.pass || !regForm.docType)
-      return
-    if (regForm.pass !== regForm.pass2) return
+    setRegTried(true)
+    if (Object.keys(validateRegister(regForm)).length) return
     setRegStep("verifying")
   }
   const handleVerify = (e: React.FormEvent) => {
     e.preventDefault()
-    if (code.length < 6) return
+    setCodeTried(true)
+    if (codeError(code)) return
     onRegisterVerified({
-      name: regForm.name,
-      email: regForm.email,
+      name: regForm.name.trim(),
+      email: regForm.email.trim().toLowerCase(),
       role: "user",
-      phone: regForm.phone,
-      cedula: regForm.docNum,
+      phone: regForm.phone.replace(/\s/g, ""),
+      cedula: regForm.docNum.trim(),
     })
     setCheckoutStep(2)
   }
@@ -4080,7 +4217,7 @@ function CheckoutPage({
                   ))}
                 </div>
                 {authTab === "login" && (
-                  <form onSubmit={handleLogin} className="flex flex-col gap-3">
+                  <form onSubmit={handleLogin} noValidate className="flex flex-col gap-3">
                     <InputField
                       label="Correo"
                       type="email"
@@ -4090,6 +4227,7 @@ function CheckoutPage({
                         setLoginForm((f) => ({ ...f, email: v }))
                       }
                       required
+                      error={loginErrors.email}
                     />
                     <InputField
                       label="Contraseña"
@@ -4098,6 +4236,7 @@ function CheckoutPage({
                       value={loginForm.pass}
                       onChange={(v) => setLoginForm((f) => ({ ...f, pass: v }))}
                       required
+                      error={loginErrors.pass}
                     />
                     <button
                       type="submit"
@@ -4111,16 +4250,11 @@ function CheckoutPage({
                 {authTab === "register" && regStep === "form" && (
                   <form
                     onSubmit={handleRegisterForm}
+                    noValidate
                     className="flex flex-col gap-2.5"
                   >
-                    <InputField
-                      label="Nombre *"
-                      placeholder="Tu nombre"
-                      value={regForm.name}
-                      onChange={(v) => setRegForm((f) => ({ ...f, name: v }))}
-                      required
-                    />
-                    <div className="flex flex-col gap-1">
+                    <div className="grid sm:grid-cols-2 gap-2.5 items-start">
+                    <div className="flex flex-col gap-1 min-w-0">
                       <label
                         className="text-xs font-semibold"
                         style={{ color: "rgba(30,30,30,0.5)" }}
@@ -4132,10 +4266,11 @@ function CheckoutPage({
                         onChange={(e) =>
                           setRegForm((f) => ({ ...f, docType: e.target.value }))
                         }
+                        aria-invalid={!!regErrors.docType}
                         className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none"
                         style={{
                           background: "rgba(30,30,30,0.05)",
-                          border: "1.5px solid rgba(30,30,30,0.12)",
+                          border: `1.5px solid ${regErrors.docType ? C.red : "rgba(30,30,30,0.12)"}`,
                           color: regForm.docType
                             ? "#1A1714"
                             : "rgba(30,30,30,0.35)",
@@ -4148,6 +4283,7 @@ function CheckoutPage({
                           </option>
                         ))}
                       </select>
+                      <FieldError msg={regErrors.docType} />
                     </div>
                     <InputField
                       label="Nº Documento *"
@@ -4155,6 +4291,16 @@ function CheckoutPage({
                       value={regForm.docNum}
                       onChange={(v) => setRegForm((f) => ({ ...f, docNum: v }))}
                       required
+                      error={regErrors.docNum}
+                    />
+                    </div>
+                    <InputField
+                      label="Nombre *"
+                      placeholder="Tu nombre"
+                      value={regForm.name}
+                      onChange={(v) => setRegForm((f) => ({ ...f, name: v }))}
+                      required
+                      error={regErrors.name}
                     />
                     <InputField
                       label="Teléfono"
@@ -4162,6 +4308,7 @@ function CheckoutPage({
                       placeholder="3XX XXX XXXX"
                       value={regForm.phone}
                       onChange={(v) => setRegForm((f) => ({ ...f, phone: v }))}
+                      error={regErrors.phone}
                     />
                     <InputField
                       label="Correo *"
@@ -4170,6 +4317,7 @@ function CheckoutPage({
                       value={regForm.email}
                       onChange={(v) => setRegForm((f) => ({ ...f, email: v }))}
                       required
+                      error={regErrors.email}
                     />
                     <InputField
                       label="Contraseña *"
@@ -4178,7 +4326,13 @@ function CheckoutPage({
                       value={regForm.pass}
                       onChange={(v) => setRegForm((f) => ({ ...f, pass: v }))}
                       required
+                      error={regErrors.pass}
                     />
+                    {!regErrors.pass && (
+                      <p className="text-[11px] -mt-1" style={{ color: "rgba(30,30,30,0.45)" }}>
+                        Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
+                      </p>
+                    )}
                     <InputField
                       label="Confirmar *"
                       type="password"
@@ -4186,6 +4340,7 @@ function CheckoutPage({
                       value={regForm.pass2}
                       onChange={(v) => setRegForm((f) => ({ ...f, pass2: v }))}
                       required
+                      error={regErrors.pass2}
                     />
                     <button
                       type="submit"
@@ -4197,34 +4352,45 @@ function CheckoutPage({
                   </form>
                 )}
                 {authTab === "register" && regStep === "verifying" && (
-                  <form onSubmit={handleVerify} className="flex flex-col gap-4">
+                  <form onSubmit={handleVerify} noValidate className="flex flex-col gap-4">
                     <p
                       className="text-xs text-center"
                       style={{ color: "rgba(30,30,30,0.5)" }}
                     >
-                      Código enviado a <strong>{regForm.email}</strong>. (Demo:
-                      841736)
+                      Código enviado a <strong>{regForm.email}</strong>. (Demo:{" "}
+                      {DEMO_CODE})
                     </p>
                     <input
                       maxLength={6}
                       placeholder="000000"
+                      inputMode="numeric"
                       value={code}
                       onChange={(e) =>
                         setCode(e.target.value.replace(/\D/g, ""))
                       }
+                      aria-invalid={!!codeErr}
                       className="w-full px-4 py-4 rounded-xl text-center text-2xl font-bold tracking-widest outline-none"
                       style={{
                         background: "rgba(30,30,30,0.05)",
-                        border: "1.5px solid rgba(30,30,30,0.12)",
+                        border: `1.5px solid ${codeErr ? C.red : "rgba(30,30,30,0.12)"}`,
                         color: "#1A1714",
                       }}
                     />
+                    <FieldError msg={codeErr} />
                     <button
                       type="submit"
                       className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
                       style={{ background: C.mustard, color: "#fff" }}
                     >
                       Verificar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRegStep("form")}
+                      className="text-xs text-center cursor-pointer"
+                      style={{ color: "rgba(30,30,30,0.45)" }}
+                    >
+                      ← Corregir mis datos
                     </button>
                   </form>
                 )}
@@ -5035,7 +5201,10 @@ function ClientApp({
             {(["menu", "orders"] as const).map((v) => (
               <button
                 key={v}
-                onClick={() => setView(v)}
+                onClick={() => {
+                  setView(v)
+                  window.scrollTo({ top: 0, behavior: "smooth" })
+                }}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer"
                 style={{
                   background: view === v ? `${C.mustard}15` : "transparent",
@@ -5330,8 +5499,8 @@ function LandingPage({
   const NAVLINKS = [
     { label: "Inicio", href: "#inicio" },
     { label: "Menú", href: "#menu" },
-    { label: "Nosotros", href: "#nosotros" },
     { label: "Pedidos", href: "#pedidos" },
+    { label: "Nosotros", href: "#nosotros" },
     { label: "Contacto", href: "#contacto" },
   ]
   const goToMenu = onGuestMenu
@@ -10460,10 +10629,10 @@ export default function App() {
   // Profile (phone, cédula, addresses) is saved per email, so it survives logout
   const updateUser = (u: User) => {
     setUser(u)
-    saveLS(`profile:${u.email}`, u)
+    saveLS(`profile:${u.email.toLowerCase()}`, u)
   }
   const login = (u: User, next: Page = "app") => {
-    const saved = loadLS<User | null>(`profile:${u.email}`, null)
+    const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
     updateUser(saved ? { ...u, ...saved, role: u.role } : u)
     setClientView("menu")
     setPage(next)
@@ -10497,7 +10666,8 @@ export default function App() {
   if (page === "register")
     return (
       <RegisterPage
-        onVerify={() => {
+        onVerify={(u) => {
+          saveLS(`profile:${u.email}`, u)
           setPage("login")
         }}
         onLoginLink={() => setPage("login")}
