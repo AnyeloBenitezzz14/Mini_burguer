@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
 import logoImg from "@/imports/Gemini_Generated_Image_ei2okyei2okyei2o-Photoroom.png"
 import qrImg from "@/imports/image-4.png"
 
@@ -13,6 +13,7 @@ type User = {
   cedula?: string
   phone?: string
   addresses?: string[]
+  photo?: string
 }
 type CartItem = {
   id: number
@@ -4081,12 +4082,18 @@ function ProfilePage({
     phone: user.phone || "",
     cedula: user.cedula || "",
   })
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [addresses, setAddresses] = useState<string[]>(
     user.addresses || ["Cra 58 #42-10, Bello, Antioquia"],
   )
   const [newAddr, setNewAddr] = useState("")
   const [addingAddr, setAddingAddr] = useState(false)
+  const [editingAddrIdx, setEditingAddrIdx] = useState<number | null>(null)
+  const [editingAddrValue, setEditingAddrValue] = useState("")
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showLogoutModal, setShowLogoutModal] = useState(false)
+  const [profilePhoto, setProfilePhoto] = useState<string | undefined>(user.photo)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const BG = "#FAF5E8"
   const CARD = "#fff"
   const TEXT = "#1A1714"
@@ -4112,10 +4119,58 @@ function ProfilePage({
       date: "Ene 8",
     },
   ]
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {}
+    if (!form.name.trim()) {
+      newErrors.name = "El nombre completo es obligatorio para identificar tu cuenta."
+    }
+    if (!form.email.trim()) {
+      newErrors.email = "El correo electrónico es obligatorio para iniciar sesión y recibir notificaciones."
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
+    }
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
   const save = () => {
-    onUpdateUser({ ...user, ...form, addresses })
+    if (!validateForm()) return
+    onUpdateUser({ ...user, ...form, addresses, photo: profilePhoto })
     setEditing(false)
   }
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setProfilePhoto(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const startEditAddress = (idx: number) => {
+    setEditingAddrIdx(idx)
+    setEditingAddrValue(addresses[idx])
+  }
+
+  const saveEditAddress = () => {
+    if (editingAddrIdx !== null && editingAddrValue.trim()) {
+      setAddresses((arr) =>
+        arr.map((a, i) => (i === editingAddrIdx ? editingAddrValue.trim() : a)),
+      )
+    }
+    setEditingAddrIdx(null)
+    setEditingAddrValue("")
+  }
+
+  const deleteAddress = (idx: number) => {
+    if (addresses.length <= 1) return
+    setAddresses((arr) => arr.filter((_, i) => i !== idx))
+  }
+
   return (
     <div
       className="min-h-screen"
@@ -4143,19 +4198,34 @@ function ProfilePage({
           style={{ background: CARD, boxShadow: "0 2px 16px rgba(0,0,0,0.07)" }}
         >
           <button
-            onClick={() => setAvatarIdx((i) => (i + 1) % AVATARS.length)}
-            className="w-20 h-20 rounded-full flex items-center justify-center text-4xl mb-1 cursor-pointer hover:opacity-80"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-20 h-20 rounded-full flex items-center justify-center text-4xl mb-1 cursor-pointer hover:opacity-80 overflow-hidden"
             style={{
               background: `${C.mustard}18`,
               border: `2px solid ${C.mustard}`,
             }}
           >
-            {AVATARS[avatarIdx]}
+            {profilePhoto ? (
+              <img
+                src={profilePhoto}
+                alt="Foto de perfil"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              AVATARS[avatarIdx]
+            )}
           </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handlePhotoChange}
+          />
           <div
             className="text-xs mb-3 cursor-pointer"
             style={{ color: C.mustard }}
-            onClick={() => setAvatarIdx((i) => (i + 1) % AVATARS.length)}
+            onClick={() => fileInputRef.current?.click()}
           >
             Cambiar foto
           </div>
@@ -4192,17 +4262,37 @@ function ProfilePage({
           <div className="grid sm:grid-cols-2 gap-3">
             {editing ? (
               <>
-                <InputField
-                  label="Nombre completo"
-                  value={form.name}
-                  onChange={(v) => setForm((f) => ({ ...f, name: v }))}
-                />
-                <InputField
-                  label="Correo"
-                  type="email"
-                  value={form.email}
-                  onChange={(v) => setForm((f) => ({ ...f, email: v }))}
-                />
+                <div>
+                  <InputField
+                    label="Nombre completo *"
+                    value={form.name}
+                    onChange={(v) => {
+                      setForm((f) => ({ ...f, name: v }))
+                      if (errors.name) setErrors((e) => ({ ...e, name: "" }))
+                    }}
+                  />
+                  {errors.name && (
+                    <p className="text-xs mt-1" style={{ color: C.red }}>
+                      {errors.name}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <InputField
+                    label="Correo *"
+                    type="email"
+                    value={form.email}
+                    onChange={(v) => {
+                      setForm((f) => ({ ...f, email: v }))
+                      if (errors.email) setErrors((e) => ({ ...e, email: "" }))
+                    }}
+                  />
+                  {errors.email && (
+                    <p className="text-xs mt-1" style={{ color: C.red }}>
+                      {errors.email}
+                    </p>
+                  )}
+                </div>
                 <InputField
                   label="Teléfono"
                   type="tel"
@@ -4264,18 +4354,73 @@ function ProfilePage({
               }}
             >
               <span style={{ color: C.mustard }}>{Ico.mapPin}</span>
-              <span className="flex-1 text-sm" style={{ color: TEXT }}>
-                {a}
-              </span>
-              <button
-                onClick={() =>
-                  setAddresses((arr) => arr.filter((_, j) => j !== i))
-                }
-                className="text-xs cursor-pointer"
-                style={{ color: C.red }}
-              >
-                ×
-              </button>
+              {editingAddrIdx === i ? (
+                <div className="flex-1 flex items-center gap-2">
+                  <input
+                    value={editingAddrValue}
+                    onChange={(e) => setEditingAddrValue(e.target.value)}
+                    className="flex-1 px-2 py-1 rounded-lg text-sm outline-none"
+                    style={{
+                      background: "rgba(30,30,30,0.05)",
+                      border: `1.5px solid ${C.mustard}`,
+                      color: TEXT,
+                    }}
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") saveEditAddress()
+                      if (e.key === "Escape") {
+                        setEditingAddrIdx(null)
+                        setEditingAddrValue("")
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={saveEditAddress}
+                    className="text-xs font-bold cursor-pointer"
+                    style={{ color: C.mustard }}
+                  >
+                    Guardar
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingAddrIdx(null)
+                      setEditingAddrValue("")
+                    }}
+                    className="text-xs cursor-pointer"
+                    style={{ color: MUTED }}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm" style={{ color: TEXT }}>
+                    {a}
+                  </span>
+                  <button
+                    onClick={() => startEditAddress(i)}
+                    className="text-xs cursor-pointer mr-1"
+                    style={{ color: C.mustard }}
+                  >
+                    Editar
+                  </button>
+                  <button
+                    onClick={() => deleteAddress(i)}
+                    className="text-xs cursor-pointer"
+                    style={{
+                      color: addresses.length <= 1 ? "rgba(30,30,30,0.2)" : C.red,
+                      cursor: addresses.length <= 1 ? "not-allowed" : "pointer",
+                    }}
+                    title={
+                      addresses.length <= 1
+                        ? "Debes tener al menos una dirección registrada"
+                        : "Eliminar dirección"
+                    }
+                  >
+                    Eliminar
+                  </button>
+                </>
+              )}
             </div>
           ))}
           {addingAddr && (
@@ -4290,11 +4435,19 @@ function ProfilePage({
                   border: "1.5px solid rgba(30,30,30,0.12)",
                   color: TEXT,
                 }}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && newAddr.trim()) {
+                    setAddresses((a) => [...a, newAddr.trim()])
+                    setNewAddr("")
+                    setAddingAddr(false)
+                  }
+                }}
               />
               <button
                 onClick={() => {
-                  if (newAddr) {
-                    setAddresses((a) => [...a, newAddr])
+                  if (newAddr.trim()) {
+                    setAddresses((a) => [...a, newAddr.trim()])
                     setNewAddr("")
                     setAddingAddr(false)
                   }
@@ -4349,7 +4502,7 @@ function ProfilePage({
         {/* Actions */}
         <div className="flex flex-col gap-2">
           <button
-            onClick={onLogout}
+            onClick={() => setShowLogoutModal(true)}
             className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
             style={{ background: `${C.red}12`, color: C.red }}
           >
@@ -4367,6 +4520,55 @@ function ProfilePage({
           </button>
         </div>
       </div>
+      {/* Logout confirmation modal */}
+      {showLogoutModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+        >
+          <div
+            className="w-full max-w-xs p-6 rounded-2xl text-center"
+            style={{
+              background: "#fff",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+            }}
+          >
+            <div className="text-4xl mb-3">🚪</div>
+            <h3
+              className="font-black text-lg mb-2"
+              style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+            >
+              ¿Cerrar sesión?
+            </h3>
+            <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.5)" }}>
+              ¿Estás seguro de que deseas cerrar sesión? Tendrás que iniciar sesión nuevamente para acceder a tu cuenta.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLogoutModal(false)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+                style={{
+                  background: "rgba(30,30,30,0.06)",
+                  color: "rgba(30,30,30,0.5)",
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  setShowLogoutModal(false)
+                  onLogout()
+                }}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer"
+                style={{ background: C.red, color: "#fff" }}
+              >
+                Cerrar sesión
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delete account modal */}
       {showDeleteModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center px-4"
@@ -4384,11 +4586,12 @@ function ProfilePage({
               className="font-black text-lg mb-2"
               style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
             >
-              ¿Eliminar cuenta?
+              ¿Deseas confirmar la eliminación de la cuenta?
             </h3>
             <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.5)" }}>
-              Esta acción es permanente y no se puede deshacer. Perderás todos
-              tus datos y pedidos.
+              Puedes eliminar la cuenta porque no hay bloqueos activos. Esta
+              acción es permanente y no se puede deshacer; perderás tus datos y
+              pedidos.
             </p>
             <div className="flex gap-3">
               <button
@@ -4616,10 +4819,18 @@ function ClientApp({
             <div className="relative" ref={dropRef}>
               <button
                 onClick={() => setProfileOpen(!profileOpen)}
-                className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm cursor-pointer"
+                className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm cursor-pointer overflow-hidden"
                 style={{ background: C.mustard, color: "#fff" }}
               >
-                {user.name.charAt(0).toUpperCase()}
+                {user.photo ? (
+                  <img
+                    src={user.photo}
+                    alt="Foto de perfil"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  user.name.charAt(0).toUpperCase()
+                )}
               </button>
               {profileOpen && (
                 <div
@@ -6115,6 +6326,10 @@ function AdminPanel({
     section: string
     idx: number
   } | null>(null)
+  const [anulTarget, setAnulTarget] = useState<{
+    section: string
+    idx: number
+  } | null>(null)
   const [chartFilter, setChartFilter] =
     useState<"hoy" | "semana" | "mes" | "año">("semana")
   const [rolesPerms, setRolesPerms] =
@@ -6569,8 +6784,142 @@ function AdminPanel({
     return !["Inactivo", "Inactiva", "Anulado", "Anulada"].includes(status)
   }
 
+  const getDeleteAssessment = (
+    sec: string,
+    row: (string | number)[] | undefined,
+  ) => {
+    const moduleName =
+      SIDEBAR_MENU.flatMap((item) =>
+        item.children.length
+          ? item.children
+          : [{ key: item.key, label: item.label }],
+      ).find((item) => item.key === sec)?.label ?? "este módulo"
+    const recordName = String(row?.[0] ?? "registro")
+    const targetLabel =
+      sec === "produccion"
+        ? `la orden «${recordName}»`
+        : `el registro «${recordName}»`
+
+    if (!row) {
+      return {
+        allowed: false,
+        targetLabel,
+        reason:
+          "El registro ya no existe o fue eliminado por otra acción. Actualiza la lista para verificar el estado actual.",
+      }
+    }
+
+    if (sec === "produccion") {
+      const status = String(row[8] ?? "Recibida")
+      const authorized = String(row[11] ?? "No").toLowerCase() === "sí"
+      const blockers: string[] = []
+
+      if (status !== "Recibida") {
+        blockers.push(`la orden ya se encuentra en estado «${status}»`)
+      }
+      if (authorized) {
+        blockers.push("la orden ya fue autorizada para producción")
+      }
+
+      if (blockers.length) {
+        return {
+          allowed: false,
+          targetLabel,
+          reason: `${blockers.join(" y ")}. Para conservar la trazabilidad, solo se puede eliminar una orden nueva que siga en estado «Recibida» y no esté autorizada.`,
+        }
+      }
+
+      return {
+        allowed: true,
+        targetLabel,
+        reason:
+          "La orden sigue en estado «Recibida», todavía no está autorizada para producción y no tiene bloqueos activos.",
+      }
+    }
+
+    if (MOD_CFG[sec]?.noDelete) {
+      return {
+        allowed: false,
+        targetLabel,
+        reason: `La eliminación está desactivada en el módulo «${moduleName}». Conserva el registro y utiliza la acción de anulación disponible para mantener su historial.`,
+      }
+    }
+
+    return {
+      allowed: true,
+      targetLabel,
+      reason: `No existen bloqueos activos y el módulo «${moduleName}» permite eliminar este registro.`,
+    }
+  }
+
   const isStatusLocked = (sec: string, row: (string | number)[]) =>
     sec === "roles" && String(row[0] ?? "").trim().toLowerCase() === "administrador"
+
+  const getAnulAssessment = (
+    sec: string,
+    row: (string | number)[] | undefined,
+    rowIndex: number,
+  ) => {
+    const moduleName =
+      SIDEBAR_MENU.flatMap((item) =>
+        item.children.length
+          ? item.children
+          : [{ key: item.key, label: item.label }],
+      ).find((item) => item.key === sec)?.label ?? "este módulo"
+    const recordName = String(row?.[0] ?? "registro")
+    const targetLabel = `el registro «${recordName}»`
+
+    if (!row) {
+      return {
+        allowed: false,
+        targetLabel,
+        reason:
+          "El registro ya no existe o fue eliminado por otra acción. Actualiza la lista para verificar su estado actual.",
+      }
+    }
+
+    if (isStatusLocked(sec, row)) {
+      return {
+        allowed: false,
+        targetLabel,
+        reason:
+          "El rol «Administrador» está protegido para evitar que el sistema quede sin permisos de gestión. No se puede anular desde este módulo.",
+      }
+    }
+
+    const statusIndex = MOD_CFG[sec]?.statusIndex
+    const currentStatus =
+      statusIndex !== undefined
+        ? String(row[statusIndex] ?? "Activo")
+        : "Activo"
+    const alreadyAnulled =
+      statusIndex !== undefined
+        ? !isStatusActive(currentStatus)
+        : (anulled?.[sec] || new Set<number>()).has(rowIndex)
+
+    if (alreadyAnulled) {
+      return {
+        allowed: false,
+        targetLabel,
+        reason: `El registro ya se encuentra anulado o inactivo («${currentStatus}»). Para volver a usarlo primero debe reactivarse.`,
+      }
+    }
+
+    if (sec === "compras") {
+      return {
+        allowed: true,
+        targetLabel,
+        reason:
+          "La compra está activa y no presenta bloqueos registrados. Puede anularse sin eliminar su información; quedará en estado «Anulado» y se conservará en el historial.",
+      }
+    }
+
+    return {
+      allowed: true,
+      targetLabel,
+      reason: `El registro está activo y no tiene bloqueos de anulación registrados en el módulo «${moduleName}». Puede anularse sin eliminar la información y quedará conservado en el historial.`,
+    }
+  }
 
   const toggleStatus = (
     sec: string,
@@ -6616,6 +6965,13 @@ function AdminPanel({
 
       return { ...current, [sec]: updated }
     })
+
+    setAnulled((current) => {
+      const next = new Set(current[sec] || [])
+      if (isStatusActive(nextValue)) next.delete(rowIndex)
+      else next.add(rowIndex)
+      return { ...current, [sec]: next }
+    })
   }
 
   const StatusSwitch = ({
@@ -6635,6 +6991,10 @@ function AdminPanel({
     const active = isStatusActive(value)
     const label = String(value)
     const locked = isStatusLocked(sec, row)
+    const handleStatusAction = () => {
+      if (locked || active) setAnulTarget({ section: sec, idx: rowIndex })
+      else toggleStatus(sec, rowIndex, statusIndex)
+    }
 
     return (
       <div className="flex max-w-full flex-wrap items-center gap-1.5">
@@ -6642,11 +7002,25 @@ function AdminPanel({
           type="button"
           role="switch"
           aria-checked={active}
-          aria-label={`${label} ${entityName}`}
-          title={locked ? "El estado del administrador no se puede cambiar" : label}
-          disabled={locked}
-          onClick={() => toggleStatus(sec, rowIndex, statusIndex)}
-          className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${locked ? "cursor-not-allowed opacity-75" : "cursor-pointer"}`}
+          aria-label={
+            locked
+              ? "Ver motivo por el que no se puede anular"
+              : active
+                ? `Anular ${entityName}`
+                : `Reactivar ${entityName}`
+          }
+          aria-haspopup={locked || active ? "dialog" : undefined}
+          title={
+            locked
+              ? "El estado del administrador está protegido"
+              : active
+                ? `Anular ${entityName}`
+                : `Reactivar ${entityName}`
+          }
+          onClick={handleStatusAction}
+          className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
+            locked ? "cursor-help opacity-75" : "cursor-pointer"
+          }`}
           style={{ background: active ? "#3A6D5E" : dark ? "#4A4E57" : "#C7C4BD" }}
         >
           <span
@@ -6654,7 +7028,13 @@ function AdminPanel({
             style={{ transform: active ? "translateX(16px)" : "translateX(0)" }}
           />
         </button>
-        <span className="text-[10px] font-semibold" style={{ color: active ? "#2E7D60" : C.red }}>{label}</span>
+        <span
+          className="cursor-pointer text-[10px] font-semibold"
+          style={{ color: active ? "#2E7D60" : C.red }}
+          onClick={handleStatusAction}
+        >
+          {label}
+        </span>
       </div>
     )
   }
@@ -7035,6 +7415,22 @@ function AdminPanel({
       return { ...r, [sec]: u }
     })
   }
+  const confirmAnul = () => {
+    const target = anulTarget
+    if (!target) return
+
+    const row = rows[target.section]?.[target.idx]
+    if (!getAnulAssessment(target.section, row, target.idx).allowed) return
+
+    const statusIndex = MOD_CFG[target.section]?.statusIndex
+    if (statusIndex !== undefined) {
+      toggleStatus(target.section, target.idx, statusIndex)
+    } else {
+      doAnul(target.section, target.idx)
+    }
+    setAnulTarget(null)
+  }
+
   const reactivate = (sec: string, idx: number) => {
     setAnulled((a) => {
       const s = new Set(a[sec] || [])
@@ -7051,11 +7447,18 @@ function AdminPanel({
     })
   }
   const confirmDelete = () => {
-    if (!delTarget) return
-    setRows((r) => {
-      const u = [...(r[delTarget.section] || [])]
-      u.splice(delTarget.idx, 1)
-      return { ...r, [delTarget.section]: u }
+    const target = delTarget
+    if (!target) return
+    if (!getDeleteAssessment(target.section, rows[target.section]?.[target.idx]).allowed)
+      return
+
+    setRows((current) => {
+      const currentRow = current[target.section]?.[target.idx]
+      if (!getDeleteAssessment(target.section, currentRow).allowed) return current
+
+      const updated = [...(current[target.section] || [])]
+      updated.splice(target.idx, 1)
+      return { ...current, [target.section]: updated }
     })
     setDelTarget(null)
   }
@@ -7761,33 +8164,30 @@ function AdminPanel({
 
     const renderActions = (rowIndex: number, isAnulled: boolean) => {
       const detailActionLabel = section === "compras" ? "Ver compra" : "Ver detalle"
-      const purchaseStatus =
-        section === "compras" && cfg.statusIndex !== undefined
-          ? String(rows[section]?.[rowIndex]?.[cfg.statusIndex] ?? "Activo")
-          : ""
-      const purchaseIsActive = isStatusActive(purchaseStatus)
-      const productionStatus = String(
-        section === "produccion"
-          ? rows.produccion?.[rowIndex]?.[8] ?? "Recibida"
-          : "",
+      const deleteAssessment = getDeleteAssessment(
+        section,
+        rows[section]?.[rowIndex],
       )
-      const deleteBlocked =
-        section === "produccion" &&
-        (productionStatus !== "Recibida" ||
-          String(rows.produccion?.[rowIndex]?.[11] ?? "No").toLowerCase() === "sí")
+      const deleteBlocked = !deleteAssessment.allowed
       const deleteButton = (
         <button
           type="button"
-          title={deleteBlocked ? "La orden ya se inició y no se puede eliminar" : "Eliminar"}
-          aria-label={deleteBlocked ? "Eliminación bloqueada" : "Eliminar"}
-          disabled={deleteBlocked}
-          onClick={() => {
-            if (!deleteBlocked) setDelTarget({ section, idx: rowIndex })
-          }}
-          className={`flex h-7 w-7 items-center justify-center rounded-lg ${deleteBlocked ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:opacity-80"}`}
+          title={`${deleteBlocked ? "No se puede eliminar" : "Se puede eliminar"}: ${deleteAssessment.reason}`}
+          aria-label={
+            deleteBlocked
+              ? "Ver motivo por el que no se puede eliminar"
+              : "Eliminar registro"
+          }
+          aria-haspopup="dialog"
+          onClick={() => setDelTarget({ section, idx: rowIndex })}
+          className={`flex h-7 w-7 items-center justify-center rounded-lg ${
+            deleteBlocked
+              ? "cursor-help opacity-60 hover:opacity-100"
+              : "cursor-pointer hover:opacity-80"
+          }`}
           style={{ color: C.red, background: `${C.red}12` }}
         >
-          {Ico.trash}
+          {deleteBlocked ? Ico.alert : Ico.trash}
         </button>
       )
 
@@ -7815,18 +8215,6 @@ function AdminPanel({
               {Ico.edit}
             </button>
           )}
-          {section === "compras" && cfg.statusIndex !== undefined && (
-            <button
-              type="button"
-              title={purchaseIsActive ? "Anular" : "Reactivar"}
-              aria-label={purchaseIsActive ? "Anular" : "Reactivar"}
-              onClick={() => toggleStatus(section, rowIndex, cfg.statusIndex!)}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
-              style={{ color: purchaseIsActive ? C.red : "#2E7D60", background: purchaseIsActive ? `${C.red}12` : "rgba(46,125,96,0.12)" }}
-            >
-              {purchaseIsActive ? Ico.ban : Ico.undo}
-            </button>
-          )}
           {cfg.statusIndex !== undefined ? (
             !noDelete && deleteButton
           ) : noDelete ? (
@@ -7846,7 +8234,8 @@ function AdminPanel({
                 type="button"
                 title="Anular"
                 aria-label="Anular"
-                onClick={() => doAnul(section, rowIndex)}
+                aria-haspopup="dialog"
+                onClick={() => setAnulTarget({ section, idx: rowIndex })}
                 className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
                 style={{ color: C.red, background: `${C.red}12` }}
               >
@@ -8327,6 +8716,9 @@ function AdminPanel({
   }
 
   const CRUDModal = () => {
+    const scrollRef = useRef<HTMLDivElement>(null)
+    const savedScrollTop = useRef<number>(0)
+    const prevShowSupplyTechnicalSheet = useRef<boolean>(false)
     if (!modal.mode) return null
     const cfg = MOD_CFG[modal.section]
     if (!cfg) return null
@@ -8370,6 +8762,46 @@ function AdminPanel({
     const clientOptions = (rows.clientes || [])
       .map((client) => String(client[0] ?? ""))
       .filter(Boolean)
+
+    // Restore scroll position when supply technical sheet is toggled
+    useLayoutEffect(() => {
+      if (prevShowSupplyTechnicalSheet.current !== showSupplyTechnicalSheet) {
+        prevShowSupplyTechnicalSheet.current = showSupplyTechnicalSheet
+        if (scrollRef.current && savedScrollTop.current > 0) {
+          scrollRef.current.scrollTop = savedScrollTop.current
+        }
+      }
+    }, [showSupplyTechnicalSheet])
+
+    const handleSupplyCheckboxToggle = () => {
+      if (scrollRef.current) {
+        savedScrollTop.current = scrollRef.current.scrollTop
+      }
+      setFormData((current) => {
+        const enabled =
+          String(current["7"] ?? "No").toLowerCase() === "sí"
+        if (enabled) {
+          return {
+            ...current,
+            "7": "No",
+            "8": "",
+            "9": "",
+            "10": "",
+            "11": "",
+          }
+        }
+        const productName = current["0"] || "Producto de insumo"
+        return {
+          ...current,
+          "7": "Sí",
+          "8": `Ficha técnica - ${productName}`,
+          "9": "v1.0",
+          "10": productName,
+          "11": "",
+        }
+      })
+    }
+
     return (
       <div
         className="fixed inset-0 z-50 flex items-center justify-center px-4"
@@ -8405,6 +8837,7 @@ function AdminPanel({
             </button>
           </div>
           <div
+            ref={scrollRef}
             className="flex min-w-0 flex-col gap-3 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-5"
             style={{ maxHeight: "65vh", scrollbarWidth: "none" }}
           >
@@ -9008,34 +9441,17 @@ function AdminPanel({
                         type="button"
                         role="checkbox"
                         aria-checked={String(val).toLowerCase() === "sí"}
-                        onClick={() =>
-                          setFormData((current) => {
-                            const enabled =
-                              String(current[f.key] ?? "No").toLowerCase() === "sí"
-                            if (isClient) {
+                        onClick={() => {
+                          if (isClient) {
+                            setFormData((current) => {
+                              const enabled =
+                                String(current[f.key] ?? "No").toLowerCase() === "sí"
                               return { ...current, [f.key]: enabled ? "No" : "Sí" }
-                            }
-                            if (enabled) {
-                              return {
-                                ...current,
-                                [f.key]: "No",
-                                "8": "",
-                                "9": "",
-                                "10": "",
-                                "11": "",
-                              }
-                            }
-                            const productName = current["0"] || "Producto de insumo"
-                            return {
-                              ...current,
-                              [f.key]: "Sí",
-                              "8": `Ficha técnica - ${productName}`,
-                              "9": "v1.0",
-                              "10": productName,
-                              "11": "",
-                            }
-                          })
-                        }
+                            })
+                          } else {
+                            handleSupplyCheckboxToggle()
+                          }
+                        }}
                         className="flex w-full min-w-0 cursor-pointer items-start gap-3 rounded-xl px-3.5 py-3 text-left"
                         style={{ background: t.input, border: `1px solid ${t.inputB}` }}
                       >
@@ -9505,64 +9921,143 @@ function AdminPanel({
     )
   }
 
-  const DelModal = () => {
-    if (!delTarget) return null
-    const deleteBlocked =
-      delTarget.section === "produccion" &&
-      (String(rows.produccion?.[delTarget.idx]?.[8] ?? "Recibida") !== "Recibida" ||
-        String(rows.produccion?.[delTarget.idx]?.[11] ?? "No").toLowerCase() === "sí")
-    if (deleteBlocked) return null
+  const AnulModal = () => {
+    if (!anulTarget) return null
+
+    const targetRow = rows[anulTarget.section]?.[anulTarget.idx]
+    const assessment = getAnulAssessment(
+      anulTarget.section,
+      targetRow,
+      anulTarget.idx,
+    )
+    const canAnul = assessment.allowed
+    const moduleName =
+      PERMISSION_MODULES.find((m) =>
+        m.name.toLowerCase().includes(anulTarget.section.replace(/-/g, " ")),
+      )?.name || "registro"
+    const targetName = assessment.targetLabel
+
     return (
       <div
         className="fixed inset-0 z-50 flex items-center justify-center px-4"
         style={{ background: "rgba(0,0,0,0.65)" }}
+        onClick={() => setAnulTarget(null)}
       >
         <div
-          className="w-full max-w-xs p-6 rounded-2xl text-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="annul-dialog-title"
+          className="w-full max-w-sm rounded-2xl p-6 text-center"
           style={{ background: t.card, border: `1px solid ${t.border}` }}
+          onClick={(event) => event.stopPropagation()}
         >
           <div
-            className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-3"
-            style={{ background: "rgba(165,65,49,0.1)", color: C.red }}
+            className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full"
+            style={{
+              background: canAnul ? `${C.mustard}18` : `${C.red}12`,
+              color: canAnul ? C.mustard : C.red,
+            }}
           >
-            {Ico.trash}
+            {canAnul ? Ico.ban : Ico.alert}
           </div>
           <h3
-            className="font-semibold text-base mb-1"
+            id="annul-dialog-title"
+            className="mb-3 text-base font-semibold"
             style={{ color: t.text }}
           >
-            ¿Eliminar registro?
+            {canAnul ? "¿Deseas anular?" : "Anulación bloqueada"}
           </h3>
-          <p className="text-sm mb-5" style={{ color: t.muted }}>
-            Esta acción no se puede deshacer.
+          <p className="mb-5 text-sm leading-relaxed" style={{ color: t.text }}>
+            {canAnul
+              ? `Este ${moduleName} está asociado a ${targetName} y si lo anulas se verá reflejado en dicho módulo.`
+              : `No puedes anular este ${moduleName}. ${assessment.reason}`}
           </p>
           <div className="flex gap-3">
             <button
-              onClick={() => setDelTarget(null)}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+              type="button"
+              onClick={() => setAnulTarget(null)}
+              className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
               style={{ background: t.input, color: t.muted }}
             >
-              Cancelar
+              {canAnul ? "Cancelar" : "Entendido"}
             </button>
+            {canAnul && (
+              <button
+                type="button"
+                onClick={confirmAnul}
+                className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
+                style={{ background: C.red, color: "#fff" }}
+              >
+                Anular
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const DelModal = () => {
+    if (!delTarget) return null
+
+    const targetRow = rows[delTarget.section]?.[delTarget.idx]
+    const assessment = getDeleteAssessment(delTarget.section, targetRow)
+    const canDelete = assessment.allowed
+
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center px-4"
+        style={{ background: "rgba(0,0,0,0.65)" }}
+        onClick={() => setDelTarget(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-dialog-title"
+          className="w-full max-w-sm rounded-2xl p-6 text-center"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div
+            className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full"
+            style={{
+              background: canDelete ? "rgba(58,109,94,0.12)" : `${C.red}12`,
+              color: canDelete ? "#2E7D60" : C.red,
+            }}
+          >
+            {canDelete ? Ico.trash : Ico.alert}
+          </div>
+          <h3
+            id="delete-dialog-title"
+            className="mb-3 text-base font-semibold"
+            style={{ color: t.text }}
+          >
+            {canDelete ? "¿Deseas eliminar?" : "Eliminación bloqueada"}
+          </h3>
+          <p className="mb-5 text-sm leading-relaxed" style={{ color: t.text }}>
+            {canDelete
+              ? `Si eliminas este registro, se removerá del sistema y no se podrá recuperar.`
+              : `No puedes eliminar este registro. ${assessment.reason}`}
+          </p>
+          <div className="flex gap-3">
             <button
-              onClick={() => {
-                setRows((r) => {
-                  if (
-                    delTarget.section === "produccion" &&
-                    (String(r.produccion?.[delTarget.idx]?.[8] ?? "Recibida") !== "Recibida" ||
-                      String(r.produccion?.[delTarget.idx]?.[11] ?? "No").toLowerCase() === "sí")
-                  ) return r
-                  const u = [...(r[delTarget.section] || [])]
-                  u.splice(delTarget.idx, 1)
-                  return { ...r, [delTarget.section]: u }
-                })
-                setDelTarget(null)
-              }}
-              className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
-              style={{ background: C.red, color: "#fff" }}
+              type="button"
+              onClick={() => setDelTarget(null)}
+              className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
+              style={{ background: t.input, color: t.muted }}
             >
-              Eliminar
+              {canDelete ? "Cancelar" : "Entendido"}
             </button>
+            {canDelete && (
+              <button
+                type="button"
+                onClick={confirmDelete}
+                className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
+                style={{ background: C.red, color: "#fff" }}
+              >
+                Eliminar
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -9989,6 +10484,7 @@ function AdminPanel({
       <CRUDModal />
       <ProductionPncModal />
       <QuickClientModal />
+      <AnulModal />
       <DelModal />
     </div>
   )
