@@ -19,6 +19,7 @@ type User = {
 type CartItem = {
   id: number
   name: string
+  description?: string
   price: number
   qty: number
   img: string
@@ -58,6 +59,25 @@ type Product = {
   img: string
   cat: string
   badge: string
+}
+type TechnicalIngredient = {
+  name: string
+  quantity: number
+  unit: string
+}
+type AdminOrderLine = {
+  id: string
+  product: string
+  category: string
+  quantity: number
+  unitPrice: number
+  parentId?: string
+}
+type ProductionItem = {
+  name: string
+  quantity: number
+  category?: string
+  parentId?: string
 }
 
 // ── Brand ──────────────────────────────────────────────────────────────────────
@@ -1365,6 +1385,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     seed: [
       ["Hamburguesas", "Burgers artesanales de la casa", "Activa"],
+      ["Adiciones", "Extras para agregar a los productos", "Activa"],
       ["Salchipapas", "Papas fritas con salchicha", "Activa"],
       ["Perros Calientes", "Hot dogs", "Activa"],
       ["Perras", "Versiones especiales", "Activa"],
@@ -1387,6 +1408,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         type: "select",
         options: [
           "Hamburguesas",
+          "Adiciones",
           "Salchipapas",
           "Perros Calientes",
           "Perras",
@@ -1403,6 +1425,12 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "6", label: "Versión de la ficha", type: "text" },
       { key: "7", label: "Insumos principales", type: "textarea" },
       { key: "8", label: "Cómo se prepara", type: "textarea" },
+      {
+        key: "10",
+        label: "Disponibilidad",
+        type: "select",
+        options: ["Disponible", "No disponible"],
+      },
     ],
     seed: PRODUCTS.slice(0, 10).map((p) => [
       p.name,
@@ -2875,18 +2903,15 @@ function AddToCartModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="relative flex-shrink-0" style={{ height: "180px" }}>
+        <div
+          className="relative flex-shrink-0 overflow-hidden"
+          style={{ height: "230px", background: CARD }}
+        >
           <img
             src={product.img}
             alt={product.name}
             className="w-full h-full object-cover"
-          />
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                "linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 55%)",
-            }}
+            style={{ objectPosition: "center 55%" }}
           />
           <button
             onClick={onClose}
@@ -2895,10 +2920,15 @@ function AddToCartModal({
           >
             {Ico.x}
           </button>
-          <div className="absolute bottom-3 left-4">
+        </div>
+        <div
+          className="flex items-center justify-between gap-3 px-5 py-3 flex-shrink-0"
+          style={{ background: dark ? "#1E1C18" : "#fff" }}
+        >
+          <div>
             <div
-              className="font-black text-lg text-white leading-tight"
-              style={{ fontFamily: "Montserrat, sans-serif" }}
+              className="font-black text-lg leading-tight"
+              style={{ color: TEXT }}
             >
               {product.name}
             </div>
@@ -2906,11 +2936,22 @@ function AddToCartModal({
               {product.priceStr}
             </div>
           </div>
+          {product.badge && (
+            <span
+              className="text-xs font-bold px-2.5 py-1 rounded-full"
+              style={{ background: `${C.mustard}18`, color: C.mustard }}
+            >
+              {product.badge}
+            </span>
+          )}
         </div>
         <div
           className="overflow-y-auto flex-1 px-5 py-4"
           style={{ scrollbarWidth: "none" }}
         >
+          <p className="text-sm leading-relaxed mb-4" style={{ color: MUTED }}>
+            {product.desc}
+          </p>
           <div className="mb-4">
             <div className="font-bold text-sm mb-2" style={{ color: TEXT }}>
               Salsas{" "}
@@ -3057,6 +3098,49 @@ function AddToCartModal({
             <span className="font-extrabold">{fmt(total)}</span>
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function AddedCartCard({
+  onContinue,
+  onCheckout,
+}: {
+  onContinue: () => void
+  onCheckout: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      style={{
+        background: "rgba(25,21,18,0.38)",
+        backdropFilter: "blur(3px)",
+      }}
+      onClick={onContinue}
+    >
+      <div
+        className="w-full max-w-lg rounded-3xl p-8 flex flex-col gap-4"
+        style={{
+          background: "#fff",
+          boxShadow: "0 24px 70px rgba(25,21,18,0.28)",
+        }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <button
+          onClick={onContinue}
+          className="w-full py-4 rounded-full text-sm font-bold cursor-pointer hover:opacity-85 transition-opacity"
+          style={{ border: `1.5px solid ${C.mustard}`, color: C.mustard }}
+        >
+          Elegir más productos
+        </button>
+        <button
+          onClick={onCheckout}
+          className="w-full py-4 rounded-full text-sm font-bold cursor-pointer hover:opacity-90 transition-opacity"
+          style={{ background: C.mustard, color: "#fff" }}
+        >
+          Finalizar compra
+        </button>
       </div>
     </div>
   )
@@ -3313,6 +3397,7 @@ function GuestMenuPage({
 }) {
   const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const [showAddedCartActions, setShowAddedCartActions] = useState(false)
   const cartCount = cart.reduce((sum, item) => sum + item.qty, 0)
   const addToCart = (
     product: Product,
@@ -3325,6 +3410,7 @@ function GuestMenuPage({
       {
         id: Date.now(),
         name: product.name,
+        description: product.desc,
         price: product.price,
         qty,
         img: product.img,
@@ -3332,6 +3418,7 @@ function GuestMenuPage({
         additions,
       },
     ])
+    setShowAddedCartActions(true)
     setAddProduct(null)
   }
 
@@ -3416,15 +3503,6 @@ function GuestMenuPage({
           onInfoClick={setInfoProduct}
           onAddClick={setAddProduct}
         />
-        {cartCount > 0 && (
-          <button
-            onClick={onCheckout}
-            className="fixed bottom-5 left-4 right-4 sm:left-auto sm:right-6 sm:w-auto px-6 py-3.5 rounded-2xl font-bold text-sm cursor-pointer shadow-lg"
-            style={{ background: C.mustard, color: "#fff" }}
-          >
-            Ver carrito ({cartCount}) →
-          </button>
-        )}
       </main>
       {infoProduct && (
         <ProductInfoModal
@@ -3443,6 +3521,12 @@ function GuestMenuPage({
           onClose={() => setAddProduct(null)}
           onAdd={addToCart}
           dark={false}
+        />
+      )}
+      {showAddedCartActions && (
+        <AddedCartCard
+          onContinue={() => setShowAddedCartActions(false)}
+          onCheckout={onCheckout}
         />
       )}
     </div>
@@ -3779,12 +3863,19 @@ function CartSummary({
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
   const CARD = dark ? "#1E1C18" : "#fff"
   const subtotal = cartTotal(cart)
+  const [expandedItemId, setExpandedItemId] = useState<number | null>(null)
+  const descriptionFor = (item: CartItem) =>
+    item.description ??
+    PRODUCTS.find((product) => product.name === item.name)?.desc ??
+    "Hamburguesa preparada al momento con ingredientes frescos."
   const updateQty = (id: number, d: number) =>
     setCart((c) =>
       c.map((i) =>
         i.id === id ? { ...i, qty: Math.max(0, i.qty + d) } : i,
-      ).filter((i) => i.qty > 0),
+      ),
     )
+  const removeItem = (id: number) =>
+    setCart((c) => c.filter((item) => item.id !== id))
   if (cart.length === 0)
     return (
       <div className="text-center py-8">
@@ -3796,43 +3887,57 @@ function CartSummary({
     )
   return (
     <div>
-      <div className="space-y-3 mb-4">
+      <div className="space-y-3 mb-4 max-h-[55vh] overflow-y-auto pr-1">
         {cart.map((item) => (
           <div
             key={item.id}
-            className="flex items-center gap-3 p-3 rounded-xl"
+            className="p-3 rounded-xl"
             style={{ background: CARD, border: `1px solid ${BORDER}` }}
           >
-            <img
-              src={item.img}
-              alt={item.name}
-              className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-sm" style={{ color: TEXT }}>
-                {item.name}
-              </div>
-              {item.additions && item.additions.length > 0 && (
-                <div className="text-xs" style={{ color: MUTED }}>
-                  +{item.additions.map((a) => a.name).join(", ")}
-                </div>
-              )}
-              <div className="flex items-center justify-between mt-1">
-                <span
-                  className="font-bold text-sm"
-                  style={{ color: C.mustard }}
-                >
-                  {fmt(itemTotal(item))}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedItemId((id) => (id === item.id ? null : item.id))
+                }
+                className="flex flex-1 min-w-0 items-center gap-3 text-left cursor-pointer"
+                aria-expanded={expandedItemId === item.id}
+                aria-label={`${expandedItemId === item.id ? "Ocultar" : "Ver"} detalles de ${item.name}`}
+              >
+                <img
+                  src={item.img}
+                  alt=""
+                  className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
+                />
+                <span className="flex-1 min-w-0">
+                  <span className="block font-semibold text-sm" style={{ color: TEXT }}>
+                    {item.name}
+                  </span>
+                  {item.additions && item.additions.length > 0 && (
+                    <span className="block text-xs truncate" style={{ color: MUTED }}>
+                      +{item.additions.map((a) => a.name).join(", ")}
+                    </span>
+                  )}
+                  <span className="block font-bold text-sm mt-1" style={{ color: C.mustard }}>
+                    {fmt(itemTotal(item))}
+                  </span>
                 </span>
-                <div className="flex items-center gap-1">
+                <span className="text-xs font-semibold flex-shrink-0" style={{ color: MUTED }}>
+                  {expandedItemId === item.id ? "Menos −" : "Detalles +"}
+                </span>
+              </button>
+              <div className="flex items-center gap-1">
                   <button
                     onClick={() => updateQty(item.id, -1)}
+                    type="button"
+                    disabled={item.qty === 0}
                     className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-sm font-bold"
                     style={{
                       background: dark
                         ? "rgba(244,238,220,0.1)"
                         : "rgba(30,30,30,0.08)",
                       color: TEXT,
+                      opacity: item.qty === 0 ? 0.45 : 1,
                     }}
                   >
                     −
@@ -3845,14 +3950,51 @@ function CartSummary({
                   </span>
                   <button
                     onClick={() => updateQty(item.id, 1)}
+                    type="button"
                     className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-sm font-bold"
                     style={{ background: C.mustard, color: "#fff" }}
                   >
                     +
                   </button>
-                </div>
+                  <button
+                    onClick={() => removeItem(item.id)}
+                    type="button"
+                    className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer"
+                    style={{ color: C.red }}
+                    aria-label={`Eliminar ${item.name} del carrito`}
+                    title="Eliminar del carrito"
+                  >
+                    {Ico.trash}
+                  </button>
               </div>
             </div>
+            {expandedItemId === item.id && (
+              <div
+                className="mt-3 pt-3 text-xs space-y-2"
+                style={{ borderTop: `1px solid ${BORDER}`, color: MUTED }}
+              >
+                <p className="leading-relaxed">{descriptionFor(item)}</p>
+                {item.sauces?.length ? (
+                  <p><strong style={{ color: TEXT }}>Salsas:</strong> {item.sauces.join(", ")}</p>
+                ) : (
+                  <p><strong style={{ color: TEXT }}>Salsas:</strong> Sin salsas seleccionadas</p>
+                )}
+                {item.additions?.length ? (
+                  <div>
+                    <strong style={{ color: TEXT }}>Adiciones:</strong>
+                    <ul className="mt-1 space-y-0.5">
+                      {item.additions.map((addition) => (
+                        <li key={addition.name}>
+                          {addition.name} × {addition.qty} · {fmt(addition.price * addition.qty)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p><strong style={{ color: TEXT }}>Adiciones:</strong> Sin adiciones</p>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -3961,6 +4103,8 @@ function CheckoutPage({
   const [pickerOpen, setPickerOpen] = useState(false)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
   const subtotal = cartTotal(cart)
+  const hasActiveItems = cart.some((item) => item.qty > 0)
+  const activeCart = cart.filter((item) => item.qty > 0)
   const placeOrder = () => {
     setDeliveryTried(true)
     if (!user || !delivFilled || !payReady || cart.length === 0) return
@@ -4045,7 +4189,7 @@ function CheckoutPage({
       : {
           label: "Hacer pedido",
           onClick: () => setShowAuth(true),
-          disabled: cart.length === 0,
+          disabled: !hasActiveItems,
         }
     : checkoutStep === 2
       ? {
@@ -4056,7 +4200,7 @@ function CheckoutPage({
       : {
           label: "Confirmar pedido",
           onClick: placeOrder,
-          disabled: cart.length === 0 || !canOrder || !payReady,
+          disabled: !hasActiveItems || !canOrder || !payReady,
         }
 
   if (ordered)
@@ -4225,20 +4369,26 @@ function CheckoutPage({
           <div className="flex flex-col gap-6 min-w-0">
             {!user && !showAuth && (
               <section className="p-6 rounded-2xl" style={CARD_ST}>
-                <h2 className="font-bold text-lg mb-1" style={{ color: C.dark }}>
-                  Tu carrito
-                </h2>
+                <div className="flex items-center justify-between gap-3 mb-1">
+                  <h2 className="font-bold text-lg" style={{ color: C.dark }}>
+                    Tu carrito
+                  </h2>
+                  <button
+                    onClick={() => setPickerOpen(true)}
+                    className="flex-shrink-0 mt-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold cursor-pointer hover:opacity-80"
+                    style={{
+                      border: `1.5px dashed ${C.mustard}`,
+                      color: C.mustard,
+                      background: "#fff",
+                    }}
+                  >
+                    + Agregar más productos
+                  </button>
+                </div>
                 <p className="text-sm mb-5" style={{ color: MUTED }}>
                   Revisa tus productos antes de hacer el pedido.
                 </p>
                 <CartSummary cart={cart} setCart={setCart} dark={false} showTotals={false} />
-                <button
-                  onClick={() => setPickerOpen(true)}
-                  className="w-full py-3 rounded-xl text-sm font-semibold cursor-pointer hover:opacity-80"
-                  style={{ border: `1.5px dashed ${C.mustard}`, color: C.mustard }}
-                >
-                  + Agregar más productos
-                </button>
               </section>
             )}
 
@@ -4714,19 +4864,23 @@ function CheckoutPage({
             <h2 className="font-bold text-lg mb-4" style={{ color: C.dark }}>
               Resumen del pedido
             </h2>
-            {cart.length === 0 ? (
+            {activeCart.length === 0 ? (
               <p className="text-sm py-4 text-center" style={{ color: MUTED }}>
                 Tu carrito está vacío.
               </p>
             ) : (
               <div className="space-y-3 mb-4 max-h-72 overflow-y-auto pr-1">
-                {cart.map((i) => (
+                {activeCart.map((i) => (
                   <div key={i.id} className="flex items-center gap-3">
                     <div className="relative flex-shrink-0">
                       <img src={i.img} alt={i.name} className="w-12 h-12 rounded-lg object-cover" />
                       <span
-                        className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold"
-                        style={{ background: C.dark, color: "#fff" }}
+                        className="absolute top-1 right-1 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold"
+                        style={{
+                          background: C.dark,
+                          color: "#fff",
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+                        }}
                       >
                         {i.qty}
                       </span>
@@ -4815,7 +4969,7 @@ function CheckoutPage({
           <div
             className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl p-5"
             style={{ background: "#FAF5E8" }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
               <h2
@@ -4828,14 +4982,15 @@ function CheckoutPage({
                 onClick={() => setPickerOpen(false)}
                 className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
                 style={{ background: "rgba(30,30,30,0.08)", color: C.dark }}
+                aria-label="Cerrar selección de productos"
               >
                 {Ico.x}
               </button>
             </div>
             <ProductCatalog
               dark={false}
-              onInfoClick={(p) => setAddProduct(p)}
-              onAddClick={(p) => setAddProduct(p)}
+              onInfoClick={setAddProduct}
+              onAddClick={setAddProduct}
             />
           </div>
         </div>
@@ -4844,15 +4999,16 @@ function CheckoutPage({
         <AddToCartModal
           product={addProduct}
           onClose={() => setAddProduct(null)}
-          onAdd={(p, qty, sauces, additions) => {
-            setCart((c) => [
-              ...c,
+          onAdd={(product, qty, sauces, additions) => {
+            setCart((items) => [
+              ...items,
               {
                 id: Date.now(),
-                name: p.name,
-                price: p.price,
+                name: product.name,
+                description: product.desc,
+                price: product.price,
                 qty,
-                img: p.img,
+                img: product.img,
                 sauces,
                 additions,
               },
@@ -5639,6 +5795,7 @@ function ClientApp({
   const [profileOpen, setProfileOpen] = useState(false)
   const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const [showAddedCartActions, setShowAddedCartActions] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
   const dark = theme === "dark"
   const BG = dark ? "#131210" : "#FAF5E8"
@@ -5661,12 +5818,13 @@ function ClientApp({
     qty: number,
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
-  ) =>
+  ) => {
     setCart((c) => [
       ...c,
       {
         id: Date.now(),
         name: p.name,
+        description: p.desc,
         price: p.price,
         qty,
         img: p.img,
@@ -5674,6 +5832,9 @@ function ClientApp({
         additions,
       },
     ])
+    setShowAddedCartActions(true)
+    setAddProduct(null)
+  }
   const quickAdd = (p: Product) =>
     setCart((c) => {
       const ex = c.find(
@@ -5683,7 +5844,7 @@ function ClientApp({
         return c.map((x) => (x.id === ex.id ? { ...x, qty: x.qty + 1 } : x))
       return [
         ...c,
-        { id: Date.now(), name: p.name, price: p.price, qty: 1, img: p.img },
+        { id: Date.now(), name: p.name, description: p.desc, price: p.price, qty: 1, img: p.img },
       ]
     })
 
@@ -5969,6 +6130,12 @@ function ClientApp({
           dark={dark}
         />
       )}
+      {showAddedCartActions && (
+        <AddedCartCard
+          onContinue={() => setShowAddedCartActions(false)}
+          onCheckout={onCheckout}
+        />
+      )}
 
       {/* Quick-add feedback suppressed — quickAdd used from ProductCatalog + button */}
       <div style={{ display: "none" }} onClick={() => quickAdd(PRODUCTS[0])} />
@@ -5999,6 +6166,7 @@ function LandingPage({
   const [legalModal, setLegalModal] = useState<"envios" | "legal" | null>(null)
   const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const [showAddedCartActions, setShowAddedCartActions] = useState(false)
   const BG = dark ? "#13110E" : "#FAF4E8"
   const TEXT = dark ? "#F0E8D6" : "#18140A"
   const MUTED = dark ? "rgba(240,232,214,0.48)" : "rgba(24,20,10,0.5)"
@@ -6019,12 +6187,13 @@ function LandingPage({
     qty: number,
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
-  ) =>
+  ) => {
     setCart((c) => [
       ...c,
       {
         id: Date.now(),
         name: p.name,
+        description: p.desc,
         price: p.price,
         qty,
         img: p.img,
@@ -6032,6 +6201,9 @@ function LandingPage({
         additions,
       },
     ])
+    setShowAddedCartActions(true)
+    setAddProduct(null)
+  }
   const NAVLINKS = [
     { label: "Inicio", href: "#inicio" },
     { label: "Menú", href: "#menu" },
@@ -7013,6 +7185,12 @@ function LandingPage({
           dark={dark}
         />
       )}
+      {showAddedCartActions && (
+        <AddedCartCard
+          onContinue={() => setShowAddedCartActions(false)}
+          onCheckout={onCheckout}
+        />
+      )}
 
       {legalModal && (
         <div
@@ -7679,22 +7857,44 @@ function AdminPanel({
       ]),
     ) as Record<string, (string | number)[][]>
     initialRows.pedidos = [
-      ...clientOrders.map((o) => [
-        o.id,
-        o.cliente,
-        o.items.map((i) => `${i.qty} ${i.name}`).join(", "),
-        "Online",
-        o.pago === "Efectivo" ? "Efectivo" : "Transferencia",
-        o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
-        o.total,
-        o.status,
-        o.voucher ? "Pagado" : "Pendiente",
-        o.status === "Por confirmar"
-          ? "Pendiente admin"
-          : o.total >= APPROVAL_MIN
-            ? "Autorizada"
-            : "No requerida",
-      ]),
+      ...clientOrders.map((o) => {
+        const orderLines: AdminOrderLine[] = o.items.flatMap((item, index) => {
+          const parentId = `${o.id}-line-${index}`
+          const mainLine: AdminOrderLine = {
+            id: parentId,
+            product: item.name,
+            category: String(initialRows.producto?.find((product) => product[0] === item.name)?.[1] ?? ""),
+            quantity: item.qty,
+            unitPrice: item.price,
+          }
+          const additions: AdminOrderLine[] = (item.additions || []).map((addition, additionIndex) => ({
+            id: `${parentId}-addition-${additionIndex}`,
+            product: addition.name,
+            category: "Adiciones",
+            quantity: addition.qty * item.qty,
+            unitPrice: addition.price,
+            parentId,
+          }))
+          return [mainLine, ...additions]
+        })
+        return [
+          o.id,
+          o.cliente,
+          orderLines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${orderLines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
+          "Online",
+          o.pago === "Efectivo" ? "Efectivo" : "Transferencia",
+          o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
+          o.total,
+          o.status,
+          o.voucher ? "Pagado" : "Pendiente",
+          o.status === "Por confirmar"
+            ? "Pendiente admin"
+            : o.total >= APPROVAL_MIN
+              ? "Autorizada"
+              : "No requerida",
+          JSON.stringify(orderLines),
+        ]
+      }),
       ...(initialRows.pedidos || []),
     ]
     const supplyProducts = (initialRows.insumos || [])
@@ -7705,20 +7905,21 @@ function AdminPanel({
       .filter(
         (order) =>
           String(order[8]).toLowerCase() === "pagado" &&
-          !["En camino", "Entregado"].includes(String(order[6])),
+          !["En camino", "Entregado"].includes(String(order[7])),
       )
       .map((order, index) => [
         `VTA-AUTO-${String(index + 1).padStart(2, "0")}`,
         "Admin Parche",
         order[1],
-        order[2],
+        clientOrders.find((clientOrder) => clientOrder.id === order[0])?.date ?? "",
         order[3],
         order[4],
         order[6],
         order[6],
         "Pendiente",
         order[0],
-        order[6],
+        order[7],
+        order[10] ?? "[]",
       ])
     initialRows.ventas = [...duplicatedSales, ...(initialRows.ventas || [])]
     return initialRows
@@ -7741,8 +7942,17 @@ function AdminPanel({
   }>({ mode: null, section: "", idx: null })
   const [formData, setFormData] = useState<Record<string, string>>({})
   const [imgPreview, setImgPreview] = useState("")
+  const [technicalSheetOpen, setTechnicalSheetOpen] = useState(false)
+  const [technicalIngredients, setTechnicalIngredients] = useState<TechnicalIngredient[]>([])
+  const [technicalIngredientSelect, setTechnicalIngredientSelect] = useState("")
+  const [technicalIngredientQuantity, setTechnicalIngredientQuantity] = useState("1")
+  const [technicalSheetError, setTechnicalSheetError] = useState("")
   const [pedidoProductoSelect, setPedidoProductoSelect] = useState("")
-  const [productionItems, setProductionItems] = useState<{ name: string; quantity: number }[]>([])
+  const [pedidoProductCategory, setPedidoProductCategory] = useState("Todas")
+  const [pedidoProductQuantity, setPedidoProductQuantity] = useState("1")
+  const [pedidoParentSelect, setPedidoParentSelect] = useState("")
+  const [pedidoOrderLines, setPedidoOrderLines] = useState<AdminOrderLine[]>([])
+  const [productionItems, setProductionItems] = useState<ProductionItem[]>([])
   const [productionProductSelect, setProductionProductSelect] = useState("")
   const [productionItemQuantity, setProductionItemQuantity] = useState("1")
   const [productionFormError, setProductionFormError] = useState("")
@@ -7866,6 +8076,13 @@ function AdminPanel({
     return versions
   }
 
+  const nextTechVersion = (version: string) => {
+    const match = /^v?(\d+)(?:\.(\d+))?$/i.exec(version.trim())
+    return match
+      ? `v${Number(match[1])}.${Number(match[2] || "0") + 1}`
+      : getAutoTechVersion(rows.producto || [])
+  }
+
   const getAvailableInsumos = () => {
     const sourceRows = rows.insumos || []
     const options = sourceRows
@@ -7891,8 +8108,109 @@ function AdminPanel({
     ].sort((a, b) => a.localeCompare(b))
   }
 
+  const getProductRecipe = (product: (string | number)[] | undefined) => {
+    if (!product) return []
+    try {
+      const recipe = JSON.parse(String(product[9] ?? "[]"))
+      if (Array.isArray(recipe)) {
+        return recipe
+          .map((item) => ({
+            name: String(item.name ?? "").trim(),
+            quantity: Number(item.quantity),
+            unit: String(item.unit ?? "").trim(),
+          }))
+          .filter(
+            (item) => item.name && Number.isFinite(item.quantity) && item.quantity > 0 && item.unit,
+          )
+      }
+    } catch {
+      // Older product rows have only a comma-separated list of ingredient names.
+    }
+    return String(product[7] ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => ({
+        name,
+        quantity: 1,
+        unit: String(rows.insumos?.find((supply) => supply[0] === name)?.[2] ?? "und"),
+      }))
+  }
+
+  const getAdminOrderLines = (order: (string | number)[] | undefined): AdminOrderLine[] => {
+    if (!order) return []
+    try {
+      const storedLines = JSON.parse(String(order[10] ?? "[]"))
+      if (Array.isArray(storedLines)) {
+        return storedLines
+          .map((line, index) => ({
+            id: String(line.id ?? `line-${index}`),
+            product: String(line.product ?? "").trim(),
+            category: String(line.category ?? ""),
+            quantity: Number(line.quantity),
+            unitPrice: Number(line.unitPrice),
+            ...(line.parentId ? { parentId: String(line.parentId) } : {}),
+          }))
+          .filter((line) => line.product && line.quantity > 0 && line.unitPrice >= 0)
+      }
+    } catch {
+      // Legacy orders have a human-readable product list in column 2.
+    }
+    const availableProducts = (rows.producto || [])
+      .map((product) => String(product[0] ?? ""))
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)
+    return String(order[2] ?? "")
+      .split(",")
+      .map((entry, index) => {
+        const text = entry.trim()
+        const productName = availableProducts.find((name) =>
+          text.toLowerCase().includes(name.toLowerCase()),
+        )
+        if (!productName) return null
+        const quantity = Number(text.match(/^\s*(\d+)/)?.[1] ?? 1)
+        const product = rows.producto?.find((item) => item[0] === productName)
+        return {
+          id: `legacy-${index}`,
+          product: productName,
+          category: String(product?.[1] ?? ""),
+          quantity: Math.max(1, quantity),
+          unitPrice: Number(product?.[2] ?? 0),
+        }
+      })
+      .filter((line): line is AdminOrderLine => line !== null)
+  }
+
+  const getSaleOrderLines = (sale: (string | number)[] | null) => {
+    if (!sale) return []
+    try {
+      const storedLines = JSON.parse(String(sale[11] ?? "[]"))
+      if (Array.isArray(storedLines) && storedLines.length) {
+        return storedLines
+          .map((line, index) => ({
+            id: String(line.id ?? `sale-line-${index}`),
+            product: String(line.product ?? "").trim(),
+            category: String(line.category ?? ""),
+            quantity: Number(line.quantity),
+            unitPrice: Number(line.unitPrice),
+            ...(line.parentId ? { parentId: String(line.parentId) } : {}),
+          }))
+          .filter((line) => line.product && line.quantity > 0 && line.unitPrice >= 0)
+      }
+    } catch {
+      // Sales created before line snapshots use the associated order as their source.
+    }
+    const order = rows.pedidos?.find((candidate) => candidate[0] === sale[9])
+    return getAdminOrderLines(order)
+  }
+
   const getAvailableProductos = () => {
     const options = (rows.producto || [])
+      .filter(
+        (row) =>
+          !["inactivo", "inactiva"].includes(String(row[4] ?? "").toLowerCase()) &&
+          String(row[10] ?? "Disponible").toLowerCase() !== "no disponible",
+      )
       .map((row) => String(row[0] ?? "").trim())
       .filter(Boolean)
     return [
@@ -7909,8 +8227,10 @@ function AdminPanel({
       if (Array.isArray(items) && items.length) {
         return items
           .map((item) => ({
-            name: String(item.name ?? "").trim(),
+            name: String(item.name ?? item.product ?? "").trim(),
             quantity: Math.max(1, Number(item.quantity) || 1),
+            ...(item.category ? { category: String(item.category) } : {}),
+            ...(item.parentId ? { parentId: String(item.parentId) } : {}),
           }))
           .filter((item) => item.name)
       }
@@ -8017,6 +8337,9 @@ function AdminPanel({
     )
     if (sec === "producto") {
       initialFields["6"] = getAutoTechVersion(rows.producto || [])
+      initialFields["10"] = "Disponible"
+      setTechnicalIngredients([])
+      setTechnicalSheetError("")
     }
     if (sec === "insumos") {
       initialFields["7"] = "No"
@@ -8051,6 +8374,12 @@ function AdminPanel({
     }
     setFormData(initialFields)
     setPedidoProductoSelect("")
+    if (sec === "pedidos") {
+      setPedidoOrderLines([])
+      setPedidoProductCategory("Todas")
+      setPedidoProductQuantity("1")
+      setPedidoParentSelect("")
+    }
     setPaymentProofDraft("")
     setImgPreview("")
     setModal({ mode: "add", section: sec, idx: null })
@@ -8088,6 +8417,19 @@ function AdminPanel({
     if (sec === "producto" && !nextForm["6"]) {
       nextForm["6"] = getAutoTechVersion(rows.producto || [])
     }
+    if (sec === "producto") {
+      setTechnicalIngredients(getProductRecipe(row))
+      nextForm["9"] = String(row[9] ?? "[]")
+      nextForm["10"] = String(row[10] ?? "Disponible")
+      setTechnicalSheetError("")
+    }
+    if (sec === "pedidos") {
+      const orderLines = getAdminOrderLines(row)
+      setPedidoOrderLines(orderLines)
+      setPedidoProductCategory("Todas")
+      setPedidoProductQuantity("1")
+      setPedidoParentSelect("")
+    }
     setFormData(nextForm)
     setPedidoProductoSelect("")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
@@ -8097,10 +8439,12 @@ function AdminPanel({
   const openView = (sec: string, idx: number) => {
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
+    if (sec === "producto") setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
     if (sec === "produccion") {
       setProductionItems(getProductionOrderItems(rows.produccion?.[idx]))
       setProductionFormError("")
     }
+    if (sec === "pedidos") setPedidoOrderLines(getAdminOrderLines(rows.pedidos?.[idx]))
     setModal({ mode: "view", section: sec, idx })
   }
 
@@ -8113,6 +8457,30 @@ function AdminPanel({
       setProductionFormError("Agrega al menos un producto o producto de insumo.")
       return
     }
+    if (sec === "pedidos" && pedidoOrderLines.length === 0) {
+      window.alert("Agrega al menos un producto al pedido.")
+      return
+    }
+    if (sec === "producto") {
+      const invalidIngredient = technicalIngredients.find((ingredient) => {
+        const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
+        return (
+          !supply ||
+          !Number.isFinite(ingredient.quantity) ||
+          ingredient.quantity <= 0 ||
+          !ingredient.unit ||
+          String(supply[2] ?? "").trim().toLowerCase() !== ingredient.unit.trim().toLowerCase()
+        )
+      })
+      if (invalidIngredient) {
+        window.alert(`Verifica la cantidad y unidad de «${invalidIngredient.name}» en la ficha técnica.`)
+        return
+      }
+    }
+    if (
+      sec === "producto-no-conforme" &&
+      !getProductSupplyOptions().includes(String(formData["1"] ?? ""))
+    ) return
     if (sec === "clientes") {
       const isLocalClient = String(formData["6"] ?? "").toLowerCase() === "sí"
       const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
@@ -8162,8 +8530,14 @@ function AdminPanel({
       newRow[6] =
         String(formData["6"] || "").trim() ||
         getAutoTechVersion(rows.producto || [])
-      newRow[7] = String(formData["7"] || "").trim()
+      newRow[7] = technicalIngredients.map((ingredient) => ingredient.name).join(", ")
       newRow[8] = String(formData["8"] || "").trim()
+      const serializedRecipe = JSON.stringify(technicalIngredients)
+      newRow[9] = serializedRecipe
+      newRow[10] = String(formData["10"] || "Disponible")
+      if (previousRow && String(previousRow[9] ?? "[]") !== serializedRecipe) {
+        newRow[6] = nextTechVersion(String(previousRow[6] ?? ""))
+      }
     }
 
     if (sec === "insumos") {
@@ -8183,11 +8557,18 @@ function AdminPanel({
     }
 
     if (sec === "pedidos") {
-      const total = Number(formData["5"] || 0)
+      const total = pedidoOrderLines.reduce(
+        (sum, line) => sum + line.unitPrice * line.quantity,
+        0,
+      )
+      newRow[1] = pedidoOrderLines
+        .map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${pedidoOrderLines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`)
+        .join(", ")
       newRow[5] = total
       newRow[6] = "Recibido"
       newRow[7] = String(formData["7"] || "Pendiente").trim()
-      newRow[8] = "Pendiente admin"
+      newRow[8] = total >= APPROVAL_MIN ? "Pendiente admin" : "No requerida"
+      newRow[9] = JSON.stringify(pedidoOrderLines)
     }
 
     if (config.autoId) {
@@ -8318,6 +8699,7 @@ function AdminPanel({
           `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
           "Admin Parche",
           newRow[1],
+          getCurrentDateTimeParts().date,
           newRow[2],
           newRow[3],
           newRow[4],
@@ -8325,7 +8707,8 @@ function AdminPanel({
           newRow[6],
           "Pendiente",
           newRow[0],
-          newRow[6],
+          newRow[7],
+          newRow[10] ?? "[]",
         ])
         return { ...current, ventas: salesRows }
       })
@@ -8669,22 +9052,7 @@ function AdminPanel({
     )
 
     const currentDateTime = getCurrentDateTimeParts()
-    const availableProducts = getAvailableProductos()
-    const requestedItems = String(order[2] ?? "")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => {
-        const product = availableProducts.find((name) =>
-          item.toLowerCase().includes(name.toLowerCase()),
-        )
-        const quantityMatch = item.match(/\b(\d+)\b/)
-        return {
-          product: product || "",
-          quantity: quantityMatch ? Number(quantityMatch[1]) : 1,
-        }
-      })
-      .filter((item) => Boolean(item.product))
+    const requestedItems = getAdminOrderLines(order)
 
     setRows((current) => {
       const orderRows = [...(current.pedidos || [])]
@@ -8698,11 +9066,12 @@ function AdminPanel({
         0,
         ...productionRows.map((row) => Number(row[3]) || 0),
       )
-      requestedItems.forEach((item) => {
+      requestedItems.slice().reverse().forEach((item) => {
         priority += 1
+        const parent = requestedItems.find((candidate) => candidate.id === item.parentId)
         productionRows.unshift([
           getNextProductionCode(productionRows),
-          item.product,
+          parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
           item.quantity,
           priority,
           currentDateTime.date,
@@ -8720,13 +9089,19 @@ function AdminPanel({
               time: currentDateTime.time,
             },
           ]),
-          JSON.stringify([{ name: item.product, quantity: item.quantity }]),
+          JSON.stringify([{
+            name: item.product,
+            quantity: item.quantity,
+            category: item.category,
+            ...(item.parentId ? { parentId: item.parentId } : {}),
+          }]),
+          "No",
         ])
       })
 
       let salesRows = [...(current.ventas || [])]
       const notShipped = !["En camino", "Entregado"].includes(
-        String(updatedOrder[6]),
+        String(updatedOrder[7]),
       )
       const alreadyDuplicated = salesRows.some(
         (sale) => sale[9] === updatedOrder[0],
@@ -8743,7 +9118,8 @@ function AdminPanel({
           updatedOrder[6],
           "Pendiente",
           updatedOrder[0],
-          updatedOrder[6],
+          updatedOrder[7],
+          updatedOrder[10] ?? "[]",
         ])
       }
 
@@ -8891,10 +9267,41 @@ function AdminPanel({
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
   ) => {
+    const sourceRow = rows.produccion?.[rowIndex]
+    if (!sourceRow || String(sourceRow[8]) === nextStatus) return
+    const consumeStock = nextStatus === "En cocina" && String(sourceRow[14]) !== "Sí"
+    const requiredSupplies = new Map<string, { quantity: number; unit: string }>()
+    if (consumeStock) {
+      for (const item of getProductionOrderItems(sourceRow)) {
+        const product = rows.producto?.find((candidate) => candidate[0] === item.name)
+        for (const ingredient of getProductRecipe(product)) {
+          const supply = rows.insumos?.find((candidate) => candidate[0] === ingredient.name)
+          const unit = String(supply?.[2] ?? "").trim()
+          if (!supply || !unit || unit.toLowerCase() !== ingredient.unit.trim().toLowerCase()) {
+            window.alert(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y use la misma unidad de la ficha técnica.`)
+            return
+          }
+          const current = requiredSupplies.get(ingredient.name)
+          requiredSupplies.set(ingredient.name, {
+            quantity: (current?.quantity ?? 0) + ingredient.quantity * item.quantity,
+            unit,
+          })
+        }
+      }
+      for (const [name, requirement] of requiredSupplies) {
+        const supply = rows.insumos?.find((candidate) => candidate[0] === name)
+        const stock = Number(supply?.[4])
+        if (!Number.isFinite(stock) || stock < requirement.quantity) {
+          window.alert(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
+          return
+        }
+      }
+    }
     setRows((current) => {
       const productionRows = [...(current.produccion || [])]
       const currentRow = productionRows[rowIndex]
       if (!currentRow) return current
+      if (consumeStock && String(currentRow[14]) === "Sí") return current
 
       const currentDateTime = getCurrentDateTimeParts()
       const now = new Date()
@@ -8928,6 +9335,7 @@ function AdminPanel({
         nextStatus !== "Recibida" || String(currentRow[11]).toLowerCase() === "sí"
           ? "Sí"
           : "No"
+      if (consumeStock) updatedRow[14] = "Sí"
 
       if (nextStatus === "Terminado") {
         if (currentRow[8] !== "Terminado") {
@@ -8943,6 +9351,15 @@ function AdminPanel({
         updatedRow[10] = 0
       }
       productionRows[rowIndex] = updatedRow
+      const supplies = consumeStock
+        ? (current.insumos || []).map((supply) => {
+            const required = requiredSupplies.get(String(supply[0]))
+            if (!required) return supply
+            const updatedSupply = [...supply]
+            updatedSupply[4] = Number(updatedSupply[4]) - required.quantity
+            return updatedSupply
+          })
+        : current.insumos
 
       if (nextStatus === "Producto no conforme") {
         const newPriority =
@@ -8969,7 +9386,7 @@ function AdminPanel({
         productionRows.unshift(restartedOrder)
       }
 
-      return { ...current, produccion: productionRows }
+      return { ...current, produccion: productionRows, ...(supplies ? { insumos: supplies } : {}) }
     })
   }
 
@@ -10388,6 +10805,11 @@ function AdminPanel({
     const isReturns = modal.section === "devoluciones"
     const isClient = modal.section === "clientes"
     const row = modal.idx !== null ? rows[modal.section]?.[modal.idx] : null
+    const orderDetails = isPedido ? getAdminOrderLines(row || undefined) : []
+    const saleOrderLines = getSaleOrderLines(isSales ? row : null)
+    const saleOrderIndex = isSales
+      ? rows.pedidos?.findIndex((order) => order[0] === row?.[9]) ?? -1
+      : -1
     // Purchase module (Compras) gets a compact 2-column form and a formatted detail view
     const PURCHASE_ENTITIES: Record<string, { name: string; fem: boolean }> = {
       "cat-insumos": { name: "categoría de insumo", fem: true },
@@ -10445,10 +10867,10 @@ function AdminPanel({
           )
         : dataFields
     const productMainFields = isProduct
-      ? dataFields.filter((field) => ["0", "1", "2", "3"].includes(field.key))
+      ? dataFields.filter((field) => ["0", "1", "2", "3", "10"].includes(field.key))
       : dataFields
     const productTechFields = isProduct
-      ? dataFields.filter((field) => Number(field.key) >= 5)
+      ? dataFields.filter((field) => ["5", "6", "7", "8"].includes(field.key))
       : []
     const rowOffset = cfg.autoId ? 1 : 0
     const availableProductos = isPedido ? getAvailableProductos() : []
@@ -10682,6 +11104,19 @@ function AdminPanel({
                     const val = isView
                       ? String(row ? (row[Number(f.key)] ?? "—") : "—")
                       : formData[f.key] || ""
+                    const productFieldOptions =
+                      f.key === "1"
+                        ? [
+                            ...new Set([
+                              ...(rows["cat-producto"] || [])
+                                .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
+                                .map((category) => String(category[0] ?? "").trim())
+                                .filter(Boolean),
+                              ...PRODUCTS.map((product) => product.cat.replace(/-/g, " ")),
+                              "Producto de insumo",
+                            ]),
+                          ].sort((a, b) => a.localeCompare(b))
+                        : f.options
                     return (
                       <div key={f.key} className="flex flex-col gap-1.5">
                         <label
@@ -10714,7 +11149,7 @@ function AdminPanel({
                             }}
                           >
                             <option value="">Selecciona...</option>
-                            {f.options?.map((o) => (
+                            {productFieldOptions?.map((o) => (
                               <option key={o} value={o}>
                                 {o}
                               </option>
@@ -10760,13 +11195,47 @@ function AdminPanel({
                   })}
                 </div>
                 <div className="flex flex-col gap-3">
-                  <div
-                    className="text-xs font-bold uppercase tracking-wide"
-                    style={{ color: t.muted }}
-                  >
-                    Ficha técnica
+                  <div className="flex items-center justify-between gap-2">
+                    <div
+                      className="text-xs font-bold uppercase tracking-wide"
+                      style={{ color: t.muted }}
+                    >
+                      Ficha técnica
+                    </div>
+                    {!isView && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTechnicalSheetError("")
+                          setTechnicalSheetOpen(true)
+                        }}
+                        className="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
+                        style={{ background: C.mustard, color: "#fff" }}
+                      >
+                        Ficha técnica
+                      </button>
+                    )}
                   </div>
+                  {!isView && (
+                    <div className="rounded-xl px-3 py-2.5 text-xs" style={{ background: t.cardAlt, color: t.muted }}>
+                      {technicalIngredients.length
+                        ? `${technicalIngredients.length} insumo${technicalIngredients.length === 1 ? "" : "s"} en la receta`
+                        : "Ficha técnica opcional. Puedes agregar insumos, cantidades y unidades."}
+                    </div>
+                  )}
+                  {isView && getProductRecipe(row ?? undefined).length > 0 && (
+                    <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                      <div className="mb-2 text-xs font-bold" style={{ color: t.text }}>Insumos y cantidades</div>
+                      {getProductRecipe(row ?? undefined).map((ingredient, index) => (
+                        <div key={`${ingredient.name}-${index}`} className="flex justify-between gap-3 border-t py-2 text-xs" style={{ borderColor: t.border, color: t.muted }}>
+                          <span>{ingredient.name}</span>
+                          <strong style={{ color: t.text }}>{ingredient.quantity} {ingredient.unit}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {productTechFields.map((f) => {
+                    if (!isView) return null
                     const fieldRowIndex = Number(f.key)
                     const val = isView
                       ? String(row ? (row[fieldRowIndex] ?? "—") : "—")
@@ -11433,13 +11902,21 @@ function AdminPanel({
                             : isSupply && f.key === "1" && namesOf("cat-insumos").length
                               ? namesOf("cat-insumos")
                               : f.options
-                const existingProductos =
-                  isPedido && f.key === "1"
-                    ? val
-                        .split(",")
-                        .map((item) => item.trim())
-                        .filter(Boolean)
-                    : []
+                const pedidoCategories = [
+                  "Todas",
+                  ...new Set(
+                    (rows["cat-producto"] || [])
+                      .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
+                      .map((category) => String(category[0] ?? "").trim())
+                      .filter(Boolean),
+                  ),
+                ]
+                const filteredOrderProducts = availableProductos.filter((productName) => {
+                  const product = rows.producto?.find((item) => item[0] === productName)
+                  return pedidoProductCategory === "Todas" || String(product?.[1] ?? "") === pedidoProductCategory
+                })
+                const selectedOrderProduct = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
+                const isSelectedAddition = String(selectedOrderProduct?.[1] ?? "").toLowerCase() === "adiciones"
                 const isLocalClient =
                   isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
                 const requiredClientField =
@@ -11485,86 +11962,121 @@ function AdminPanel({
                       {requiredClientField && " *"}
                     </label>
                     {isPedido && f.key === "1" && !isView ? (
-                      <div className="flex flex-col gap-2">
-                        <div className="flex flex-wrap gap-2">
-                          {existingProductos.length === 0 ? (
-                            <div
-                              className="text-xs px-2.5 py-1.5 rounded-full"
-                              style={{ background: t.input, color: t.muted }}
+                      <div className="flex flex-col gap-3">
+                        <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                          <div className="grid gap-2 sm:grid-cols-[minmax(0,130px)_minmax(0,1fr)_90px_auto]">
+                            <select
+                              value={pedidoProductCategory}
+                              onChange={(event) => {
+                                setPedidoProductCategory(event.target.value)
+                                setPedidoProductoSelect("")
+                              }}
+                              className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none"
+                              style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                              aria-label="Filtrar productos por categoría"
                             >
-                              Sin productos seleccionados
-                            </div>
-                          ) : (
-                            existingProductos.map((producto) => (
-                              <button
-                                key={producto}
-                                type="button"
-                                onClick={() => {
-                                  const next = existingProductos.filter(
-                                    (item) => item !== producto,
-                                  )
-                                  setFormData((d) => ({
-                                    ...d,
-                                    [f.key]: next.join(", "),
-                                  }))
-                                }}
-                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs cursor-pointer"
-                                style={{
-                                  background: `${C.mustard}15`,
-                                  color: C.mustard,
-                                  border: `1px solid ${C.mustard}35`,
-                                }}
+                              {pedidoCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                            </select>
+                            <select
+                              value={pedidoProductoSelect}
+                              onChange={(event) => setPedidoProductoSelect(event.target.value)}
+                              className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none cursor-pointer"
+                              style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                            >
+                              <option value="">Selecciona producto o adición...</option>
+                              {filteredOrderProducts.map((product) => {
+                                const productRow = rows.producto?.find((item) => item[0] === product)
+                                return <option key={product} value={product}>{product}{productRow?.[1] === "Adiciones" ? " · Adición" : ""}</option>
+                              })}
+                            </select>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={pedidoProductQuantity}
+                              onChange={(event) => setPedidoProductQuantity(event.target.value)}
+                              className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none"
+                              style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                              aria-label="Cantidad"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const productRow = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
+                                const quantity = Number(pedidoProductQuantity)
+                                if (!productRow || !Number.isInteger(quantity) || quantity <= 0) return
+                                const parentLine = pedidoOrderLines.find((line) => line.id === pedidoParentSelect)
+                                const id = `order-line-${Date.now()}-${pedidoOrderLines.length}`
+                                const line: AdminOrderLine = {
+                                  id,
+                                  product: pedidoProductoSelect,
+                                  category: String(productRow[1] ?? ""),
+                                  quantity,
+                                  unitPrice: Number(productRow[2]) || 0,
+                                  ...(isSelectedAddition && parentLine ? { parentId: parentLine.id } : {}),
+                                }
+                                setPedidoOrderLines((current) => [...current, line])
+                                setPedidoProductoSelect("")
+                                setPedidoProductQuantity("1")
+                                setPedidoParentSelect("")
+                              }}
+                              className="rounded-xl px-3 py-2.5 text-xs font-bold cursor-pointer"
+                              style={{ background: C.mustard, color: "#fff" }}
+                            >
+                              Agregar
+                            </button>
+                          </div>
+                          {isSelectedAddition && (
+                            <label className="mt-2 flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                              Adición de (opcional)
+                              <select
+                                value={pedidoParentSelect}
+                                onChange={(event) => setPedidoParentSelect(event.target.value)}
+                                className="w-full rounded-xl px-3 py-2 text-xs outline-none"
+                                style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
                               >
-                                <span>{producto}</span>
-                                <span>×</span>
-                              </button>
-                            ))
+                                <option value="">Sin producto asociado</option>
+                                {pedidoOrderLines.filter((line) => line.category.toLowerCase() !== "adiciones").map((line) => (
+                                  <option key={line.id} value={line.id}>{line.product} × {line.quantity}</option>
+                                ))}
+                              </select>
+                            </label>
                           )}
                         </div>
-                        <div className="flex gap-2">
-                          <select
-                            value={pedidoProductoSelect}
-                            onChange={(e) =>
-                              setPedidoProductoSelect(e.target.value)
-                            }
-                            className="w-full min-w-0 flex-1 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
-                              color: t.text,
-                            }}
-                          >
-                            <option value="">Selecciona un producto...</option>
-                            {availableProductos
-                              .filter(
-                                (producto) =>
-                                  !existingProductos.includes(producto),
-                              )
-                              .map((producto) => (
-                                <option key={producto} value={producto}>
-                                  {producto}
-                                </option>
-                              ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!pedidoProductoSelect) return
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: [
-                                  ...existingProductos,
-                                  pedidoProductoSelect,
-                                ].join(", "),
-                              }))
-                              setPedidoProductoSelect("")
-                            }}
-                            className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold cursor-pointer"
-                            style={{ background: C.mustard, color: "#fff" }}
-                          >
-                            Agregar
-                          </button>
-                        </div>
+                        {!pedidoOrderLines.length ? (
+                          <div className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>
+                            Agrega al menos un producto al pedido.
+                          </div>
+                        ) : (
+                          <div className="flex flex-col divide-y rounded-xl px-3" style={{ background: t.input, borderColor: t.border }}>
+                            {pedidoOrderLines.map((line) => (
+                              <div key={line.id} className="flex items-center gap-3 py-2.5 text-xs" style={{ borderColor: t.border }}>
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-semibold" style={{ color: t.text }}>
+                                    {line.product} × {line.quantity}
+                                    {line.category.toLowerCase() === "adiciones" && <span className="ml-1 rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: `${C.amber}18`, color: C.amber }}>Adición</span>}
+                                  </div>
+                                  {line.parentId && <div className="mt-0.5" style={{ color: t.muted }}>Adición de: {pedidoOrderLines.find((parent) => parent.id === line.parentId)?.product ?? "Producto"}</div>}
+                                </div>
+                                <span style={{ color: t.muted }}>{fmt(line.unitPrice)} c/u</span>
+                                <strong style={{ color: C.mustard }}>{fmt(line.unitPrice * line.quantity)}</strong>
+                                <button
+                                  type="button"
+                                  aria-label={`Quitar ${line.product}`}
+                                  onClick={() => setPedidoOrderLines((current) => current.filter((item) => item.id !== line.id).map((item) => item.parentId === line.id ? { ...item, parentId: undefined } : item))}
+                                  className="flex h-6 w-6 items-center justify-center rounded-lg cursor-pointer"
+                                  style={{ color: C.red, background: `${C.red}10` }}
+                                >
+                                  {Ico.x}
+                                </button>
+                              </div>
+                            ))}
+                            <div className="flex justify-between py-2 text-xs font-bold" style={{ color: t.text }}>
+                              <span>Total del pedido</span>
+                              <span style={{ color: C.mustard }}>{fmt(pedidoOrderLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0))}</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : isView && isPurchaseModule ? (
                       <div
@@ -11851,6 +12363,23 @@ function AdminPanel({
                   <span className="text-xs" style={{ color: t.muted }}>Pago: <strong style={{ color: String(row?.[8]) === "Pagado" ? "#2E7D60" : C.red }}>{String(row?.[8] ?? "Pendiente")}</strong></span>
                   <span className="text-xs" style={{ color: t.muted }}>Autorización: <strong style={{ color: String(row?.[9]) === "Autorizada" ? "#2E7D60" : C.mustard }}>{String(row?.[9] ?? "Pendiente admin")}</strong></span>
                 </div>
+                <div className="mt-4">
+                  <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle del pedido</h4>
+                  <div className="flex flex-col gap-2">
+                    {orderDetails.map((line) => {
+                      const parent = line.parentId
+                        ? orderDetails.find((candidate) => candidate.id === line.parentId)
+                        : undefined
+                      return (
+                        <div key={line.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                          <span style={{ color: t.text }}>{parent ? `↳ ${line.product} · adición de ${parent.product}` : line.product} <span style={{ color: t.muted }}>× {line.quantity}</span></span>
+                          <strong className="shrink-0" style={{ color: t.text }}>{fmt(line.quantity * line.unitPrice)}</strong>
+                        </div>
+                      )
+                    })}
+                    {!orderDetails.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
+                  </div>
+                </div>
                 <button
                   type="button"
                   disabled={(String(row?.[5]) !== "Contraentrega" && (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) || String(row?.[9]) === "Autorizada"}
@@ -11860,6 +12389,31 @@ function AdminPanel({
                 >
                   {String(row?.[9]) === "Autorizada" ? "Producción ya autorizada" : "Confirmar pedido y enviar a producción"}
                 </button>
+              </div>
+            )}
+            {isView && isSales && (
+              <div className="rounded-xl p-4" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+                <h4 className="mb-3 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle de la venta</h4>
+                <div className="flex flex-col gap-2">
+                  {saleOrderLines.map((line) => {
+                    const parent = line.parentId
+                      ? saleOrderLines.find((candidate) => candidate.id === line.parentId)
+                      : undefined
+                    return (
+                      <div key={line.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                        <span style={{ color: t.text }}>{parent ? `↳ ${line.product} · adición de ${parent.product}` : line.product} <span style={{ color: t.muted }}>× {line.quantity}</span></span>
+                        <strong className="shrink-0" style={{ color: t.text }}>{fmt(line.quantity * line.unitPrice)}</strong>
+                      </div>
+                    )
+                  })}
+                  {!saleOrderLines.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
+                </div>
+                {saleOrderIndex >= 0 && paymentProofs[saleOrderIndex] && (
+                  <div className="mt-4">
+                    <h4 className="mb-2 text-xs font-bold" style={{ color: t.text }}>Comprobante de pago</h4>
+                    <img src={paymentProofs[saleOrderIndex]} alt="Comprobante de pago" className="max-h-56 w-full rounded-lg object-contain" style={{ background: t.card }} />
+                  </div>
+                )}
               </div>
             )}
             {/* Roles permissions matrix */}
@@ -11909,6 +12463,123 @@ function AdminPanel({
             )}
           </div>
         </div>
+        {technicalSheetOpen && isProduct && !isView && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6"
+            style={{ background: "rgba(0,0,0,0.55)" }}
+            onClick={() => setTechnicalSheetOpen(false)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="product-tech-sheet-title"
+              className="flex w-full max-w-xl flex-col overflow-hidden rounded-2xl"
+              style={{ background: t.card, border: `1px solid ${t.border}`, maxHeight: "85vh" }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${t.border}` }}>
+                <div>
+                  <h3 id="product-tech-sheet-title" className="font-semibold" style={{ color: t.text }}>Ficha técnica del producto</h3>
+                  <p className="mt-1 text-xs" style={{ color: t.muted }}>{formData["0"] || "Producto"} · versión {formData["6"] || getAutoTechVersion(rows.producto || [])}</p>
+                </div>
+                <button type="button" onClick={() => setTechnicalSheetOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-xl cursor-pointer" style={{ background: t.input, color: t.muted }} aria-label="Cerrar ficha técnica">{Ico.x}</button>
+              </div>
+              <div className="flex flex-col gap-3 overflow-y-auto px-5 py-4">
+                <p className="text-xs" style={{ color: t.muted }}>Agrega los insumos que utiliza una unidad del producto. La unidad se toma del inventario y debe coincidir.</p>
+                {technicalIngredients.length ? (
+                  technicalIngredients.map((ingredient, index) => (
+                    <div key={`${ingredient.name}-${index}`} className="grid items-center gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_110px_90px_auto]" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                      <span className="min-w-0 truncate text-sm font-semibold" style={{ color: t.text }}>{ingredient.name}</span>
+                      <input
+                        aria-label={`Cantidad de ${ingredient.name}`}
+                        type="number"
+                        min="0.001"
+                        step="any"
+                        value={ingredient.quantity}
+                        onChange={(event) => setTechnicalIngredients((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Number(event.target.value) } : item))}
+                        className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                        style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                      />
+                      <span className="text-xs" style={{ color: t.muted }}>{ingredient.unit}</span>
+                      <button type="button" onClick={() => setTechnicalIngredients((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-8 w-8 items-center justify-center rounded-lg cursor-pointer" style={{ background: `${C.red}10`, color: C.red }} aria-label={`Quitar ${ingredient.name}`}>{Ico.trash}</button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl px-3 py-5 text-center text-xs" style={{ background: t.input, color: t.muted }}>Todavía no hay insumos en esta ficha.</div>
+                )}
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px_auto]">
+                  <select
+                    value={technicalIngredientSelect}
+                    onChange={(event) => setTechnicalIngredientSelect(event.target.value)}
+                    className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
+                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                  >
+                    <option value="">Selecciona un insumo...</option>
+                    {getAvailableInsumos().filter((name) => !technicalIngredients.some((item) => item.name === name)).map((name) => {
+                      const supply = rows.insumos?.find((item) => item[0] === name)
+                      return <option key={name} value={name}>{name} · {String(supply?.[2] ?? "und")}</option>
+                    })}
+                  </select>
+                  <input
+                    aria-label="Cantidad del insumo"
+                    type="number"
+                    min="0.001"
+                    step="any"
+                    value={technicalIngredientQuantity}
+                    onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
+                    className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const supply = rows.insumos?.find((item) => item[0] === technicalIngredientSelect)
+                      const quantity = Number(technicalIngredientQuantity)
+                      if (!supply || !Number.isFinite(quantity) || quantity <= 0) {
+                        setTechnicalSheetError("Selecciona un insumo e ingresa una cantidad mayor que cero.")
+                        return
+                      }
+                      setTechnicalIngredients((current) => [...current, {
+                        name: technicalIngredientSelect,
+                        quantity,
+                        unit: String(supply[2] ?? ""),
+                      }])
+                      setTechnicalIngredientSelect("")
+                      setTechnicalIngredientQuantity("1")
+                      setTechnicalSheetError("")
+                    }}
+                    className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer"
+                    style={{ background: C.mustard, color: "#fff" }}
+                  >
+                    Agregar insumo
+                  </button>
+                </div>
+                {technicalSheetError && <p className="text-xs font-medium" style={{ color: C.red }} role="alert">{technicalSheetError}</p>}
+              </div>
+              <div className="flex justify-end gap-2 px-5 py-4" style={{ borderTop: `1px solid ${t.border}` }}>
+                <button type="button" onClick={() => setTechnicalSheetOpen(false)} className="rounded-xl px-4 py-2.5 text-sm font-semibold cursor-pointer" style={{ background: t.input, color: t.muted }}>Cancelar</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const recipe = JSON.stringify(technicalIngredients)
+                    setFormData((current) => ({
+                      ...current,
+                      "5": `Ficha técnica - ${current["0"] || "Producto"}`,
+                      "7": technicalIngredients.map((ingredient) => ingredient.name).join(", "),
+                      "9": recipe,
+                    }))
+                    setTechnicalSheetOpen(false)
+                    setTechnicalSheetError("")
+                  }}
+                  className="rounded-xl px-4 py-2.5 text-sm font-bold cursor-pointer"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  Guardar ficha
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {isPurchase && lossDraft && (() => {
           const motivos =
             MOD_CFG.perdidas.fields.find((field) => field.key === "2")?.options ?? []
@@ -12963,7 +13634,7 @@ export default function App() {
                 dateStyle: "medium",
                 timeStyle: "short",
               }),
-              items: cart,
+              items: cart.filter((item) => item.qty > 0),
               total: cartTotal(cart),
               status: cartTotal(cart) >= APPROVAL_MIN ? "Por confirmar" : "Recibido",
             },
