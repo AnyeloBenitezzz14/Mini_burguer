@@ -4042,7 +4042,7 @@ function CheckoutPage({
         }
     : checkoutStep === 2
       ? {
-          label: "Continuar a revisión",
+          label: "Confirma tus datos",
           onClick: continueToReview,
           disabled: cart.length === 0,
         }
