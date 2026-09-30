@@ -14,6 +14,7 @@ type User = {
   phone?: string
   addresses?: string[]
   photo?: string
+  password?: string
 }
 type CartItem = {
   id: number
@@ -1870,12 +1871,13 @@ function emailError(email: string) {
   return ""
 }
 
-function validateLogin(email: string, pass: string): FieldErrors {
+function validateLogin(email: string, pass: string, savedPass?: string): FieldErrors {
   const e: FieldErrors = {}
   const em = emailError(email)
   if (em) e.email = em
   if (!pass) e.pass = "Ingresa tu contraseña."
   else if (pass.length < 8) e.pass = "La contraseña tiene mínimo 8 caracteres."
+  else if (savedPass && pass !== savedPass) e.pass = "La contraseña es incorrecta."
   return e
 }
 
@@ -2080,11 +2082,13 @@ function LoginPage({
   const [pass, setPass] = useState("")
   // Errors show after the first submit and update live while typing
   const [tried, setTried] = useState(false)
-  const errors = tried ? validateLogin(email, pass) : {}
+  const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
+  const errors = tried ? validateLogin(email, pass, savedProfile?.password) : {}
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
-    if (Object.keys(validateLogin(email, pass)).length) return
+    const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
+    if (Object.keys(validateLogin(email, pass, savedProfile?.password)).length) return
     const role = email.toLowerCase().includes("admin") ? "admin" : "user"
     const name = email
       .split("@")[0]
@@ -2281,6 +2285,7 @@ function RegisterPage({
       role: "user",
       phone: form.phone.replace(/\s/g, ""),
       cedula: form.docNum.trim(),
+      password: form.pass,
     })
   }
   if (step === "verifying")
@@ -3990,8 +3995,9 @@ function CheckoutPage({
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault()
     setLoginTried(true)
-    if (Object.keys(validateLogin(loginForm.email, loginForm.pass)).length) return
     const email = loginForm.email.trim().toLowerCase()
+    const savedProfile = loadLS<User | null>(`profile:${email}`, null)
+    if (Object.keys(validateLogin(loginForm.email, loginForm.pass, savedProfile?.password)).length) return
     const role = email.includes("admin") ? "admin" : "user"
     const name = email
       .split("@")[0]
@@ -4016,6 +4022,7 @@ function CheckoutPage({
       role: "user",
       phone: regForm.phone.replace(/\s/g, ""),
       cedula: regForm.docNum.trim(),
+      password: regForm.pass,
     })
     setCheckoutStep(2)
   }
@@ -4860,6 +4867,137 @@ function CheckoutPage({
   )
 }
 
+// ── Change Password Form ─────────────────────────────────────────────────────────
+function ChangePasswordForm({
+  user,
+  onUpdateUser,
+}: {
+  user: User
+  onUpdateUser: (u: User) => void
+}) {
+  const [currentPass, setCurrentPass] = useState("")
+  const [newPass, setNewPass] = useState("")
+  const [confirmPass, setConfirmPass] = useState("")
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState(false)
+
+  const MUSTARD = "#B68C1C"
+  const RED = "#A54131"
+  const TEXT = "#1A1714"
+  const MUTED = "rgba(30,30,30,0.5)"
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setError("")
+    setSuccess(false)
+
+    // Validate current password
+    if (!user.password) {
+      setError("No tienes una contraseña establecida. Usa la opción de recuperar contraseña.")
+      return
+    }
+    if (currentPass !== user.password) {
+      setError("La contraseña actual es incorrecta.")
+      return
+    }
+
+    // Validate new password
+    if (newPass.length < 8) {
+      setError("La nueva contraseña debe tener al menos 8 caracteres.")
+      return
+    }
+    if (newPass !== confirmPass) {
+      setError("Las contraseñas no coinciden.")
+      return
+    }
+    if (newPass === currentPass) {
+      setError("La nueva contraseña debe ser diferente a la actual.")
+      return
+    }
+
+    // Update password
+    onUpdateUser({ ...user, password: newPass })
+    setCurrentPass("")
+    setNewPass("")
+    setConfirmPass("")
+    setSuccess(true)
+    setTimeout(() => setSuccess(false), 3000)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <div>
+        <label className="text-xs font-semibold mb-1 block" style={{ color: MUTED }}>
+          Contraseña actual
+        </label>
+        <input
+          type="password"
+          value={currentPass}
+          onChange={(e) => setCurrentPass(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: "1.5px solid rgba(30,30,30,0.12)",
+            color: TEXT,
+          }}
+          placeholder="••••••••"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold mb-1 block" style={{ color: MUTED }}>
+          Nueva contraseña
+        </label>
+        <input
+          type="password"
+          value={newPass}
+          onChange={(e) => setNewPass(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: "1.5px solid rgba(30,30,30,0.12)",
+            color: TEXT,
+          }}
+          placeholder="••••••••"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold mb-1 block" style={{ color: MUTED }}>
+          Confirmar nueva contraseña
+        </label>
+        <input
+          type="password"
+          value={confirmPass}
+          onChange={(e) => setConfirmPass(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: "1.5px solid rgba(30,30,30,0.12)",
+            color: TEXT,
+          }}
+          placeholder="••••••••"
+        />
+      </div>
+      {error && (
+        <p className="text-xs" style={{ color: RED }}>
+          {error}
+        </p>
+      )}
+      {success && (
+        <p className="text-xs" style={{ color: "#2E7D60" }}>
+          ¡Contraseña actualizada exitosamente!
+        </p>
+      )}
+      <button
+        type="submit"
+        className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+        style={{ background: MUSTARD, color: "#fff" }}
+      >
+        Actualizar contraseña
+      </button>
+    </form>
+  )
+}
+
 // ── Profile Page ───────────────────────────────────────────────────────────────
 function ProfilePage({
   user,
@@ -4897,6 +5035,7 @@ function ProfilePage({
   const [editingAddrValue, setEditingAddrValue] = useState("")
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showLogoutModal, setShowLogoutModal] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
   const [profilePhoto, setProfilePhoto] = useState<string | undefined>(user.photo)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const BG = "#FAF5E8"
@@ -5267,6 +5406,22 @@ function ProfilePage({
             </div>
           )}
         </div>
+        {/* Change password */}
+        <div
+          className="p-5 rounded-2xl mb-4"
+          style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+        >
+          <h2 className="font-bold text-base mb-4" style={{ color: TEXT }}>
+            Seguridad
+          </h2>
+          <button
+            onClick={() => setShowChangePassword(true)}
+            className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+            style={{ background: `${C.mustard}15`, color: C.mustard }}
+          >
+            Cambiar contraseña
+          </button>
+        </div>
         {/* Purchase history */}
         <div
           className="p-5 rounded-2xl mb-4"
@@ -5409,6 +5564,43 @@ function ProfilePage({
                 Eliminar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Change password modal */}
+      {showChangePassword && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => setShowChangePassword(false)}
+        >
+          <div
+            className="w-full max-w-sm p-6 rounded-2xl"
+            style={{
+              background: "#fff",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3
+                className="font-black text-lg"
+                style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+              >
+                Cambiar contraseña
+              </h3>
+              <button
+                onClick={() => setShowChangePassword(false)}
+                className="text-lg cursor-pointer"
+                style={{ color: "rgba(30,30,30,0.4)" }}
+              >
+                ✕
+              </button>
+            </div>
+            <ChangePasswordForm
+              user={user}
+              onUpdateUser={onUpdateUser}
+            />
           </div>
         </div>
       )}
@@ -6956,6 +7148,7 @@ function AdminProfilePage({
   const [editingAddrIdx, setEditingAddrIdx] = useState<number | null>(null)
   const [editingAddrValue, setEditingAddrValue] = useState("")
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
   const [profilePhoto, setProfilePhoto] = useState<string | undefined>(user.photo)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const BG = "#FAF5E8"
@@ -7316,6 +7509,22 @@ function AdminProfilePage({
               </div>
             )}
           </div>
+          {/* Change password */}
+          <div
+            className="p-5 rounded-2xl mb-4"
+            style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          >
+            <h2 className="font-bold text-base mb-4" style={{ color: TEXT }}>
+              Seguridad
+            </h2>
+            <button
+              onClick={() => setShowChangePassword(true)}
+              className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              Cambiar contraseña
+            </button>
+          </div>
           {/* Actions */}
           <div className="flex flex-col gap-2">
             <button
@@ -7375,6 +7584,43 @@ function AdminProfilePage({
                   Eliminar
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+        {/* Change password modal */}
+        {showChangePassword && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center px-4"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+            onClick={() => setShowChangePassword(false)}
+          >
+            <div
+              className="w-full max-w-sm p-6 rounded-2xl"
+              style={{
+                background: "#fff",
+                boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3
+                  className="font-black text-lg"
+                  style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+                >
+                  Cambiar contraseña
+                </h3>
+                <button
+                  onClick={() => setShowChangePassword(false)}
+                  className="text-lg cursor-pointer"
+                  style={{ color: "rgba(30,30,30,0.4)" }}
+                >
+                  ✕
+                </button>
+              </div>
+              <ChangePasswordForm
+                user={user}
+                onUpdateUser={onUpdateUser}
+              />
             </div>
           </div>
         )}
