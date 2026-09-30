@@ -122,6 +122,21 @@ const ADDITIONS = [
   { name: "1 Huevo", price: 900 },
   { name: "5 Huevos", price: 4000 },
 ]
+const BEVERAGES = [
+  "Coca-Cola",
+  "Sprite",
+  "Manzana",
+  "Colombiana",
+  "Uva",
+  "Pepsi",
+  "Naranja",
+]
+const BEVERAGE_SIZES = [
+  { id: "personal", label: "Personal", price: 3000 },
+  { id: "1.5L", label: "1.5 L", price: 7000 },
+  { id: "2.25L", label: "2.25 L", price: 9000 },
+  { id: "3L", label: "3 L", price: 12000 },
+]
 
 // ── Products ───────────────────────────────────────────────────────────────────
 const PRODUCTS: Product[] = [
@@ -2851,6 +2866,7 @@ function AddToCartModal({
   product,
   onClose,
   onAdd,
+  onCheckout,
   dark,
 }: {
   product: Product
@@ -2861,11 +2877,13 @@ function AddToCartModal({
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
   ) => void
+  onCheckout?: () => void
   dark: boolean
 }) {
   const [qty, setQty] = useState(1)
   const [selSauces, setSelSauces] = useState<string[]>([])
   const [addQtys, setAddQtys] = useState<Record<string, number>>({})
+  const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0].id)
   const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
@@ -2878,14 +2896,47 @@ function AddToCartModal({
     (s, a) => s + (addQtys[a.name] || 0) * a.price,
     0,
   )
-  const unitPrice = product.price + addTotal
+  const beverageTotal = BEVERAGES.reduce(
+    (total, flavor) =>
+      total +
+      BEVERAGE_SIZES.reduce(
+        (sizeTotal, size) =>
+          sizeTotal +
+          (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0) * size.price,
+        0,
+      ),
+    0,
+  )
+  const selectedBeverageSize =
+    BEVERAGE_SIZES.find((size) => size.id === beverageSize) ?? BEVERAGE_SIZES[0]
+  const selectedBeverages = BEVERAGES.flatMap((flavor) =>
+    BEVERAGE_SIZES.flatMap((size) => {
+      const key = `Gaseosa ${flavor} ${size.id}`
+      const quantity = addQtys[key] || 0
+      return quantity > 0 ? [{ flavor, size, key, quantity }] : []
+    }),
+  )
+  const unitPrice = product.price + addTotal + beverageTotal
   const total = unitPrice * qty
   const handleAdd = () => {
     const adds = ADDITIONS.filter((a) => (addQtys[a.name] || 0) > 0).map(
       (a) => ({ name: a.name, qty: addQtys[a.name], price: a.price }),
     )
-    onAdd(product, qty, selSauces, adds)
+    const beverages = BEVERAGES.flatMap((flavor) =>
+      BEVERAGE_SIZES.filter(
+        (size) => (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0) > 0,
+      ).map((size) => ({
+        name: `Gaseosa ${flavor} (${size.label})`,
+        qty: addQtys[`Gaseosa ${flavor} ${size.id}`],
+        price: size.price,
+      })),
+    )
+    onAdd(product, qty, selSauces, [...adds, ...beverages])
     onClose()
+  }
+  const handleCheckout = () => {
+    handleAdd()
+    onCheckout?.()
   }
 
   return (
@@ -3055,48 +3106,188 @@ function AddToCartModal({
               })}
             </div>
           </div>
+          <div className="mb-2">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="font-bold text-sm" style={{ color: TEXT }}>
+                Bebidas
+              </div>
+              <select
+                aria-label="Tamaño de gaseosa"
+                value={beverageSize}
+                onChange={(event) => setBeverageSize(event.target.value)}
+                className="rounded-lg px-2.5 py-1.5 text-xs font-semibold outline-none"
+                style={{
+                  background: dark ? "#292720" : "#fff",
+                  border: `1px solid ${BORDER}`,
+                  color: TEXT,
+                }}
+              >
+                {BEVERAGE_SIZES.map((size) => (
+                  <option key={size.id} value={size.id}>
+                    {size.label} · {fmt(size.price)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div
+              className="rounded-2xl overflow-hidden"
+              style={{ border: `1px solid ${BORDER}` }}
+            >
+              {BEVERAGES.map((flavor, index) => {
+                const size = selectedBeverageSize
+                const key = `Gaseosa ${flavor} ${size.id}`
+                const quantity = addQtys[key] || 0
+                return (
+                  <div
+                    key={flavor}
+                    className="flex items-center px-4 py-3"
+                    style={{
+                      borderBottom:
+                        index < BEVERAGES.length - 1
+                          ? `1px solid ${BORDER}`
+                          : "none",
+                    }}
+                  >
+                    <div className="flex-1 min-w-0 flex items-baseline gap-2">
+                      <span className="text-sm" style={{ color: TEXT }}>
+                        {flavor}
+                      </span>
+                      <span
+                        className="text-xs font-semibold whitespace-nowrap"
+                        style={{ color: C.amber }}
+                      >
+                        {fmt(size.price)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => changeAdd(key, -1)}
+                        disabled={quantity === 0}
+                        aria-label={`Quitar gaseosa ${flavor} ${size.label}`}
+                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                        style={{
+                          background: dark
+                            ? "rgba(244,238,220,0.1)"
+                            : "rgba(30,30,30,0.08)",
+                          color: TEXT,
+                        }}
+                      >
+                        −
+                      </button>
+                      <span
+                        className="w-5 text-center font-bold text-sm"
+                        style={{ color: TEXT }}
+                      >
+                        {quantity}
+                      </span>
+                      <button
+                        onClick={() => changeAdd(key, 1)}
+                        aria-label={`Agregar gaseosa ${flavor} ${size.label}`}
+                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
+                        style={{ background: C.mustard, color: "#fff" }}
+                      >
+                        +
+                      </button>
+                      <span
+                        className="w-16 text-right text-sm font-bold"
+                        style={{ color: quantity > 0 ? C.mustard : MUTED }}
+                      >
+                        {quantity > 0
+                          ? `+${fmt(size.price * quantity)}`
+                          : "—"}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {selectedBeverages.length > 0 && (
+              <div className="mt-2 space-y-1">
+                <div className="text-xs font-semibold" style={{ color: MUTED }}>
+                  Seleccionadas
+                </div>
+                {selectedBeverages.map(({ flavor, size, key, quantity }) => (
+                  <div
+                    key={key}
+                    className="flex items-center justify-between gap-2 text-xs"
+                    style={{ color: MUTED }}
+                  >
+                    <span>
+                      {flavor} · {size.label} × {quantity}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <strong style={{ color: C.mustard }}>
+                        {fmt(size.price * quantity)}
+                      </strong>
+                      <button
+                        type="button"
+                        onClick={() => changeAdd(key, -quantity)}
+                        aria-label={`Quitar todas las ${flavor} ${size.label}`}
+                        className="cursor-pointer font-semibold"
+                        style={{ color: C.red }}
+                      >
+                        Quitar
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         <div
-          className="px-4 py-4 flex items-center gap-3 flex-shrink-0"
+          className="flex flex-shrink-0 flex-col gap-2 px-4 py-3"
           style={{ borderTop: `1px solid ${BORDER}`, background: CARD }}
         >
-          <div
-            className="flex items-center gap-1 flex-shrink-0 rounded-2xl px-1 py-1"
-            style={{
-              background: dark
-                ? "rgba(244,238,220,0.07)"
-                : "rgba(30,30,30,0.06)",
-            }}
-          >
+          <div className="flex items-center gap-3">
+            <div
+              className="flex flex-shrink-0 items-center gap-1 rounded-2xl px-1 py-1"
+              style={{
+                background: dark
+                  ? "rgba(244,238,220,0.07)"
+                  : "rgba(30,30,30,0.06)",
+              }}
+            >
+              <button
+                onClick={() => setQty((q) => Math.max(1, q - 1))}
+                className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
+                style={{ color: TEXT }}
+              >
+                −
+              </button>
+              <span
+                className="w-5 text-center font-black"
+                style={{ color: TEXT }}
+              >
+                {qty}
+              </span>
+              <button
+                onClick={() => setQty((q) => q + 1)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
+                style={{ color: TEXT }}
+              >
+                +
+              </button>
+            </div>
             <button
-              onClick={() => setQty((q) => Math.max(1, q - 1))}
-              className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
-              style={{ color: TEXT }}
+              onClick={handleAdd}
+              className="flex flex-1 cursor-pointer items-center justify-between rounded-2xl px-5 py-3.5 text-sm font-bold hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
             >
-              −
-            </button>
-            <span
-              className="w-5 text-center font-black"
-              style={{ color: TEXT }}
-            >
-              {qty}
-            </span>
-            <button
-              onClick={() => setQty((q) => q + 1)}
-              className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
-              style={{ color: TEXT }}
-            >
-              +
+              <span>Agregar al carrito</span>
+              <span className="font-extrabold">{fmt(total)}</span>
             </button>
           </div>
-          <button
-            onClick={handleAdd}
-            className="flex-1 py-3.5 rounded-2xl font-bold text-sm cursor-pointer flex items-center justify-between px-5 hover:opacity-90"
-            style={{ background: C.mustard, color: "#fff" }}
-          >
-            <span>Agregar al carrito</span>
-            <span className="font-extrabold">{fmt(total)}</span>
-          </button>
+          {onCheckout && (
+            <button
+              type="button"
+              onClick={handleCheckout}
+              className="w-full cursor-pointer rounded-2xl py-3 text-sm font-bold hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Finalizar compra
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -3520,6 +3711,7 @@ function GuestMenuPage({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={addToCart}
+          onCheckout={onCheckout}
           dark={false}
         />
       )}
@@ -3543,6 +3735,10 @@ const itemTotal = (i: CartItem) =>
   i.qty
 const cartTotal = (items: CartItem[]) =>
   items.reduce((s, i) => s + itemTotal(i), 0)
+const activeCartItemsFirst = (items: CartItem[]) => [
+  ...items.filter((item) => item.qty > 0),
+  ...items.filter((item) => item.qty === 0),
+]
 
 function loadLS<T>(key: string, fallback: T): T {
   try {
@@ -3870,12 +4066,15 @@ function CartSummary({
     "Hamburguesa preparada al momento con ingredientes frescos."
   const updateQty = (id: number, d: number) =>
     setCart((c) =>
-      c.map((i) =>
-        i.id === id ? { ...i, qty: Math.max(0, i.qty + d) } : i,
+      activeCartItemsFirst(
+        c.map((i) =>
+          i.id === id ? { ...i, qty: Math.max(0, i.qty + d) } : i,
+        ),
       ),
     )
   const removeItem = (id: number) =>
     setCart((c) => c.filter((item) => item.id !== id))
+  const orderedCart = activeCartItemsFirst(cart)
   if (cart.length === 0)
     return (
       <div className="text-center py-8">
@@ -3888,7 +4087,7 @@ function CartSummary({
   return (
     <div>
       <div className="space-y-3 mb-4 max-h-[55vh] overflow-y-auto pr-1">
-        {cart.map((item) => (
+        {orderedCart.map((item) => (
           <div
             key={item.id}
             className="p-3 rounded-xl"
@@ -4273,7 +4472,7 @@ function CheckoutPage({
       style={{ background: "#FAF5E8", fontFamily: "Poppins, sans-serif" }}
     >
       <header
-        className="sticky top-0 z-30"
+        className="fixed inset-x-0 top-0 z-50"
         style={{
           background: "rgba(250,245,232,0.95)",
           borderBottom: `1px solid ${LINE}`,
@@ -4306,13 +4505,14 @@ function CheckoutPage({
           </span>
         </div>
       </header>
+      <div className="h-16" aria-hidden="true" />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <h1
           className="font-black text-2xl sm:text-3xl text-center mb-6"
           style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
         >
-          Finalizar pedido
+          Finalizar mi pedido
         </h1>
 
         {/* Stepper */}
@@ -6127,6 +6327,7 @@ function ClientApp({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={addToCart}
+          onCheckout={onCheckout}
           dark={dark}
         />
       )}
@@ -7165,6 +7366,14 @@ function LandingPage({
           </svg>
         </a>
       )}
+      <button
+        type="button"
+        onClick={goToMenu}
+        className="fixed bottom-28 left-4 right-20 z-40 rounded-full py-3 text-sm font-bold text-white shadow-lg sm:hidden"
+        style={{ background: C.mustard }}
+      >
+        Pide Ahora
+      </button>
 
       {infoProduct && (
         <ProductInfoModal
@@ -7182,6 +7391,7 @@ function LandingPage({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={addToCart}
+          onCheckout={onCheckout}
           dark={dark}
         />
       )}
@@ -7809,9 +8019,11 @@ function AdminProfilePage({
 
 function AdminPanel({
   onSwitchToClient,
+  onLogout,
   user,
 }: {
   onSwitchToClient: () => void
+  onLogout: () => void
   user: User | null
 }) {
   const [theme, setTheme] = useState<Theme>("light")
@@ -7827,6 +8039,10 @@ function AdminPanel({
   const dropRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const sidebarScrollTop = useRef(0)
+  const preserveSidebarScroll = useCallback((node: HTMLElement | null) => {
+    if (node) node.scrollTop = sidebarScrollTop.current
+  }, [])
   const dark = theme === "dark"
   const t = tk(dark)
   // Orders placed by clients in the web store
@@ -13083,6 +13299,10 @@ function AdminPanel({
         </button>
       </div>
       <nav
+        ref={preserveSidebarScroll}
+        onScroll={(event) => {
+          sidebarScrollTop.current = event.currentTarget.scrollTop
+        }}
         className="flex-1 overflow-y-auto py-3 px-2"
         style={{ scrollbarWidth: "none" }}
       >
@@ -13096,7 +13316,6 @@ function AdminPanel({
                 onClick={() => {
                   if (leaf) {
                     setSection(g.key as AdminSection)
-                    setSidebarOpen(false)
                   } else toggleGrp(g.key)
                 }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer"
@@ -13147,7 +13366,6 @@ function AdminPanel({
                       key={item.key}
                       onClick={() => {
                         setSection(item.key as AdminSection)
-                        setSidebarOpen(false)
                       }}
                       className="w-full text-left px-3 py-2 rounded-lg cursor-pointer"
                       style={{
@@ -13182,6 +13400,14 @@ function AdminPanel({
         >
           {Ico.globe}
           <span>{user ? "Vista de cliente" : "Ver sitio"}</span>
+        </button>
+        <button
+          onClick={onLogout}
+          className="mt-1 w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80"
+          style={{ color: C.red }}
+        >
+          {Ico.logout}
+          <span>Cerrar sesión</span>
         </button>
       </div>
     </>
@@ -13678,6 +13904,7 @@ export default function App() {
     return (
       <AdminPanel
         onSwitchToClient={() => setPage(user ? "app" : "landing")}
+        onLogout={logout}
         user={user}
       />
     )
