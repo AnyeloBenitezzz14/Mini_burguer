@@ -1171,7 +1171,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       ["Salsas", "Salsas y aderezos", "Activa"],
     ],
     noExport: true,
-    noDelete: true,
     statusIndex: 2,
   },
   insumos: {
@@ -1374,7 +1373,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       ["Arepa Rellena", "Arepa rellena", "Activa"],
     ],
     noExport: true,
-    noDelete: true,
     statusIndex: 2,
   },
   producto: {
@@ -1438,11 +1436,6 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: [],
       },
       { key: "1", label: "Cantidad", type: "number" },
-      {
-        key: "2",
-        label: "Prioridad / número de llegada",
-        type: "number",
-      },
       { key: "3", label: "Fecha de creación", type: "date" },
       { key: "4", label: "Hora de creación", type: "time" },
     ],
@@ -1456,14 +1449,13 @@ const MOD_CFG: Record<string, ModConfig> = {
     hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13],
   },
   "producto-no-conforme": {
-    columns: ["Orden", "Producto", "Cantidad", "Motivo", "Fecha"],
+    columns: ["Orden", "Productos o insumos dañados", "Cantidad", "Motivo", "Fecha", "Estado"],
     fields: [
-      { key: "0", label: "ID Orden producción", type: "text" },
-      { key: "1", label: "Producto o producto de insumo", type: "select", options: [] },
-      { key: "2", label: "Productos que se dañaron", type: "textarea" },
-      { key: "3", label: "Cantidad no conforme", type: "number" },
+      { key: "0", label: "Productos o insumos dañados", type: "textarea" },
+      { key: "1", label: "Productos o insumos que se dañaron", type: "textarea" },
+      { key: "2", label: "Cantidad no conforme", type: "number" },
       {
-        key: "4",
+        key: "3",
         label: "Motivo",
         type: "select",
         options: [
@@ -1475,13 +1467,23 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Otro",
         ],
       },
-      { key: "5", label: "Fecha", type: "date" },
+      { key: "4", label: "Fecha", type: "date" },
+      { key: "5", label: "Observación", type: "textarea" },
+      {
+        key: "6",
+        label: "Unidad de medida (para adiciones o insumos)",
+        type: "select",
+        options: ["und", "kg", "g", "L", "ml", "paq"],
+      },
     ],
     seed: [
-      ["OP-0085", "Mini", "Mini", 1, "Tiempo superado", "2024-01-20"],
-      ["OP-0088", "Doble", "Doble", 2, "Error en preparación", "2024-01-21"],
+      ["OP-0085", "Mini", "Mini", 1, "Tiempo superado", "2024-01-20", "", "und", "Activo"],
+      ["OP-0088", "Doble", "Doble", 2, "Error en preparación", "2024-01-21", "", "und", "Activo"],
     ],
-    hiddenCellIndexes: [2],
+    autoId: true,
+    noDelete: true,
+    statusIndex: 8,
+    hiddenCellIndexes: [2, 6, 7],
   },
   clientes: {
     columns: ["Nombre", "Número de documento", "Teléfono", "Correo", "Estado"],
@@ -1781,10 +1783,10 @@ const SIDEBAR_MENU = [
     color: C.amber,
   },
   {
-    key: "configuracion",
-    label: "Configuración",
-    icon: Ico.settings,
-    children: [{ key: "roles", label: "Roles y permisos" }],
+    key: "roles",
+    label: "Roles y permisos",
+    icon: Ico.shield,
+    children: [],
     color: "#A78BFA",
   },
   {
@@ -3543,15 +3545,26 @@ function OrderList({
         Aún no has hecho pedidos.
       </div>
     )
+  const formatOrderDescription = (order: Order) => {
+    const days = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
+    const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    // Generate a consistent imaginary date based on the order ID
+    const idMatch = order.id.match(/\d+/)
+    const seed = idMatch ? parseInt(idMatch[0], 10) : Math.floor(Math.random() * 1000)
+    const dayIndex = seed % 7
+    const day = (seed % 28) + 1
+    const month = seed % 12
+    return `Pedido del ${days[dayIndex]} ${day} de ${months[month]}`
+  }
+
   return (
     <div className="space-y-3">
       {orders.map((o) => {
         const badge = badgeSt(o.status)
         return (
-          <button
+          <div
             key={o.id}
-            onClick={() => onSelect(o)}
-            className="w-full text-left p-4 rounded-2xl cursor-pointer hover:opacity-90"
+            className="w-full text-left p-4 rounded-2xl"
             style={{
               background: dark ? "#1E1C18" : "#fff",
               border: `1px solid ${BORDER}`,
@@ -3560,11 +3573,16 @@ function OrderList({
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="font-bold text-sm" style={{ color: TEXT }}>
-                  {o.id}
+                  {formatOrderDescription(o)}
                 </div>
                 <div className="text-xs truncate" style={{ color: MUTED }}>
-                  {o.date} · {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
+                  {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
                 </div>
+                {(o.items.some((i) => i.sauces?.length || i.additions?.length)) && (
+                  <div className="text-[11px] mt-1" style={{ color: C.mustard }}>
+                    Incluye personalizaciones
+                  </div>
+                )}
               </div>
               <div className="text-right flex-shrink-0">
                 <div className="font-bold" style={{ color: C.mustard }}>
@@ -3578,7 +3596,14 @@ function OrderList({
                 </span>
               </div>
             </div>
-          </button>
+            <button
+              onClick={() => onSelect(o)}
+              className="mt-3 w-full py-2 rounded-xl text-xs font-bold cursor-pointer hover:opacity-90"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              Ver detalle
+            </button>
+          </div>
         )
       })}
     </div>
@@ -3664,33 +3689,38 @@ function OrderDetailModal({
           ))}
         </div>
 
-        <div className="space-y-2 mb-4">
+        <div className="space-y-3 mb-4">
           {order.items.map((i) => (
             <div
               key={i.id}
-              className="flex justify-between gap-3 text-sm pb-2"
-              style={{ borderBottom: `1px solid ${BORDER}` }}
+              className="p-3 rounded-xl"
+              style={{ background: dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)" }}
             >
-              <div>
+              <div className="flex justify-between gap-3 text-sm">
                 <div className="font-semibold">
-                  {i.name} x{i.qty}
+                  {i.name} <span style={{ color: MUTED }}>x{i.qty}</span>
                 </div>
-                {!!i.sauces?.length && (
-                  <div className="text-xs" style={{ color: MUTED }}>
-                    Salsas: {i.sauces.join(", ")}
-                  </div>
-                )}
-                {!!i.additions?.length && (
-                  <div className="text-xs" style={{ color: MUTED }}>
-                    Adiciones:{" "}
-                    {i.additions.map((a) => `${a.name} x${a.qty}`).join(", ")}
-                  </div>
-                )}
+                <span className="font-semibold">{fmt(itemTotal(i))}</span>
               </div>
-              <span className="font-semibold">{fmt(itemTotal(i))}</span>
+              <div className="mt-2 space-y-1 text-xs" style={{ color: MUTED }}>
+                <div className="flex justify-between gap-3">
+                  <span>Precio ({i.qty} x {fmt(i.price)})</span>
+                  <span>{fmt(i.price * i.qty)}</span>
+                </div>
+                <div>
+                  <span className="font-semibold" style={{ color: TEXT }}>Salsas:</span>{" "}
+                  {i.sauces?.length ? i.sauces.join(", ") : "Sin salsas adicionales"}
+                </div>
+                <div>
+                  <span className="font-semibold" style={{ color: TEXT }}>Adiciones:</span>{" "}
+                  {i.additions?.length
+                    ? i.additions.map((a) => `${a.name} x${a.qty} (+${fmt(a.price * a.qty * i.qty)})`).join(", ")
+                    : "Sin adiciones"}
+                </div>
+              </div>
             </div>
           ))}
-          <div className="flex justify-between font-black">
+          <div className="flex justify-between font-black pt-2" style={{ borderTop: `2px solid ${BORDER}` }}>
             <span>Total</span>
             <span style={{ color: C.mustard }}>{fmt(order.total)}</span>
           </div>
@@ -3990,7 +4020,7 @@ function CheckoutPage({
         }
     : checkoutStep === 2
       ? {
-          label: "Continuar a revisión",
+          label: "Confirma tus datos",
           onClick: () => setCheckoutStep(3),
           disabled: !delivFilled || !payReady,
         }
@@ -4028,7 +4058,7 @@ function CheckoutPage({
             className="font-black text-2xl mb-2"
             style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
           >
-            ¡Pedido enviado!
+            ¡Pedido confirmado!
           </h2>
           <p className="text-sm mb-6" style={{ color: MUTED }}>
             {placedTotal >= APPROVAL_MIN
@@ -4585,13 +4615,7 @@ function CheckoutPage({
                     ))}
                   </div>
                 ))}
-                <p className="text-xs" style={{ color: MUTED }}>
-                  {delivForm.pago === "Efectivo"
-                    ? "Pagarás en efectivo al recibir tu pedido."
-                    : `Enviaremos tu comprobante de ${delivForm.pago} junto con el pedido.`}
-                  {subtotal >= APPROVAL_MIN &&
-                    ` Como tu pedido supera ${fmt(APPROVAL_MIN)}, El Parche debe confirmarlo antes de prepararlo.`}
-                </p>
+
               </section>
             )}
           </div>
@@ -4637,9 +4661,10 @@ function CheckoutPage({
             )}
             {user && (
               <button
-                onClick={() => setPickerOpen(true)}
-                className="text-xs font-semibold cursor-pointer hover:opacity-70 mb-4"
+                onClick={() => !voucher && setPickerOpen(true)}
+                className={`text-xs font-semibold mb-4 ${voucher ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:opacity-70"}`}
                 style={{ color: C.mustard }}
+                title={voucher ? "No puedes agregar productos después de subir el comprobante" : "Agregar productos"}
               >
                 + Agregar productos
               </button>
@@ -5183,17 +5208,17 @@ function ProfilePage({
         <div className="flex flex-col gap-2">
           <button
             onClick={() => setShowLogoutModal(true)}
-            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
-            style={{ background: `${C.red}12`, color: C.red }}
+            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer hover:opacity-90"
+            style={{ background: `${C.mustard}15`, color: C.mustard }}
           >
             Cerrar sesión
           </button>
           <button
             onClick={() => setShowDeleteModal(true)}
-            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer hover:opacity-90"
             style={{
-              background: "rgba(30,30,30,0.05)",
-              color: "rgba(30,30,30,0.4)",
+              background: C.red,
+              color: "#fff",
             }}
           >
             Eliminar cuenta
@@ -5274,12 +5299,10 @@ function ProfilePage({
               className="font-black text-lg mb-2"
               style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
             >
-              ¿Deseas confirmar la eliminación de la cuenta?
+              ¿Eliminar cuenta?
             </h3>
             <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.5)" }}>
-              Puedes eliminar la cuenta porque no hay bloqueos activos. Esta
-              acción es permanente y no se puede deshacer; perderás tus datos y
-              pedidos.
+              Esta acción es permanente y no se puede deshacer. Perderás todos tus datos, pedidos y acceso a la cuenta.
             </p>
             <div className="flex gap-3">
               <button
@@ -6825,6 +6848,458 @@ const ADMIN_NOTIFICATIONS: AdminNotification[] = [
   },
 ]
 
+function AdminProfilePage({
+  user,
+  onClose,
+  onUpdateUser,
+}: {
+  user: User
+  onClose: () => void
+  onUpdateUser: (u: User) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({
+    name: user.name,
+    email: user.email,
+    phone: user.phone || "",
+    cedula: user.cedula || "",
+  })
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [addresses, setAddresses] = useState<string[]>(
+    user.addresses || ["Cra 58 #42-10, Bello, Antioquia"],
+  )
+  const [newAddr, setNewAddr] = useState("")
+  const [addingAddr, setAddingAddr] = useState(false)
+  const [editingAddrIdx, setEditingAddrIdx] = useState<number | null>(null)
+  const [editingAddrValue, setEditingAddrValue] = useState("")
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [profilePhoto, setProfilePhoto] = useState<string | undefined>(user.photo)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const BG = "#FAF5E8"
+  const CARD = "#fff"
+  const TEXT = "#1A1714"
+  const MUTED = "rgba(30,30,30,0.5)"
+  const BORDER = "rgba(30,30,30,0.08)"
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {}
+    if (!form.name.trim()) {
+      newErrors.name = "El nombre completo es obligatorio para identificar tu cuenta."
+    }
+    if (!form.email.trim()) {
+      newErrors.email = "El correo electrónico es obligatorio para iniciar sesión y recibir notificaciones."
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
+    }
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
+  const save = () => {
+    if (!validateForm()) return
+    onUpdateUser({ ...user, ...form, addresses, photo: profilePhoto })
+    setEditing(false)
+  }
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setProfilePhoto(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const startEditAddress = (idx: number) => {
+    setEditingAddrIdx(idx)
+    setEditingAddrValue(addresses[idx])
+  }
+
+  const saveEditAddress = () => {
+    if (editingAddrIdx !== null && editingAddrValue.trim()) {
+      setAddresses((arr) =>
+        arr.map((a, i) => (i === editingAddrIdx ? editingAddrValue.trim() : a)),
+      )
+    }
+    setEditingAddrIdx(null)
+    setEditingAddrValue("")
+  }
+
+  const deleteAddress = (idx: number) => {
+    if (addresses.length <= 1) return
+    setAddresses((arr) => arr.filter((_, i) => i !== idx))
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl"
+        style={{ background: BG, fontFamily: "Poppins, sans-serif" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h1
+              className="font-black text-2xl"
+              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            >
+              Mi perfil
+            </h1>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
+              style={{ background: "rgba(30,30,30,0.06)", color: MUTED }}
+            >
+              {Ico.x}
+            </button>
+          </div>
+          {/* Avatar */}
+          <div
+            className="flex flex-col items-center mb-6 p-6 rounded-3xl"
+            style={{ background: CARD, boxShadow: "0 2px 16px rgba(0,0,0,0.07)" }}
+          >
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-20 h-20 rounded-full flex items-center justify-center text-4xl mb-1 cursor-pointer hover:opacity-80 overflow-hidden"
+              style={{
+                background: `${C.mustard}18`,
+                border: `2px solid ${C.mustard}`,
+              }}
+            >
+              {profilePhoto ? (
+                <img
+                  src={profilePhoto}
+                  alt="Foto de perfil"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>{user.name.charAt(0).toUpperCase()}</span>
+              )}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoChange}
+            />
+            <div
+              className="text-xs mb-3 cursor-pointer"
+              style={{ color: C.mustard }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Cambiar foto
+            </div>
+            <div
+              className="font-black text-xl"
+              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            >
+              {user.name}
+            </div>
+            <div className="text-sm mt-0.5" style={{ color: MUTED }}>
+              {user.email}
+            </div>
+            <div
+              className="text-xs mt-1 px-3 py-1 rounded-full font-semibold"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              Administrador
+            </div>
+          </div>
+          {/* Profile data */}
+          <div
+            className="p-5 rounded-2xl mb-4"
+            style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-base" style={{ color: TEXT }}>
+                Datos personales
+              </h2>
+              <button
+                onClick={() => (editing ? save() : setEditing(true))}
+                className="px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                style={{
+                  background: editing ? C.mustard : "rgba(30,30,30,0.07)",
+                  color: editing ? "#fff" : MUTED,
+                }}
+              >
+                {editing ? "Guardar" : "Editar"}
+              </button>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {editing ? (
+                <>
+                  <div>
+                    <InputField
+                      label="Nombre completo *"
+                      value={form.name}
+                      onChange={(v) => {
+                        setForm((f) => ({ ...f, name: v }))
+                        if (errors.name) setErrors((e) => ({ ...e, name: "" }))
+                      }}
+                    />
+                    {errors.name && (
+                      <p className="text-xs mt-1" style={{ color: C.red }}>
+                        {errors.name}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <InputField
+                      label="Correo *"
+                      type="email"
+                      value={form.email}
+                      onChange={(v) => {
+                        setForm((f) => ({ ...f, email: v }))
+                        if (errors.email) setErrors((e) => ({ ...e, email: "" }))
+                      }}
+                    />
+                    {errors.email && (
+                      <p className="text-xs mt-1" style={{ color: C.red }}>
+                        {errors.email}
+                      </p>
+                    )}
+                  </div>
+                  <InputField
+                    label="Teléfono"
+                    type="tel"
+                    value={form.phone}
+                    onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                  />
+                  <InputField
+                    label="Cédula"
+                    value={form.cedula}
+                    onChange={(v) => setForm((f) => ({ ...f, cedula: v }))}
+                  />
+                </>
+              ) : (
+                [
+                  ["Nombre", user.name],
+                  ["Correo", user.email],
+                  ["Teléfono", user.phone || "—"],
+                  ["Cédula", user.cedula || "—"],
+                ].map(([l, v]) => (
+                  <div key={l}>
+                    <div
+                      className="text-xs font-semibold mb-0.5"
+                      style={{ color: MUTED }}
+                    >
+                      {l}
+                    </div>
+                    <div className="text-sm font-medium" style={{ color: TEXT }}>
+                      {v}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          {/* Addresses */}
+          <div
+            className="p-5 rounded-2xl mb-4"
+            style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-base" style={{ color: TEXT }}>
+                Mis direcciones
+              </h2>
+              <button
+                onClick={() => setAddingAddr(true)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                style={{ background: `${C.mustard}15`, color: C.mustard }}
+              >
+                {Ico.plus} Agregar
+              </button>
+            </div>
+            {addresses.map((a, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 py-2.5"
+                style={{
+                  borderBottom:
+                    i < addresses.length - 1 ? `1px solid ${BORDER}` : "none",
+                }}
+              >
+                <span style={{ color: C.mustard }}>{Ico.mapPin}</span>
+                {editingAddrIdx === i ? (
+                  <div className="flex-1 flex items-center gap-2">
+                    <input
+                      value={editingAddrValue}
+                      onChange={(e) => setEditingAddrValue(e.target.value)}
+                      className="flex-1 px-2 py-1 rounded-lg text-sm outline-none"
+                      style={{
+                        background: "rgba(30,30,30,0.05)",
+                        border: `1.5px solid ${C.mustard}`,
+                        color: TEXT,
+                      }}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveEditAddress()
+                        if (e.key === "Escape") {
+                          setEditingAddrIdx(null)
+                          setEditingAddrValue("")
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={saveEditAddress}
+                      className="text-xs font-bold cursor-pointer"
+                      style={{ color: C.mustard }}
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingAddrIdx(null)
+                        setEditingAddrValue("")
+                      }}
+                      className="text-xs cursor-pointer"
+                      style={{ color: MUTED }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="flex-1 text-sm" style={{ color: TEXT }}>
+                      {a}
+                    </span>
+                    <button
+                      onClick={() => startEditAddress(i)}
+                      className="text-xs cursor-pointer mr-1"
+                      style={{ color: C.mustard }}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => deleteAddress(i)}
+                      className="text-xs cursor-pointer"
+                      style={{
+                        color: addresses.length <= 1 ? "rgba(30,30,30,0.2)" : C.red,
+                        cursor: addresses.length <= 1 ? "not-allowed" : "pointer",
+                      }}
+                      title={
+                        addresses.length <= 1
+                          ? "Debes tener al menos una dirección registrada"
+                          : "Eliminar dirección"
+                      }
+                    >
+                      Eliminar
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+            {addingAddr && (
+              <div className="flex gap-2 mt-3">
+                <input
+                  placeholder="Nueva dirección..."
+                  value={newAddr}
+                  onChange={(e) => setNewAddr(e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-xl text-sm outline-none"
+                  style={{
+                    background: "rgba(30,30,30,0.05)",
+                    border: "1.5px solid rgba(30,30,30,0.12)",
+                    color: TEXT,
+                  }}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newAddr.trim()) {
+                      setAddresses((a) => [...a, newAddr.trim()])
+                      setNewAddr("")
+                      setAddingAddr(false)
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    if (newAddr.trim()) {
+                      setAddresses((a) => [...a, newAddr.trim()])
+                      setNewAddr("")
+                      setAddingAddr(false)
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  +
+                </button>
+              </div>
+            )}
+          </div>
+          {/* Actions */}
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+              style={{
+                background: "rgba(30,30,30,0.05)",
+                color: "rgba(30,30,30,0.4)",
+              }}
+            >
+              Eliminar cuenta
+            </button>
+          </div>
+        </div>
+        {/* Delete account modal - Different alert for admin */}
+        {showDeleteModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center px-4"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+          >
+            <div
+              className="w-full max-w-xs p-6 rounded-2xl text-center"
+              style={{
+                background: "#fff",
+                boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+              }}
+            >
+              <div className="text-4xl mb-3">⚠️</div>
+              <h3
+                className="font-black text-lg mb-2"
+                style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+              >
+                ¿Eliminar cuenta de administrador?
+              </h3>
+              <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.5)" }}>
+                Esta acción es permanente y no se puede deshacer. Perderás acceso al panel de administración y todos los datos asociados a tu cuenta.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+                  style={{
+                    background: "rgba(30,30,30,0.06)",
+                    color: "rgba(30,30,30,0.5)",
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false)
+                    onClose()
+                  }}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer"
+                  style={{ background: C.red, color: "#fff" }}
+                >
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function AdminPanel({
   onSwitchToClient,
   user,
@@ -6841,6 +7316,7 @@ function AdminPanel({
   const [readNotifications, setReadNotifications] = useState<Set<number>>(
     () => new Set(),
   )
+  const [showAdminProfile, setShowAdminProfile] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -7047,6 +7523,18 @@ function AdminPanel({
     return `v${maxMajor + 1}.${maxMinor}`
   }
 
+  const getTechVersions = (productName: string) => {
+    const versions = (rows.producto || [])
+      .filter((r) => String(r[0] ?? "") === productName)
+      .map((r) => ({
+        version: String(r[6] ?? ""),
+        name: String(r[5] ?? ""),
+        insumos: String(r[7] ?? ""),
+        preparacion: String(r[8] ?? ""),
+      }))
+    return versions
+  }
+
   const getAvailableInsumos = () => {
     const sourceRows = rows.insumos || []
     const options = sourceRows
@@ -7103,10 +7591,35 @@ function AdminPanel({
   }
 
   const getNonconformingProductOptions = () => {
-    const options = (rows.produccion || [])
-      .map((row) => String(row[1] ?? "").trim())
+    const products = (rows.producto || [])
+      .map((row) => String(row[0] ?? "").trim())
       .filter(Boolean)
-    return [...new Set(options)].sort((a, b) => a.localeCompare(b))
+    const supplies = (rows.insumos || [])
+      .map((row) => String(row[0] ?? "").trim())
+      .filter(Boolean)
+    return [...new Set([...products, ...supplies])].sort((a, b) => a.localeCompare(b))
+  }
+
+  const getNonconformingItems = (row: (string | number)[] | undefined) => {
+    if (!row) return []
+    try {
+      const items = JSON.parse(String(row[2] ?? "[]"))
+      if (Array.isArray(items) && items.length) {
+        return items
+          .map((item) => ({
+            name: String(item.name ?? "").trim(),
+            quantity: Math.max(1, Number(item.quantity) || 1),
+          }))
+          .filter((item) => item.name)
+      }
+    } catch {
+      // Use the legacy product field below.
+    }
+    return String(row[1] ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => ({ name, quantity: Math.max(1, Number(row[3]) || 1) }))
   }
 
   const getProductSupplyOptions = () =>
@@ -7177,17 +7690,19 @@ function AdminPanel({
     if (sec === "insumos") {
       initialFields["7"] = "No"
     }
+    if (sec === "producto-no-conforme") {
+      initialFields["6"] = "und"
+    }
     if (sec === "clientes") {
       initialFields["6"] = "No"
       setClientFormError("")
     }
-    if (sec === "produccion") {
+    if (sec === "produccion" || sec === "producto-no-conforme") {
       const currentDateTime = getCurrentDateTimeParts()
       setProductionItems([])
       setProductionProductSelect("")
       setProductionItemQuantity("1")
       setProductionFormError("")
-      initialFields["2"] = String(getNextProductionPriority())
       initialFields["3"] = currentDateTime.date
       initialFields["4"] = currentDateTime.time
     }
@@ -7231,6 +7746,12 @@ function AdminPanel({
       setProductionItemQuantity("1")
       setProductionFormError("")
     }
+    if (sec === "producto-no-conforme") {
+      setProductionItems(getNonconformingItems(row))
+      setProductionProductSelect("")
+      setProductionItemQuantity("1")
+      setProductionFormError("")
+    }
     if (sec === "producto" && !nextForm["6"]) {
       nextForm["6"] = getAutoTechVersion(rows.producto || [])
     }
@@ -7255,14 +7776,10 @@ function AdminPanel({
     const config = MOD_CFG[sec]
     if (!config) return
 
-    if (sec === "produccion" && !productionItems.length) {
+    if ((sec === "produccion" || sec === "producto-no-conforme") && !productionItems.length) {
       setProductionFormError("Agrega al menos un producto o producto de insumo.")
       return
     }
-    if (
-      sec === "producto-no-conforme" &&
-      !getProductSupplyOptions().includes(String(formData["1"] ?? ""))
-    ) return
     if (sec === "clientes") {
       const isLocalClient = String(formData["6"] ?? "").toLowerCase() === "sí"
       const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
@@ -7326,6 +7843,8 @@ function AdminPanel({
       const prefix =
         sec === "produccion"
           ? "OP"
+          : sec === "producto-no-conforme"
+            ? "PNC"
           : sec === "ventas"
             ? "VTA"
             : sec === "pedidos"
@@ -7342,6 +7861,16 @@ function AdminPanel({
       )
     }
 
+    if (sec === "producto-no-conforme") {
+      newRow[1] = productionItems.map((item) => item.name).join(", ")
+      newRow[2] = JSON.stringify(productionItems)
+      newRow[3] = productionItems.reduce((total, item) => total + item.quantity, 0)
+      newRow[4] = formData["3"] ?? ""
+      newRow[5] = formData["4"] ?? ""
+      newRow[6] = formData["5"] ?? ""
+      newRow[7] = formData["6"] ?? "und"
+    }
+
     if (sec === "produccion") {
       const currentDateTime = getCurrentDateTimeParts()
       newRow[1] = productionItems.map((item) => item.name).join(", ")
@@ -7350,6 +7879,7 @@ function AdminPanel({
         0,
       )
       newRow[13] = JSON.stringify(productionItems)
+      newRow[3] = modal.mode === "add" ? getNextProductionPriority(rows.produccion || []) : (previousRow?.[3] ?? getNextProductionPriority(rows.produccion || []))
       newRow[6] = previousRow?.[6] ?? currentDateTime.date
       newRow[7] = previousRow?.[7] ?? currentDateTime.time
       newRow[8] = previousRow?.[8] ?? "Recibida"
@@ -7470,6 +8000,14 @@ function AdminPanel({
     )
   }
 
+  const getCategoryRecords = (section: "cat-insumos" | "cat-producto", categoryName: string) => {
+    const name = categoryName.trim().toLowerCase()
+    const relatedSection = section === "cat-insumos" ? "insumos" : "producto"
+    return (rows[relatedSection] || []).filter(
+      (record) => String(record[1] ?? "").trim().toLowerCase() === name,
+    )
+  }
+
   const getDeleteAssessment = (
     sec: string,
     row: (string | number)[] | undefined,
@@ -7538,6 +8076,24 @@ function AdminPanel({
         allowed: true,
         targetLabel: supplierLabel,
         reason: "No tiene compras de insumos registradas.",
+      }
+    }
+
+    if (sec === "cat-insumos" || sec === "cat-producto") {
+      const categoryLabel = `la categoría «${recordName}»`
+      const records = getCategoryRecords(sec, recordName)
+      if (records.length) {
+        const recordType = sec === "cat-insumos" ? "insumo" : "producto"
+        return {
+          allowed: false,
+          targetLabel: categoryLabel,
+          reason: `Tiene ${records.length} ${records.length === 1 ? recordType : `${recordType}s`} asociados. Primero reasigna o elimina esos registros para poder eliminar la categoría.`,
+        }
+      }
+      return {
+        allowed: true,
+        targetLabel: categoryLabel,
+        reason: "No tiene registros asociados.",
       }
     }
 
@@ -7990,11 +8546,19 @@ function AdminPanel({
       if (!currentRow) return current
 
       const currentDateTime = getCurrentDateTimeParts()
+      const now = new Date()
+      const formatRealTime = (date: Date) => {
+        const hours = date.getHours()
+        const minutes = date.getMinutes()
+        const seconds = date.getSeconds()
+        const period = hours >= 12 ? "PM" : "AM"
+        const hours12 = hours % 12 || 12
+        return `${hours12}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")} ${period}`
+      }
+      const realTime = formatRealTime(now)
       const updatedRow = [...currentRow]
-      updatedRow[4] = currentDateTime.date
-      updatedRow[5] = currentDateTime.time
-      updatedRow[6] = currentDateTime.date
-      updatedRow[7] = currentDateTime.time
+      updatedRow[5] = realTime
+      updatedRow[7] = realTime
       updatedRow[8] = nextStatus
       let history: { status: string; date: string; time: string }[] = []
       try {
@@ -8006,7 +8570,7 @@ function AdminPanel({
       history.push({
         status: nextStatus,
         date: currentDateTime.date,
-        time: currentDateTime.time,
+        time: realTime,
       })
       updatedRow[12] = JSON.stringify(history)
       updatedRow[11] =
@@ -8016,7 +8580,7 @@ function AdminPanel({
 
       if (nextStatus === "Terminado") {
         if (currentRow[8] !== "Terminado") {
-          updatedRow[9] = `${currentDateTime.date} ${currentDateTime.time}`
+          updatedRow[9] = `${currentDateTime.date} ${realTime}`
           const lastDeparture = Math.max(
             0,
             ...productionRows.map((row) => Number(row[10]) || 0),
@@ -8039,15 +8603,15 @@ function AdminPanel({
           updatedRow[2],
           newPriority,
           currentDateTime.date,
-          currentDateTime.time,
+          realTime,
           currentDateTime.date,
-          currentDateTime.time,
+          realTime,
           "Iniciada",
           "",
           0,
           "Sí",
           JSON.stringify([
-            { status: "Iniciada", date: currentDateTime.date, time: currentDateTime.time },
+            { status: "Iniciada", date: currentDateTime.date, time: realTime },
           ]),
           updatedRow[13],
         ]
@@ -8394,7 +8958,7 @@ function AdminPanel({
                 <div className="flex items-center gap-1">
                   <div
                     className="w-2.5 h-2.5 rounded-sm"
-                    style={{ background: "#2E7D60" }}
+                    style={{ background: "#D2A84E" }}
                   />
                   <span className="text-xs" style={{ color: t.muted }}>
                     Ventas
@@ -8486,7 +9050,7 @@ function AdminPanel({
                         <span
                           style={{
                             fontSize: "0.5rem",
-                            color: "#2E7D60",
+                            color: "#D2A84E",
                             fontWeight: 700,
                           }}
                         >
@@ -8496,7 +9060,7 @@ function AdminPanel({
                           style={{
                             width: "100%",
                             height: `${hV}px`,
-                            background: "#2E7D60",
+                            background: "#D2A84E",
                             borderRadius: "3px 3px 0 0",
                             minHeight: "4px",
                           }}
@@ -8525,8 +9089,9 @@ function AdminPanel({
                     </div>
                     <span
                       style={{
-                        color: t.subtle,
-                        fontSize: "0.5rem",
+                        color: t.text,
+                        fontSize: "0.55rem",
+                        fontWeight: 700,
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         maxWidth: "40px",
@@ -8699,6 +9264,7 @@ function AdminPanel({
       </div>
 
       <div
+        id="admin-alerts-section"
         className="mt-5 rounded-2xl overflow-hidden"
         style={{ background: t.card, border: `1px solid ${t.border}` }}
       >
@@ -8769,7 +9335,19 @@ function AdminPanel({
     const cfg = MOD_CFG[section]
     if (!cfg) return null
 
+    const searchInputRef = useRef<HTMLInputElement>(null)
     const isProducto = section === "producto"
+
+    // Keep focus on search input after re-renders
+    useEffect(() => {
+      if (searchInputRef.current) {
+        const currentValue = searchInputRef.current.value
+        searchInputRef.current.focus()
+        searchInputRef.current.value = currentValue
+        // Restore cursor position to end
+        searchInputRef.current.setSelectionRange(currentValue.length, currentValue.length)
+      }
+    }, [search[section], pg[section]])
     const noDelete = !!cfg.noDelete
     const noExp = !!cfg.noExport
     const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))
@@ -8973,6 +9551,8 @@ function AdminPanel({
               {Ico.search}
             </span>
             <input
+              ref={searchInputRef}
+              key={`search-${section}`}
               placeholder="Buscar..."
               value={search[section] || ""}
               onChange={(event) => {
@@ -9330,10 +9910,19 @@ function AdminPanel({
   }
 
   // Roles permissions matrix for create/edit
-  const RolesPermMatrix = ({ roleName }: { roleName: string }) => {
-    const perms = rolesPerms[roleName] || {}
+  const RolesPermMatrix = ({ roleName, readOnly = false }: { roleName: string; readOnly?: boolean }) => {
+    const isAdmin = roleName.toLowerCase() === "administrador"
+    const perms = isAdmin
+      ? Object.fromEntries(
+          PERMISSION_MODULES.map(({ name }) => [
+            name,
+            ["Ver", "Crear", "Editar", "Anular", "Eliminar"],
+          ]),
+        )
+      : (rolesPerms[roleName] || {})
     const commonActions = ["Ver", "Crear", "Editar"]
     const toggle = (mod: string, action: string) => {
+      if (readOnly || isAdmin) return
       setRolesPerms((rp) => {
         const cur = rp[roleName]?.[mod] || []
         const next = cur.includes(action)
@@ -9411,7 +10000,8 @@ function AdminPanel({
                       aria-label={`${action} ${name}`}
                       checked={(perms[name] || []).includes(action)}
                       onChange={() => toggle(name, action)}
-                      className="cursor-pointer"
+                      disabled={readOnly}
+                      className={readOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"}
                       style={{
                         accentColor: C.mustard,
                         width: "14px",
@@ -9494,6 +10084,8 @@ function AdminPanel({
       String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
     const formDataFields = isProduction
       ? dataFields.filter((field) => !["0", "1"].includes(field.key))
+      : isPnc
+        ? dataFields.filter((field) => !["0", "1", "2"].includes(field.key))
       : isSupply
         ? dataFields.filter(
             (field) =>
@@ -9512,7 +10104,10 @@ function AdminPanel({
     const availableProductionProducts = isProduction
       ? getAvailableProductos()
       : []
-    const availablePncProducts = isPnc ? getProductSupplyOptions() : []
+    const availablePncDamagedItems = isPnc ? getNonconformingProductOptions() : []
+    const availableItemOptions = isProduction
+      ? availableProductionProducts
+      : availablePncDamagedItems
     const clientOptions = (rows.clientes || [])
       .map((client) => String(client[0] ?? ""))
       .filter(Boolean)
@@ -10017,11 +10612,11 @@ function AdminPanel({
               </div>
             ) : (
               <>
-                {isProduction && (
+                {(isProduction || isPnc) && (
                   <section className="rounded-2xl p-4" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                     <div className="mb-3 flex items-center gap-2">
                       <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Productos de la orden</h4>
+                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>{isPnc ? "Productos o insumos que se dañaron" : "Productos de la orden"}</h4>
                     </div>
                     {productionItems.length ? (
                       <div className="mb-3 flex flex-col gap-2">
@@ -10036,15 +10631,20 @@ function AdminPanel({
                         ))}
                       </div>
                     ) : (
-                      <div className="mb-3 rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>Agrega al menos un producto o producto de insumo.</div>
+                      <div className="mb-3 rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>{isPnc ? "Agrega al menos un producto o insumo perdido." : "Agrega al menos un producto o producto de insumo."}</div>
                     )}
                     {!isView && (
                       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_100px_auto]">
                         <select value={productionProductSelect} onChange={(event) => setProductionProductSelect(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: productionProductSelect ? t.text : t.muted }}>
-                          <option value="">Selecciona un producto...</option>
-                          {availableProductionProducts.filter((product) => !productionItems.some((item) => item.name === product)).map((product) => {
-                            const isSupply = rows.producto?.some((item) => item[0] === product && item[1] === "Producto de insumo")
-                            return <option key={product} value={product}>{product}{isSupply ? " · Producto de insumo" : ""}</option>
+                          <option value="">Selecciona un producto o insumo...</option>
+                          {(isPnc
+                            ? availableItemOptions
+                            : availableItemOptions.filter((product) => !productionItems.some((item) => item.name === product)))
+                            .map((product, index) => {
+                            const isSupply = isPnc
+                              ? rows.insumos?.some((item) => item[0] === product)
+                              : rows.producto?.some((item) => item[0] === product && item[1] === "Producto de insumo")
+                            return <option key={`${product}-${index}`} value={product}>{product}{isSupply ? " · Insumo" : ""}</option>
                           })}
                         </select>
                         <input type="number" min="1" value={productionItemQuantity} onChange={(event) => setProductionItemQuantity(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
@@ -10058,7 +10658,7 @@ function AdminPanel({
                         }} className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer" style={{ background: C.mustard, color: "#fff" }}>Agregar</button>
                       </div>
                     )}
-                    <p className="mt-2 text-[10px]" style={{ color: t.muted }}>El selector incluye productos normales y productos de insumo.</p>
+                    <p className="mt-2 text-[10px]" style={{ color: t.muted }}>{isPnc ? "Selecciona todos los productos o insumos que se perdieron y agrega la cantidad de cada uno." : "El selector incluye productos normales y productos de insumo."}</p>
                     {productionFormError && <p className="mt-2 text-xs font-medium" style={{ color: C.red }}>{productionFormError}</p>}
                   </section>
                 )}
@@ -10336,9 +10936,7 @@ function AdminPanel({
                 const fieldOptions =
                   isProduction && f.key === "0"
                     ? availableProductionProducts
-                    : isPnc && f.key === "1"
-                      ? availablePncProducts
-                      : (isSales && f.key === "1") ||
+                    : (isSales && f.key === "1") ||
                           (isPedido && f.key === "0") ||
                           (isReturns && f.key === "2")
                         ? clientOptions
@@ -10795,7 +11393,7 @@ function AdminPanel({
               <RolesPermMatrix roleName={formData["0"] || ""} />
             )}
             {isRoles && isView && row && (
-              <RolesPermMatrix roleName={String(row[0])} />
+              <RolesPermMatrix roleName={String(row[0])} readOnly={true} />
             )}
           </div>
           <div
@@ -10804,12 +11402,20 @@ function AdminPanel({
           >
             <button
               onClick={() => setModal({ mode: null, section: "", idx: null })}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer transition-colors"
               style={{ background: t.input, color: t.muted }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(182,140,28,0.12)"
+                e.currentTarget.style.color = C.mustard
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = t.input
+                e.currentTarget.style.color = t.muted
+              }}
             >
               {isView ? "Cerrar" : "Cancelar"}
             </button>
-            {isView && isPurchaseModule && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && (
+            {isView && isPurchaseModule && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && (
               <button
                 onClick={() => openEdit(modal.section, modal.idx!)}
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
@@ -11626,6 +12232,9 @@ function AdminPanel({
                       onClick={() => {
                         setSection("dashboard")
                         setNotificationsOpen(false)
+                        setTimeout(() => {
+                          document.getElementById("admin-alerts-section")?.scrollIntoView({ behavior: "smooth", block: "start" })
+                        }, 100)
                       }}
                       className="w-full cursor-pointer text-center text-xs font-semibold"
                       style={{ color: C.mustard }}
@@ -11693,6 +12302,17 @@ function AdminPanel({
                   <button
                     onClick={() => {
                       setProfileOpen(false)
+                      setShowAdminProfile(true)
+                    }}
+                    className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-xs cursor-pointer"
+                    style={{ color: C.mustard }}
+                  >
+                    {Ico.user}
+                    <span>Mi perfil</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false)
                       onSwitchToClient()
                     }}
                     className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-xs cursor-pointer"
@@ -11721,6 +12341,20 @@ function AdminPanel({
       <QuickClientModal />
       <AnulModal />
       <DelModal />
+      {showAdminProfile && user && (
+        <AdminProfilePage
+          user={user}
+          onClose={() => setShowAdminProfile(false)}
+          onUpdateUser={(u) => {
+            // Update user in localStorage and state
+            const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
+            const updatedUser = saved ? { ...u, ...saved, role: u.role } : u
+            saveLS(`profile:${u.email.toLowerCase()}`, updatedUser)
+            // Dispatch a custom event to notify the App component
+            window.dispatchEvent(new CustomEvent("admin-user-updated", { detail: updatedUser }))
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -11736,6 +12370,17 @@ export default function App() {
   const [clientView, setClientView] = useState<"menu" | "orders">("menu")
 
   useEffect(() => saveLS("cart", cart), [cart])
+
+  // Listen for admin user updates from the AdminProfilePage
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent
+      const updatedUser = customEvent.detail as User
+      setUser(updatedUser)
+    }
+    window.addEventListener("admin-user-updated", handler)
+    return () => window.removeEventListener("admin-user-updated", handler)
+  }, [])
 
   // Re-read on every render so status changes made in the admin panel show up
   const orders = user
@@ -11882,7 +12527,18 @@ export default function App() {
   return (
     <LandingPage
       onLogin={() => setPage("login")}
-      onAdmin={() => setPage("admin")}
+      onAdmin={() => {
+        // Create a default admin user if none exists
+        if (!user) {
+          const adminUser: User = {
+            name: "Admin Parche",
+            email: "admin@parche.co",
+            role: "admin",
+          }
+          updateUser(adminUser)
+        }
+        setPage("admin")
+      }}
       onGuestMenu={goGuestMenu}
       onCheckout={goCheckout}
       cart={cart}
