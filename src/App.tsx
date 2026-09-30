@@ -6973,6 +6973,8 @@ function AdminPanel({
   const [quickClientOpen, setQuickClientOpen] = useState(false)
   const [quickClientForm, setQuickClientForm] = useState<Record<string, string>>({})
   const [clientFormError, setClientFormError] = useState("")
+  // Validation message for the insumo's technical sheet (producto de insumo)
+  const [supplyFormError, setSupplyFormError] = useState("")
   const [quickClientError, setQuickClientError] = useState("")
   const [delTarget, setDelTarget] = useState<{
     section: string
@@ -7176,6 +7178,7 @@ function AdminPanel({
     }
     if (sec === "insumos") {
       initialFields["7"] = "No"
+      setSupplyFormError("")
     }
     if (sec === "clientes") {
       initialFields["6"] = "No"
@@ -7225,6 +7228,7 @@ function AdminPanel({
     )
     if (sec === "clientes") setClientFormError("")
     if (sec === "compras") resetPurchasePicker()
+    if (sec === "insumos") setSupplyFormError("")
     if (sec === "produccion") {
       setProductionItems(getProductionOrderItems(row))
       setProductionProductSelect("")
@@ -7278,6 +7282,15 @@ function AdminPanel({
         return
       }
     }
+    if (sec === "insumos" && String(formData["7"] ?? "").toLowerCase() === "sí") {
+      // A producto de insumo must be saved together with its technical sheet
+      if (!String(formData["0"] ?? "").trim())
+        return setSupplyFormError("Escribe el nombre del insumo.")
+      if (!String(formData["10"] ?? "").trim())
+        return setSupplyFormError("Ficha técnica: elige al menos un insumo principal.")
+      if (!String(formData["11"] ?? "").trim())
+        return setSupplyFormError("Ficha técnica: escribe cómo se prepara.")
+    }
     if (sec === "compras") {
       if (!String(formData["0"] ?? "").trim()) {
         setPurchaseFormError("Selecciona el proveedor.")
@@ -7305,6 +7318,15 @@ function AdminPanel({
         getAutoTechVersion(rows.producto || [])
       newRow[7] = String(formData["7"] || "").trim()
       newRow[8] = String(formData["8"] || "").trim()
+    }
+
+    if (sec === "insumos") {
+      if (String(newRow[7]).toLowerCase() === "sí") {
+        newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
+        newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"
+      } else {
+        newRow[8] = newRow[9] = newRow[10] = newRow[11] = ""
+      }
     }
 
     if (sec === "compras") {
@@ -9531,16 +9553,17 @@ function AdminPanel({
             "11": "",
           }
         }
-        const productName = current["0"] || "Producto de insumo"
+        // Sheet name is filled from the insumo name on save if left empty
         return {
           ...current,
           "7": "Sí",
-          "8": `Ficha técnica - ${productName}`,
+          "8": "",
           "9": "v1.0",
-          "10": productName,
+          "10": "",
           "11": "",
         }
       })
+      setSupplyFormError("")
     }
 
     return (
@@ -10065,6 +10088,140 @@ function AdminPanel({
                 {formDataFields.map((f) => {
                 if (isView && isPurchase) return null // the purchase ticket shows everything
                 if (isView && isPurchaseModule && f.key === "0") return null // shown in the header
+                // Insumo technical sheet (fields 8-11) rendered as one card at field "8"
+                if (isSupply && ["9", "10", "11"].includes(f.key)) return null
+                if (isSupply && f.key === "8") {
+                  if (!showSupplyTechnicalSheet) return null
+                  const src = (key: string) => String((isView ? row?.[Number(key)] : formData[key]) ?? "")
+                  const supplyName = src("0").trim() || "este insumo"
+                  const mainSupplies = splitList(src("10"))
+                  const setSheet = (key: string, value: string) => {
+                    setSupplyFormError("")
+                    setFormData((current) => ({ ...current, [key]: value }))
+                  }
+                  const sheetControl = { background: t.card, border: `1.5px solid ${t.inputB}`, color: t.text }
+                  return (
+                    <section
+                      key="ficha-tecnica"
+                      className="rounded-xl p-4 sm:col-span-2"
+                      style={{ background: `${C.mustard}0D`, border: `1.5px solid ${C.mustard}55` }}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>
+                            Ficha técnica · Producto de insumo
+                          </div>
+                          <div className="text-sm font-semibold break-words" style={{ color: t.text }}>
+                            {src("8").trim() || `Ficha técnica - ${supplyName}`}
+                          </div>
+                        </div>
+                        <span
+                          className="rounded-full px-2.5 py-1 text-[10px] font-bold"
+                          style={{ background: `${C.mustard}20`, color: C.mustard }}
+                        >
+                          {src("9") || "v1.0"}
+                        </span>
+                      </div>
+                      {!isView && (
+                        <p className="mt-1 text-xs" style={{ color: t.muted }}>
+                          Esta ficha se crea junto con el insumo y también aparecerá en el módulo Productos.
+                        </p>
+                      )}
+                      <div className="mt-4 grid gap-3">
+                        {!isView && (
+                          <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
+                            Nombre de la ficha
+                            <input
+                              value={formData["8"] ?? ""}
+                              onChange={(e) => setSheet("8", e.target.value)}
+                              placeholder={`Ficha técnica - ${supplyName}`}
+                              className="rounded-xl px-3 py-2.5 text-sm outline-none"
+                              style={sheetControl}
+                            />
+                          </label>
+                        )}
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                            Insumos principales{!isView && " *"}
+                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            {mainSupplies.length === 0 ? (
+                              <span className="rounded-full px-2.5 py-1 text-xs" style={{ background: t.input, color: t.muted }}>
+                                Sin insumos seleccionados
+                              </span>
+                            ) : (
+                              mainSupplies.map((name) =>
+                                isView ? (
+                                  <span
+                                    key={name}
+                                    className="rounded-full px-2.5 py-1 text-xs font-semibold"
+                                    style={{ background: `${C.mustard}15`, color: C.mustard }}
+                                  >
+                                    {name}
+                                  </span>
+                                ) : (
+                                  <button
+                                    key={name}
+                                    type="button"
+                                    aria-label={`Quitar ${name} de la ficha`}
+                                    onClick={() => setSheet("10", mainSupplies.filter((n) => n !== name).join(", "))}
+                                    className="flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                                    style={{ background: `${C.mustard}15`, color: C.mustard, border: `1px solid ${C.mustard}35` }}
+                                  >
+                                    {name} <span aria-hidden="true">×</span>
+                                  </button>
+                                ),
+                              )
+                            )}
+                          </div>
+                          {!isView && (
+                            <select
+                              value=""
+                              onChange={(e) => {
+                                if (e.target.value) setSheet("10", [...mainSupplies, e.target.value].join(", "))
+                              }}
+                              className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                              style={{ ...sheetControl, color: t.muted }}
+                            >
+                              <option value="">+ Agregar insumo a la ficha...</option>
+                              {getAvailableInsumos()
+                                .filter((name) => !mainSupplies.includes(name))
+                                .map((name) => (
+                                  <option key={name} value={name}>
+                                    {name}
+                                  </option>
+                                ))}
+                            </select>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                            Cómo se prepara{!isView && " *"}
+                          </span>
+                          {isView ? (
+                            <div className="text-sm whitespace-pre-line break-words" style={{ color: t.text }}>
+                              {src("11") || "—"}
+                            </div>
+                          ) : (
+                            <textarea
+                              value={formData["11"] ?? ""}
+                              onChange={(e) => setSheet("11", e.target.value)}
+                              rows={3}
+                              placeholder={"1. Recibir y revisar el insumo.\n2. Porcionar.\n3. Almacenar y servir."}
+                              className="resize-none rounded-xl px-3 py-2.5 text-sm outline-none"
+                              style={sheetControl}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      {!isView && supplyFormError && (
+                        <p className="mt-3 text-xs font-medium" style={{ color: C.red }} role="alert">
+                          {supplyFormError}
+                        </p>
+                      )}
+                    </section>
+                  )
+                }
                 // Purchase form: subtotal/total are computed from the items below
                 if (isPurchase && (f.key === "3" || f.key === "4")) return null
                 if (isPurchase && f.key === "6") {
@@ -10390,18 +10547,6 @@ function AdminPanel({
                 }
                 return (
                   <Fragment key={f.key}>
-                  {isSupply && f.key === "8" && showSupplyTechnicalSheet && (
-                    <div className="mt-1 border-t pt-4 sm:col-span-2" style={{ borderColor: t.border }}>
-                      <div className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
-                        Ficha técnica del producto de insumo
-                      </div>
-                      {!isView && (
-                        <p className="mt-1 text-xs" style={{ color: t.muted }}>
-                          Completa la ficha como en el formulario de productos.
-                        </p>
-                      )}
-                    </div>
-                  )}
                   <div
                     className={`flex min-w-0 flex-col gap-1.5 ${isPurchaseModule && isWideField(f) ? "sm:col-span-2" : ""}`}
                   >
