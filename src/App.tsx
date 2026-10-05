@@ -1802,6 +1802,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [
       ["DEV-001", "VTA-0305", "Ana López", "Ana López", "Reposición", "2024-01-19"],
     ],
+    noDelete: true,
     noExport: true,
     hiddenCellIndexes: [1, 3],
   },
