@@ -3294,49 +3294,6 @@ function AddToCartModal({
   )
 }
 
-function AddedCartCard({
-  onContinue,
-  onCheckout,
-}: {
-  onContinue: () => void
-  onCheckout: () => void
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
-      style={{
-        background: "rgba(25,21,18,0.38)",
-        backdropFilter: "blur(3px)",
-      }}
-      onClick={onContinue}
-    >
-      <div
-        className="w-full max-w-lg rounded-3xl p-8 flex flex-col gap-4"
-        style={{
-          background: "#fff",
-          boxShadow: "0 24px 70px rgba(25,21,18,0.28)",
-        }}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <button
-          onClick={onContinue}
-          className="w-full py-4 rounded-full text-sm font-bold cursor-pointer hover:opacity-85 transition-opacity"
-          style={{ border: `1.5px solid ${C.mustard}`, color: C.mustard }}
-        >
-          Elegir más productos
-        </button>
-        <button
-          onClick={onCheckout}
-          className="w-full py-4 rounded-full text-sm font-bold cursor-pointer hover:opacity-90 transition-opacity"
-          style={{ background: C.mustard, color: "#fff" }}
-        >
-          Finalizar compra
-        </button>
-      </div>
-    </div>
-  )
-}
-
 // ── Product Catalog Grid (shared, landing + client) ────────────────────────────
 function ProductCatalog({
   onInfoClick,
@@ -3588,7 +3545,6 @@ function GuestMenuPage({
 }) {
   const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
-  const [showAddedCartActions, setShowAddedCartActions] = useState(false)
   const cartCount = cart.reduce((sum, item) => sum + item.qty, 0)
   const addToCart = (
     product: Product,
@@ -3609,7 +3565,6 @@ function GuestMenuPage({
         additions,
       },
     ])
-    setShowAddedCartActions(true)
     setAddProduct(null)
   }
 
@@ -3713,12 +3668,6 @@ function GuestMenuPage({
           onAdd={addToCart}
           onCheckout={onCheckout}
           dark={false}
-        />
-      )}
-      {showAddedCartActions && (
-        <AddedCartCard
-          onContinue={() => setShowAddedCartActions(false)}
-          onCheckout={onCheckout}
         />
       )}
     </div>
@@ -5995,7 +5944,6 @@ function ClientApp({
   const [profileOpen, setProfileOpen] = useState(false)
   const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
-  const [showAddedCartActions, setShowAddedCartActions] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
   const dark = theme === "dark"
   const BG = dark ? "#131210" : "#FAF5E8"
@@ -6032,7 +5980,6 @@ function ClientApp({
         additions,
       },
     ])
-    setShowAddedCartActions(true)
     setAddProduct(null)
   }
   const quickAdd = (p: Product) =>
@@ -6331,13 +6278,6 @@ function ClientApp({
           dark={dark}
         />
       )}
-      {showAddedCartActions && (
-        <AddedCartCard
-          onContinue={() => setShowAddedCartActions(false)}
-          onCheckout={onCheckout}
-        />
-      )}
-
       {/* Quick-add feedback suppressed — quickAdd used from ProductCatalog + button */}
       <div style={{ display: "none" }} onClick={() => quickAdd(PRODUCTS[0])} />
     </div>
@@ -6367,7 +6307,6 @@ function LandingPage({
   const [legalModal, setLegalModal] = useState<"envios" | "legal" | null>(null)
   const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
-  const [showAddedCartActions, setShowAddedCartActions] = useState(false)
   const BG = dark ? "#13110E" : "#FAF4E8"
   const TEXT = dark ? "#F0E8D6" : "#18140A"
   const MUTED = dark ? "rgba(240,232,214,0.48)" : "rgba(24,20,10,0.5)"
@@ -6402,7 +6341,6 @@ function LandingPage({
         additions,
       },
     ])
-    setShowAddedCartActions(true)
     setAddProduct(null)
   }
   const NAVLINKS = [
@@ -7395,13 +7333,6 @@ function LandingPage({
           dark={dark}
         />
       )}
-      {showAddedCartActions && (
-        <AddedCartCard
-          onContinue={() => setShowAddedCartActions(false)}
-          onCheckout={onCheckout}
-        />
-      )}
-
       {legalModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center px-4"
