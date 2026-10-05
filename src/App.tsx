@@ -1563,6 +1563,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     columns: [
       "Venta",
       "Cliente",
+      "Fecha",
       "Total",
       "Estado de venta",
       "Estado del pedido",
@@ -1644,7 +1645,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     noDelete: true,
     autoId: true,
-    hiddenCellIndexes: [1, 3, 4, 5, 6, 9],
+    hiddenCellIndexes: [1, 4, 5, 6, 9, 11, 12],
   },
   pedidos: {
     columns: [
@@ -1801,6 +1802,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [
       ["DEV-001", "VTA-0305", "Ana López", "Ana López", "Reposición", "2024-01-19"],
     ],
+    noDelete: true,
     noExport: true,
     hiddenCellIndexes: [1, 3],
   },
@@ -8608,6 +8610,13 @@ function AdminPanel({
       window.alert("Agrega al menos un producto al pedido.")
       return
     }
+    if (sec === "cat-producto") {
+      const categoryName = String(formData["0"] ?? "").trim()
+      if (!categoryName) {
+        window.alert("Escribe el nombre de la categoría.")
+        return
+      }
+    }
     if (sec === "producto") {
       const invalidIngredient = technicalIngredients.find((ingredient) => {
         const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
@@ -8672,6 +8681,7 @@ function AdminPanel({
       if (Number.isFinite(index)) newRow[index] = formData[field.key] ?? ""
       else newRow.push(formData[field.key] ?? "")
     })
+    if (sec === "cat-producto") newRow[0] = String(newRow[0] ?? "").trim()
 
     if (sec === "producto") {
       newRow[6] =
@@ -8962,6 +8972,18 @@ function AdminPanel({
 
     if (sec === "cat-insumos" || sec === "cat-producto") {
       const categoryLabel = `la categoría «${recordName}»`
+      const normalizedCategoryName = recordName
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLowerCase()
+      if (sec === "cat-producto" && normalizedCategoryName === "adiciones") {
+        return {
+          allowed: false,
+          targetLabel: categoryLabel,
+          reason: "La categoría «Adiciones» es necesaria para los productos y no se puede eliminar.",
+        }
+      }
       const records = getCategoryRecords(sec, recordName)
       if (records.length) {
         const recordType = sec === "cat-insumos" ? "insumo" : "producto"
@@ -10253,9 +10275,9 @@ function AdminPanel({
     const searchInputRef = useRef<HTMLInputElement>(null)
     const isProducto = section === "producto"
 
-    // Keep focus on search input after re-renders
+    // Do not steal focus from an open form when its controlled fields update.
     useEffect(() => {
-      if (searchInputRef.current) {
+      if (modal.mode === null && searchInputRef.current) {
         const currentValue = searchInputRef.current.value
         searchInputRef.current.focus()
         searchInputRef.current.value = currentValue
@@ -10349,6 +10371,36 @@ function AdminPanel({
         )
       }
       return <span style={{ color }}>{String(cell)}</span>
+    }
+
+    const formatSalesDate = (value: string | number) => {
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value))
+      if (!match) return "—"
+      const [, year, month, day] = match
+      const date = new Date(Number(year), Number(month) - 1, Number(day))
+      if (
+        date.getFullYear() !== Number(year) ||
+        date.getMonth() !== Number(month) - 1 ||
+        date.getDate() !== Number(day)
+      ) return "—"
+      return date.toLocaleDateString("es-CO", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    }
+
+    const formatDisplayCell = (
+      cell: string | number,
+      rowCellIndex: number,
+    ): string | number => {
+      if (section !== "ventas") return cell
+      if (rowCellIndex === 3) return formatSalesDate(cell)
+      if (rowCellIndex === 7) {
+        const total = Number(cell)
+        return Number.isFinite(total) ? fmt(total) : "—"
+      }
+      return cell
     }
 
     const renderStatusControl = (rowIndex: number, rowCellIndex: number) => {
@@ -10652,6 +10704,7 @@ function AdminPanel({
                       )}
                       {displayCells.map((cell, cellIndex) => {
                         const rowCellIndex = displayCellIndexes[cellIndex]
+                        const displayCell = formatDisplayCell(cell, rowCellIndex)
                         return (
                           <td
                             key={rowCellIndex}
@@ -10667,7 +10720,7 @@ function AdminPanel({
                                 </span>
                               </div>
                             ) : (
-                              renderCellValue(cell, cellIndex === 0, isLow)
+                              renderCellValue(displayCell, cellIndex === 0, isLow)
                             )}
                           </td>
                         )
@@ -10766,7 +10819,9 @@ function AdminPanel({
                               {rowCellIndex === cfg.statusIndex ? (
                                 renderStatusControl(originalIndex, rowCellIndex)
                               ) : (
-                                renderCellValue(cell)
+                                renderCellValue(
+                                  formatDisplayCell(cell, rowCellIndex),
+                                )
                               )}
                             </dd>
                           </div>
