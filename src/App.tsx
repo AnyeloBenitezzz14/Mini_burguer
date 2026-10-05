@@ -14,10 +14,12 @@ type User = {
   phone?: string
   addresses?: string[]
   photo?: string
+  password?: string
 }
 type CartItem = {
   id: number
   name: string
+  description?: string
   price: number
   qty: number
   img: string
@@ -57,6 +59,25 @@ type Product = {
   img: string
   cat: string
   badge: string
+}
+type TechnicalIngredient = {
+  name: string
+  quantity: number
+  unit: string
+}
+type AdminOrderLine = {
+  id: string
+  product: string
+  category: string
+  quantity: number
+  unitPrice: number
+  parentId?: string
+}
+type ProductionItem = {
+  name: string
+  quantity: number
+  category?: string
+  parentId?: string
 }
 
 // ── Brand ──────────────────────────────────────────────────────────────────────
@@ -100,6 +121,21 @@ const ADDITIONS = [
   { name: "Cebolla", price: 8000 },
   { name: "1 Huevo", price: 900 },
   { name: "5 Huevos", price: 4000 },
+]
+const BEVERAGES = [
+  "Coca-Cola",
+  "Sprite",
+  "Manzana",
+  "Colombiana",
+  "Uva",
+  "Pepsi",
+  "Naranja",
+]
+const BEVERAGE_SIZES = [
+  { id: "personal", label: "Personal", price: 3000 },
+  { id: "1.5L", label: "1.5 L", price: 7000 },
+  { id: "2.25L", label: "2.25 L", price: 9000 },
+  { id: "3L", label: "3 L", price: 12000 },
 ]
 
 // ── Products ───────────────────────────────────────────────────────────────────
@@ -1171,7 +1207,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       ["Salsas", "Salsas y aderezos", "Activa"],
     ],
     noExport: true,
-    noDelete: true,
     statusIndex: 2,
   },
   insumos: {
@@ -1365,6 +1400,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     seed: [
       ["Hamburguesas", "Burgers artesanales de la casa", "Activa"],
+      ["Adiciones", "Extras para agregar a los productos", "Activa"],
       ["Salchipapas", "Papas fritas con salchicha", "Activa"],
       ["Perros Calientes", "Hot dogs", "Activa"],
       ["Perras", "Versiones especiales", "Activa"],
@@ -1374,7 +1410,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       ["Arepa Rellena", "Arepa rellena", "Activa"],
     ],
     noExport: true,
-    noDelete: true,
     statusIndex: 2,
   },
   producto: {
@@ -1388,6 +1423,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         type: "select",
         options: [
           "Hamburguesas",
+          "Adiciones",
           "Salchipapas",
           "Perros Calientes",
           "Perras",
@@ -1404,6 +1440,12 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "6", label: "Versión de la ficha", type: "text" },
       { key: "7", label: "Insumos principales", type: "textarea" },
       { key: "8", label: "Cómo se prepara", type: "textarea" },
+      {
+        key: "10",
+        label: "Disponibilidad",
+        type: "select",
+        options: ["Disponible", "No disponible"],
+      },
     ],
     seed: PRODUCTS.slice(0, 10).map((p) => [
       p.name,
@@ -1438,11 +1480,6 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: [],
       },
       { key: "1", label: "Cantidad", type: "number" },
-      {
-        key: "2",
-        label: "Prioridad / número de llegada",
-        type: "number",
-      },
       { key: "3", label: "Fecha de creación", type: "date" },
       { key: "4", label: "Hora de creación", type: "time" },
     ],
@@ -1456,14 +1493,13 @@ const MOD_CFG: Record<string, ModConfig> = {
     hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13],
   },
   "producto-no-conforme": {
-    columns: ["Orden", "Producto", "Cantidad", "Motivo", "Fecha"],
+    columns: ["Orden", "Productos o insumos dañados", "Cantidad", "Motivo", "Fecha", "Estado"],
     fields: [
-      { key: "0", label: "ID Orden producción", type: "text" },
-      { key: "1", label: "Producto o producto de insumo", type: "select", options: [] },
-      { key: "2", label: "Productos que se dañaron", type: "textarea" },
-      { key: "3", label: "Cantidad no conforme", type: "number" },
+      { key: "0", label: "Productos o insumos dañados", type: "textarea" },
+      { key: "1", label: "Productos o insumos que se dañaron", type: "textarea" },
+      { key: "2", label: "Cantidad no conforme", type: "number" },
       {
-        key: "4",
+        key: "3",
         label: "Motivo",
         type: "select",
         options: [
@@ -1475,13 +1511,23 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Otro",
         ],
       },
-      { key: "5", label: "Fecha", type: "date" },
+      { key: "4", label: "Fecha", type: "date" },
+      { key: "5", label: "Observación", type: "textarea" },
+      {
+        key: "6",
+        label: "Unidad de medida (para adiciones o insumos)",
+        type: "select",
+        options: ["und", "kg", "g", "L", "ml", "paq"],
+      },
     ],
     seed: [
-      ["OP-0085", "Mini", "Mini", 1, "Tiempo superado", "2024-01-20"],
-      ["OP-0088", "Doble", "Doble", 2, "Error en preparación", "2024-01-21"],
+      ["OP-0085", "Mini", "Mini", 1, "Tiempo superado", "2024-01-20", "", "und", "Activo"],
+      ["OP-0088", "Doble", "Doble", 2, "Error en preparación", "2024-01-21", "", "und", "Activo"],
     ],
-    hiddenCellIndexes: [2],
+    autoId: true,
+    noDelete: true,
+    statusIndex: 8,
+    hiddenCellIndexes: [2, 6, 7],
   },
   clientes: {
     columns: ["Nombre", "Número de documento", "Teléfono", "Correo", "Estado"],
@@ -1781,10 +1827,10 @@ const SIDEBAR_MENU = [
     color: C.amber,
   },
   {
-    key: "configuracion",
-    label: "Configuración",
-    icon: Ico.settings,
-    children: [{ key: "roles", label: "Roles y permisos" }],
+    key: "roles",
+    label: "Roles y permisos",
+    icon: Ico.shield,
+    children: [],
     color: "#A78BFA",
   },
   {
@@ -1868,12 +1914,13 @@ function emailError(email: string) {
   return ""
 }
 
-function validateLogin(email: string, pass: string): FieldErrors {
+function validateLogin(email: string, pass: string, savedPass?: string): FieldErrors {
   const e: FieldErrors = {}
   const em = emailError(email)
   if (em) e.email = em
   if (!pass) e.pass = "Ingresa tu contraseña."
   else if (pass.length < 8) e.pass = "La contraseña tiene mínimo 8 caracteres."
+  else if (savedPass && pass !== savedPass) e.pass = "La contraseña es incorrecta."
   return e
 }
 
@@ -2078,11 +2125,13 @@ function LoginPage({
   const [pass, setPass] = useState("")
   // Errors show after the first submit and update live while typing
   const [tried, setTried] = useState(false)
-  const errors = tried ? validateLogin(email, pass) : {}
+  const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
+  const errors = tried ? validateLogin(email, pass, savedProfile?.password) : {}
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
-    if (Object.keys(validateLogin(email, pass)).length) return
+    const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
+    if (Object.keys(validateLogin(email, pass, savedProfile?.password)).length) return
     const role = email.toLowerCase().includes("admin") ? "admin" : "user"
     const name = email
       .split("@")[0]
@@ -2279,6 +2328,7 @@ function RegisterPage({
       role: "user",
       phone: form.phone.replace(/\s/g, ""),
       cedula: form.docNum.trim(),
+      password: form.pass,
     })
   }
   if (step === "verifying")
@@ -2816,6 +2866,7 @@ function AddToCartModal({
   product,
   onClose,
   onAdd,
+  onCheckout,
   dark,
 }: {
   product: Product
@@ -2826,11 +2877,13 @@ function AddToCartModal({
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
   ) => void
+  onCheckout?: () => void
   dark: boolean
 }) {
   const [qty, setQty] = useState(1)
   const [selSauces, setSelSauces] = useState<string[]>([])
   const [addQtys, setAddQtys] = useState<Record<string, number>>({})
+  const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0].id)
   const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
@@ -2843,14 +2896,47 @@ function AddToCartModal({
     (s, a) => s + (addQtys[a.name] || 0) * a.price,
     0,
   )
-  const unitPrice = product.price + addTotal
+  const beverageTotal = BEVERAGES.reduce(
+    (total, flavor) =>
+      total +
+      BEVERAGE_SIZES.reduce(
+        (sizeTotal, size) =>
+          sizeTotal +
+          (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0) * size.price,
+        0,
+      ),
+    0,
+  )
+  const selectedBeverageSize =
+    BEVERAGE_SIZES.find((size) => size.id === beverageSize) ?? BEVERAGE_SIZES[0]
+  const selectedBeverages = BEVERAGES.flatMap((flavor) =>
+    BEVERAGE_SIZES.flatMap((size) => {
+      const key = `Gaseosa ${flavor} ${size.id}`
+      const quantity = addQtys[key] || 0
+      return quantity > 0 ? [{ flavor, size, key, quantity }] : []
+    }),
+  )
+  const unitPrice = product.price + addTotal + beverageTotal
   const total = unitPrice * qty
   const handleAdd = () => {
     const adds = ADDITIONS.filter((a) => (addQtys[a.name] || 0) > 0).map(
       (a) => ({ name: a.name, qty: addQtys[a.name], price: a.price }),
     )
-    onAdd(product, qty, selSauces, adds)
+    const beverages = BEVERAGES.flatMap((flavor) =>
+      BEVERAGE_SIZES.filter(
+        (size) => (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0) > 0,
+      ).map((size) => ({
+        name: `Gaseosa ${flavor} (${size.label})`,
+        qty: addQtys[`Gaseosa ${flavor} ${size.id}`],
+        price: size.price,
+      })),
+    )
+    onAdd(product, qty, selSauces, [...adds, ...beverages])
     onClose()
+  }
+  const handleCheckout = () => {
+    handleAdd()
+    onCheckout?.()
   }
 
   return (
@@ -2868,18 +2954,15 @@ function AddToCartModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="relative flex-shrink-0" style={{ height: "180px" }}>
+        <div
+          className="relative flex-shrink-0 overflow-hidden"
+          style={{ height: "230px", background: CARD }}
+        >
           <img
             src={product.img}
             alt={product.name}
             className="w-full h-full object-cover"
-          />
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                "linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 55%)",
-            }}
+            style={{ objectPosition: "center 55%" }}
           />
           <button
             onClick={onClose}
@@ -2888,10 +2971,15 @@ function AddToCartModal({
           >
             {Ico.x}
           </button>
-          <div className="absolute bottom-3 left-4">
+        </div>
+        <div
+          className="flex items-center justify-between gap-3 px-5 py-3 flex-shrink-0"
+          style={{ background: dark ? "#1E1C18" : "#fff" }}
+        >
+          <div>
             <div
-              className="font-black text-lg text-white leading-tight"
-              style={{ fontFamily: "Montserrat, sans-serif" }}
+              className="font-black text-lg leading-tight"
+              style={{ color: TEXT }}
             >
               {product.name}
             </div>
@@ -2899,11 +2987,22 @@ function AddToCartModal({
               {product.priceStr}
             </div>
           </div>
+          {product.badge && (
+            <span
+              className="text-xs font-bold px-2.5 py-1 rounded-full"
+              style={{ background: `${C.mustard}18`, color: C.mustard }}
+            >
+              {product.badge}
+            </span>
+          )}
         </div>
         <div
           className="overflow-y-auto flex-1 px-5 py-4"
           style={{ scrollbarWidth: "none" }}
         >
+          <p className="text-sm leading-relaxed mb-4" style={{ color: MUTED }}>
+            {product.desc}
+          </p>
           <div className="mb-4">
             <div className="font-bold text-sm mb-2" style={{ color: TEXT }}>
               Salsas{" "}
@@ -3007,48 +3106,188 @@ function AddToCartModal({
               })}
             </div>
           </div>
+          <div className="mb-2">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <div className="font-bold text-sm" style={{ color: TEXT }}>
+                Bebidas
+              </div>
+              <select
+                aria-label="Tamaño de gaseosa"
+                value={beverageSize}
+                onChange={(event) => setBeverageSize(event.target.value)}
+                className="rounded-lg px-2.5 py-1.5 text-xs font-semibold outline-none"
+                style={{
+                  background: dark ? "#292720" : "#fff",
+                  border: `1px solid ${BORDER}`,
+                  color: TEXT,
+                }}
+              >
+                {BEVERAGE_SIZES.map((size) => (
+                  <option key={size.id} value={size.id}>
+                    {size.label} · {fmt(size.price)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div
+              className="rounded-2xl overflow-hidden"
+              style={{ border: `1px solid ${BORDER}` }}
+            >
+              {BEVERAGES.map((flavor, index) => {
+                const size = selectedBeverageSize
+                const key = `Gaseosa ${flavor} ${size.id}`
+                const quantity = addQtys[key] || 0
+                return (
+                  <div
+                    key={flavor}
+                    className="flex items-center px-4 py-3"
+                    style={{
+                      borderBottom:
+                        index < BEVERAGES.length - 1
+                          ? `1px solid ${BORDER}`
+                          : "none",
+                    }}
+                  >
+                    <div className="flex-1 min-w-0 flex items-baseline gap-2">
+                      <span className="text-sm" style={{ color: TEXT }}>
+                        {flavor}
+                      </span>
+                      <span
+                        className="text-xs font-semibold whitespace-nowrap"
+                        style={{ color: C.amber }}
+                      >
+                        {fmt(size.price)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => changeAdd(key, -1)}
+                        disabled={quantity === 0}
+                        aria-label={`Quitar gaseosa ${flavor} ${size.label}`}
+                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                        style={{
+                          background: dark
+                            ? "rgba(244,238,220,0.1)"
+                            : "rgba(30,30,30,0.08)",
+                          color: TEXT,
+                        }}
+                      >
+                        −
+                      </button>
+                      <span
+                        className="w-5 text-center font-bold text-sm"
+                        style={{ color: TEXT }}
+                      >
+                        {quantity}
+                      </span>
+                      <button
+                        onClick={() => changeAdd(key, 1)}
+                        aria-label={`Agregar gaseosa ${flavor} ${size.label}`}
+                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
+                        style={{ background: C.mustard, color: "#fff" }}
+                      >
+                        +
+                      </button>
+                      <span
+                        className="w-16 text-right text-sm font-bold"
+                        style={{ color: quantity > 0 ? C.mustard : MUTED }}
+                      >
+                        {quantity > 0
+                          ? `+${fmt(size.price * quantity)}`
+                          : "—"}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+            {selectedBeverages.length > 0 && (
+              <div className="mt-2 space-y-1">
+                <div className="text-xs font-semibold" style={{ color: MUTED }}>
+                  Seleccionadas
+                </div>
+                {selectedBeverages.map(({ flavor, size, key, quantity }) => (
+                  <div
+                    key={key}
+                    className="flex items-center justify-between gap-2 text-xs"
+                    style={{ color: MUTED }}
+                  >
+                    <span>
+                      {flavor} · {size.label} × {quantity}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <strong style={{ color: C.mustard }}>
+                        {fmt(size.price * quantity)}
+                      </strong>
+                      <button
+                        type="button"
+                        onClick={() => changeAdd(key, -quantity)}
+                        aria-label={`Quitar todas las ${flavor} ${size.label}`}
+                        className="cursor-pointer font-semibold"
+                        style={{ color: C.red }}
+                      >
+                        Quitar
+                      </button>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         <div
-          className="px-4 py-4 flex items-center gap-3 flex-shrink-0"
+          className="flex flex-shrink-0 flex-col gap-2 px-4 py-3"
           style={{ borderTop: `1px solid ${BORDER}`, background: CARD }}
         >
-          <div
-            className="flex items-center gap-1 flex-shrink-0 rounded-2xl px-1 py-1"
-            style={{
-              background: dark
-                ? "rgba(244,238,220,0.07)"
-                : "rgba(30,30,30,0.06)",
-            }}
-          >
+          <div className="flex items-center gap-3">
+            <div
+              className="flex flex-shrink-0 items-center gap-1 rounded-2xl px-1 py-1"
+              style={{
+                background: dark
+                  ? "rgba(244,238,220,0.07)"
+                  : "rgba(30,30,30,0.06)",
+              }}
+            >
+              <button
+                onClick={() => setQty((q) => Math.max(1, q - 1))}
+                className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
+                style={{ color: TEXT }}
+              >
+                −
+              </button>
+              <span
+                className="w-5 text-center font-black"
+                style={{ color: TEXT }}
+              >
+                {qty}
+              </span>
+              <button
+                onClick={() => setQty((q) => q + 1)}
+                className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
+                style={{ color: TEXT }}
+              >
+                +
+              </button>
+            </div>
             <button
-              onClick={() => setQty((q) => Math.max(1, q - 1))}
-              className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
-              style={{ color: TEXT }}
+              onClick={handleAdd}
+              className="flex flex-1 cursor-pointer items-center justify-between rounded-2xl px-5 py-3.5 text-sm font-bold hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
             >
-              −
-            </button>
-            <span
-              className="w-5 text-center font-black"
-              style={{ color: TEXT }}
-            >
-              {qty}
-            </span>
-            <button
-              onClick={() => setQty((q) => q + 1)}
-              className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
-              style={{ color: TEXT }}
-            >
-              +
+              <span>Agregar al carrito</span>
+              <span className="font-extrabold">{fmt(total)}</span>
             </button>
           </div>
-          <button
-            onClick={handleAdd}
-            className="flex-1 py-3.5 rounded-2xl font-bold text-sm cursor-pointer flex items-center justify-between px-5 hover:opacity-90"
-            style={{ background: C.mustard, color: "#fff" }}
-          >
-            <span>Agregar al carrito</span>
-            <span className="font-extrabold">{fmt(total)}</span>
-          </button>
+          {onCheckout && (
+            <button
+              type="button"
+              onClick={handleCheckout}
+              className="w-full cursor-pointer rounded-2xl py-3 text-sm font-bold hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Finalizar compra
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -3318,6 +3557,7 @@ function GuestMenuPage({
       {
         id: Date.now(),
         name: product.name,
+        description: product.desc,
         price: product.price,
         qty,
         img: product.img,
@@ -3409,15 +3649,6 @@ function GuestMenuPage({
           onInfoClick={setInfoProduct}
           onAddClick={setAddProduct}
         />
-        {cartCount > 0 && (
-          <button
-            onClick={onCheckout}
-            className="fixed bottom-5 left-4 right-4 sm:left-auto sm:right-6 sm:w-auto px-6 py-3.5 rounded-2xl font-bold text-sm cursor-pointer shadow-lg"
-            style={{ background: C.mustard, color: "#fff" }}
-          >
-            Ver carrito ({cartCount}) →
-          </button>
-        )}
       </main>
       {infoProduct && (
         <ProductInfoModal
@@ -3435,6 +3666,7 @@ function GuestMenuPage({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={addToCart}
+          onCheckout={onCheckout}
           dark={false}
         />
       )}
@@ -3452,6 +3684,10 @@ const itemTotal = (i: CartItem) =>
   i.qty
 const cartTotal = (items: CartItem[]) =>
   items.reduce((s, i) => s + itemTotal(i), 0)
+const activeCartItemsFirst = (items: CartItem[]) => [
+  ...items.filter((item) => item.qty > 0),
+  ...items.filter((item) => item.qty === 0),
+]
 
 function loadLS<T>(key: string, fallback: T): T {
   try {
@@ -3543,15 +3779,26 @@ function OrderList({
         Aún no has hecho pedidos.
       </div>
     )
+  const formatOrderDescription = (order: Order) => {
+    const days = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
+    const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    // Generate a consistent imaginary date based on the order ID
+    const idMatch = order.id.match(/\d+/)
+    const seed = idMatch ? parseInt(idMatch[0], 10) : Math.floor(Math.random() * 1000)
+    const dayIndex = seed % 7
+    const day = (seed % 28) + 1
+    const month = seed % 12
+    return `Pedido del ${days[dayIndex]} ${day} de ${months[month]}`
+  }
+
   return (
     <div className="space-y-3">
       {orders.map((o) => {
         const badge = badgeSt(o.status)
         return (
-          <button
+          <div
             key={o.id}
-            onClick={() => onSelect(o)}
-            className="w-full text-left p-4 rounded-2xl cursor-pointer hover:opacity-90"
+            className="w-full text-left p-4 rounded-2xl"
             style={{
               background: dark ? "#1E1C18" : "#fff",
               border: `1px solid ${BORDER}`,
@@ -3560,11 +3807,16 @@ function OrderList({
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="font-bold text-sm" style={{ color: TEXT }}>
-                  {o.id}
+                  {formatOrderDescription(o)}
                 </div>
                 <div className="text-xs truncate" style={{ color: MUTED }}>
-                  {o.date} · {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
+                  {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
                 </div>
+                {(o.items.some((i) => i.sauces?.length || i.additions?.length)) && (
+                  <div className="text-[11px] mt-1" style={{ color: C.mustard }}>
+                    Incluye personalizaciones
+                  </div>
+                )}
               </div>
               <div className="text-right flex-shrink-0">
                 <div className="font-bold" style={{ color: C.mustard }}>
@@ -3578,7 +3830,14 @@ function OrderList({
                 </span>
               </div>
             </div>
-          </button>
+            <button
+              onClick={() => onSelect(o)}
+              className="mt-3 w-full py-2 rounded-xl text-xs font-bold cursor-pointer hover:opacity-90"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              Ver detalle
+            </button>
+          </div>
         )
       })}
     </div>
@@ -3664,33 +3923,38 @@ function OrderDetailModal({
           ))}
         </div>
 
-        <div className="space-y-2 mb-4">
+        <div className="space-y-3 mb-4">
           {order.items.map((i) => (
             <div
               key={i.id}
-              className="flex justify-between gap-3 text-sm pb-2"
-              style={{ borderBottom: `1px solid ${BORDER}` }}
+              className="p-3 rounded-xl"
+              style={{ background: dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)" }}
             >
-              <div>
+              <div className="flex justify-between gap-3 text-sm">
                 <div className="font-semibold">
-                  {i.name} x{i.qty}
+                  {i.name} <span style={{ color: MUTED }}>x{i.qty}</span>
                 </div>
-                {!!i.sauces?.length && (
-                  <div className="text-xs" style={{ color: MUTED }}>
-                    Salsas: {i.sauces.join(", ")}
-                  </div>
-                )}
-                {!!i.additions?.length && (
-                  <div className="text-xs" style={{ color: MUTED }}>
-                    Adiciones:{" "}
-                    {i.additions.map((a) => `${a.name} x${a.qty}`).join(", ")}
-                  </div>
-                )}
+                <span className="font-semibold">{fmt(itemTotal(i))}</span>
               </div>
-              <span className="font-semibold">{fmt(itemTotal(i))}</span>
+              <div className="mt-2 space-y-1 text-xs" style={{ color: MUTED }}>
+                <div className="flex justify-between gap-3">
+                  <span>Precio ({i.qty} x {fmt(i.price)})</span>
+                  <span>{fmt(i.price * i.qty)}</span>
+                </div>
+                <div>
+                  <span className="font-semibold" style={{ color: TEXT }}>Salsas:</span>{" "}
+                  {i.sauces?.length ? i.sauces.join(", ") : "Sin salsas adicionales"}
+                </div>
+                <div>
+                  <span className="font-semibold" style={{ color: TEXT }}>Adiciones:</span>{" "}
+                  {i.additions?.length
+                    ? i.additions.map((a) => `${a.name} x${a.qty} (+${fmt(a.price * a.qty * i.qty)})`).join(", ")
+                    : "Sin adiciones"}
+                </div>
+              </div>
             </div>
           ))}
-          <div className="flex justify-between font-black">
+          <div className="flex justify-between font-black pt-2" style={{ borderTop: `2px solid ${BORDER}` }}>
             <span>Total</span>
             <span style={{ color: C.mustard }}>{fmt(order.total)}</span>
           </div>
@@ -3744,12 +4008,22 @@ function CartSummary({
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
   const CARD = dark ? "#1E1C18" : "#fff"
   const subtotal = cartTotal(cart)
+  const [expandedItemId, setExpandedItemId] = useState<number | null>(null)
+  const descriptionFor = (item: CartItem) =>
+    item.description ??
+    PRODUCTS.find((product) => product.name === item.name)?.desc ??
+    "Hamburguesa preparada al momento con ingredientes frescos."
   const updateQty = (id: number, d: number) =>
     setCart((c) =>
-      c.map((i) =>
-        i.id === id ? { ...i, qty: Math.max(0, i.qty + d) } : i,
-      ).filter((i) => i.qty > 0),
+      activeCartItemsFirst(
+        c.map((i) =>
+          i.id === id ? { ...i, qty: Math.max(0, i.qty + d) } : i,
+        ),
+      ),
     )
+  const removeItem = (id: number) =>
+    setCart((c) => c.filter((item) => item.id !== id))
+  const orderedCart = activeCartItemsFirst(cart)
   if (cart.length === 0)
     return (
       <div className="text-center py-8">
@@ -3761,43 +4035,57 @@ function CartSummary({
     )
   return (
     <div>
-      <div className="space-y-3 mb-4">
-        {cart.map((item) => (
+      <div className="space-y-3 mb-4 max-h-[55vh] overflow-y-auto pr-1">
+        {orderedCart.map((item) => (
           <div
             key={item.id}
-            className="flex items-center gap-3 p-3 rounded-xl"
+            className="p-3 rounded-xl"
             style={{ background: CARD, border: `1px solid ${BORDER}` }}
           >
-            <img
-              src={item.img}
-              alt={item.name}
-              className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-sm" style={{ color: TEXT }}>
-                {item.name}
-              </div>
-              {item.additions && item.additions.length > 0 && (
-                <div className="text-xs" style={{ color: MUTED }}>
-                  +{item.additions.map((a) => a.name).join(", ")}
-                </div>
-              )}
-              <div className="flex items-center justify-between mt-1">
-                <span
-                  className="font-bold text-sm"
-                  style={{ color: C.mustard }}
-                >
-                  {fmt(itemTotal(item))}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedItemId((id) => (id === item.id ? null : item.id))
+                }
+                className="flex flex-1 min-w-0 items-center gap-3 text-left cursor-pointer"
+                aria-expanded={expandedItemId === item.id}
+                aria-label={`${expandedItemId === item.id ? "Ocultar" : "Ver"} detalles de ${item.name}`}
+              >
+                <img
+                  src={item.img}
+                  alt=""
+                  className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
+                />
+                <span className="flex-1 min-w-0">
+                  <span className="block font-semibold text-sm" style={{ color: TEXT }}>
+                    {item.name}
+                  </span>
+                  {item.additions && item.additions.length > 0 && (
+                    <span className="block text-xs truncate" style={{ color: MUTED }}>
+                      +{item.additions.map((a) => a.name).join(", ")}
+                    </span>
+                  )}
+                  <span className="block font-bold text-sm mt-1" style={{ color: C.mustard }}>
+                    {fmt(itemTotal(item))}
+                  </span>
                 </span>
-                <div className="flex items-center gap-1">
+                <span className="text-xs font-semibold flex-shrink-0" style={{ color: MUTED }}>
+                  {expandedItemId === item.id ? "Menos −" : "Detalles +"}
+                </span>
+              </button>
+              <div className="flex items-center gap-1">
                   <button
                     onClick={() => updateQty(item.id, -1)}
+                    type="button"
+                    disabled={item.qty === 0}
                     className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-sm font-bold"
                     style={{
                       background: dark
                         ? "rgba(244,238,220,0.1)"
                         : "rgba(30,30,30,0.08)",
                       color: TEXT,
+                      opacity: item.qty === 0 ? 0.45 : 1,
                     }}
                   >
                     −
@@ -3810,14 +4098,51 @@ function CartSummary({
                   </span>
                   <button
                     onClick={() => updateQty(item.id, 1)}
+                    type="button"
                     className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-sm font-bold"
                     style={{ background: C.mustard, color: "#fff" }}
                   >
                     +
                   </button>
-                </div>
+                  <button
+                    onClick={() => removeItem(item.id)}
+                    type="button"
+                    className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer"
+                    style={{ color: C.red }}
+                    aria-label={`Eliminar ${item.name} del carrito`}
+                    title="Eliminar del carrito"
+                  >
+                    {Ico.trash}
+                  </button>
               </div>
             </div>
+            {expandedItemId === item.id && (
+              <div
+                className="mt-3 pt-3 text-xs space-y-2"
+                style={{ borderTop: `1px solid ${BORDER}`, color: MUTED }}
+              >
+                <p className="leading-relaxed">{descriptionFor(item)}</p>
+                {item.sauces?.length ? (
+                  <p><strong style={{ color: TEXT }}>Salsas:</strong> {item.sauces.join(", ")}</p>
+                ) : (
+                  <p><strong style={{ color: TEXT }}>Salsas:</strong> Sin salsas seleccionadas</p>
+                )}
+                {item.additions?.length ? (
+                  <div>
+                    <strong style={{ color: TEXT }}>Adiciones:</strong>
+                    <ul className="mt-1 space-y-0.5">
+                      {item.additions.map((addition) => (
+                        <li key={addition.name}>
+                          {addition.name} × {addition.qty} · {fmt(addition.price * addition.qty)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p><strong style={{ color: TEXT }}>Adiciones:</strong> Sin adiciones</p>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -3926,6 +4251,8 @@ function CheckoutPage({
   const [pickerOpen, setPickerOpen] = useState(false)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
   const subtotal = cartTotal(cart)
+  const hasActiveItems = cart.some((item) => item.qty > 0)
+  const activeCart = cart.filter((item) => item.qty > 0)
   const placeOrder = () => {
     setDeliveryTried(true)
     if (!user || !delivFilled || !payReady || cart.length === 0) return
@@ -3960,8 +4287,9 @@ function CheckoutPage({
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault()
     setLoginTried(true)
-    if (Object.keys(validateLogin(loginForm.email, loginForm.pass)).length) return
     const email = loginForm.email.trim().toLowerCase()
+    const savedProfile = loadLS<User | null>(`profile:${email}`, null)
+    if (Object.keys(validateLogin(loginForm.email, loginForm.pass, savedProfile?.password)).length) return
     const role = email.includes("admin") ? "admin" : "user"
     const name = email
       .split("@")[0]
@@ -3986,6 +4314,7 @@ function CheckoutPage({
       role: "user",
       phone: regForm.phone.replace(/\s/g, ""),
       cedula: regForm.docNum.trim(),
+      password: regForm.pass,
     })
     setCheckoutStep(2)
   }
@@ -4008,18 +4337,18 @@ function CheckoutPage({
       : {
           label: "Hacer pedido",
           onClick: () => setShowAuth(true),
-          disabled: cart.length === 0,
+          disabled: !hasActiveItems,
         }
     : checkoutStep === 2
       ? {
-          label: "Continuar a revisión",
+          label: "Confirma tus datos",
           onClick: continueToReview,
           disabled: cart.length === 0,
         }
       : {
           label: "Confirmar pedido",
           onClick: placeOrder,
-          disabled: cart.length === 0 || !canOrder || !payReady,
+          disabled: !hasActiveItems || !canOrder || !payReady,
         }
 
   if (ordered)
@@ -4050,7 +4379,7 @@ function CheckoutPage({
             className="font-black text-2xl mb-2"
             style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
           >
-            ¡Pedido enviado!
+            ¡Pedido confirmado!
           </h2>
           <p className="text-sm mb-6" style={{ color: MUTED }}>
             {placedTotal >= APPROVAL_MIN
@@ -4092,7 +4421,7 @@ function CheckoutPage({
       style={{ background: "#FAF5E8", fontFamily: "Poppins, sans-serif" }}
     >
       <header
-        className="sticky top-0 z-30"
+        className="fixed inset-x-0 top-0 z-50"
         style={{
           background: "rgba(250,245,232,0.95)",
           borderBottom: `1px solid ${LINE}`,
@@ -4125,13 +4454,14 @@ function CheckoutPage({
           </span>
         </div>
       </header>
+      <div className="h-16" aria-hidden="true" />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <h1
           className="font-black text-2xl sm:text-3xl text-center mb-6"
           style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
         >
-          Finalizar pedido
+          Finalizar mi pedido
         </h1>
 
         {/* Stepper */}
@@ -4188,20 +4518,26 @@ function CheckoutPage({
           <div className="flex flex-col gap-6 min-w-0">
             {!user && !showAuth && (
               <section className="p-6 rounded-2xl" style={CARD_ST}>
-                <h2 className="font-bold text-lg mb-1" style={{ color: C.dark }}>
-                  Tu carrito
-                </h2>
+                <div className="flex items-center justify-between gap-3 mb-1">
+                  <h2 className="font-bold text-lg" style={{ color: C.dark }}>
+                    Tu carrito
+                  </h2>
+                  <button
+                    onClick={() => setPickerOpen(true)}
+                    className="flex-shrink-0 mt-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold cursor-pointer hover:opacity-80"
+                    style={{
+                      border: `1.5px dashed ${C.mustard}`,
+                      color: C.mustard,
+                      background: "#fff",
+                    }}
+                  >
+                    + Agregar más productos
+                  </button>
+                </div>
                 <p className="text-sm mb-5" style={{ color: MUTED }}>
                   Revisa tus productos antes de hacer el pedido.
                 </p>
                 <CartSummary cart={cart} setCart={setCart} dark={false} showTotals={false} />
-                <button
-                  onClick={() => setPickerOpen(true)}
-                  className="w-full py-3 rounded-xl text-sm font-semibold cursor-pointer hover:opacity-80"
-                  style={{ border: `1.5px dashed ${C.mustard}`, color: C.mustard }}
-                >
-                  + Agregar más productos
-                </button>
               </section>
             )}
 
@@ -4667,13 +5003,7 @@ function CheckoutPage({
                     ))}
                   </div>
                 ))}
-                <p className="text-xs" style={{ color: MUTED }}>
-                  {delivForm.pago === "Efectivo"
-                    ? "Pagarás en efectivo al recibir tu pedido."
-                    : `Enviaremos tu comprobante de ${delivForm.pago} junto con el pedido.`}
-                  {subtotal >= APPROVAL_MIN &&
-                    ` Como tu pedido supera ${fmt(APPROVAL_MIN)}, El Parche debe confirmarlo antes de prepararlo.`}
-                </p>
+
               </section>
             )}
           </div>
@@ -4683,19 +5013,23 @@ function CheckoutPage({
             <h2 className="font-bold text-lg mb-4" style={{ color: C.dark }}>
               Resumen del pedido
             </h2>
-            {cart.length === 0 ? (
+            {activeCart.length === 0 ? (
               <p className="text-sm py-4 text-center" style={{ color: MUTED }}>
                 Tu carrito está vacío.
               </p>
             ) : (
               <div className="space-y-3 mb-4 max-h-72 overflow-y-auto pr-1">
-                {cart.map((i) => (
+                {activeCart.map((i) => (
                   <div key={i.id} className="flex items-center gap-3">
                     <div className="relative flex-shrink-0">
                       <img src={i.img} alt={i.name} className="w-12 h-12 rounded-lg object-cover" />
                       <span
-                        className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold"
-                        style={{ background: C.dark, color: "#fff" }}
+                        className="absolute top-1 right-1 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold"
+                        style={{
+                          background: C.dark,
+                          color: "#fff",
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+                        }}
                       >
                         {i.qty}
                       </span>
@@ -4719,9 +5053,10 @@ function CheckoutPage({
             )}
             {user && (
               <button
-                onClick={() => setPickerOpen(true)}
-                className="text-xs font-semibold cursor-pointer hover:opacity-70 mb-4"
+                onClick={() => !voucher && setPickerOpen(true)}
+                className={`text-xs font-semibold mb-4 ${voucher ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:opacity-70"}`}
                 style={{ color: C.mustard }}
+                title={voucher ? "No puedes agregar productos después de subir el comprobante" : "Agregar productos"}
               >
                 + Agregar productos
               </button>
@@ -4783,7 +5118,7 @@ function CheckoutPage({
           <div
             className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl p-5"
             style={{ background: "#FAF5E8" }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
               <h2
@@ -4796,14 +5131,15 @@ function CheckoutPage({
                 onClick={() => setPickerOpen(false)}
                 className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
                 style={{ background: "rgba(30,30,30,0.08)", color: C.dark }}
+                aria-label="Cerrar selección de productos"
               >
                 {Ico.x}
               </button>
             </div>
             <ProductCatalog
               dark={false}
-              onInfoClick={(p) => setAddProduct(p)}
-              onAddClick={(p) => setAddProduct(p)}
+              onInfoClick={setAddProduct}
+              onAddClick={setAddProduct}
             />
           </div>
         </div>
@@ -4812,15 +5148,16 @@ function CheckoutPage({
         <AddToCartModal
           product={addProduct}
           onClose={() => setAddProduct(null)}
-          onAdd={(p, qty, sauces, additions) => {
-            setCart((c) => [
-              ...c,
+          onAdd={(product, qty, sauces, additions) => {
+            setCart((items) => [
+              ...items,
               {
                 id: Date.now(),
-                name: p.name,
-                price: p.price,
+                name: product.name,
+                description: product.desc,
+                price: product.price,
                 qty,
-                img: p.img,
+                img: product.img,
                 sauces,
                 additions,
               },
@@ -4832,6 +5169,137 @@ function CheckoutPage({
         />
       )}
     </div>
+  )
+}
+
+// ── Change Password Form ─────────────────────────────────────────────────────────
+function ChangePasswordForm({
+  user,
+  onUpdateUser,
+}: {
+  user: User
+  onUpdateUser: (u: User) => void
+}) {
+  const [currentPass, setCurrentPass] = useState("")
+  const [newPass, setNewPass] = useState("")
+  const [confirmPass, setConfirmPass] = useState("")
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState(false)
+
+  const MUSTARD = "#B68C1C"
+  const RED = "#A54131"
+  const TEXT = "#1A1714"
+  const MUTED = "rgba(30,30,30,0.5)"
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    setError("")
+    setSuccess(false)
+
+    // Validate current password
+    if (!user.password) {
+      setError("No tienes una contraseña establecida. Usa la opción de recuperar contraseña.")
+      return
+    }
+    if (currentPass !== user.password) {
+      setError("La contraseña actual es incorrecta.")
+      return
+    }
+
+    // Validate new password
+    if (newPass.length < 8) {
+      setError("La nueva contraseña debe tener al menos 8 caracteres.")
+      return
+    }
+    if (newPass !== confirmPass) {
+      setError("Las contraseñas no coinciden.")
+      return
+    }
+    if (newPass === currentPass) {
+      setError("La nueva contraseña debe ser diferente a la actual.")
+      return
+    }
+
+    // Update password
+    onUpdateUser({ ...user, password: newPass })
+    setCurrentPass("")
+    setNewPass("")
+    setConfirmPass("")
+    setSuccess(true)
+    setTimeout(() => setSuccess(false), 3000)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <div>
+        <label className="text-xs font-semibold mb-1 block" style={{ color: MUTED }}>
+          Contraseña actual
+        </label>
+        <input
+          type="password"
+          value={currentPass}
+          onChange={(e) => setCurrentPass(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: "1.5px solid rgba(30,30,30,0.12)",
+            color: TEXT,
+          }}
+          placeholder="••••••••"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold mb-1 block" style={{ color: MUTED }}>
+          Nueva contraseña
+        </label>
+        <input
+          type="password"
+          value={newPass}
+          onChange={(e) => setNewPass(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: "1.5px solid rgba(30,30,30,0.12)",
+            color: TEXT,
+          }}
+          placeholder="••••••••"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold mb-1 block" style={{ color: MUTED }}>
+          Confirmar nueva contraseña
+        </label>
+        <input
+          type="password"
+          value={confirmPass}
+          onChange={(e) => setConfirmPass(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: "1.5px solid rgba(30,30,30,0.12)",
+            color: TEXT,
+          }}
+          placeholder="••••••••"
+        />
+      </div>
+      {error && (
+        <p className="text-xs" style={{ color: RED }}>
+          {error}
+        </p>
+      )}
+      {success && (
+        <p className="text-xs" style={{ color: "#2E7D60" }}>
+          ¡Contraseña actualizada exitosamente!
+        </p>
+      )}
+      <button
+        type="submit"
+        className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+        style={{ background: MUSTARD, color: "#fff" }}
+      >
+        Actualizar contraseña
+      </button>
+    </form>
   )
 }
 
@@ -4872,6 +5340,7 @@ function ProfilePage({
   const [editingAddrValue, setEditingAddrValue] = useState("")
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showLogoutModal, setShowLogoutModal] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
   const [profilePhoto, setProfilePhoto] = useState<string | undefined>(user.photo)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const BG = "#FAF5E8"
@@ -5242,6 +5711,22 @@ function ProfilePage({
             </div>
           )}
         </div>
+        {/* Change password */}
+        <div
+          className="p-5 rounded-2xl mb-4"
+          style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+        >
+          <h2 className="font-bold text-base mb-4" style={{ color: TEXT }}>
+            Seguridad
+          </h2>
+          <button
+            onClick={() => setShowChangePassword(true)}
+            className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+            style={{ background: `${C.mustard}15`, color: C.mustard }}
+          >
+            Cambiar contraseña
+          </button>
+        </div>
         {/* Purchase history */}
         <div
           className="p-5 rounded-2xl mb-4"
@@ -5266,17 +5751,17 @@ function ProfilePage({
         <div className="flex flex-col gap-2">
           <button
             onClick={() => setShowLogoutModal(true)}
-            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
-            style={{ background: `${C.red}12`, color: C.red }}
+            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer hover:opacity-90"
+            style={{ background: `${C.mustard}15`, color: C.mustard }}
           >
             Cerrar sesión
           </button>
           <button
             onClick={() => setShowDeleteModal(true)}
-            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer hover:opacity-90"
             style={{
-              background: "rgba(30,30,30,0.05)",
-              color: "rgba(30,30,30,0.4)",
+              background: C.red,
+              color: "#fff",
             }}
           >
             Eliminar cuenta
@@ -5357,12 +5842,10 @@ function ProfilePage({
               className="font-black text-lg mb-2"
               style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
             >
-              ¿Deseas confirmar la eliminación de la cuenta?
+              ¿Eliminar cuenta?
             </h3>
             <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.5)" }}>
-              Puedes eliminar la cuenta porque no hay bloqueos activos. Esta
-              acción es permanente y no se puede deshacer; perderás tus datos y
-              pedidos.
+              Esta acción es permanente y no se puede deshacer. Perderás todos tus datos, pedidos y acceso a la cuenta.
             </p>
             <div className="flex gap-3">
               <button
@@ -5386,6 +5869,43 @@ function ProfilePage({
                 Eliminar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Change password modal */}
+      {showChangePassword && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => setShowChangePassword(false)}
+        >
+          <div
+            className="w-full max-w-sm p-6 rounded-2xl"
+            style={{
+              background: "#fff",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3
+                className="font-black text-lg"
+                style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+              >
+                Cambiar contraseña
+              </h3>
+              <button
+                onClick={() => setShowChangePassword(false)}
+                className="text-lg cursor-pointer"
+                style={{ color: "rgba(30,30,30,0.4)" }}
+              >
+                ✕
+              </button>
+            </div>
+            <ChangePasswordForm
+              user={user}
+              onUpdateUser={onUpdateUser}
+            />
           </div>
         </div>
       )}
@@ -5446,12 +5966,13 @@ function ClientApp({
     qty: number,
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
-  ) =>
+  ) => {
     setCart((c) => [
       ...c,
       {
         id: Date.now(),
         name: p.name,
+        description: p.desc,
         price: p.price,
         qty,
         img: p.img,
@@ -5459,6 +5980,8 @@ function ClientApp({
         additions,
       },
     ])
+    setAddProduct(null)
+  }
   const quickAdd = (p: Product) =>
     setCart((c) => {
       const ex = c.find(
@@ -5468,7 +5991,7 @@ function ClientApp({
         return c.map((x) => (x.id === ex.id ? { ...x, qty: x.qty + 1 } : x))
       return [
         ...c,
-        { id: Date.now(), name: p.name, price: p.price, qty: 1, img: p.img },
+        { id: Date.now(), name: p.name, description: p.desc, price: p.price, qty: 1, img: p.img },
       ]
     })
 
@@ -5751,10 +6274,10 @@ function ClientApp({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={addToCart}
+          onCheckout={onCheckout}
           dark={dark}
         />
       )}
-
       {/* Quick-add feedback suppressed — quickAdd used from ProductCatalog + button */}
       <div style={{ display: "none" }} onClick={() => quickAdd(PRODUCTS[0])} />
     </div>
@@ -5804,12 +6327,13 @@ function LandingPage({
     qty: number,
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
-  ) =>
+  ) => {
     setCart((c) => [
       ...c,
       {
         id: Date.now(),
         name: p.name,
+        description: p.desc,
         price: p.price,
         qty,
         img: p.img,
@@ -5817,6 +6341,8 @@ function LandingPage({
         additions,
       },
     ])
+    setAddProduct(null)
+  }
   const NAVLINKS = [
     { label: "Inicio", href: "#inicio" },
     { label: "Menú", href: "#menu" },
@@ -6778,6 +7304,14 @@ function LandingPage({
           </svg>
         </a>
       )}
+      <button
+        type="button"
+        onClick={goToMenu}
+        className="fixed bottom-28 left-4 right-20 z-40 rounded-full py-3 text-sm font-bold text-white shadow-lg sm:hidden"
+        style={{ background: C.mustard }}
+      >
+        Pide Ahora
+      </button>
 
       {infoProduct && (
         <ProductInfoModal
@@ -6795,10 +7329,10 @@ function LandingPage({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={addToCart}
+          onCheckout={onCheckout}
           dark={dark}
         />
       )}
-
       {legalModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center px-4"
@@ -6908,11 +7442,519 @@ const ADMIN_NOTIFICATIONS: AdminNotification[] = [
   },
 ]
 
+function AdminProfilePage({
+  user,
+  onClose,
+  onUpdateUser,
+}: {
+  user: User
+  onClose: () => void
+  onUpdateUser: (u: User) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({
+    name: user.name,
+    email: user.email,
+    phone: user.phone || "",
+    cedula: user.cedula || "",
+  })
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [addresses, setAddresses] = useState<string[]>(
+    user.addresses || ["Cra 58 #42-10, Bello, Antioquia"],
+  )
+  const [newAddr, setNewAddr] = useState("")
+  const [addingAddr, setAddingAddr] = useState(false)
+  const [editingAddrIdx, setEditingAddrIdx] = useState<number | null>(null)
+  const [editingAddrValue, setEditingAddrValue] = useState("")
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [profilePhoto, setProfilePhoto] = useState<string | undefined>(user.photo)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const BG = "#FAF5E8"
+  const CARD = "#fff"
+  const TEXT = "#1A1714"
+  const MUTED = "rgba(30,30,30,0.5)"
+  const BORDER = "rgba(30,30,30,0.08)"
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {}
+    if (!form.name.trim()) {
+      newErrors.name = "El nombre completo es obligatorio para identificar tu cuenta."
+    }
+    if (!form.email.trim()) {
+      newErrors.email = "El correo electrónico es obligatorio para iniciar sesión y recibir notificaciones."
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
+    }
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
+  const save = () => {
+    if (!validateForm()) return
+    onUpdateUser({ ...user, ...form, addresses, photo: profilePhoto })
+    setEditing(false)
+  }
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setProfilePhoto(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const startEditAddress = (idx: number) => {
+    setEditingAddrIdx(idx)
+    setEditingAddrValue(addresses[idx])
+  }
+
+  const saveEditAddress = () => {
+    if (editingAddrIdx !== null && editingAddrValue.trim()) {
+      setAddresses((arr) =>
+        arr.map((a, i) => (i === editingAddrIdx ? editingAddrValue.trim() : a)),
+      )
+    }
+    setEditingAddrIdx(null)
+    setEditingAddrValue("")
+  }
+
+  const deleteAddress = (idx: number) => {
+    if (addresses.length <= 1) return
+    setAddresses((arr) => arr.filter((_, i) => i !== idx))
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl"
+        style={{ background: BG, fontFamily: "Poppins, sans-serif" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h1
+              className="font-black text-2xl"
+              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            >
+              Mi perfil
+            </h1>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
+              style={{ background: "rgba(30,30,30,0.06)", color: MUTED }}
+            >
+              {Ico.x}
+            </button>
+          </div>
+          {/* Avatar */}
+          <div
+            className="flex flex-col items-center mb-6 p-6 rounded-3xl"
+            style={{ background: CARD, boxShadow: "0 2px 16px rgba(0,0,0,0.07)" }}
+          >
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-20 h-20 rounded-full flex items-center justify-center text-4xl mb-1 cursor-pointer hover:opacity-80 overflow-hidden"
+              style={{
+                background: `${C.mustard}18`,
+                border: `2px solid ${C.mustard}`,
+              }}
+            >
+              {profilePhoto ? (
+                <img
+                  src={profilePhoto}
+                  alt="Foto de perfil"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>{user.name.charAt(0).toUpperCase()}</span>
+              )}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoChange}
+            />
+            <div
+              className="text-xs mb-3 cursor-pointer"
+              style={{ color: C.mustard }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Cambiar foto
+            </div>
+            <div
+              className="font-black text-xl"
+              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            >
+              {user.name}
+            </div>
+            <div className="text-sm mt-0.5" style={{ color: MUTED }}>
+              {user.email}
+            </div>
+            <div
+              className="text-xs mt-1 px-3 py-1 rounded-full font-semibold"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              Administrador
+            </div>
+          </div>
+          {/* Profile data */}
+          <div
+            className="p-5 rounded-2xl mb-4"
+            style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-base" style={{ color: TEXT }}>
+                Datos personales
+              </h2>
+              <button
+                onClick={() => (editing ? save() : setEditing(true))}
+                className="px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                style={{
+                  background: editing ? C.mustard : "rgba(30,30,30,0.07)",
+                  color: editing ? "#fff" : MUTED,
+                }}
+              >
+                {editing ? "Guardar" : "Editar"}
+              </button>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {editing ? (
+                <>
+                  <div>
+                    <InputField
+                      label="Nombre completo *"
+                      value={form.name}
+                      onChange={(v) => {
+                        setForm((f) => ({ ...f, name: v }))
+                        if (errors.name) setErrors((e) => ({ ...e, name: "" }))
+                      }}
+                    />
+                    {errors.name && (
+                      <p className="text-xs mt-1" style={{ color: C.red }}>
+                        {errors.name}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <InputField
+                      label="Correo *"
+                      type="email"
+                      value={form.email}
+                      onChange={(v) => {
+                        setForm((f) => ({ ...f, email: v }))
+                        if (errors.email) setErrors((e) => ({ ...e, email: "" }))
+                      }}
+                    />
+                    {errors.email && (
+                      <p className="text-xs mt-1" style={{ color: C.red }}>
+                        {errors.email}
+                      </p>
+                    )}
+                  </div>
+                  <InputField
+                    label="Teléfono"
+                    type="tel"
+                    value={form.phone}
+                    onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                  />
+                  <InputField
+                    label="Cédula"
+                    value={form.cedula}
+                    onChange={(v) => setForm((f) => ({ ...f, cedula: v }))}
+                  />
+                </>
+              ) : (
+                [
+                  ["Nombre", user.name],
+                  ["Correo", user.email],
+                  ["Teléfono", user.phone || "—"],
+                  ["Cédula", user.cedula || "—"],
+                ].map(([l, v]) => (
+                  <div key={l}>
+                    <div
+                      className="text-xs font-semibold mb-0.5"
+                      style={{ color: MUTED }}
+                    >
+                      {l}
+                    </div>
+                    <div className="text-sm font-medium" style={{ color: TEXT }}>
+                      {v}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          {/* Addresses */}
+          <div
+            className="p-5 rounded-2xl mb-4"
+            style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-base" style={{ color: TEXT }}>
+                Mis direcciones
+              </h2>
+              <button
+                onClick={() => setAddingAddr(true)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                style={{ background: `${C.mustard}15`, color: C.mustard }}
+              >
+                {Ico.plus} Agregar
+              </button>
+            </div>
+            {addresses.map((a, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 py-2.5"
+                style={{
+                  borderBottom:
+                    i < addresses.length - 1 ? `1px solid ${BORDER}` : "none",
+                }}
+              >
+                <span style={{ color: C.mustard }}>{Ico.mapPin}</span>
+                {editingAddrIdx === i ? (
+                  <div className="flex-1 flex items-center gap-2">
+                    <input
+                      value={editingAddrValue}
+                      onChange={(e) => setEditingAddrValue(e.target.value)}
+                      className="flex-1 px-2 py-1 rounded-lg text-sm outline-none"
+                      style={{
+                        background: "rgba(30,30,30,0.05)",
+                        border: `1.5px solid ${C.mustard}`,
+                        color: TEXT,
+                      }}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveEditAddress()
+                        if (e.key === "Escape") {
+                          setEditingAddrIdx(null)
+                          setEditingAddrValue("")
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={saveEditAddress}
+                      className="text-xs font-bold cursor-pointer"
+                      style={{ color: C.mustard }}
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingAddrIdx(null)
+                        setEditingAddrValue("")
+                      }}
+                      className="text-xs cursor-pointer"
+                      style={{ color: MUTED }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="flex-1 text-sm" style={{ color: TEXT }}>
+                      {a}
+                    </span>
+                    <button
+                      onClick={() => startEditAddress(i)}
+                      className="text-xs cursor-pointer mr-1"
+                      style={{ color: C.mustard }}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => deleteAddress(i)}
+                      className="text-xs cursor-pointer"
+                      style={{
+                        color: addresses.length <= 1 ? "rgba(30,30,30,0.2)" : C.red,
+                        cursor: addresses.length <= 1 ? "not-allowed" : "pointer",
+                      }}
+                      title={
+                        addresses.length <= 1
+                          ? "Debes tener al menos una dirección registrada"
+                          : "Eliminar dirección"
+                      }
+                    >
+                      Eliminar
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+            {addingAddr && (
+              <div className="flex gap-2 mt-3">
+                <input
+                  placeholder="Nueva dirección..."
+                  value={newAddr}
+                  onChange={(e) => setNewAddr(e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-xl text-sm outline-none"
+                  style={{
+                    background: "rgba(30,30,30,0.05)",
+                    border: "1.5px solid rgba(30,30,30,0.12)",
+                    color: TEXT,
+                  }}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newAddr.trim()) {
+                      setAddresses((a) => [...a, newAddr.trim()])
+                      setNewAddr("")
+                      setAddingAddr(false)
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    if (newAddr.trim()) {
+                      setAddresses((a) => [...a, newAddr.trim()])
+                      setNewAddr("")
+                      setAddingAddr(false)
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  +
+                </button>
+              </div>
+            )}
+          </div>
+          {/* Change password */}
+          <div
+            className="p-5 rounded-2xl mb-4"
+            style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          >
+            <h2 className="font-bold text-base mb-4" style={{ color: TEXT }}>
+              Seguridad
+            </h2>
+            <button
+              onClick={() => setShowChangePassword(true)}
+              className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              Cambiar contraseña
+            </button>
+          </div>
+          {/* Actions */}
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+              style={{
+                background: "rgba(30,30,30,0.05)",
+                color: "rgba(30,30,30,0.4)",
+              }}
+            >
+              Eliminar cuenta
+            </button>
+          </div>
+        </div>
+        {/* Delete account modal - Different alert for admin */}
+        {showDeleteModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center px-4"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+          >
+            <div
+              className="w-full max-w-xs p-6 rounded-2xl text-center"
+              style={{
+                background: "#fff",
+                boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+              }}
+            >
+              <div className="text-4xl mb-3">⚠️</div>
+              <h3
+                className="font-black text-lg mb-2"
+                style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+              >
+                ¿Eliminar cuenta de administrador?
+              </h3>
+              <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.5)" }}>
+                Esta acción es permanente y no se puede deshacer. Perderás acceso al panel de administración y todos los datos asociados a tu cuenta.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+                  style={{
+                    background: "rgba(30,30,30,0.06)",
+                    color: "rgba(30,30,30,0.5)",
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false)
+                    onClose()
+                  }}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer"
+                  style={{ background: C.red, color: "#fff" }}
+                >
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Change password modal */}
+        {showChangePassword && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center px-4"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+            onClick={() => setShowChangePassword(false)}
+          >
+            <div
+              className="w-full max-w-sm p-6 rounded-2xl"
+              style={{
+                background: "#fff",
+                boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3
+                  className="font-black text-lg"
+                  style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+                >
+                  Cambiar contraseña
+                </h3>
+                <button
+                  onClick={() => setShowChangePassword(false)}
+                  className="text-lg cursor-pointer"
+                  style={{ color: "rgba(30,30,30,0.4)" }}
+                >
+                  ✕
+                </button>
+              </div>
+              <ChangePasswordForm
+                user={user}
+                onUpdateUser={onUpdateUser}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function AdminPanel({
   onSwitchToClient,
+  onLogout,
   user,
 }: {
   onSwitchToClient: () => void
+  onLogout: () => void
   user: User | null
 }) {
   const [theme, setTheme] = useState<Theme>("light")
@@ -6924,9 +7966,14 @@ function AdminPanel({
   const [readNotifications, setReadNotifications] = useState<Set<number>>(
     () => new Set(),
   )
+  const [showAdminProfile, setShowAdminProfile] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const sidebarScrollTop = useRef(0)
+  const preserveSidebarScroll = useCallback((node: HTMLElement | null) => {
+    if (node) node.scrollTop = sidebarScrollTop.current
+  }, [])
   const dark = theme === "dark"
   const t = tk(dark)
   // Orders placed by clients in the web store
@@ -6957,22 +8004,44 @@ function AdminPanel({
       ]),
     ) as Record<string, (string | number)[][]>
     initialRows.pedidos = [
-      ...clientOrders.map((o) => [
-        o.id,
-        o.cliente,
-        o.items.map((i) => `${i.qty} ${i.name}`).join(", "),
-        "Online",
-        o.pago === "Efectivo" ? "Efectivo" : "Transferencia",
-        o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
-        o.total,
-        o.status,
-        o.voucher ? "Pagado" : "Pendiente",
-        o.status === "Por confirmar"
-          ? "Pendiente admin"
-          : o.total >= APPROVAL_MIN
-            ? "Autorizada"
-            : "No requerida",
-      ]),
+      ...clientOrders.map((o) => {
+        const orderLines: AdminOrderLine[] = o.items.flatMap((item, index) => {
+          const parentId = `${o.id}-line-${index}`
+          const mainLine: AdminOrderLine = {
+            id: parentId,
+            product: item.name,
+            category: String(initialRows.producto?.find((product) => product[0] === item.name)?.[1] ?? ""),
+            quantity: item.qty,
+            unitPrice: item.price,
+          }
+          const additions: AdminOrderLine[] = (item.additions || []).map((addition, additionIndex) => ({
+            id: `${parentId}-addition-${additionIndex}`,
+            product: addition.name,
+            category: "Adiciones",
+            quantity: addition.qty * item.qty,
+            unitPrice: addition.price,
+            parentId,
+          }))
+          return [mainLine, ...additions]
+        })
+        return [
+          o.id,
+          o.cliente,
+          orderLines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${orderLines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
+          "Online",
+          o.pago === "Efectivo" ? "Efectivo" : "Transferencia",
+          o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
+          o.total,
+          o.status,
+          o.voucher ? "Pagado" : "Pendiente",
+          o.status === "Por confirmar"
+            ? "Pendiente admin"
+            : o.total >= APPROVAL_MIN
+              ? "Autorizada"
+              : "No requerida",
+          JSON.stringify(orderLines),
+        ]
+      }),
       ...(initialRows.pedidos || []),
     ]
     const supplyProducts = (initialRows.insumos || [])
@@ -6983,20 +8052,21 @@ function AdminPanel({
       .filter(
         (order) =>
           String(order[8]).toLowerCase() === "pagado" &&
-          !["En camino", "Entregado"].includes(String(order[6])),
+          !["En camino", "Entregado"].includes(String(order[7])),
       )
       .map((order, index) => [
         `VTA-AUTO-${String(index + 1).padStart(2, "0")}`,
         "Admin Parche",
         order[1],
-        order[2],
+        clientOrders.find((clientOrder) => clientOrder.id === order[0])?.date ?? "",
         order[3],
         order[4],
         order[6],
         order[6],
         "Pendiente",
         order[0],
-        order[6],
+        order[7],
+        order[10] ?? "[]",
       ])
     initialRows.ventas = [...duplicatedSales, ...(initialRows.ventas || [])]
     return initialRows
@@ -7019,8 +8089,17 @@ function AdminPanel({
   }>({ mode: null, section: "", idx: null })
   const [formData, setFormData] = useState<Record<string, string>>({})
   const [imgPreview, setImgPreview] = useState("")
+  const [technicalSheetOpen, setTechnicalSheetOpen] = useState(false)
+  const [technicalIngredients, setTechnicalIngredients] = useState<TechnicalIngredient[]>([])
+  const [technicalIngredientSelect, setTechnicalIngredientSelect] = useState("")
+  const [technicalIngredientQuantity, setTechnicalIngredientQuantity] = useState("1")
+  const [technicalSheetError, setTechnicalSheetError] = useState("")
   const [pedidoProductoSelect, setPedidoProductoSelect] = useState("")
-  const [productionItems, setProductionItems] = useState<{ name: string; quantity: number }[]>([])
+  const [pedidoProductCategory, setPedidoProductCategory] = useState("Todas")
+  const [pedidoProductQuantity, setPedidoProductQuantity] = useState("1")
+  const [pedidoParentSelect, setPedidoParentSelect] = useState("")
+  const [pedidoOrderLines, setPedidoOrderLines] = useState<AdminOrderLine[]>([])
+  const [productionItems, setProductionItems] = useState<ProductionItem[]>([])
   const [productionProductSelect, setProductionProductSelect] = useState("")
   const [productionItemQuantity, setProductionItemQuantity] = useState("1")
   const [productionFormError, setProductionFormError] = useState("")
@@ -7132,6 +8211,25 @@ function AdminPanel({
     return `v${maxMajor + 1}.${maxMinor}`
   }
 
+  const getTechVersions = (productName: string) => {
+    const versions = (rows.producto || [])
+      .filter((r) => String(r[0] ?? "") === productName)
+      .map((r) => ({
+        version: String(r[6] ?? ""),
+        name: String(r[5] ?? ""),
+        insumos: String(r[7] ?? ""),
+        preparacion: String(r[8] ?? ""),
+      }))
+    return versions
+  }
+
+  const nextTechVersion = (version: string) => {
+    const match = /^v?(\d+)(?:\.(\d+))?$/i.exec(version.trim())
+    return match
+      ? `v${Number(match[1])}.${Number(match[2] || "0") + 1}`
+      : getAutoTechVersion(rows.producto || [])
+  }
+
   const getAvailableInsumos = () => {
     const sourceRows = rows.insumos || []
     const options = sourceRows
@@ -7157,8 +8255,109 @@ function AdminPanel({
     ].sort((a, b) => a.localeCompare(b))
   }
 
+  const getProductRecipe = (product: (string | number)[] | undefined) => {
+    if (!product) return []
+    try {
+      const recipe = JSON.parse(String(product[9] ?? "[]"))
+      if (Array.isArray(recipe)) {
+        return recipe
+          .map((item) => ({
+            name: String(item.name ?? "").trim(),
+            quantity: Number(item.quantity),
+            unit: String(item.unit ?? "").trim(),
+          }))
+          .filter(
+            (item) => item.name && Number.isFinite(item.quantity) && item.quantity > 0 && item.unit,
+          )
+      }
+    } catch {
+      // Older product rows have only a comma-separated list of ingredient names.
+    }
+    return String(product[7] ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => ({
+        name,
+        quantity: 1,
+        unit: String(rows.insumos?.find((supply) => supply[0] === name)?.[2] ?? "und"),
+      }))
+  }
+
+  const getAdminOrderLines = (order: (string | number)[] | undefined): AdminOrderLine[] => {
+    if (!order) return []
+    try {
+      const storedLines = JSON.parse(String(order[10] ?? "[]"))
+      if (Array.isArray(storedLines)) {
+        return storedLines
+          .map((line, index) => ({
+            id: String(line.id ?? `line-${index}`),
+            product: String(line.product ?? "").trim(),
+            category: String(line.category ?? ""),
+            quantity: Number(line.quantity),
+            unitPrice: Number(line.unitPrice),
+            ...(line.parentId ? { parentId: String(line.parentId) } : {}),
+          }))
+          .filter((line) => line.product && line.quantity > 0 && line.unitPrice >= 0)
+      }
+    } catch {
+      // Legacy orders have a human-readable product list in column 2.
+    }
+    const availableProducts = (rows.producto || [])
+      .map((product) => String(product[0] ?? ""))
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)
+    return String(order[2] ?? "")
+      .split(",")
+      .map((entry, index) => {
+        const text = entry.trim()
+        const productName = availableProducts.find((name) =>
+          text.toLowerCase().includes(name.toLowerCase()),
+        )
+        if (!productName) return null
+        const quantity = Number(text.match(/^\s*(\d+)/)?.[1] ?? 1)
+        const product = rows.producto?.find((item) => item[0] === productName)
+        return {
+          id: `legacy-${index}`,
+          product: productName,
+          category: String(product?.[1] ?? ""),
+          quantity: Math.max(1, quantity),
+          unitPrice: Number(product?.[2] ?? 0),
+        }
+      })
+      .filter((line): line is AdminOrderLine => line !== null)
+  }
+
+  const getSaleOrderLines = (sale: (string | number)[] | null) => {
+    if (!sale) return []
+    try {
+      const storedLines = JSON.parse(String(sale[11] ?? "[]"))
+      if (Array.isArray(storedLines) && storedLines.length) {
+        return storedLines
+          .map((line, index) => ({
+            id: String(line.id ?? `sale-line-${index}`),
+            product: String(line.product ?? "").trim(),
+            category: String(line.category ?? ""),
+            quantity: Number(line.quantity),
+            unitPrice: Number(line.unitPrice),
+            ...(line.parentId ? { parentId: String(line.parentId) } : {}),
+          }))
+          .filter((line) => line.product && line.quantity > 0 && line.unitPrice >= 0)
+      }
+    } catch {
+      // Sales created before line snapshots use the associated order as their source.
+    }
+    const order = rows.pedidos?.find((candidate) => candidate[0] === sale[9])
+    return getAdminOrderLines(order)
+  }
+
   const getAvailableProductos = () => {
     const options = (rows.producto || [])
+      .filter(
+        (row) =>
+          !["inactivo", "inactiva"].includes(String(row[4] ?? "").toLowerCase()) &&
+          String(row[10] ?? "Disponible").toLowerCase() !== "no disponible",
+      )
       .map((row) => String(row[0] ?? "").trim())
       .filter(Boolean)
     return [
@@ -7175,8 +8374,10 @@ function AdminPanel({
       if (Array.isArray(items) && items.length) {
         return items
           .map((item) => ({
-            name: String(item.name ?? "").trim(),
+            name: String(item.name ?? item.product ?? "").trim(),
             quantity: Math.max(1, Number(item.quantity) || 1),
+            ...(item.category ? { category: String(item.category) } : {}),
+            ...(item.parentId ? { parentId: String(item.parentId) } : {}),
           }))
           .filter((item) => item.name)
       }
@@ -7188,10 +8389,35 @@ function AdminPanel({
   }
 
   const getNonconformingProductOptions = () => {
-    const options = (rows.produccion || [])
-      .map((row) => String(row[1] ?? "").trim())
+    const products = (rows.producto || [])
+      .map((row) => String(row[0] ?? "").trim())
       .filter(Boolean)
-    return [...new Set(options)].sort((a, b) => a.localeCompare(b))
+    const supplies = (rows.insumos || [])
+      .map((row) => String(row[0] ?? "").trim())
+      .filter(Boolean)
+    return [...new Set([...products, ...supplies])].sort((a, b) => a.localeCompare(b))
+  }
+
+  const getNonconformingItems = (row: (string | number)[] | undefined) => {
+    if (!row) return []
+    try {
+      const items = JSON.parse(String(row[2] ?? "[]"))
+      if (Array.isArray(items) && items.length) {
+        return items
+          .map((item) => ({
+            name: String(item.name ?? "").trim(),
+            quantity: Math.max(1, Number(item.quantity) || 1),
+          }))
+          .filter((item) => item.name)
+      }
+    } catch {
+      // Use the legacy product field below.
+    }
+    return String(row[1] ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => ({ name, quantity: Math.max(1, Number(row[3]) || 1) }))
   }
 
   const getProductSupplyOptions = () =>
@@ -7258,22 +8484,27 @@ function AdminPanel({
     )
     if (sec === "producto") {
       initialFields["6"] = getAutoTechVersion(rows.producto || [])
+      initialFields["10"] = "Disponible"
+      setTechnicalIngredients([])
+      setTechnicalSheetError("")
     }
     if (sec === "insumos") {
       initialFields["7"] = "No"
       setSupplyFormError("")
     }
+    if (sec === "producto-no-conforme") {
+      initialFields["6"] = "und"
+    }
     if (sec === "clientes") {
       initialFields["6"] = "No"
       setClientFormError("")
     }
-    if (sec === "produccion") {
+    if (sec === "produccion" || sec === "producto-no-conforme") {
       const currentDateTime = getCurrentDateTimeParts()
       setProductionItems([])
       setProductionProductSelect("")
       setProductionItemQuantity("1")
       setProductionFormError("")
-      initialFields["2"] = String(getNextProductionPriority())
       initialFields["3"] = currentDateTime.date
       initialFields["4"] = currentDateTime.time
     }
@@ -7290,6 +8521,12 @@ function AdminPanel({
     }
     setFormData(initialFields)
     setPedidoProductoSelect("")
+    if (sec === "pedidos") {
+      setPedidoOrderLines([])
+      setPedidoProductCategory("Todas")
+      setPedidoProductQuantity("1")
+      setPedidoParentSelect("")
+    }
     setPaymentProofDraft("")
     setImgPreview("")
     setModal({ mode: "add", section: sec, idx: null })
@@ -7318,8 +8555,27 @@ function AdminPanel({
       setProductionItemQuantity("1")
       setProductionFormError("")
     }
+    if (sec === "producto-no-conforme") {
+      setProductionItems(getNonconformingItems(row))
+      setProductionProductSelect("")
+      setProductionItemQuantity("1")
+      setProductionFormError("")
+    }
     if (sec === "producto" && !nextForm["6"]) {
       nextForm["6"] = getAutoTechVersion(rows.producto || [])
+    }
+    if (sec === "producto") {
+      setTechnicalIngredients(getProductRecipe(row))
+      nextForm["9"] = String(row[9] ?? "[]")
+      nextForm["10"] = String(row[10] ?? "Disponible")
+      setTechnicalSheetError("")
+    }
+    if (sec === "pedidos") {
+      const orderLines = getAdminOrderLines(row)
+      setPedidoOrderLines(orderLines)
+      setPedidoProductCategory("Todas")
+      setPedidoProductQuantity("1")
+      setPedidoParentSelect("")
     }
     setFormData(nextForm)
     setPedidoProductoSelect("")
@@ -7330,10 +8586,12 @@ function AdminPanel({
   const openView = (sec: string, idx: number) => {
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
+    if (sec === "producto") setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
     if (sec === "produccion") {
       setProductionItems(getProductionOrderItems(rows.produccion?.[idx]))
       setProductionFormError("")
     }
+    if (sec === "pedidos") setPedidoOrderLines(getAdminOrderLines(rows.pedidos?.[idx]))
     setModal({ mode: "view", section: sec, idx })
   }
 
@@ -7342,9 +8600,29 @@ function AdminPanel({
     const config = MOD_CFG[sec]
     if (!config) return
 
-    if (sec === "produccion" && !productionItems.length) {
+    if ((sec === "produccion" || sec === "producto-no-conforme") && !productionItems.length) {
       setProductionFormError("Agrega al menos un producto o producto de insumo.")
       return
+    }
+    if (sec === "pedidos" && pedidoOrderLines.length === 0) {
+      window.alert("Agrega al menos un producto al pedido.")
+      return
+    }
+    if (sec === "producto") {
+      const invalidIngredient = technicalIngredients.find((ingredient) => {
+        const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
+        return (
+          !supply ||
+          !Number.isFinite(ingredient.quantity) ||
+          ingredient.quantity <= 0 ||
+          !ingredient.unit ||
+          String(supply[2] ?? "").trim().toLowerCase() !== ingredient.unit.trim().toLowerCase()
+        )
+      })
+      if (invalidIngredient) {
+        window.alert(`Verifica la cantidad y unidad de «${invalidIngredient.name}» en la ficha técnica.`)
+        return
+      }
     }
     if (
       sec === "producto-no-conforme" &&
@@ -7399,8 +8677,23 @@ function AdminPanel({
       newRow[6] =
         String(formData["6"] || "").trim() ||
         getAutoTechVersion(rows.producto || [])
-      newRow[7] = String(formData["7"] || "").trim()
+      newRow[7] = technicalIngredients.map((ingredient) => ingredient.name).join(", ")
       newRow[8] = String(formData["8"] || "").trim()
+      const serializedRecipe = JSON.stringify(technicalIngredients)
+      newRow[9] = serializedRecipe
+      newRow[10] = String(formData["10"] || "Disponible")
+      if (previousRow && String(previousRow[9] ?? "[]") !== serializedRecipe) {
+        newRow[6] = nextTechVersion(String(previousRow[6] ?? ""))
+      }
+    }
+
+    if (sec === "insumos") {
+      if (String(newRow[7]).toLowerCase() === "sí") {
+        newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
+        newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"
+      } else {
+        newRow[8] = newRow[9] = newRow[10] = newRow[11] = ""
+      }
     }
 
     if (sec === "insumos") {
@@ -7420,17 +8713,26 @@ function AdminPanel({
     }
 
     if (sec === "pedidos") {
-      const total = Number(formData["5"] || 0)
+      const total = pedidoOrderLines.reduce(
+        (sum, line) => sum + line.unitPrice * line.quantity,
+        0,
+      )
+      newRow[1] = pedidoOrderLines
+        .map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${pedidoOrderLines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`)
+        .join(", ")
       newRow[5] = total
       newRow[6] = "Recibido"
       newRow[7] = String(formData["7"] || "Pendiente").trim()
-      newRow[8] = "Pendiente admin"
+      newRow[8] = total >= APPROVAL_MIN ? "Pendiente admin" : "No requerida"
+      newRow[9] = JSON.stringify(pedidoOrderLines)
     }
 
     if (config.autoId) {
       const prefix =
         sec === "produccion"
           ? "OP"
+          : sec === "producto-no-conforme"
+            ? "PNC"
           : sec === "ventas"
             ? "VTA"
             : sec === "pedidos"
@@ -7447,6 +8749,16 @@ function AdminPanel({
       )
     }
 
+    if (sec === "producto-no-conforme") {
+      newRow[1] = productionItems.map((item) => item.name).join(", ")
+      newRow[2] = JSON.stringify(productionItems)
+      newRow[3] = productionItems.reduce((total, item) => total + item.quantity, 0)
+      newRow[4] = formData["3"] ?? ""
+      newRow[5] = formData["4"] ?? ""
+      newRow[6] = formData["5"] ?? ""
+      newRow[7] = formData["6"] ?? "und"
+    }
+
     if (sec === "produccion") {
       const currentDateTime = getCurrentDateTimeParts()
       newRow[1] = productionItems.map((item) => item.name).join(", ")
@@ -7455,6 +8767,7 @@ function AdminPanel({
         0,
       )
       newRow[13] = JSON.stringify(productionItems)
+      newRow[3] = modal.mode === "add" ? getNextProductionPriority(rows.produccion || []) : (previousRow?.[3] ?? getNextProductionPriority(rows.produccion || []))
       newRow[6] = previousRow?.[6] ?? currentDateTime.date
       newRow[7] = previousRow?.[7] ?? currentDateTime.time
       newRow[8] = previousRow?.[8] ?? "Recibida"
@@ -7542,6 +8855,7 @@ function AdminPanel({
           `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
           "Admin Parche",
           newRow[1],
+          getCurrentDateTimeParts().date,
           newRow[2],
           newRow[3],
           newRow[4],
@@ -7549,7 +8863,8 @@ function AdminPanel({
           newRow[6],
           "Pendiente",
           newRow[0],
-          newRow[6],
+          newRow[7],
+          newRow[10] ?? "[]",
         ])
         return { ...current, ventas: salesRows }
       })
@@ -7572,6 +8887,14 @@ function AdminPanel({
     const name = supplierName.trim().toLowerCase()
     return (rows.compras || []).filter(
       (purchase) => String(purchase[0] ?? "").trim().toLowerCase() === name,
+    )
+  }
+
+  const getCategoryRecords = (section: "cat-insumos" | "cat-producto", categoryName: string) => {
+    const name = categoryName.trim().toLowerCase()
+    const relatedSection = section === "cat-insumos" ? "insumos" : "producto"
+    return (rows[relatedSection] || []).filter(
+      (record) => String(record[1] ?? "").trim().toLowerCase() === name,
     )
   }
 
@@ -7643,6 +8966,24 @@ function AdminPanel({
         allowed: true,
         targetLabel: supplierLabel,
         reason: "No tiene compras de insumos registradas.",
+      }
+    }
+
+    if (sec === "cat-insumos" || sec === "cat-producto") {
+      const categoryLabel = `la categoría «${recordName}»`
+      const records = getCategoryRecords(sec, recordName)
+      if (records.length) {
+        const recordType = sec === "cat-insumos" ? "insumo" : "producto"
+        return {
+          allowed: false,
+          targetLabel: categoryLabel,
+          reason: `Tiene ${records.length} ${records.length === 1 ? recordType : `${recordType}s`} asociados. Primero reasigna o elimina esos registros para poder eliminar la categoría.`,
+        }
+      }
+      return {
+        allowed: true,
+        targetLabel: categoryLabel,
+        reason: "No tiene registros asociados.",
       }
     }
 
@@ -7867,22 +9208,7 @@ function AdminPanel({
     )
 
     const currentDateTime = getCurrentDateTimeParts()
-    const availableProducts = getAvailableProductos()
-    const requestedItems = String(order[2] ?? "")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => {
-        const product = availableProducts.find((name) =>
-          item.toLowerCase().includes(name.toLowerCase()),
-        )
-        const quantityMatch = item.match(/\b(\d+)\b/)
-        return {
-          product: product || "",
-          quantity: quantityMatch ? Number(quantityMatch[1]) : 1,
-        }
-      })
-      .filter((item) => Boolean(item.product))
+    const requestedItems = getAdminOrderLines(order)
 
     setRows((current) => {
       const orderRows = [...(current.pedidos || [])]
@@ -7896,11 +9222,12 @@ function AdminPanel({
         0,
         ...productionRows.map((row) => Number(row[3]) || 0),
       )
-      requestedItems.forEach((item) => {
+      requestedItems.slice().reverse().forEach((item) => {
         priority += 1
+        const parent = requestedItems.find((candidate) => candidate.id === item.parentId)
         productionRows.unshift([
           getNextProductionCode(productionRows),
-          item.product,
+          parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
           item.quantity,
           priority,
           currentDateTime.date,
@@ -7918,13 +9245,19 @@ function AdminPanel({
               time: currentDateTime.time,
             },
           ]),
-          JSON.stringify([{ name: item.product, quantity: item.quantity }]),
+          JSON.stringify([{
+            name: item.product,
+            quantity: item.quantity,
+            category: item.category,
+            ...(item.parentId ? { parentId: item.parentId } : {}),
+          }]),
+          "No",
         ])
       })
 
       let salesRows = [...(current.ventas || [])]
       const notShipped = !["En camino", "Entregado"].includes(
-        String(updatedOrder[6]),
+        String(updatedOrder[7]),
       )
       const alreadyDuplicated = salesRows.some(
         (sale) => sale[9] === updatedOrder[0],
@@ -7941,7 +9274,8 @@ function AdminPanel({
           updatedOrder[6],
           "Pendiente",
           updatedOrder[0],
-          updatedOrder[6],
+          updatedOrder[7],
+          updatedOrder[10] ?? "[]",
         ])
       }
 
@@ -8089,17 +9423,56 @@ function AdminPanel({
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
   ) => {
+    const sourceRow = rows.produccion?.[rowIndex]
+    if (!sourceRow || String(sourceRow[8]) === nextStatus) return
+    const consumeStock = nextStatus === "En cocina" && String(sourceRow[14]) !== "Sí"
+    const requiredSupplies = new Map<string, { quantity: number; unit: string }>()
+    if (consumeStock) {
+      for (const item of getProductionOrderItems(sourceRow)) {
+        const product = rows.producto?.find((candidate) => candidate[0] === item.name)
+        for (const ingredient of getProductRecipe(product)) {
+          const supply = rows.insumos?.find((candidate) => candidate[0] === ingredient.name)
+          const unit = String(supply?.[2] ?? "").trim()
+          if (!supply || !unit || unit.toLowerCase() !== ingredient.unit.trim().toLowerCase()) {
+            window.alert(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y use la misma unidad de la ficha técnica.`)
+            return
+          }
+          const current = requiredSupplies.get(ingredient.name)
+          requiredSupplies.set(ingredient.name, {
+            quantity: (current?.quantity ?? 0) + ingredient.quantity * item.quantity,
+            unit,
+          })
+        }
+      }
+      for (const [name, requirement] of requiredSupplies) {
+        const supply = rows.insumos?.find((candidate) => candidate[0] === name)
+        const stock = Number(supply?.[4])
+        if (!Number.isFinite(stock) || stock < requirement.quantity) {
+          window.alert(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
+          return
+        }
+      }
+    }
     setRows((current) => {
       const productionRows = [...(current.produccion || [])]
       const currentRow = productionRows[rowIndex]
       if (!currentRow) return current
+      if (consumeStock && String(currentRow[14]) === "Sí") return current
 
       const currentDateTime = getCurrentDateTimeParts()
+      const now = new Date()
+      const formatRealTime = (date: Date) => {
+        const hours = date.getHours()
+        const minutes = date.getMinutes()
+        const seconds = date.getSeconds()
+        const period = hours >= 12 ? "PM" : "AM"
+        const hours12 = hours % 12 || 12
+        return `${hours12}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")} ${period}`
+      }
+      const realTime = formatRealTime(now)
       const updatedRow = [...currentRow]
-      updatedRow[4] = currentDateTime.date
-      updatedRow[5] = currentDateTime.time
-      updatedRow[6] = currentDateTime.date
-      updatedRow[7] = currentDateTime.time
+      updatedRow[5] = realTime
+      updatedRow[7] = realTime
       updatedRow[8] = nextStatus
       let history: { status: string; date: string; time: string }[] = []
       try {
@@ -8111,17 +9484,18 @@ function AdminPanel({
       history.push({
         status: nextStatus,
         date: currentDateTime.date,
-        time: currentDateTime.time,
+        time: realTime,
       })
       updatedRow[12] = JSON.stringify(history)
       updatedRow[11] =
         nextStatus !== "Recibida" || String(currentRow[11]).toLowerCase() === "sí"
           ? "Sí"
           : "No"
+      if (consumeStock) updatedRow[14] = "Sí"
 
       if (nextStatus === "Terminado") {
         if (currentRow[8] !== "Terminado") {
-          updatedRow[9] = `${currentDateTime.date} ${currentDateTime.time}`
+          updatedRow[9] = `${currentDateTime.date} ${realTime}`
           const lastDeparture = Math.max(
             0,
             ...productionRows.map((row) => Number(row[10]) || 0),
@@ -8133,6 +9507,15 @@ function AdminPanel({
         updatedRow[10] = 0
       }
       productionRows[rowIndex] = updatedRow
+      const supplies = consumeStock
+        ? (current.insumos || []).map((supply) => {
+            const required = requiredSupplies.get(String(supply[0]))
+            if (!required) return supply
+            const updatedSupply = [...supply]
+            updatedSupply[4] = Number(updatedSupply[4]) - required.quantity
+            return updatedSupply
+          })
+        : current.insumos
 
       if (nextStatus === "Producto no conforme") {
         const newPriority =
@@ -8144,22 +9527,22 @@ function AdminPanel({
           updatedRow[2],
           newPriority,
           currentDateTime.date,
-          currentDateTime.time,
+          realTime,
           currentDateTime.date,
-          currentDateTime.time,
+          realTime,
           "Iniciada",
           "",
           0,
           "Sí",
           JSON.stringify([
-            { status: "Iniciada", date: currentDateTime.date, time: currentDateTime.time },
+            { status: "Iniciada", date: currentDateTime.date, time: realTime },
           ]),
           updatedRow[13],
         ]
         productionRows.unshift(restartedOrder)
       }
 
-      return { ...current, produccion: productionRows }
+      return { ...current, produccion: productionRows, ...(supplies ? { insumos: supplies } : {}) }
     })
   }
 
@@ -8499,7 +9882,7 @@ function AdminPanel({
                 <div className="flex items-center gap-1">
                   <div
                     className="w-2.5 h-2.5 rounded-sm"
-                    style={{ background: "#2E7D60" }}
+                    style={{ background: "#D2A84E" }}
                   />
                   <span className="text-xs" style={{ color: t.muted }}>
                     Ventas
@@ -8591,7 +9974,7 @@ function AdminPanel({
                         <span
                           style={{
                             fontSize: "0.5rem",
-                            color: "#2E7D60",
+                            color: "#D2A84E",
                             fontWeight: 700,
                           }}
                         >
@@ -8601,7 +9984,7 @@ function AdminPanel({
                           style={{
                             width: "100%",
                             height: `${hV}px`,
-                            background: "#2E7D60",
+                            background: "#D2A84E",
                             borderRadius: "3px 3px 0 0",
                             minHeight: "4px",
                           }}
@@ -8630,8 +10013,9 @@ function AdminPanel({
                     </div>
                     <span
                       style={{
-                        color: t.subtle,
-                        fontSize: "0.5rem",
+                        color: t.text,
+                        fontSize: "0.55rem",
+                        fontWeight: 700,
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         maxWidth: "40px",
@@ -8804,6 +10188,7 @@ function AdminPanel({
       </div>
 
       <div
+        id="admin-alerts-section"
         className="mt-5 rounded-2xl overflow-hidden"
         style={{ background: t.card, border: `1px solid ${t.border}` }}
       >
@@ -8874,7 +10259,19 @@ function AdminPanel({
     const cfg = MOD_CFG[section]
     if (!cfg) return null
 
+    const searchInputRef = useRef<HTMLInputElement>(null)
     const isProducto = section === "producto"
+
+    // Keep focus on search input after re-renders
+    useEffect(() => {
+      if (searchInputRef.current) {
+        const currentValue = searchInputRef.current.value
+        searchInputRef.current.focus()
+        searchInputRef.current.value = currentValue
+        // Restore cursor position to end
+        searchInputRef.current.setSelectionRange(currentValue.length, currentValue.length)
+      }
+    }, [search[section], pg[section]])
     const noDelete = !!cfg.noDelete
     const noExp = !!cfg.noExport
     const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))
@@ -9078,6 +10475,8 @@ function AdminPanel({
               {Ico.search}
             </span>
             <input
+              ref={searchInputRef}
+              key={`search-${section}`}
               placeholder="Buscar..."
               value={search[section] || ""}
               onChange={(event) => {
@@ -9437,10 +10836,19 @@ function AdminPanel({
   }
 
   // Roles permissions matrix for create/edit
-  const RolesPermMatrix = ({ roleName }: { roleName: string }) => {
-    const perms = rolesPerms[roleName] || {}
+  const RolesPermMatrix = ({ roleName, readOnly = false }: { roleName: string; readOnly?: boolean }) => {
+    const isAdmin = roleName.toLowerCase() === "administrador"
+    const perms = isAdmin
+      ? Object.fromEntries(
+          PERMISSION_MODULES.map(({ name }) => [
+            name,
+            ["Ver", "Crear", "Editar", "Anular", "Eliminar"],
+          ]),
+        )
+      : (rolesPerms[roleName] || {})
     const commonActions = ["Ver", "Crear", "Editar"]
     const toggle = (mod: string, action: string) => {
+      if (readOnly || isAdmin) return
       setRolesPerms((rp) => {
         const cur = rp[roleName]?.[mod] || []
         const next = cur.includes(action)
@@ -9518,7 +10926,8 @@ function AdminPanel({
                       aria-label={`${action} ${name}`}
                       checked={(perms[name] || []).includes(action)}
                       onChange={() => toggle(name, action)}
-                      className="cursor-pointer"
+                      disabled={readOnly}
+                      className={readOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"}
                       style={{
                         accentColor: C.mustard,
                         width: "14px",
@@ -9554,6 +10963,11 @@ function AdminPanel({
     const isReturns = modal.section === "devoluciones"
     const isClient = modal.section === "clientes"
     const row = modal.idx !== null ? rows[modal.section]?.[modal.idx] : null
+    const orderDetails = isPedido ? getAdminOrderLines(row || undefined) : []
+    const saleOrderLines = getSaleOrderLines(isSales ? row : null)
+    const saleOrderIndex = isSales
+      ? rows.pedidos?.findIndex((order) => order[0] === row?.[9]) ?? -1
+      : -1
     // Purchase module (Compras) gets a compact 2-column form and a formatted detail view
     const PURCHASE_ENTITIES: Record<string, { name: string; fem: boolean }> = {
       "cat-insumos": { name: "categoría de insumo", fem: true },
@@ -9601,6 +11015,8 @@ function AdminPanel({
       String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
     const formDataFields = isProduction
       ? dataFields.filter((field) => !["0", "1"].includes(field.key))
+      : isPnc
+        ? dataFields.filter((field) => !["0", "1", "2"].includes(field.key))
       : isSupply
         ? dataFields.filter(
             (field) =>
@@ -9609,17 +11025,20 @@ function AdminPanel({
           )
         : dataFields
     const productMainFields = isProduct
-      ? dataFields.filter((field) => ["0", "1", "2", "3"].includes(field.key))
+      ? dataFields.filter((field) => ["0", "1", "2", "3", "10"].includes(field.key))
       : dataFields
     const productTechFields = isProduct
-      ? dataFields.filter((field) => Number(field.key) >= 5)
+      ? dataFields.filter((field) => ["5", "6", "7", "8"].includes(field.key))
       : []
     const rowOffset = cfg.autoId ? 1 : 0
     const availableProductos = isPedido ? getAvailableProductos() : []
     const availableProductionProducts = isProduction
       ? getAvailableProductos()
       : []
-    const availablePncProducts = isPnc ? getProductSupplyOptions() : []
+    const availablePncDamagedItems = isPnc ? getNonconformingProductOptions() : []
+    const availableItemOptions = isProduction
+      ? availableProductionProducts
+      : availablePncDamagedItems
     const clientOptions = (rows.clientes || [])
       .map((client) => String(client[0] ?? ""))
       .filter(Boolean)
@@ -9843,6 +11262,19 @@ function AdminPanel({
                     const val = isView
                       ? String(row ? (row[Number(f.key)] ?? "—") : "—")
                       : formData[f.key] || ""
+                    const productFieldOptions =
+                      f.key === "1"
+                        ? [
+                            ...new Set([
+                              ...(rows["cat-producto"] || [])
+                                .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
+                                .map((category) => String(category[0] ?? "").trim())
+                                .filter(Boolean),
+                              ...PRODUCTS.map((product) => product.cat.replace(/-/g, " ")),
+                              "Producto de insumo",
+                            ]),
+                          ].sort((a, b) => a.localeCompare(b))
+                        : f.options
                     return (
                       <div key={f.key} className="flex flex-col gap-1.5">
                         <label
@@ -9875,7 +11307,7 @@ function AdminPanel({
                             }}
                           >
                             <option value="">Selecciona...</option>
-                            {f.options?.map((o) => (
+                            {productFieldOptions?.map((o) => (
                               <option key={o} value={o}>
                                 {o}
                               </option>
@@ -9921,13 +11353,47 @@ function AdminPanel({
                   })}
                 </div>
                 <div className="flex flex-col gap-3">
-                  <div
-                    className="text-xs font-bold uppercase tracking-wide"
-                    style={{ color: t.muted }}
-                  >
-                    Ficha técnica
+                  <div className="flex items-center justify-between gap-2">
+                    <div
+                      className="text-xs font-bold uppercase tracking-wide"
+                      style={{ color: t.muted }}
+                    >
+                      Ficha técnica
+                    </div>
+                    {!isView && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTechnicalSheetError("")
+                          setTechnicalSheetOpen(true)
+                        }}
+                        className="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
+                        style={{ background: C.mustard, color: "#fff" }}
+                      >
+                        Ficha técnica
+                      </button>
+                    )}
                   </div>
+                  {!isView && (
+                    <div className="rounded-xl px-3 py-2.5 text-xs" style={{ background: t.cardAlt, color: t.muted }}>
+                      {technicalIngredients.length
+                        ? `${technicalIngredients.length} insumo${technicalIngredients.length === 1 ? "" : "s"} en la receta`
+                        : "Ficha técnica opcional. Puedes agregar insumos, cantidades y unidades."}
+                    </div>
+                  )}
+                  {isView && getProductRecipe(row ?? undefined).length > 0 && (
+                    <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                      <div className="mb-2 text-xs font-bold" style={{ color: t.text }}>Insumos y cantidades</div>
+                      {getProductRecipe(row ?? undefined).map((ingredient, index) => (
+                        <div key={`${ingredient.name}-${index}`} className="flex justify-between gap-3 border-t py-2 text-xs" style={{ borderColor: t.border, color: t.muted }}>
+                          <span>{ingredient.name}</span>
+                          <strong style={{ color: t.text }}>{ingredient.quantity} {ingredient.unit}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {productTechFields.map((f) => {
+                    if (!isView) return null
                     const fieldRowIndex = Number(f.key)
                     const val = isView
                       ? String(row ? (row[fieldRowIndex] ?? "—") : "—")
@@ -10125,11 +11591,11 @@ function AdminPanel({
               </div>
             ) : (
               <>
-                {isProduction && (
+                {(isProduction || isPnc) && (
                   <section className="rounded-2xl p-4" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                     <div className="mb-3 flex items-center gap-2">
                       <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Productos de la orden</h4>
+                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>{isPnc ? "Productos o insumos que se dañaron" : "Productos de la orden"}</h4>
                     </div>
                     {productionItems.length ? (
                       <div className="mb-3 flex flex-col gap-2">
@@ -10144,15 +11610,20 @@ function AdminPanel({
                         ))}
                       </div>
                     ) : (
-                      <div className="mb-3 rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>Agrega al menos un producto o producto de insumo.</div>
+                      <div className="mb-3 rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>{isPnc ? "Agrega al menos un producto o insumo perdido." : "Agrega al menos un producto o producto de insumo."}</div>
                     )}
                     {!isView && (
                       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_100px_auto]">
                         <select value={productionProductSelect} onChange={(event) => setProductionProductSelect(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: productionProductSelect ? t.text : t.muted }}>
-                          <option value="">Selecciona un producto...</option>
-                          {availableProductionProducts.filter((product) => !productionItems.some((item) => item.name === product)).map((product) => {
-                            const isSupply = rows.producto?.some((item) => item[0] === product && item[1] === "Producto de insumo")
-                            return <option key={product} value={product}>{product}{isSupply ? " · Producto de insumo" : ""}</option>
+                          <option value="">Selecciona un producto o insumo...</option>
+                          {(isPnc
+                            ? availableItemOptions
+                            : availableItemOptions.filter((product) => !productionItems.some((item) => item.name === product)))
+                            .map((product, index) => {
+                            const isSupply = isPnc
+                              ? rows.insumos?.some((item) => item[0] === product)
+                              : rows.producto?.some((item) => item[0] === product && item[1] === "Producto de insumo")
+                            return <option key={`${product}-${index}`} value={product}>{product}{isSupply ? " · Insumo" : ""}</option>
                           })}
                         </select>
                         <input type="number" min="1" value={productionItemQuantity} onChange={(event) => setProductionItemQuantity(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
@@ -10166,7 +11637,7 @@ function AdminPanel({
                         }} className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer" style={{ background: C.mustard, color: "#fff" }}>Agregar</button>
                       </div>
                     )}
-                    <p className="mt-2 text-[10px]" style={{ color: t.muted }}>El selector incluye productos normales y productos de insumo.</p>
+                    <p className="mt-2 text-[10px]" style={{ color: t.muted }}>{isPnc ? "Selecciona todos los productos o insumos que se perdieron y agrega la cantidad de cada uno." : "El selector incluye productos normales y productos de insumo."}</p>
                     {productionFormError && <p className="mt-2 text-xs font-medium" style={{ color: C.red }}>{productionFormError}</p>}
                   </section>
                 )}
@@ -10578,9 +12049,7 @@ function AdminPanel({
                 const fieldOptions =
                   isProduction && f.key === "0"
                     ? availableProductionProducts
-                    : isPnc && f.key === "1"
-                      ? availablePncProducts
-                      : (isSales && f.key === "1") ||
+                    : (isSales && f.key === "1") ||
                           (isPedido && f.key === "0") ||
                           (isReturns && f.key === "2")
                         ? clientOptions
@@ -10591,13 +12060,21 @@ function AdminPanel({
                             : isSupply && f.key === "1" && namesOf("cat-insumos").length
                               ? namesOf("cat-insumos")
                               : f.options
-                const existingProductos =
-                  isPedido && f.key === "1"
-                    ? val
-                        .split(",")
-                        .map((item) => item.trim())
-                        .filter(Boolean)
-                    : []
+                const pedidoCategories = [
+                  "Todas",
+                  ...new Set(
+                    (rows["cat-producto"] || [])
+                      .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
+                      .map((category) => String(category[0] ?? "").trim())
+                      .filter(Boolean),
+                  ),
+                ]
+                const filteredOrderProducts = availableProductos.filter((productName) => {
+                  const product = rows.producto?.find((item) => item[0] === productName)
+                  return pedidoProductCategory === "Todas" || String(product?.[1] ?? "") === pedidoProductCategory
+                })
+                const selectedOrderProduct = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
+                const isSelectedAddition = String(selectedOrderProduct?.[1] ?? "").toLowerCase() === "adiciones"
                 const isLocalClient =
                   isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
                 const requiredClientField =
@@ -10643,86 +12120,121 @@ function AdminPanel({
                       {requiredClientField && " *"}
                     </label>
                     {isPedido && f.key === "1" && !isView ? (
-                      <div className="flex flex-col gap-2">
-                        <div className="flex flex-wrap gap-2">
-                          {existingProductos.length === 0 ? (
-                            <div
-                              className="text-xs px-2.5 py-1.5 rounded-full"
-                              style={{ background: t.input, color: t.muted }}
+                      <div className="flex flex-col gap-3">
+                        <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                          <div className="grid gap-2 sm:grid-cols-[minmax(0,130px)_minmax(0,1fr)_90px_auto]">
+                            <select
+                              value={pedidoProductCategory}
+                              onChange={(event) => {
+                                setPedidoProductCategory(event.target.value)
+                                setPedidoProductoSelect("")
+                              }}
+                              className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none"
+                              style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                              aria-label="Filtrar productos por categoría"
                             >
-                              Sin productos seleccionados
-                            </div>
-                          ) : (
-                            existingProductos.map((producto) => (
-                              <button
-                                key={producto}
-                                type="button"
-                                onClick={() => {
-                                  const next = existingProductos.filter(
-                                    (item) => item !== producto,
-                                  )
-                                  setFormData((d) => ({
-                                    ...d,
-                                    [f.key]: next.join(", "),
-                                  }))
-                                }}
-                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs cursor-pointer"
-                                style={{
-                                  background: `${C.mustard}15`,
-                                  color: C.mustard,
-                                  border: `1px solid ${C.mustard}35`,
-                                }}
+                              {pedidoCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                            </select>
+                            <select
+                              value={pedidoProductoSelect}
+                              onChange={(event) => setPedidoProductoSelect(event.target.value)}
+                              className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none cursor-pointer"
+                              style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                            >
+                              <option value="">Selecciona producto o adición...</option>
+                              {filteredOrderProducts.map((product) => {
+                                const productRow = rows.producto?.find((item) => item[0] === product)
+                                return <option key={product} value={product}>{product}{productRow?.[1] === "Adiciones" ? " · Adición" : ""}</option>
+                              })}
+                            </select>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={pedidoProductQuantity}
+                              onChange={(event) => setPedidoProductQuantity(event.target.value)}
+                              className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none"
+                              style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                              aria-label="Cantidad"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const productRow = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
+                                const quantity = Number(pedidoProductQuantity)
+                                if (!productRow || !Number.isInteger(quantity) || quantity <= 0) return
+                                const parentLine = pedidoOrderLines.find((line) => line.id === pedidoParentSelect)
+                                const id = `order-line-${Date.now()}-${pedidoOrderLines.length}`
+                                const line: AdminOrderLine = {
+                                  id,
+                                  product: pedidoProductoSelect,
+                                  category: String(productRow[1] ?? ""),
+                                  quantity,
+                                  unitPrice: Number(productRow[2]) || 0,
+                                  ...(isSelectedAddition && parentLine ? { parentId: parentLine.id } : {}),
+                                }
+                                setPedidoOrderLines((current) => [...current, line])
+                                setPedidoProductoSelect("")
+                                setPedidoProductQuantity("1")
+                                setPedidoParentSelect("")
+                              }}
+                              className="rounded-xl px-3 py-2.5 text-xs font-bold cursor-pointer"
+                              style={{ background: C.mustard, color: "#fff" }}
+                            >
+                              Agregar
+                            </button>
+                          </div>
+                          {isSelectedAddition && (
+                            <label className="mt-2 flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                              Adición de (opcional)
+                              <select
+                                value={pedidoParentSelect}
+                                onChange={(event) => setPedidoParentSelect(event.target.value)}
+                                className="w-full rounded-xl px-3 py-2 text-xs outline-none"
+                                style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
                               >
-                                <span>{producto}</span>
-                                <span>×</span>
-                              </button>
-                            ))
+                                <option value="">Sin producto asociado</option>
+                                {pedidoOrderLines.filter((line) => line.category.toLowerCase() !== "adiciones").map((line) => (
+                                  <option key={line.id} value={line.id}>{line.product} × {line.quantity}</option>
+                                ))}
+                              </select>
+                            </label>
                           )}
                         </div>
-                        <div className="flex gap-2">
-                          <select
-                            value={pedidoProductoSelect}
-                            onChange={(e) =>
-                              setPedidoProductoSelect(e.target.value)
-                            }
-                            className="w-full min-w-0 flex-1 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
-                              color: t.text,
-                            }}
-                          >
-                            <option value="">Selecciona un producto...</option>
-                            {availableProductos
-                              .filter(
-                                (producto) =>
-                                  !existingProductos.includes(producto),
-                              )
-                              .map((producto) => (
-                                <option key={producto} value={producto}>
-                                  {producto}
-                                </option>
-                              ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!pedidoProductoSelect) return
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: [
-                                  ...existingProductos,
-                                  pedidoProductoSelect,
-                                ].join(", "),
-                              }))
-                              setPedidoProductoSelect("")
-                            }}
-                            className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold cursor-pointer"
-                            style={{ background: C.mustard, color: "#fff" }}
-                          >
-                            Agregar
-                          </button>
-                        </div>
+                        {!pedidoOrderLines.length ? (
+                          <div className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>
+                            Agrega al menos un producto al pedido.
+                          </div>
+                        ) : (
+                          <div className="flex flex-col divide-y rounded-xl px-3" style={{ background: t.input, borderColor: t.border }}>
+                            {pedidoOrderLines.map((line) => (
+                              <div key={line.id} className="flex items-center gap-3 py-2.5 text-xs" style={{ borderColor: t.border }}>
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-semibold" style={{ color: t.text }}>
+                                    {line.product} × {line.quantity}
+                                    {line.category.toLowerCase() === "adiciones" && <span className="ml-1 rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: `${C.amber}18`, color: C.amber }}>Adición</span>}
+                                  </div>
+                                  {line.parentId && <div className="mt-0.5" style={{ color: t.muted }}>Adición de: {pedidoOrderLines.find((parent) => parent.id === line.parentId)?.product ?? "Producto"}</div>}
+                                </div>
+                                <span style={{ color: t.muted }}>{fmt(line.unitPrice)} c/u</span>
+                                <strong style={{ color: C.mustard }}>{fmt(line.unitPrice * line.quantity)}</strong>
+                                <button
+                                  type="button"
+                                  aria-label={`Quitar ${line.product}`}
+                                  onClick={() => setPedidoOrderLines((current) => current.filter((item) => item.id !== line.id).map((item) => item.parentId === line.id ? { ...item, parentId: undefined } : item))}
+                                  className="flex h-6 w-6 items-center justify-center rounded-lg cursor-pointer"
+                                  style={{ color: C.red, background: `${C.red}10` }}
+                                >
+                                  {Ico.x}
+                                </button>
+                              </div>
+                            ))}
+                            <div className="flex justify-between py-2 text-xs font-bold" style={{ color: t.text }}>
+                              <span>Total del pedido</span>
+                              <span style={{ color: C.mustard }}>{fmt(pedidoOrderLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0))}</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : isView && isPurchaseModule ? (
                       <div
@@ -11009,6 +12521,23 @@ function AdminPanel({
                   <span className="text-xs" style={{ color: t.muted }}>Pago: <strong style={{ color: String(row?.[8]) === "Pagado" ? "#2E7D60" : C.red }}>{String(row?.[8] ?? "Pendiente")}</strong></span>
                   <span className="text-xs" style={{ color: t.muted }}>Autorización: <strong style={{ color: String(row?.[9]) === "Autorizada" ? "#2E7D60" : C.mustard }}>{String(row?.[9] ?? "Pendiente admin")}</strong></span>
                 </div>
+                <div className="mt-4">
+                  <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle del pedido</h4>
+                  <div className="flex flex-col gap-2">
+                    {orderDetails.map((line) => {
+                      const parent = line.parentId
+                        ? orderDetails.find((candidate) => candidate.id === line.parentId)
+                        : undefined
+                      return (
+                        <div key={line.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                          <span style={{ color: t.text }}>{parent ? `↳ ${line.product} · adición de ${parent.product}` : line.product} <span style={{ color: t.muted }}>× {line.quantity}</span></span>
+                          <strong className="shrink-0" style={{ color: t.text }}>{fmt(line.quantity * line.unitPrice)}</strong>
+                        </div>
+                      )
+                    })}
+                    {!orderDetails.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
+                  </div>
+                </div>
                 <button
                   type="button"
                   disabled={(String(row?.[5]) !== "Contraentrega" && (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) || String(row?.[9]) === "Autorizada"}
@@ -11020,12 +12549,37 @@ function AdminPanel({
                 </button>
               </div>
             )}
+            {isView && isSales && (
+              <div className="rounded-xl p-4" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+                <h4 className="mb-3 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle de la venta</h4>
+                <div className="flex flex-col gap-2">
+                  {saleOrderLines.map((line) => {
+                    const parent = line.parentId
+                      ? saleOrderLines.find((candidate) => candidate.id === line.parentId)
+                      : undefined
+                    return (
+                      <div key={line.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                        <span style={{ color: t.text }}>{parent ? `↳ ${line.product} · adición de ${parent.product}` : line.product} <span style={{ color: t.muted }}>× {line.quantity}</span></span>
+                        <strong className="shrink-0" style={{ color: t.text }}>{fmt(line.quantity * line.unitPrice)}</strong>
+                      </div>
+                    )
+                  })}
+                  {!saleOrderLines.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
+                </div>
+                {saleOrderIndex >= 0 && paymentProofs[saleOrderIndex] && (
+                  <div className="mt-4">
+                    <h4 className="mb-2 text-xs font-bold" style={{ color: t.text }}>Comprobante de pago</h4>
+                    <img src={paymentProofs[saleOrderIndex]} alt="Comprobante de pago" className="max-h-56 w-full rounded-lg object-contain" style={{ background: t.card }} />
+                  </div>
+                )}
+              </div>
+            )}
             {/* Roles permissions matrix */}
             {isRoles && !isView && (
               <RolesPermMatrix roleName={formData["0"] || ""} />
             )}
             {isRoles && isView && row && (
-              <RolesPermMatrix roleName={String(row[0])} />
+              <RolesPermMatrix roleName={String(row[0])} readOnly={true} />
             )}
           </div>
           <div
@@ -11034,12 +12588,20 @@ function AdminPanel({
           >
             <button
               onClick={() => setModal({ mode: null, section: "", idx: null })}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer transition-colors"
               style={{ background: t.input, color: t.muted }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(182,140,28,0.12)"
+                e.currentTarget.style.color = C.mustard
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = t.input
+                e.currentTarget.style.color = t.muted
+              }}
             >
               {isView ? "Cerrar" : "Cancelar"}
             </button>
-            {isView && isPurchaseModule && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && (
+            {isView && isPurchaseModule && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && (
               <button
                 onClick={() => openEdit(modal.section, modal.idx!)}
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
@@ -11059,6 +12621,123 @@ function AdminPanel({
             )}
           </div>
         </div>
+        {technicalSheetOpen && isProduct && !isView && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6"
+            style={{ background: "rgba(0,0,0,0.55)" }}
+            onClick={() => setTechnicalSheetOpen(false)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="product-tech-sheet-title"
+              className="flex w-full max-w-xl flex-col overflow-hidden rounded-2xl"
+              style={{ background: t.card, border: `1px solid ${t.border}`, maxHeight: "85vh" }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${t.border}` }}>
+                <div>
+                  <h3 id="product-tech-sheet-title" className="font-semibold" style={{ color: t.text }}>Ficha técnica del producto</h3>
+                  <p className="mt-1 text-xs" style={{ color: t.muted }}>{formData["0"] || "Producto"} · versión {formData["6"] || getAutoTechVersion(rows.producto || [])}</p>
+                </div>
+                <button type="button" onClick={() => setTechnicalSheetOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-xl cursor-pointer" style={{ background: t.input, color: t.muted }} aria-label="Cerrar ficha técnica">{Ico.x}</button>
+              </div>
+              <div className="flex flex-col gap-3 overflow-y-auto px-5 py-4">
+                <p className="text-xs" style={{ color: t.muted }}>Agrega los insumos que utiliza una unidad del producto. La unidad se toma del inventario y debe coincidir.</p>
+                {technicalIngredients.length ? (
+                  technicalIngredients.map((ingredient, index) => (
+                    <div key={`${ingredient.name}-${index}`} className="grid items-center gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_110px_90px_auto]" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                      <span className="min-w-0 truncate text-sm font-semibold" style={{ color: t.text }}>{ingredient.name}</span>
+                      <input
+                        aria-label={`Cantidad de ${ingredient.name}`}
+                        type="number"
+                        min="0.001"
+                        step="any"
+                        value={ingredient.quantity}
+                        onChange={(event) => setTechnicalIngredients((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Number(event.target.value) } : item))}
+                        className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                        style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                      />
+                      <span className="text-xs" style={{ color: t.muted }}>{ingredient.unit}</span>
+                      <button type="button" onClick={() => setTechnicalIngredients((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-8 w-8 items-center justify-center rounded-lg cursor-pointer" style={{ background: `${C.red}10`, color: C.red }} aria-label={`Quitar ${ingredient.name}`}>{Ico.trash}</button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl px-3 py-5 text-center text-xs" style={{ background: t.input, color: t.muted }}>Todavía no hay insumos en esta ficha.</div>
+                )}
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px_auto]">
+                  <select
+                    value={technicalIngredientSelect}
+                    onChange={(event) => setTechnicalIngredientSelect(event.target.value)}
+                    className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
+                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                  >
+                    <option value="">Selecciona un insumo...</option>
+                    {getAvailableInsumos().filter((name) => !technicalIngredients.some((item) => item.name === name)).map((name) => {
+                      const supply = rows.insumos?.find((item) => item[0] === name)
+                      return <option key={name} value={name}>{name} · {String(supply?.[2] ?? "und")}</option>
+                    })}
+                  </select>
+                  <input
+                    aria-label="Cantidad del insumo"
+                    type="number"
+                    min="0.001"
+                    step="any"
+                    value={technicalIngredientQuantity}
+                    onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
+                    className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const supply = rows.insumos?.find((item) => item[0] === technicalIngredientSelect)
+                      const quantity = Number(technicalIngredientQuantity)
+                      if (!supply || !Number.isFinite(quantity) || quantity <= 0) {
+                        setTechnicalSheetError("Selecciona un insumo e ingresa una cantidad mayor que cero.")
+                        return
+                      }
+                      setTechnicalIngredients((current) => [...current, {
+                        name: technicalIngredientSelect,
+                        quantity,
+                        unit: String(supply[2] ?? ""),
+                      }])
+                      setTechnicalIngredientSelect("")
+                      setTechnicalIngredientQuantity("1")
+                      setTechnicalSheetError("")
+                    }}
+                    className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer"
+                    style={{ background: C.mustard, color: "#fff" }}
+                  >
+                    Agregar insumo
+                  </button>
+                </div>
+                {technicalSheetError && <p className="text-xs font-medium" style={{ color: C.red }} role="alert">{technicalSheetError}</p>}
+              </div>
+              <div className="flex justify-end gap-2 px-5 py-4" style={{ borderTop: `1px solid ${t.border}` }}>
+                <button type="button" onClick={() => setTechnicalSheetOpen(false)} className="rounded-xl px-4 py-2.5 text-sm font-semibold cursor-pointer" style={{ background: t.input, color: t.muted }}>Cancelar</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const recipe = JSON.stringify(technicalIngredients)
+                    setFormData((current) => ({
+                      ...current,
+                      "5": `Ficha técnica - ${current["0"] || "Producto"}`,
+                      "7": technicalIngredients.map((ingredient) => ingredient.name).join(", "),
+                      "9": recipe,
+                    }))
+                    setTechnicalSheetOpen(false)
+                    setTechnicalSheetError("")
+                  }}
+                  className="rounded-xl px-4 py-2.5 text-sm font-bold cursor-pointer"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  Guardar ficha
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {isPurchase && lossDraft && (() => {
           const motivos =
             MOD_CFG.perdidas.fields.find((field) => field.key === "2")?.options ?? []
@@ -11562,6 +13241,10 @@ function AdminPanel({
         </button>
       </div>
       <nav
+        ref={preserveSidebarScroll}
+        onScroll={(event) => {
+          sidebarScrollTop.current = event.currentTarget.scrollTop
+        }}
         className="flex-1 overflow-y-auto py-3 px-2"
         style={{ scrollbarWidth: "none" }}
       >
@@ -11575,7 +13258,6 @@ function AdminPanel({
                 onClick={() => {
                   if (leaf) {
                     setSection(g.key as AdminSection)
-                    setSidebarOpen(false)
                   } else toggleGrp(g.key)
                 }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer"
@@ -11626,7 +13308,6 @@ function AdminPanel({
                       key={item.key}
                       onClick={() => {
                         setSection(item.key as AdminSection)
-                        setSidebarOpen(false)
                       }}
                       className="w-full text-left px-3 py-2 rounded-lg cursor-pointer"
                       style={{
@@ -11661,6 +13342,14 @@ function AdminPanel({
         >
           {Ico.globe}
           <span>{user ? "Vista de cliente" : "Ver sitio"}</span>
+        </button>
+        <button
+          onClick={onLogout}
+          className="mt-1 w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80"
+          style={{ color: C.red }}
+        >
+          {Ico.logout}
+          <span>Cerrar sesión</span>
         </button>
       </div>
     </>
@@ -11856,6 +13545,9 @@ function AdminPanel({
                       onClick={() => {
                         setSection("dashboard")
                         setNotificationsOpen(false)
+                        setTimeout(() => {
+                          document.getElementById("admin-alerts-section")?.scrollIntoView({ behavior: "smooth", block: "start" })
+                        }, 100)
                       }}
                       className="w-full cursor-pointer text-center text-xs font-semibold"
                       style={{ color: C.mustard }}
@@ -11923,6 +13615,17 @@ function AdminPanel({
                   <button
                     onClick={() => {
                       setProfileOpen(false)
+                      setShowAdminProfile(true)
+                    }}
+                    className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-xs cursor-pointer"
+                    style={{ color: C.mustard }}
+                  >
+                    {Ico.user}
+                    <span>Mi perfil</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false)
                       onSwitchToClient()
                     }}
                     className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-xs cursor-pointer"
@@ -11951,6 +13654,20 @@ function AdminPanel({
       <QuickClientModal />
       <AnulModal />
       <DelModal />
+      {showAdminProfile && user && (
+        <AdminProfilePage
+          user={user}
+          onClose={() => setShowAdminProfile(false)}
+          onUpdateUser={(u) => {
+            // Update user in localStorage and state
+            const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
+            const updatedUser = saved ? { ...u, ...saved, role: u.role } : u
+            saveLS(`profile:${u.email.toLowerCase()}`, updatedUser)
+            // Dispatch a custom event to notify the App component
+            window.dispatchEvent(new CustomEvent("admin-user-updated", { detail: updatedUser }))
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -11966,6 +13683,17 @@ export default function App() {
   const [clientView, setClientView] = useState<"menu" | "orders">("menu")
 
   useEffect(() => saveLS("cart", cart), [cart])
+
+  // Listen for admin user updates from the AdminProfilePage
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent
+      const updatedUser = customEvent.detail as User
+      setUser(updatedUser)
+    }
+    window.addEventListener("admin-user-updated", handler)
+    return () => window.removeEventListener("admin-user-updated", handler)
+  }, [])
 
   // Re-read on every render so status changes made in the admin panel show up
   const orders = user
@@ -12074,7 +13802,7 @@ export default function App() {
                 dateStyle: "medium",
                 timeStyle: "short",
               }),
-              items: cart,
+              items: cart.filter((item) => item.qty > 0),
               total: cartTotal(cart),
               status: cartTotal(cart) >= APPROVAL_MIN ? "Por confirmar" : "Recibido",
             },
@@ -12118,13 +13846,25 @@ export default function App() {
     return (
       <AdminPanel
         onSwitchToClient={() => setPage(user ? "app" : "landing")}
+        onLogout={logout}
         user={user}
       />
     )
   return (
     <LandingPage
       onLogin={() => setPage("login")}
-      onAdmin={() => setPage("admin")}
+      onAdmin={() => {
+        // Create a default admin user if none exists
+        if (!user) {
+          const adminUser: User = {
+            name: "Admin Parche",
+            email: "admin@parche.co",
+            role: "admin",
+          }
+          updateUser(adminUser)
+        }
+        setPage("admin")
+      }}
       onGuestMenu={goGuestMenu}
       onCheckout={goCheckout}
       cart={cart}
