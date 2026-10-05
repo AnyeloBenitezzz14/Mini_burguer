@@ -3874,7 +3874,7 @@ function CheckoutPage({
   onLogin: (u: User) => void
   onRegisterVerified: (u: User) => void
   onBack: () => void
-  onPlaceOrder: (info: DeliveryInfo) => void
+  onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => void
   onComplete: () => void
 }) {
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
@@ -3896,15 +3896,25 @@ function CheckoutPage({
     notas: "",
     pago: "Efectivo",
   })
+  const [editingAddress, setEditingAddress] = useState(
+    () => !(user?.addresses?.length),
+  )
+  const [saveAddress, setSaveAddress] = useState(
+    () => !(user?.addresses?.length),
+  )
+  const [deliveryTried, setDeliveryTried] = useState(false)
   // Prefill delivery data from the account as soon as there is one
   useEffect(() => {
     if (!user) return
+    const hasSavedAddress = !!user.addresses?.length
     setDelivForm((f) => ({
       ...f,
       nombre: f.nombre || user.name,
       telefono: f.telefono || user.phone || "",
       direccion: f.direccion || user.addresses?.[0] || "",
     }))
+    setEditingAddress(!hasSavedAddress)
+    setSaveAddress(!hasSavedAddress)
   }, [user])
   const [code, setCode] = useState("")
   const [voucher, setVoucher] = useState("")
@@ -3917,15 +3927,27 @@ function CheckoutPage({
   const [addProduct, setAddProduct] = useState<Product | null>(null)
   const subtotal = cartTotal(cart)
   const placeOrder = () => {
-    onPlaceOrder({ ...delivForm, voucher: needsVoucher ? voucher : undefined })
+    setDeliveryTried(true)
+    if (!user || !delivFilled || !payReady || cart.length === 0) return
+    onPlaceOrder(
+      { ...delivForm, voucher: needsVoucher ? voucher : undefined },
+      saveAddress || !(user.addresses?.length),
+    )
     setPlacedTotal(subtotal)
     setOrdered(true)
+  }
+  const continueToReview = () => {
+    setDeliveryTried(true)
+    if (!delivFilled || !payReady) return
+    setCheckoutStep(3)
   }
   // Nequi / Daviplata must attach the payment receipt before continuing
   const needsVoucher = delivForm.pago !== "Efectivo"
   const payReady = !needsVoucher || !!voucher
   const delivFilled =
-    delivForm.nombre && delivForm.telefono && delivForm.direccion
+    !!delivForm.nombre.trim() &&
+    !!delivForm.telefono.trim() &&
+    !!delivForm.direccion.trim()
   const canOrder = user && delivFilled
 
   // Errors show after the first submit of each form and update while typing
@@ -3991,8 +4013,8 @@ function CheckoutPage({
     : checkoutStep === 2
       ? {
           label: "Continuar a revisión",
-          onClick: () => setCheckoutStep(3),
-          disabled: !delivFilled || !payReady,
+          onClick: continueToReview,
+          disabled: cart.length === 0,
         }
       : {
           label: "Confirmar pedido",
@@ -4418,12 +4440,11 @@ function CheckoutPage({
                     {[
                       ["nombre", "Nombre completo *", "text", "Quién recibe"],
                       ["telefono", "Teléfono *", "tel", "3XX XXX XXXX"],
-                      ["direccion", "Dirección de entrega *", "text", "Calle, número, barrio"],
                       ["notas", "Notas para el pedido", "text", "Ej: sin cebolla, timbre dañado"],
                     ].map(([k, lbl, t, ph]) => (
                       <div
                         key={k}
-                        className={k === "direccion" || k === "notas" ? "sm:col-span-2" : ""}
+                        className={k === "notas" ? "sm:col-span-2" : ""}
                       >
                         <InputField
                           label={lbl}
@@ -4431,28 +4452,89 @@ function CheckoutPage({
                           placeholder={ph}
                           value={delivForm[k as keyof typeof delivForm]}
                           onChange={(v) => setDelivForm((f) => ({ ...f, [k]: v }))}
+                          required={k === "nombre" || k === "telefono"}
+                          error={
+                            deliveryTried &&
+                            (k === "nombre" || k === "telefono") &&
+                            !delivForm[k as "nombre" | "telefono"].trim()
+                              ? `${lbl.replace(" *", "")} es obligatorio.`
+                              : undefined
+                          }
                         />
-                        {k === "direccion" && (user.addresses?.length ?? 0) > 1 && (
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {user.addresses!.map((a) => (
-                              <button
-                                key={a}
-                                type="button"
-                                onClick={() => setDelivForm((f) => ({ ...f, direccion: a }))}
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer"
-                                style={{
-                                  border: `1px solid ${delivForm.direccion === a ? C.mustard : LINE}`,
-                                  background: delivForm.direccion === a ? `${C.mustard}12` : "#fff",
-                                  color: delivForm.direccion === a ? C.mustard : MUTED,
-                                }}
-                              >
-                                {Ico.mapPin} {a}
-                              </button>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     ))}
+                  </div>
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingAddress((editing) => !editing)}
+                        className="text-xs font-bold cursor-pointer"
+                        style={{ color: C.mustard }}
+                      >
+                        {editingAddress ? "Usar dirección seleccionada" : "Cambiar dirección"}
+                      </button>
+                    </div>
+                    {editingAddress ? (
+                      <InputField
+                        label="Dirección de entrega *"
+                        placeholder="Calle, número, barrio y ciudad"
+                        value={delivForm.direccion}
+                        onChange={(direccion) =>
+                          setDelivForm((form) => ({ ...form, direccion }))
+                        }
+                        required
+                        error={
+                          deliveryTried && !delivForm.direccion.trim()
+                            ? "La dirección de entrega es obligatoria."
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <div
+                        className="px-4 py-3 rounded-xl text-sm"
+                        style={{ background: "rgba(30,30,30,0.04)", color: C.dark }}
+                      >
+                        {delivForm.direccion}
+                      </div>
+                    )}
+                    {editingAddress && (user.addresses?.length ?? 0) > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {user.addresses!.map((address) => (
+                          <button
+                            key={address}
+                            type="button"
+                            onClick={() => {
+                              setDelivForm((form) => ({ ...form, direccion: address }))
+                              setEditingAddress(false)
+                              setSaveAddress(false)
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer"
+                            style={{
+                              border: `1px solid ${delivForm.direccion === address ? C.mustard : LINE}`,
+                              background: delivForm.direccion === address ? `${C.mustard}12` : "#fff",
+                              color: delivForm.direccion === address ? C.mustard : MUTED,
+                            }}
+                          >
+                            {Ico.mapPin} {address}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <label className="flex items-start gap-2 mt-3 text-xs cursor-pointer" style={{ color: MUTED }}>
+                      <input
+                        type="checkbox"
+                        checked={saveAddress}
+                        onChange={(event) => setSaveAddress(event.target.checked)}
+                        disabled={!user.addresses?.length}
+                        className="mt-0.5 accent-amber-700"
+                      />
+                      <span>
+                        {user.addresses?.length
+                          ? "Guardar esta dirección en mi perfil para futuras compras"
+                          : "Esta primera dirección se guardará en tu perfil para futuras compras"}
+                      </span>
+                    </label>
                   </div>
                 </section>
                 <section className="p-6 rounded-2xl" style={CARD_ST}>
@@ -4782,7 +4864,7 @@ function ProfilePage({
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [addresses, setAddresses] = useState<string[]>(
-    user.addresses || ["Cra 58 #42-10, Bello, Antioquia"],
+    user.addresses || [],
   )
   const [newAddr, setNewAddr] = useState("")
   const [addingAddr, setAddingAddr] = useState(false)
@@ -4857,17 +4939,30 @@ function ProfilePage({
 
   const saveEditAddress = () => {
     if (editingAddrIdx !== null && editingAddrValue.trim()) {
-      setAddresses((arr) =>
-        arr.map((a, i) => (i === editingAddrIdx ? editingAddrValue.trim() : a)),
+      const updatedAddresses = addresses.map((address, index) =>
+        index === editingAddrIdx ? editingAddrValue.trim() : address,
       )
+      setAddresses(updatedAddresses)
+      onUpdateUser({ ...user, addresses: updatedAddresses })
     }
     setEditingAddrIdx(null)
     setEditingAddrValue("")
   }
 
   const deleteAddress = (idx: number) => {
-    if (addresses.length <= 1) return
-    setAddresses((arr) => arr.filter((_, i) => i !== idx))
+    const updatedAddresses = addresses.filter((_, i) => i !== idx)
+    setAddresses(updatedAddresses)
+    onUpdateUser({ ...user, addresses: updatedAddresses })
+  }
+
+  const addAddress = () => {
+    const address = newAddr.trim()
+    if (!address) return
+    const updatedAddresses = [...addresses, address]
+    setAddresses(updatedAddresses)
+    onUpdateUser({ ...user, addresses: updatedAddresses })
+    setNewAddr("")
+    setAddingAddr(false)
   }
 
   return (
@@ -5043,6 +5138,11 @@ function ProfilePage({
               {Ico.plus} Agregar
             </button>
           </div>
+          {addresses.length === 0 && !addingAddr && (
+            <p className="text-sm" style={{ color: MUTED }}>
+              Aún no tienes direcciones guardadas. Se guardará la primera al confirmar tu pedido.
+            </p>
+          )}
           {addresses.map((a, i) => (
             <div
               key={i}
@@ -5106,15 +5206,8 @@ function ProfilePage({
                   <button
                     onClick={() => deleteAddress(i)}
                     className="text-xs cursor-pointer"
-                    style={{
-                      color: addresses.length <= 1 ? "rgba(30,30,30,0.2)" : C.red,
-                      cursor: addresses.length <= 1 ? "not-allowed" : "pointer",
-                    }}
-                    title={
-                      addresses.length <= 1
-                        ? "Debes tener al menos una dirección registrada"
-                        : "Eliminar dirección"
-                    }
+                    style={{ color: C.red }}
+                    title="Eliminar dirección"
                   >
                     Eliminar
                   </button>
@@ -5136,21 +5229,11 @@ function ProfilePage({
                 }}
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && newAddr.trim()) {
-                    setAddresses((a) => [...a, newAddr.trim()])
-                    setNewAddr("")
-                    setAddingAddr(false)
-                  }
+                  if (e.key === "Enter") addAddress()
                 }}
               />
               <button
-                onClick={() => {
-                  if (newAddr.trim()) {
-                    setAddresses((a) => [...a, newAddr.trim()])
-                    setNewAddr("")
-                    setAddingAddr(false)
-                  }
-                }}
+                onClick={addAddress}
                 className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer"
                 style={{ background: C.mustard, color: "#fff" }}
               >
@@ -8988,7 +9071,7 @@ function AdminPanel({
       <div className="min-w-0">
         <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
           <div
-            className="flex w-full min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 sm:w-auto"
+            className="flex w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2 sm:w-72"
             style={{ background: t.input, border: `1px solid ${t.inputB}` }}
           >
             <span className="flex-shrink-0" style={{ color: t.muted }}>
@@ -9022,6 +9105,8 @@ function AdminPanel({
               </button>
             )}
           </div>
+          {/* Short search on the left, action buttons pushed to the right */}
+          <div className="hidden sm:block sm:flex-1" />
           {!noExp && (
             <button
               type="button"
@@ -11965,8 +12050,20 @@ export default function App() {
         onLogin={(u) => login(u, "checkout")}
         onRegisterVerified={(u) => login(u, "checkout")}
         onBack={() => setPage(user ? "app" : "landing")}
-        onPlaceOrder={(info) => {
+        onPlaceOrder={(info, shouldSaveAddress) => {
           if (!user) return
+          if (shouldSaveAddress) {
+            const normalizedAddress = info.direccion.trim()
+            updateUser({
+              ...user,
+              addresses: [
+                normalizedAddress,
+                ...(user.addresses || []).filter(
+                  (address) => address.trim().toLowerCase() !== normalizedAddress.toLowerCase(),
+                ),
+              ],
+            })
+          }
           updateOrders((os) => [
             {
               ...info,
