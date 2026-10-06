@@ -8706,6 +8706,15 @@ function AdminPanel({
       }
     }
 
+    if (sec === "insumos") {
+      if (String(newRow[7]).toLowerCase() === "sí") {
+        newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
+        newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"
+      } else {
+        newRow[8] = newRow[9] = newRow[10] = newRow[11] = ""
+      }
+    }
+
     if (sec === "compras") {
       // Subtotal and total always come from the purchased items
       const total = parsePurchaseItems(formData["6"]).reduce((sum, item) => sum + item.total, 0)
@@ -10511,7 +10520,7 @@ function AdminPanel({
       <div className="min-w-0">
         <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
           <div
-            className="flex w-full min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 sm:w-auto"
+            className="flex w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2 sm:w-72"
             style={{ background: t.input, border: `1px solid ${t.inputB}` }}
           >
             <span className="flex-shrink-0" style={{ color: t.muted }}>
@@ -10547,6 +10556,8 @@ function AdminPanel({
               </button>
             )}
           </div>
+          {/* Short search on the left, action buttons pushed to the right */}
+          <div className="hidden sm:block sm:flex-1" />
           {!noExp && (
             <button
               type="button"
