@@ -8706,6 +8706,15 @@ function AdminPanel({
       }
     }
 
+    if (sec === "insumos") {
+      if (String(newRow[7]).toLowerCase() === "sí") {
+        newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
+        newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"
+      } else {
+        newRow[8] = newRow[9] = newRow[10] = newRow[11] = ""
+      }
+    }
+
     if (sec === "compras") {
       // Subtotal and total always come from the purchased items
       const total = parsePurchaseItems(formData["6"]).reduce((sum, item) => sum + item.total, 0)
