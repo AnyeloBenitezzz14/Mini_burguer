@@ -1077,6 +1077,28 @@ function fmt(n: number) {
   return `$${n.toLocaleString("es-CO")}`
 }
 
+// Compare names ignoring case, accents and extra spaces ("Cárnes " === "carnes")
+function normalizeName(value: string | number | undefined) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+// Menu category ids (PRODUCTS[].cat) → product category names used in the admin
+const PRODUCT_CAT_LABEL: Record<string, string> = {
+  hamburguesas: "Hamburguesas",
+  perros: "Perros Calientes",
+  perras: "Perras",
+  salchipapas: "Salchipapas",
+  chuzos: "Chuzos",
+  patacones: "Patacones",
+  "arepa-burger": "Arepa Burger",
+  "arepa-rellena": "Arepa Rellena",
+}
+
 // ── Admin config ───────────────────────────────────────────────────────────────
 type ModConfig = {
   columns: string[]
@@ -1235,7 +1257,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "3", label: "Costo unitario", type: "number" },
       { key: "4", label: "Stock actual", type: "number" },
       { key: "5", label: "Stock mínimo", type: "number" },
-      { key: "6", label: "Stock máximo", type: "number" },
+      // row[6] (old "Stock máximo") is no longer used; kept so later indexes don't shift
       { key: "7", label: "Producto de insumo", type: "checkbox" },
       { key: "8", label: "Nombre de la ficha técnica", type: "text" },
       { key: "9", label: "Versión de la ficha", type: "text" },
@@ -1449,7 +1471,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     seed: PRODUCTS.slice(0, 10).map((p) => [
       p.name,
-      p.cat.replace(/-/g, " "),
+      PRODUCT_CAT_LABEL[p.cat] ?? p.cat,
       p.price,
       p.desc,
       "Activo",
@@ -8139,6 +8161,22 @@ function AdminPanel({
   const [clientFormError, setClientFormError] = useState("")
   // Validation message for the insumo's technical sheet (producto de insumo)
   const [supplyFormError, setSupplyFormError] = useState("")
+  // Live validation (categories, insumos, productos): a field shows its error once it
+  // has been changed or after the first "Guardar"
+  const [formInitial, setFormInitial] = useState<Record<string, string>>({})
+  const [formTried, setFormTried] = useState(false)
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    const changed = Object.keys(formData).filter(
+      (key) => (formData[key] ?? "") !== (formInitial[key] ?? ""),
+    )
+    if (changed.some((key) => !touchedFields[key]))
+      setTouchedFields((current) => ({
+        ...current,
+        ...Object.fromEntries(changed.map((key) => [key, true])),
+      }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData])
   const [quickClientError, setQuickClientError] = useState("")
   const [delTarget, setDelTarget] = useState<{
     section: string
@@ -8522,6 +8560,9 @@ function AdminPanel({
       resetPurchasePicker()
     }
     setFormData(initialFields)
+    setFormInitial(initialFields)
+    setFormTried(false)
+    setTouchedFields({})
     setPedidoProductoSelect("")
     if (sec === "pedidos") {
       setPedidoOrderLines([])
@@ -8580,6 +8621,9 @@ function AdminPanel({
       setPedidoParentSelect("")
     }
     setFormData(nextForm)
+    setFormInitial(nextForm)
+    setFormTried(false)
+    setTouchedFields({})
     setPedidoProductoSelect("")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
@@ -8597,10 +8641,88 @@ function AdminPanel({
     setModal({ mode: "view", section: sec, idx })
   }
 
+  // ── Field validation: Categ. Insumos, Categ. Producto, Insumos, Productos ──
+  const VALIDATED_SECTIONS = ["cat-insumos", "cat-producto", "insumos", "producto"]
+  const REQUIRED_KEYS: Record<string, string[]> = {
+    "cat-insumos": ["0", "1"],
+    "cat-producto": ["0", "1"],
+    insumos: ["0", "1", "2", "3", "5"],
+    producto: ["0", "1", "2", "3"],
+  }
+  const getFieldErrors = (): Record<string, string> => {
+    const sec = modal.section
+    const e: Record<string, string> = {}
+    const v = (key: string) => String(formData[key] ?? "").trim()
+    const n = (key: string) => Number(v(key))
+    // Another record (not the one being edited) with the same normalized name
+    const duplicateOf = (section: string, name: string) =>
+      (rows[section] || []).find(
+        (record, index) => index !== modal.idx && normalizeName(record[0]) === normalizeName(name),
+      )
+    const checkText = (key: string, label: string, min: number, max: number, emptyMsg: string) => {
+      const value = v(key)
+      if (!value) e[key] = emptyMsg
+      else if (value.length < min) e[key] = `${label} debe tener al menos ${min} caracteres.`
+      else if (value.length > max) e[key] = `${label} puede tener máximo ${max} caracteres.`
+    }
+
+    if (sec === "cat-insumos" || sec === "cat-producto") {
+      checkText("0", "El nombre", 3, 40, "Escribe el nombre de la categoría.")
+      if (!e["0"] && !/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 &-]+$/.test(v("0")))
+        e["0"] = "Usa solo letras, números y espacios."
+      const dup = !e["0"] && duplicateOf(sec, v("0"))
+      if (dup) e["0"] = `Ya existe la categoría «${String(dup[0])}».`
+      checkText("1", "La descripción", 5, 150, "Escribe una descripción.")
+    }
+
+    if (sec === "insumos") {
+      checkText("0", "El nombre", 2, 60, "Escribe el nombre del insumo.")
+      const dup = !e["0"] && duplicateOf("insumos", v("0"))
+      if (dup) e["0"] = `Ya existe el insumo «${String(dup[0])}».`
+      if (!v("1")) e["1"] = "Selecciona la categoría."
+      if (!v("2")) e["2"] = "Selecciona la unidad de medida."
+      if (!v("3")) e["3"] = "Escribe el costo unitario."
+      else if (!(n("3") > 0)) e["3"] = "El costo debe ser mayor que 0."
+      if (modal.mode !== "add" && v("4") && !(n("4") >= 0))
+        e["4"] = "El stock actual no puede ser negativo."
+      if (!v("5")) e["5"] = "Escribe el stock mínimo."
+      else if (!(n("5") >= 0)) e["5"] = "El stock mínimo no puede ser negativo."
+      if (v("7").toLowerCase() === "sí") {
+        if (!v("10")) e["10"] = "Ficha técnica: elige al menos un insumo principal."
+        if (!v("11")) e["11"] = "Ficha técnica: escribe cómo se prepara."
+      }
+    }
+
+    if (sec === "producto") {
+      checkText("0", "El nombre", 2, 60, "Escribe el nombre del producto.")
+      const dup = !e["0"] && duplicateOf("producto", v("0"))
+      if (dup) e["0"] = `Ya existe el producto «${String(dup[0])}».`
+      if (!v("1")) e["1"] = "Selecciona la categoría."
+      if (!v("2")) e["2"] = "Escribe el precio."
+      else if (!(n("2") > 0)) e["2"] = "El precio debe ser mayor que 0."
+      else if (!Number.isInteger(n("2"))) e["2"] = "El precio debe ser un valor entero, sin decimales."
+      checkText("3", "La descripción", 10, 200, "Escribe una descripción.")
+    }
+    return e
+  }
+  const fieldErrors =
+    VALIDATED_SECTIONS.includes(modal.section) && modal.mode !== "view" && modal.mode !== null
+      ? getFieldErrors()
+      : {}
+  const shownFieldError = (key: string) =>
+    formTried || touchedFields[key] ? fieldErrors[key] : undefined
+  const isRequiredField = (key: string) =>
+    modal.mode !== "view" && (REQUIRED_KEYS[modal.section] || []).includes(key)
+
   const saveModal = () => {
     const sec = modal.section
     const config = MOD_CFG[sec]
     if (!config) return
+
+    if (VALIDATED_SECTIONS.includes(sec)) {
+      setFormTried(true)
+      if (Object.keys(getFieldErrors()).length) return
+    }
 
     if ((sec === "produccion" || sec === "producto-no-conforme") && !productionItems.length) {
       setProductionFormError("Agrega al menos un producto o producto de insumo.")
@@ -8609,13 +8731,6 @@ function AdminPanel({
     if (sec === "pedidos" && pedidoOrderLines.length === 0) {
       window.alert("Agrega al menos un producto al pedido.")
       return
-    }
-    if (sec === "cat-producto") {
-      const categoryName = String(formData["0"] ?? "").trim()
-      if (!categoryName) {
-        window.alert("Escribe el nombre de la categoría.")
-        return
-      }
     }
     if (sec === "producto") {
       const invalidIngredient = technicalIngredients.find((ingredient) => {
@@ -8651,15 +8766,6 @@ function AdminPanel({
         )
         return
       }
-    }
-    if (sec === "insumos" && String(formData["7"] ?? "").toLowerCase() === "sí") {
-      // A producto de insumo must be saved together with its technical sheet
-      if (!String(formData["0"] ?? "").trim())
-        return setSupplyFormError("Escribe el nombre del insumo.")
-      if (!String(formData["10"] ?? "").trim())
-        return setSupplyFormError("Ficha técnica: elige al menos un insumo principal.")
-      if (!String(formData["11"] ?? "").trim())
-        return setSupplyFormError("Ficha técnica: escribe cómo se prepara.")
     }
     if (sec === "compras") {
       if (!String(formData["0"] ?? "").trim()) {
@@ -8698,15 +8804,10 @@ function AdminPanel({
     }
 
     if (sec === "insumos") {
-      if (String(newRow[7]).toLowerCase() === "sí") {
-        newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
-        newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"
-      } else {
-        newRow[8] = newRow[9] = newRow[10] = newRow[11] = ""
-      }
-    }
-
-    if (sec === "insumos") {
+      newRow[0] = String(newRow[0] ?? "").trim()
+      // New insumos start with no stock (the field isn't shown when creating)
+      newRow[4] = modal.mode === "add" ? 0 : Number(newRow[4] || 0)
+      newRow[6] = previousRow?.[6] ?? "" // unused slot (old "Stock máximo")
       if (String(newRow[7]).toLowerCase() === "sí") {
         newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
         newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"
@@ -8814,6 +8915,16 @@ function AdminPanel({
       if (modal.mode === "add") updated.unshift(newRow)
       else if (modal.mode === "edit" && modal.idx !== null)
         updated[modal.idx] = newRow
+
+      if (sec === "compras") {
+        // Stock: undo what the previous version of this purchase added, then add the new items
+        let insumoRows = current.insumos || []
+        if (modal.mode === "edit" && previousRow && String(previousRow[5]) !== "Anulado")
+          insumoRows = withStockChange(insumoRows, previousRow[6], -1)
+        if (String(newRow[5]) !== "Anulado")
+          insumoRows = withStockChange(insumoRows, newRow[6], 1)
+        return { ...current, compras: updated, insumos: insumoRows }
+      }
 
       if (sec === "insumos") {
         const previousName = String(previousRow?.[0] ?? "")
@@ -9121,6 +9232,16 @@ function AdminPanel({
       const updatedRow = [...updated[rowIndex]]
       updatedRow[statusIndex] = nextValue
       updated[rowIndex] = updatedRow
+
+      if (sec === "compras") {
+        // Anular a purchase removes its items from stock; reactivating adds them back
+        const sign = isStatusActive(nextValue) ? 1 : -1
+        return {
+          ...current,
+          compras: updated,
+          insumos: withStockChange(current.insumos || [], updatedRow[6], sign),
+        }
+      }
 
       if (sec === "insumos" && String(updatedRow[7]).toLowerCase() === "sí") {
         const productRows = (current.producto || []).map((product) =>
@@ -9709,6 +9830,28 @@ function AdminPanel({
           total: parsedQuantity * parsedUnitPrice,
         }
       })
+
+  // Adds (sign 1) or removes (sign -1) a purchase's quantities to each insumo's
+  // "Stock actual" (row[4]). Items are matched by name ignoring case/accents.
+  function withStockChange(
+    insumoRows: (string | number)[][],
+    purchaseItems: string | number | undefined,
+    sign: 1 | -1,
+  ) {
+    const totals = new Map<string, number>()
+    for (const item of parsePurchaseItems(purchaseItems)) {
+      const key = normalizeName(item.name)
+      totals.set(key, (totals.get(key) ?? 0) + (Number(item.quantity) || 0))
+    }
+    return insumoRows.map((supply) => {
+      const qty = totals.get(normalizeName(supply[0]))
+      if (!qty) return supply
+      const updated = [...supply]
+      const next = Number(updated[4] || 0) + sign * qty
+      updated[4] = Math.max(0, Math.round(next * 1000) / 1000)
+      return updated
+    })
+  }
 
   const parseProductionHistory = (
     value: string | number | undefined,
@@ -11075,8 +11218,9 @@ function AdminPanel({
       : isSupply
         ? dataFields.filter(
             (field) =>
-              !["8", "9", "10", "11"].includes(field.key) ||
-              showSupplyTechnicalSheet,
+              // "Stock actual" isn't entered when creating: it starts at 0
+              !(modal.mode === "add" && field.key === "4") &&
+              (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
           )
         : dataFields
     const productMainFields = isProduct
@@ -11317,26 +11461,31 @@ function AdminPanel({
                     const val = isView
                       ? String(row ? (row[Number(f.key)] ?? "—") : "—")
                       : formData[f.key] || ""
+                    // Categories come only from "Categ. Producto" (active), deduplicated
+                    // ignoring case/accents so the same category never appears twice
                     const productFieldOptions =
                       f.key === "1"
                         ? [
-                            ...new Set([
-                              ...(rows["cat-producto"] || [])
-                                .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
-                                .map((category) => String(category[0] ?? "").trim())
-                                .filter(Boolean),
-                              ...PRODUCTS.map((product) => product.cat.replace(/-/g, " ")),
-                              "Producto de insumo",
-                            ]),
-                          ].sort((a, b) => a.localeCompare(b))
+                            ...(rows["cat-producto"] || [])
+                              .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
+                              .map((category) => String(category[0] ?? "").trim())
+                              .filter(Boolean),
+                            "Producto de insumo",
+                          ]
+                            .filter(
+                              (name, index, all) =>
+                                all.findIndex((other) => normalizeName(other) === normalizeName(name)) === index,
+                            )
+                            .sort((a, b) => a.localeCompare(b))
                         : f.options
                     return (
                       <div key={f.key} className="flex flex-col gap-1.5">
                         <label
                           className="text-xs font-semibold"
-                          style={{ color: t.muted }}
+                          style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
                         >
                           {f.label}
+                          {isRequiredField(f.key) && " *"}
                         </label>
                         {isView ? (
                           <div
@@ -11403,6 +11552,7 @@ function AdminPanel({
                             }}
                           />
                         )}
+                        <FieldError msg={shownFieldError(f.key)} />
                       </div>
                     )
                   })}
@@ -11825,9 +11975,9 @@ function AdminPanel({
                           )}
                         </div>
                       </div>
-                      {!isView && supplyFormError && (
+                      {!isView && (shownFieldError("10") || shownFieldError("11")) && (
                         <p className="mt-3 text-xs font-medium" style={{ color: C.red }} role="alert">
-                          {supplyFormError}
+                          {shownFieldError("10") || shownFieldError("11")}
                         </p>
                       )}
                     </section>
@@ -12169,10 +12319,10 @@ function AdminPanel({
                   >
                     <label
                       className="text-xs font-semibold"
-                      style={{ color: t.muted }}
+                      style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
                     >
                       {f.label}
-                      {requiredClientField && " *"}
+                      {(requiredClientField || isRequiredField(f.key)) && " *"}
                     </label>
                     {isPedido && f.key === "1" && !isView ? (
                       <div className="flex flex-col gap-3">
@@ -12401,6 +12551,7 @@ function AdminPanel({
                         }}
                       />
                     )}
+                    <FieldError msg={shownFieldError(f.key)} />
                   </div>
                   </Fragment>
                 )
@@ -12428,22 +12579,61 @@ function AdminPanel({
               )
             })()}
             {isView && modal.section === "insumos" && row && (() => {
-              const name = String(row[0]).toLowerCase()
-              const suppliers = [
-                ...new Set(
-                  (rows.compras || [])
-                    .filter((p) => parsePurchaseItems(p[6]).some((item) => item.name.toLowerCase() === name))
-                    .map((p) => String(p[0])),
-                ),
-              ]
+              // Every purchase line of this insumo: what was bought, how much and for how much
+              const name = normalizeName(row[0])
+              const unit = String(row[2] ?? "und")
+              const lines = (rows.compras || []).flatMap((purchase) =>
+                parsePurchaseItems(purchase[6])
+                  .filter((item) => normalizeName(item.name) === name)
+                  .map((item) => ({
+                    supplier: String(purchase[0] ?? ""),
+                    date: String(purchase[1] ?? ""),
+                    annulled: String(purchase[5]) === "Anulado",
+                    quantity: Number(item.quantity) || 0,
+                    unitPrice: Number(item.unitPrice) || 0,
+                    total: item.total,
+                  })),
+              )
+              const active = lines.filter((l) => !l.annulled)
+              const boughtQty = active.reduce((s, l) => s + l.quantity, 0)
+              const boughtValue = active.reduce((s, l) => s + l.total, 0)
+              const dateField = MOD_CFG.compras.fields.find((field) => field.key === "1")!
               return (
                 <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                  <div className="text-xs font-semibold mb-1.5" style={{ color: t.muted }}>
-                    Proveedores que lo han vendido
+                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                      Compras de este insumo
+                    </span>
+                    {active.length > 0 && (
+                      <span className="text-xs" style={{ color: t.muted }}>
+                        Total comprado:{" "}
+                        <strong style={{ color: t.text }}>
+                          {boughtQty.toLocaleString("es-CO")} {unit}
+                        </strong>{" "}
+                        · <strong style={{ color: C.mustard }}>{fmt(boughtValue)}</strong>
+                      </span>
+                    )}
                   </div>
-                  <div style={{ color: t.text }}>
-                    {suppliers.length ? suppliers.join(", ") : "Aún no hay compras registradas de este insumo."}
-                  </div>
+                  {lines.length === 0 ? (
+                    <div style={{ color: t.text }}>Aún no hay compras registradas de este insumo.</div>
+                  ) : (
+                    lines.map((l, i) => (
+                      <div
+                        key={i}
+                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
+                        style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
+                      >
+                        <span className="min-w-0" style={{ color: t.text }}>
+                          <strong>{formatViewValue(dateField, l.date)}</strong> · {l.supplier}
+                          {l.annulled && <span style={{ color: C.red }}> · Anulada</span>}
+                        </span>
+                        <span style={{ color: t.muted }}>
+                          {l.quantity.toLocaleString("es-CO")} {unit} × {fmt(l.unitPrice)} ={" "}
+                          <strong style={{ color: C.mustard }}>{fmt(l.total)}</strong>
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               )
             })()}
