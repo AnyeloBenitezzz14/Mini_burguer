@@ -221,18 +221,8 @@ const PRODUCTS: Product[] = [
     badge: "Nueva",
   },
   {
-    id: 9,
-    name: "Atún",
-    desc: "Atún premium con queso cheddar y tocineta crujiente.",
-    price: 17500,
-    priceStr: "$17.500",
-    img: "https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=500&h=400&fit=crop",
-    cat: "hamburguesas",
-    badge: "",
-  },
-  {
     id: 10,
-    name: "Mediano",
+    name: "Perro Mediano",
     desc: "Salchicha mediana, papitas fosforito y salsas.",
     price: 14500,
     priceStr: "$14.500",
@@ -262,7 +252,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 13,
-    name: "Pequeña",
+    name: "Perra Pequeña",
     desc: "Tocino/tocineta, queso y salsas.",
     price: 14500,
     priceStr: "$14.500",
@@ -292,7 +282,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 16,
-    name: "Sencilla",
+    name: "Salchipapa Sencilla",
     desc: "Papas a la francesa doradas y salchicha premium.",
     price: 13000,
     priceStr: "$13.000",
@@ -302,7 +292,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 17,
-    name: "Especial",
+    name: "Salchipapa Especial",
     desc: "Papas, salchicha, queso fundido y tocineta crujiente.",
     price: 16000,
     priceStr: "$16.000",
@@ -312,7 +302,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 18,
-    name: "Mega",
+    name: "Salchipapa Mega",
     desc: "Papas, salchicha, 3 huevos, 1 nugget, queso, carne y tocineta.",
     price: 20000,
     priceStr: "$20.000",
@@ -322,7 +312,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 19,
-    name: "Mega Gourmet",
+    name: "Salchipapa Mega Gourmet",
     desc: "Papas, salchicha, 3 huevos, pollo, cerdo, jamón, maicitos y queso.",
     price: 23000,
     priceStr: "$23.000",
@@ -332,7 +322,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 20,
-    name: "Mega Gourmet Q+T",
+    name: "Salchipapa Mega Gourmet Q+T",
     desc: "Mega Gourmet con extra de queso y tocineta gratinada.",
     price: 27000,
     priceStr: "$27.000",
@@ -342,7 +332,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 21,
-    name: "Esp. Gourmet Pers.",
+    name: "Salchipapa Gourmet Personal",
     desc: "Porción personal gourmet con carnes mixtas y maicitos.",
     price: 20500,
     priceStr: "$20.500",
@@ -352,7 +342,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 22,
-    name: "Super Gourmet",
+    name: "Salchipapa Super Gourmet",
     desc: "Papas, salchicha, pollo, jamón, maicitos, queso, tocineta y carne.",
     price: 33000,
     priceStr: "$33.000",
@@ -1077,6 +1067,11 @@ function fmt(n: number) {
   return `$${n.toLocaleString("es-CO")}`
 }
 
+// Document numbers compared without dots, dashes, spaces or case ("1.012.345" === "1012345")
+function normalizeDocument(value: string | number | undefined) {
+  return String(value ?? "").replace(/[^0-9a-z]/gi, "").toLowerCase()
+}
+
 // Compare names ignoring case, accents and extra spaces ("Cárnes " === "carnes")
 function normalizeName(value: string | number | undefined) {
   return String(value ?? "")
@@ -1469,17 +1464,31 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Disponible", "No disponible"],
       },
     ],
-    seed: PRODUCTS.slice(0, 10).map((p) => [
-      p.name,
-      PRODUCT_CAT_LABEL[p.cat] ?? p.cat,
-      p.price,
-      p.desc,
-      "Activo",
-      "Ficha Mini Burger",
-      "v2.1",
-      `Carne 100g, pan brioche, queso, lechuga, salsa de la casa`,
-      "1. Asar la carne. 2. Tostar el pan. 3. Armar y servir.",
-    ]),
+    // Every menu product (so each category has its products in the order picker) + additions
+    seed: [
+      ...PRODUCTS.map((p) => [
+        p.name,
+        PRODUCT_CAT_LABEL[p.cat] ?? p.cat,
+        p.price,
+        p.desc,
+        "Activo",
+        `Ficha ${p.name}`,
+        "v1.0",
+        "",
+        "",
+      ]),
+      ...ADDITIONS.map((a) => [
+        a.name,
+        "Adiciones",
+        a.price,
+        "Adición para agregar a los productos.",
+        "Activo",
+        "",
+        "",
+        "",
+        "",
+      ]),
+    ],
     noExport: true,
     noDelete: true,
     statusIndex: 4,
@@ -1512,7 +1521,8 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     autoId: true,
     statusIndex: 8,
-    hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13],
+    // 14 = stock already consumed (Sí/No), 15 = order code it came from (internal data)
+    hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13, 14, 15],
   },
   "producto-no-conforme": {
     columns: ["Orden", "Productos o insumos dañados", "Cantidad", "Motivo", "Fecha", "Estado"],
@@ -1553,8 +1563,8 @@ const MOD_CFG: Record<string, ModConfig> = {
   },
   clientes: {
     columns: ["Nombre", "Número de documento", "Teléfono", "Correo", "Estado"],
+    // Form order: document type + number on one line, then the name (keys keep row positions)
     fields: [
-      { key: "0", label: "Nombre completo", type: "text" },
       {
         key: "1",
         label: "Tipo de documento",
@@ -1568,15 +1578,17 @@ const MOD_CFG: Record<string, ModConfig> = {
         ],
       },
       { key: "2", label: "Número de documento", type: "text" },
+      { key: "0", label: "Nombre completo", type: "text" },
       { key: "3", label: "Teléfono", type: "tel" },
       { key: "4", label: "Correo electrónico", type: "email" },
       { key: "5", label: "Dirección", type: "text" },
       { key: "6", label: "Cliente de local", type: "checkbox" },
     ],
     seed: [
-      ["Valentina Ríos", "Cédula de Ciudadanía", "1012345678", "310-456-7890", "No", "vale@mail.co", "Cra 58 #42-10, Bello", "Activo"],
-      ["Carlos Mejía", "Cédula de Ciudadanía", "1023456789", "320-987-6543", "No", "carlos@mail.co", "Cll 50 #30-05, Bello", "Activo"],
-      ["Luisa Fernández", "Cédula de Ciudadanía", "1034567890", "315-678-9012", "Sí", "", "Cra 60 #44-20, Bello", "Activo"],
+      // Same order as the fields: nombre, tipo doc, nº doc, teléfono, correo, dirección, ¿de local?, estado
+      ["Valentina Ríos", "Cédula de Ciudadanía", "1012345678", "310-456-7890", "vale@mail.co", "Cra 58 #42-10, Bello", "No", "Activo"],
+      ["Carlos Mejía", "Cédula de Ciudadanía", "1023456789", "320-987-6543", "carlos@mail.co", "Cll 50 #30-05, Bello", "No", "Activo"],
+      ["Luisa Fernández", "Cédula de Ciudadanía", "1034567890", "315-678-9012", "", "Cra 60 #44-20, Bello", "Sí", "Activo"],
     ],
     statusIndex: 7,
     hiddenCellIndexes: [1, 5, 6],
@@ -1794,7 +1806,8 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     noDelete: true,
     autoId: true,
-    hiddenCellIndexes: [2, 3, 4, 5],
+    // 10 = order lines JSON saved by admin-created orders (was showing as "Dato 7")
+    hiddenCellIndexes: [2, 3, 4, 5, 10],
   },
   devoluciones: {
     columns: ["Código", "Cliente", "Motivo", "Fecha"],
@@ -1841,6 +1854,61 @@ const supplyAsProduct = (row: (string | number)[]): (string | number)[] => [
   String(row[10] || row[0] || "Insumo"),
   String(row[11] || "Insumo producto con ficha técnica y control de inventario."),
 ]
+
+// ── Orders → production ───────────────────────────────────────────────────────
+// Pedido payment rules: the method decides the modality and whether it's paid,
+// so the admin doesn't pick them by hand (e.g. Online + Efectivo = contraentrega, pendiente)
+function derivePedidoPayment(method: string, hasProof: boolean) {
+  if (method === "Transferencia")
+    return { modalidad: "Anticipado", estadoPago: hasProof ? "Pagado" : "Pendiente" }
+  if (method === "Efectivo" || method === "Pago en el local")
+    return { modalidad: "Contraentrega", estadoPago: "Pendiente" }
+  return { modalidad: "", estadoPago: "" }
+}
+
+// One production order per order line (same format "Confirmar pedido y enviar a
+// producción" always used). Returns the production rows with the new ones on top.
+function buildProductionRows(
+  lines: AdminOrderLine[],
+  productionRows: (string | number)[][],
+  orderCode: string,
+) {
+  const now = new Date()
+  const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-")
+  const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+  const result = [...productionRows]
+  let priority = Math.max(0, ...result.map((row) => Number(row[3]) || 0))
+  let lastCode = Math.max(0, ...result.map((row) => Number(/^OP-(\d+)$/i.exec(String(row[0] ?? ""))?.[1] ?? 0)))
+  lines.slice().reverse().forEach((item) => {
+    priority += 1
+    lastCode += 1
+    const parent = lines.find((candidate) => candidate.id === item.parentId)
+    result.unshift([
+      `OP-${String(lastCode).padStart(4, "0")}`,
+      parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
+      item.quantity,
+      priority,
+      date,
+      time,
+      date,
+      time,
+      "Iniciada",
+      "",
+      0,
+      "Sí",
+      JSON.stringify([{ status: "Iniciada", date, time }]),
+      JSON.stringify([{
+        name: item.product,
+        quantity: item.quantity,
+        category: item.category,
+        ...(item.parentId ? { parentId: item.parentId } : {}),
+      }]),
+      "No",
+      orderCode,
+    ])
+  })
+  return result
+}
 
 const SIDEBAR_MENU = [
   {
@@ -8062,12 +8130,22 @@ function AdminPanel({
             ? "Pendiente admin"
             : o.total >= APPROVAL_MIN
               ? "Autorizada"
-              : "No requerida",
+              : "Enviada a producción",
           JSON.stringify(orderLines),
         ]
       }),
       ...(initialRows.pedidos || []),
     ]
+    // Client orders that don't wait for the owner (or were already confirmed) get their
+    // production orders; oldest first so the newest ends up on top
+    initialRows.pedidos
+      .slice(0, clientOrders.length)
+      .reverse()
+      .filter((order) => ["Enviada a producción", "Autorizada"].includes(String(order[9])))
+      .forEach((order) => {
+        const lines = JSON.parse(String(order[10] ?? "[]")) as AdminOrderLine[]
+        initialRows.produccion = buildProductionRows(lines, initialRows.produccion || [], String(order[0]))
+      })
     const supplyProducts = (initialRows.insumos || [])
       .filter((row) => String(row[7]).toLowerCase() === "sí")
       .map(supplyAsProduct)
@@ -8642,12 +8720,14 @@ function AdminPanel({
   }
 
   // ── Field validation: Categ. Insumos, Categ. Producto, Insumos, Productos ──
-  const VALIDATED_SECTIONS = ["cat-insumos", "cat-producto", "insumos", "producto"]
+  const VALIDATED_SECTIONS = ["cat-insumos", "cat-producto", "insumos", "producto", "clientes", "pedidos"]
   const REQUIRED_KEYS: Record<string, string[]> = {
     "cat-insumos": ["0", "1"],
     "cat-producto": ["0", "1"],
     insumos: ["0", "1", "2", "3", "5"],
     producto: ["0", "1", "2", "3"],
+    clientes: ["0", "1", "2", "3"], // correo/dirección too unless "Cliente de local"
+    pedidos: ["0", "2", "3"],
   }
   const getFieldErrors = (): Record<string, string> => {
     const sec = modal.section
@@ -8691,6 +8771,41 @@ function AdminPanel({
         if (!v("10")) e["10"] = "Ficha técnica: elige al menos un insumo principal."
         if (!v("11")) e["11"] = "Ficha técnica: escribe cómo se prepara."
       }
+    }
+
+    if (sec === "clientes") {
+      const isLocal = v("6").toLowerCase() === "sí"
+      if (!v("1")) e["1"] = "Selecciona el tipo de documento."
+      const doc = v("2")
+      if (!doc) e["2"] = "Escribe el número de documento."
+      else if (v("1") && DOC_RULES[v("1")] && !DOC_RULES[v("1")].re.test(doc))
+        e["2"] = DOC_RULES[v("1")].msg
+      else {
+        // Same document number already registered (ignores dots, dashes and spaces)
+        const docKey = normalizeDocument(doc)
+        const dup = (rows.clientes || []).find(
+          (client, index) => index !== modal.idx && normalizeDocument(client[2]) === docKey,
+        )
+        if (dup) e["2"] = `Ya existe un cliente con este número de documento: «${String(dup[0])}».`
+      }
+      checkText("0", "El nombre", 3, 80, "Escribe el nombre del cliente.")
+      if (!e["0"] && !NAME_RE.test(v("0"))) e["0"] = "El nombre solo puede tener letras y espacios."
+      const phone = v("3").replace(/[\s-]/g, "")
+      if (!phone) e["3"] = "Escribe el teléfono."
+      else if (!/^3\d{9}$/.test(phone)) e["3"] = "El celular debe tener 10 números y empezar por 3."
+      if (!v("4")) {
+        if (!isLocal) e["4"] = "Escribe el correo (o marca «Cliente de local»)."
+      } else if (!EMAIL_RE.test(v("4")))
+        e["4"] = "Escribe un correo válido, por ejemplo nombre@correo.com."
+      if (!v("5")) {
+        if (!isLocal) e["5"] = "Escribe la dirección (o marca «Cliente de local»)."
+      } else if (v("5").length < 5) e["5"] = "La dirección debe tener al menos 5 caracteres."
+    }
+
+    if (sec === "pedidos") {
+      if (!v("0")) e["0"] = "Selecciona el cliente."
+      if (!v("2")) e["2"] = "Selecciona el tipo de pedido."
+      if (!v("3")) e["3"] = "Selecciona el método de pago."
     }
 
     if (sec === "producto") {
@@ -8752,21 +8867,6 @@ function AdminPanel({
       sec === "producto-no-conforme" &&
       !getProductSupplyOptions().includes(String(formData["1"] ?? ""))
     ) return
-    if (sec === "clientes") {
-      const isLocalClient = String(formData["6"] ?? "").toLowerCase() === "sí"
-      const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
-      const missingField = requiredFields.find(
-        (key) => !String(formData[key] ?? "").trim(),
-      )
-      if (missingField) {
-        setClientFormError(
-          isLocalClient
-            ? "Completa nombre, tipo y número de documento y teléfono."
-            : "Completa todos los campos obligatorios del cliente.",
-        )
-        return
-      }
-    }
     if (sec === "compras") {
       if (!String(formData["0"] ?? "").trim()) {
         setPurchaseFormError("Selecciona el proveedor.")
@@ -8833,8 +8933,17 @@ function AdminPanel({
         .join(", ")
       newRow[5] = total
       newRow[6] = "Recibido"
-      newRow[7] = String(formData["7"] || "Pendiente").trim()
-      newRow[8] = total >= APPROVAL_MIN ? "Pendiente admin" : "No requerida"
+      // Modality and payment status follow the payment method (not chosen by hand)
+      const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
+      newRow[4] = payment.modalidad
+      newRow[7] = payment.estadoPago
+      // Big orders wait for the owner; the rest go straight to production on save
+      newRow[8] =
+        modal.mode === "edit" && previousRow
+          ? previousRow[9] // editing never re-sends an order
+          : total >= APPROVAL_MIN
+            ? "Pendiente admin"
+            : "Enviada a producción"
       newRow[9] = JSON.stringify(pedidoOrderLines)
     }
 
@@ -8915,6 +9024,15 @@ function AdminPanel({
       if (modal.mode === "add") updated.unshift(newRow)
       else if (modal.mode === "edit" && modal.idx !== null)
         updated[modal.idx] = newRow
+
+      if (sec === "pedidos" && modal.mode === "add" && newRow[9] === "Enviada a producción") {
+        // New order that needs no owner approval → its production orders are created now
+        return {
+          ...current,
+          pedidos: updated,
+          produccion: buildProductionRows(pedidoOrderLines, current.produccion || [], String(newRow[0])),
+        }
+      }
 
       if (sec === "compras") {
         // Stock: undo what the previous version of this purchase added, then add the new items
@@ -9340,7 +9458,7 @@ function AdminPanel({
       !order ||
       (!payOnDelivery &&
         (String(order[8]).toLowerCase() !== "pagado" || !proof)) ||
-      String(order[9]) === "Autorizada"
+      ["Autorizada", "Enviada a producción"].includes(String(order[9]))
     ) return
 
     // Let the client see the owner's confirmation
@@ -9360,43 +9478,11 @@ function AdminPanel({
       if (updatedOrder[7] === "Por confirmar") updatedOrder[7] = "Confirmado"
       orderRows[orderIndex] = updatedOrder
 
-      const productionRows = [...(current.produccion || [])]
-      let priority = Math.max(
-        0,
-        ...productionRows.map((row) => Number(row[3]) || 0),
+      const productionRows = buildProductionRows(
+        requestedItems,
+        current.produccion || [],
+        String(updatedOrder[0]),
       )
-      requestedItems.slice().reverse().forEach((item) => {
-        priority += 1
-        const parent = requestedItems.find((candidate) => candidate.id === item.parentId)
-        productionRows.unshift([
-          getNextProductionCode(productionRows),
-          parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
-          item.quantity,
-          priority,
-          currentDateTime.date,
-          currentDateTime.time,
-          currentDateTime.date,
-          currentDateTime.time,
-          "Iniciada",
-          "",
-          0,
-          "Sí",
-          JSON.stringify([
-            {
-              status: "Iniciada",
-              date: currentDateTime.date,
-              time: currentDateTime.time,
-            },
-          ]),
-          JSON.stringify([{
-            name: item.product,
-            quantity: item.quantity,
-            category: item.category,
-            ...(item.parentId ? { parentId: item.parentId } : {}),
-          }]),
-          "No",
-        ])
-      })
 
       let salesRows = [...(current.ventas || [])]
       const notShipped = !["En camino", "Entregado"].includes(
@@ -9442,15 +9528,22 @@ function AdminPanel({
       )
       return
     }
+    // Same document number as an existing client is not allowed here either
+    const docKey = normalizeDocument(quickClientForm["2"])
+    const duplicate = (rows.clientes || []).find((client) => normalizeDocument(client[2]) === docKey)
+    if (duplicate) {
+      setQuickClientError(`Ya existe un cliente con este número de documento: «${String(duplicate[0])}».`)
+      return
+    }
     const name = String(quickClientForm["0"]).trim()
     const newClient: (string | number)[] = [
       name,
       quickClientForm["1"],
       quickClientForm["2"],
       quickClientForm["3"],
-      isLocalClient ? "Sí" : "No",
       quickClientForm["4"] || "",
       quickClientForm["5"] || "",
+      isLocalClient ? "Sí" : "No",
       "Activo",
     ]
     setRows((current) => ({
@@ -9937,9 +10030,9 @@ function AdminPanel({
   const TOP = [
     { name: "Mini", units: 284, pct: 100 },
     { name: "Salchipapa Sencilla", units: 241, pct: 85 },
-    { name: "Mediano (Perro)", units: 198, pct: 70 },
-    { name: "Super Gourmet", units: 167, pct: 59 },
-    { name: "Mega Gourmet", units: 143, pct: 50 },
+    { name: "Perro Mediano", units: 198, pct: 70 },
+    { name: "Salchipapa Super Gourmet", units: 167, pct: 59 },
+    { name: "Salchipapa Mega Gourmet", units: 143, pct: 50 },
   ]
   const KPI = [
     {
@@ -11167,22 +11260,34 @@ function AdminPanel({
       ? rows.pedidos?.findIndex((order) => order[0] === row?.[9]) ?? -1
       : -1
     // Purchase module (Compras) gets a compact 2-column form and a formatted detail view
+    // Modules with the compact form: narrow 2-column modal, titled by entity,
+    // formatted detail view ("isPurchaseModule" started with Compras, now shared)
     const PURCHASE_ENTITIES: Record<string, { name: string; fem: boolean }> = {
       "cat-insumos": { name: "categoría de insumo", fem: true },
       insumos: { name: "insumo", fem: false },
       proveedores: { name: "proveedor", fem: false },
       compras: { name: "compra", fem: true },
       perdidas: { name: "pérdida de insumo", fem: true },
+      "cat-producto": { name: "categoría de producto", fem: true },
+      produccion: { name: "orden de producción", fem: true },
+      "producto-no-conforme": { name: "producto no conforme", fem: false },
+      clientes: { name: "cliente", fem: false },
+      pedidos: { name: "pedido", fem: false },
+      ventas: { name: "venta", fem: true },
+      devoluciones: { name: "devolución", fem: true },
     }
     const purchaseEntity = PURCHASE_ENTITIES[modal.section]
     const isPurchaseModule = !!purchaseEntity
     const namesOf = (sec: string) =>
       (rows[sec] || []).map((r) => String(r[0] ?? "")).filter(Boolean)
+    // Sections whose first field is a name/main choice that reads better full width
+    const WIDE_FIRST_FIELD = ["cat-insumos", "insumos", "proveedores", "compras", "perdidas", "cat-producto", "clientes", "pedidos"]
     const isWideField = (f: FieldType) =>
-      f.key === "0" ||
+      (f.key === "0" && WIDE_FIRST_FIELD.includes(modal.section)) ||
       f.type === "textarea" ||
       f.type === "checkbox" ||
-      (modal.section === "proveedores" && (f.key === "5" || f.key === "7"))
+      (modal.section === "proveedores" && (f.key === "5" || f.key === "7")) ||
+      (modal.section === "clientes" && f.key === "5")
     const splitList = (value: string) =>
       value.split(",").map((item) => item.trim()).filter(Boolean)
     const supplyInfo = (name: string) =>
@@ -11280,7 +11385,7 @@ function AdminPanel({
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
-            maxHeight: "88vh",
+            maxHeight: isPurchaseModule || isProduct ? "94vh" : "88vh",
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -11312,9 +11417,14 @@ function AdminPanel({
           <div
 
             className={`min-w-0 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-5 ${
-              isPurchaseModule ? "grid content-start gap-x-4 gap-y-3 sm:grid-cols-2" : "flex flex-col gap-3"
+              isPurchaseModule
+                ? // fills the modal's free height; scrolls only if the form doesn't fit
+                  "grid min-h-0 flex-1 content-start gap-x-4 gap-y-3 sm:grid-cols-2"
+                : isProduct
+                  ? "flex min-h-0 flex-1 flex-col gap-3"
+                  : "flex flex-col gap-3"
             }`}
-            style={{ maxHeight: "65vh", scrollbarWidth: "none" }}
+            style={{ maxHeight: isPurchaseModule || isProduct ? undefined : "65vh", scrollbarWidth: "none" }}
           >
             {/* Purchase module detail header: record name + status */}
             {isView && isPurchaseModule && !isPurchase && row && (
@@ -11417,8 +11527,10 @@ function AdminPanel({
                 )}
               </div>
             )}
-            {isPedido && (
-              <div className="flex min-w-0 flex-col gap-2">
+            {/* Proof only matters for transfers (cash / pay at the store = contraentrega) */}
+            {isPedido && (isView || formData["3"] === "Transferencia") && (
+              // Last in the form (order-last): client and products come first
+              <div className="order-last flex min-w-0 flex-col gap-2 sm:col-span-2">
                 <label className="text-xs font-semibold" style={{ color: t.muted }}>Comprobante de pago</label>
                 {isView ? (
                   paymentProofDraft ? (
@@ -11526,7 +11638,7 @@ function AdminPanel({
                                 [f.key]: e.target.value,
                               }))
                             }
-                            rows={3}
+                            rows={2}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
                             style={{
                               background: t.input,
@@ -11796,8 +11908,9 @@ function AdminPanel({
               </div>
             ) : (
               <>
-                {(isProduction || isPnc) && (
-                  <section className="rounded-2xl p-4" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                {/* In the production detail the products are listed in its summary below */}
+                {(isPnc || (isProduction && !isView)) && (
+                  <section className="rounded-2xl p-4 sm:col-span-2" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                     <div className="mb-3 flex items-center gap-2">
                       <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
                       <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>{isPnc ? "Productos o insumos que se dañaron" : "Productos de la orden"}</h4>
@@ -11848,7 +11961,40 @@ function AdminPanel({
                 )}
                 {formDataFields.map((f) => {
                 if (isView && isPurchase) return null // the purchase ticket shows everything
-                if (isView && isPurchaseModule && f.key === "0") return null // shown in the header
+                // Shown in the detail header (with autoId, row[0] is the code, so field "0" stays)
+                if (isView && isPurchaseModule && f.key === "0" && !cfg.autoId) return null
+                // Order total is computed from its products ("Total del pedido"), not typed
+                if (isPedido && !isView && f.key === "5") return null
+                // Modality and payment status come from the payment method (read-only)
+                if (isPedido && !isView && (f.key === "4" || f.key === "7")) {
+                  const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
+                  const value = f.key === "4" ? payment.modalidad : payment.estadoPago
+                  return (
+                    <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
+                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                        {f.label}
+                      </span>
+                      <div
+                        className="rounded-xl px-3.5 py-2.5 text-sm font-semibold"
+                        style={{
+                          background: t.cardAlt,
+                          border: `1px dashed ${t.inputB}`,
+                          color: value ? (value === "Pagado" ? "#2E7D60" : t.text) : t.muted,
+                        }}
+                        title="Se asigna automáticamente según el método de pago"
+                      >
+                        {value || "Según el método de pago"}
+                      </div>
+                      {f.key === "7" && (
+                        <span className="text-[11px]" style={{ color: t.muted }}>
+                          Automático: transferencia con comprobante = pagado; efectivo o pago en el local = contraentrega y pendiente.
+                        </span>
+                      )}
+                    </div>
+                  )
+                }
+                // Production detail already shows "Creada" date/time in its summary
+                if (isView && isProduction && (f.key === "3" || f.key === "4")) return null
                 // Insumo technical sheet (fields 8-11) rendered as one card at field "8"
                 if (isSupply && ["9", "10", "11"].includes(f.key)) return null
                 if (isSupply && f.key === "8") {
@@ -12327,7 +12473,8 @@ function AdminPanel({
                     {isPedido && f.key === "1" && !isView ? (
                       <div className="flex flex-col gap-3">
                         <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                          <div className="grid gap-2 sm:grid-cols-[minmax(0,130px)_minmax(0,1fr)_90px_auto]">
+                          {/* Wide enough so category and product names show complete */}
+                          <div className="grid gap-2 sm:grid-cols-[minmax(150px,1fr)_minmax(0,1.7fr)_64px_auto]">
                             <select
                               value={pedidoProductCategory}
                               onChange={(event) => {
@@ -12525,7 +12672,7 @@ function AdminPanel({
                             [f.key]: e.target.value,
                           }))
                         }
-                        rows={3}
+                        rows={isPurchaseModule ? 2 : 3}
                         className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
                         style={{
                           background: t.input,
@@ -12559,7 +12706,7 @@ function AdminPanel({
               </>
             )}
             {isClient && !isView && clientFormError && (
-              <div className="rounded-xl px-3 py-2.5 text-xs font-medium" style={{ background: `${C.red}10`, color: C.red }}>
+              <div className="rounded-xl px-3 py-2.5 text-xs font-medium sm:col-span-2" style={{ background: `${C.red}10`, color: C.red }}>
                 {clientFormError}
               </div>
             )}
@@ -12700,19 +12847,25 @@ function AdminPanel({
                 </div>
               </div>
             )}
-            {isView && modal.section === "cat-producto" && (
-              <div
-                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
-                style={{ background: t.input }}
-              >
-                Productos en esta categoría:{" "}
-                <strong style={{ color: t.text }}>
-                  {[9, 7, 3, 3, 2, 2, 4, 2][modal.idx! % 8] ?? 4}
-                </strong>
-              </div>
-            )}
+            {isView && modal.section === "cat-producto" && row && (() => {
+              const products = (rows.producto || []).filter(
+                (product) => normalizeName(product[1]) === normalizeName(row[0]),
+              )
+              return (
+                <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
+                  <div className="text-xs font-semibold mb-1.5" style={{ color: t.muted }}>
+                    Productos en esta categoría ({products.length})
+                  </div>
+                  <div style={{ color: t.text }}>
+                    {products.length
+                      ? products.map((product) => String(product[0])).join(", ")
+                      : "Ningún producto usa esta categoría todavía."}
+                  </div>
+                </div>
+              )
+            })()}
             {isView && isProduction && (
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
                 <div className="rounded-xl px-3.5 py-3 sm:col-span-2" style={{ background: t.input }}>
                   <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Productos de la orden</span>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -12760,7 +12913,7 @@ function AdminPanel({
               </div>
             )}
             {isView && isPedido && (
-              <div className="rounded-xl p-4" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+              <div className="rounded-xl p-4 sm:col-span-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
                 <div className="grid gap-2 sm:grid-cols-3">
                   <span className="text-xs" style={{ color: t.muted }}>Estado: <strong style={{ color: t.text }}>{String(row?.[7] ?? "Recibido")}</strong></span>
                   <span className="text-xs" style={{ color: t.muted }}>Pago: <strong style={{ color: String(row?.[8]) === "Pagado" ? "#2E7D60" : C.red }}>{String(row?.[8] ?? "Pendiente")}</strong></span>
@@ -12785,17 +12938,19 @@ function AdminPanel({
                 </div>
                 <button
                   type="button"
-                  disabled={(String(row?.[5]) !== "Contraentrega" && (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) || String(row?.[9]) === "Autorizada"}
+                  disabled={(String(row?.[5]) !== "Contraentrega" && (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) || ["Autorizada", "Enviada a producción"].includes(String(row?.[9]))}
                   onClick={() => approveOrderForProduction(modal.idx!)}
                   className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ background: C.mustard, color: "#fff" }}
                 >
-                  {String(row?.[9]) === "Autorizada" ? "Producción ya autorizada" : "Confirmar pedido y enviar a producción"}
+                  {["Autorizada", "Enviada a producción"].includes(String(row?.[9]))
+                    ? "Ya se envió a producción"
+                    : "Confirmar pedido y enviar a producción"}
                 </button>
               </div>
             )}
             {isView && isSales && (
-              <div className="rounded-xl p-4" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+              <div className="rounded-xl p-4 sm:col-span-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
                 <h4 className="mb-3 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle de la venta</h4>
                 <div className="flex flex-col gap-2">
                   {saleOrderLines.map((line) => {
