@@ -11,11 +11,13 @@ type User = {
   email: string
   role: "admin" | "user"
   cedula?: string
+  docType?: string
   phone?: string
   addresses?: string[]
   photo?: string
   password?: string
 }
+type RegisteredClient = Pick<User, "name" | "email" | "cedula" | "docType" | "phone">
 type CartItem = {
   id: number
   name: string
@@ -42,7 +44,13 @@ type Order = DeliveryInfo & {
   items: CartItem[]
   total: number
   status: string
+  paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Pagado" | "Rechazado"
+  paymentRejectionReason?: string
+  productionAuthorized?: boolean
+  productionRecords?: (string | number)[][]
 }
+const isTransferPaymentMethod = (method: string) =>
+  ["transferencia", "nequi", "daviplata"].includes(method.trim().toLowerCase())
 type ModalMode = "add" | "edit" | "view" | null
 type FieldType = {
   key: string
@@ -99,6 +107,45 @@ const DOC_TYPES = [
   "Pasaporte",
   "Tarjeta de Identidad",
 ]
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const digitsOnly = (value: string) => value.replace(/\D/g, "")
+const normalizeDocumentInput = (value: string, docType: string) => {
+  if (docType === "Pasaporte") return value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)
+  if (docType === "NIT") return value.replace(/[^0-9.-]/g, "").slice(0, 20)
+  return digitsOnly(value).slice(0, 15)
+}
+const normalizeAccountDocumentInput = (value: string, docType: string) =>
+  docType === "NIT"
+    ? value.replace(/[^0-9-]/g, "").slice(0, 10)
+    : docType
+      ? normalizeDocumentInput(value, docType)
+      : value.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20)
+const normalizePhoneInput = (value: string) =>
+  value.replace(/[^0-9+()\s-]/g, "").slice(0, 20)
+const validateDocumentNumber = (value: string, docType: string) => {
+  const document = value.trim()
+  if (!document) return "Este campo es obligatorio."
+  if (docType === "Pasaporte") {
+    return /^[A-Za-z0-9]{5,20}$/.test(document)
+      ? ""
+      : "Escribe un número de pasaporte válido."
+  }
+  if (docType === "NIT") {
+    const digits = digitsOnly(document)
+    return /^[\d.-]+$/.test(document) && digits.length >= 8 && digits.length <= 15
+      ? ""
+      : "Escribe un NIT válido."
+  }
+  return /^\d{5,15}$/.test(document)
+    ? ""
+    : "Usa solo números (de 5 a 15 dígitos)."
+}
+const validatePhoneNumber = (value: string) => {
+  const digits = digitsOnly(value)
+  return digits.length >= 7 && digits.length <= 15
+    ? ""
+    : "Escribe un teléfono válido (de 7 a 15 dígitos)."
+}
 const SAUCES = [
   "Salsa de la casa",
   "Tártara",
@@ -124,7 +171,6 @@ const ADDITIONS = [
 ]
 const BEVERAGES = [
   "Coca-Cola",
-  "Sprite",
   "Manzana",
   "Colombiana",
   "Uva",
@@ -1153,7 +1199,6 @@ const MOD_CFG: Record<string, ModConfig> = {
   usuarios: {
     columns: ["Nombre", "Tipo Doc.", "Documento", "Rol", "Correo", "Estado"],
     fields: [
-      { key: "0", label: "Nombre completo", type: "text" },
       {
         key: "1",
         label: "Tipo de documento",
@@ -1167,6 +1212,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         ],
       },
       { key: "2", label: "Número de documento", type: "text" },
+      { key: "0", label: "Nombre completo", type: "text" },
       {
         key: "3",
         label: "Rol",
@@ -1280,14 +1326,20 @@ const MOD_CFG: Record<string, ModConfig> = {
       "Estado",
     ],
     fields: [
-      { key: "0", label: "Nombre empresa", type: "text" },
       { key: "1", label: "NIT", type: "text" },
+      { key: "0", label: "Nombre empresa", type: "text" },
       { key: "2", label: "Correo", type: "email" },
       { key: "3", label: "Teléfono", type: "tel" },
-      { key: "4", label: "Persona de contacto", type: "text" },
       { key: "5", label: "Dirección", type: "text" },
       // Comma-separated insumo names; limits what can be bought from this supplier
       { key: "7", label: "Insumos que suministra", type: "text" },
+      { key: "8", label: "Tipo de documento", type: "select", options: DOC_TYPES },
+      { key: "9", label: "Número de documento", type: "text" },
+      { key: "10", label: "Nombre", type: "text" },
+      { key: "11", label: "Apellido", type: "text" },
+      { key: "12", label: "Teléfono", type: "tel" },
+      { key: "13", label: "Correo electrónico", type: "email" },
+      { key: "14", label: "Cargo", type: "text" },
     ],
     seed: [
       [
@@ -1313,7 +1365,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     // Deletable only while the supplier has no purchases (see getDeleteAssessment)
     statusIndex: 6,
-    hiddenCellIndexes: [5, 7],
+    hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14],
   },
   compras: {
     columns: ["Proveedor", "Fecha", "Subtotal", "Total", "Estado"],
@@ -1726,7 +1778,12 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "7",
         label: "Estado de pago",
         type: "select",
-        options: ["Pendiente", "Pagado"],
+        options: [
+          "Pendiente",
+          "Pendiente de verificación",
+          "Pagado",
+          "Rechazado",
+        ],
       },
       { key: "9", label: "Comprobante de pago", type: "image" },
     ],
@@ -1807,7 +1864,8 @@ const MOD_CFG: Record<string, ModConfig> = {
     noDelete: true,
     autoId: true,
     // 10 = order lines JSON saved by admin-created orders (was showing as "Dato 7")
-    hiddenCellIndexes: [2, 3, 4, 5, 10],
+    // 11 = payment rejection reason
+    hiddenCellIndexes: [2, 3, 4, 5, 10, 11],
   },
   devoluciones: {
     columns: ["Código", "Cliente", "Motivo", "Fecha"],
@@ -2006,10 +2064,27 @@ function emailError(email: string) {
   return ""
 }
 
-function validateLogin(email: string, pass: string, savedPass?: string): FieldErrors {
+function validateLogin(
+  email: string,
+  pass: string,
+  savedPass?: string,
+  accountStatus?: string,
+  requireRegisteredAccount = false,
+  accountExists = !!savedPass,
+): FieldErrors {
   const e: FieldErrors = {}
   const em = emailError(email)
   if (em) e.email = em
+  else if (
+    accountStatus &&
+    ["inactivo", "inactiva", "anulado", "anulada"].includes(
+      accountStatus.trim().toLowerCase(),
+    )
+  ) {
+    e.email = "Esta cuenta está inactiva. Contacta al administrador."
+  } else if (requireRegisteredAccount && !accountExists) {
+    e.email = "No encontramos una cuenta con ese correo. Regístrate para continuar."
+  }
   if (!pass) e.pass = "Ingresa tu contraseña."
   else if (pass.length < 8) e.pass = "La contraseña tiene mínimo 8 caracteres."
   else if (savedPass && pass !== savedPass) e.pass = "La contraseña es incorrecta."
@@ -2218,12 +2293,21 @@ function LoginPage({
   // Errors show after the first submit and update live while typing
   const [tried, setTried] = useState(false)
   const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
-  const errors = tried ? validateLogin(email, pass, savedProfile?.password) : {}
+  const accountStatus = getAdminAccountStatus(email)
+  const errors = tried
+    ? validateLogin(email, pass, savedProfile?.password, accountStatus)
+    : {}
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
     const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
-    if (Object.keys(validateLogin(email, pass, savedProfile?.password)).length) return
+    const accountStatus = getAdminAccountStatus(email)
+    if (
+      Object.keys(
+        validateLogin(email, pass, savedProfile?.password, accountStatus),
+      ).length
+    )
+      return
     const role = email.toLowerCase().includes("admin") ? "admin" : "user"
     const name = email
       .split("@")[0]
@@ -2403,7 +2487,15 @@ function RegisterPage({
   const errors = tried ? validateRegister(form) : {}
   const err = codeTried ? codeError(code) : ""
   const upd = (k: keyof typeof form) => (v: string) =>
-    setForm((f) => ({ ...f, [k]: v }))
+    setForm((current) => ({
+      ...current,
+      [k]:
+        k === "docNum"
+          ? normalizeAccountDocumentInput(v, current.docType)
+          : k === "phone"
+            ? digitsOnly(v).slice(0, 10)
+            : v,
+    }))
   const submitForm = (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
@@ -2418,6 +2510,7 @@ function RegisterPage({
       name: `${form.name.trim()} ${form.lastname.trim()}`.trim(),
       email: form.email.trim().toLowerCase(),
       role: "user",
+      docType: form.docType,
       phone: form.phone.replace(/\s/g, ""),
       cedula: form.docNum.trim(),
       password: form.pass,
@@ -2581,7 +2674,14 @@ function RegisterPage({
                 </label>
                 <select
                   value={form.docType}
-                  onChange={(e) => upd("docType")(e.target.value)}
+                  onChange={(e) => {
+                    const docType = e.target.value
+                    setForm((current) => ({
+                      ...current,
+                      docType,
+                      docNum: normalizeAccountDocumentInput(current.docNum, docType),
+                    }))
+                  }}
                   aria-invalid={!!errors.docType}
                   className="w-full px-3 py-2 rounded-xl text-sm outline-none"
                   style={{
@@ -2703,6 +2803,7 @@ function ForgotPage({
 }) {
   const [email, setEmail] = useState("")
   const [sent, setSent] = useState(false)
+  const [emailErr, setEmailErr] = useState("")
   if (sent)
     return (
       <AuthLayout title="Correo enviado" sub="Revisa tu bandeja de entrada">
@@ -2739,7 +2840,9 @@ function ForgotPage({
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          if (email) setSent(true)
+          const error = emailError(email)
+          setEmailErr(error)
+          if (!error) setSent(true)
         }}
         className="flex flex-col gap-3"
       >
@@ -2748,8 +2851,12 @@ function ForgotPage({
           type="email"
           placeholder="tu@correo.com"
           value={email}
-          onChange={setEmail}
+          onChange={(value) => {
+            setEmail(value)
+            if (emailErr) setEmailErr(emailError(value))
+          }}
           required
+          error={emailErr}
         />
         <button
           type="submit"
@@ -2976,12 +3083,16 @@ function AddToCartModal({
   const [selSauces, setSelSauces] = useState<string[]>([])
   const [addQtys, setAddQtys] = useState<Record<string, number>>({})
   const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0].id)
+  const [customizationTab, setCustomizationTab] = useState<"sauces" | "additions" | "beverages">("sauces")
   const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
   const toggleSauce = (s: string) =>
-    setSelSauces((p) => (p.includes(s) ? p.filter((x) => x !== s) : [...p, s]))
+    setSelSauces((p) => {
+      if (p.includes(s)) return p.filter((x) => x !== s)
+      return p.length < 4 ? [...p, s] : p
+    })
   const changeAdd = (name: string, d: number) =>
     setAddQtys((p) => ({ ...p, [name]: Math.max(0, (p[name] || 0) + d) }))
   const addTotal = ADDITIONS.reduce(
@@ -3001,12 +3112,15 @@ function AddToCartModal({
   )
   const selectedBeverageSize =
     BEVERAGE_SIZES.find((size) => size.id === beverageSize) ?? BEVERAGE_SIZES[0]
-  const selectedBeverages = BEVERAGES.flatMap((flavor) =>
-    BEVERAGE_SIZES.flatMap((size) => {
-      const key = `Gaseosa ${flavor} ${size.id}`
-      const quantity = addQtys[key] || 0
-      return quantity > 0 ? [{ flavor, size, key, quantity }] : []
-    }),
+  const selectedBeverageCount = BEVERAGES.reduce(
+    (total, flavor) =>
+      total +
+      BEVERAGE_SIZES.reduce(
+        (sizeTotal, size) =>
+          sizeTotal + (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0),
+        0,
+      ),
+    0,
   )
   const unitPrice = product.price + addTotal + beverageTotal
   const total = unitPrice * qty
@@ -3041,20 +3155,25 @@ function AddToCartModal({
         className="w-full max-w-md rounded-3xl overflow-hidden flex flex-col"
         style={{
           background: CARD,
-          maxHeight: "90vh",
+          maxHeight: "98dvh",
           boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
           className="relative flex-shrink-0 overflow-hidden"
-          style={{ height: "230px", background: CARD }}
+          style={{ height: "clamp(120px, 26vh, 230px)", background: dark ? "#111" : "#1E1C18" }}
         >
           <img
             src={product.img}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
+          />
+          <img
+            src={product.img}
             alt={product.name}
-            className="w-full h-full object-cover"
-            style={{ objectPosition: "center 55%" }}
+            className="relative z-10 h-full w-full object-contain"
           />
           <button
             onClick={onClose}
@@ -3065,7 +3184,7 @@ function AddToCartModal({
           </button>
         </div>
         <div
-          className="flex items-center justify-between gap-3 px-5 py-3 flex-shrink-0"
+          className="flex items-center justify-between gap-3 px-5 py-2 flex-shrink-0"
           style={{ background: dark ? "#1E1C18" : "#fff" }}
         >
           <div>
@@ -3089,25 +3208,51 @@ function AddToCartModal({
           )}
         </div>
         <div
-          className="overflow-y-auto flex-1 px-5 py-4"
-          style={{ scrollbarWidth: "none" }}
+          className="min-h-0 flex-1 overflow-hidden px-4 py-1.5 sm:px-5"
         >
-          <p className="text-sm leading-relaxed mb-4" style={{ color: MUTED }}>
+          <p className="mb-1 line-clamp-1 text-xs leading-snug sm:text-sm" style={{ color: MUTED }}>
             {product.desc}
           </p>
-          <div className="mb-4">
-            <div className="font-bold text-sm mb-2" style={{ color: TEXT }}>
-              Salsas{" "}
-              <span className="font-normal text-xs" style={{ color: MUTED }}>
-                (gratis)
+          <div className="mb-1.5 grid grid-cols-3 gap-1 rounded-xl p-1" style={{ background: dark ? "rgba(244,238,220,0.06)" : "rgba(30,30,30,0.05)" }}>
+            {([
+              ["sauces", `Salsas ${selSauces.length}/4`],
+              ["additions", `Adiciones ${ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)}`],
+              ["beverages", `Bebidas ${selectedBeverageCount}`],
+            ] as const).map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setCustomizationTab(tab)}
+                className="rounded-lg px-2 py-1.5 text-sm font-bold transition-colors"
+                style={{
+                  background: customizationTab === tab ? C.mustard : "transparent",
+                  color: customizationTab === tab ? "#fff" : MUTED,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {customizationTab === "sauces" && (
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="font-bold text-sm" style={{ color: TEXT }}>Elige hasta 4 salsas gratis</div>
+              <span className="text-[11px] font-semibold" style={{ color: selSauces.length === 4 ? C.amber : MUTED }}>
+                {selSauces.length}/4
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div
+              role="group"
+              aria-label="Salsas"
+              className="flex flex-wrap gap-1.5"
+            >
               {SAUCES.map((s) => (
                 <button
                   key={s}
                   onClick={() => toggleSauce(s)}
-                  className="px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer"
+                  disabled={!selSauces.includes(s) && selSauces.length >= 4}
+                  aria-pressed={selSauces.includes(s)}
+                  className="rounded-full px-2.5 py-1.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:px-3 sm:text-xs"
                   style={{
                     background: selSauces.includes(s)
                       ? C.mustard
@@ -3125,44 +3270,32 @@ function AddToCartModal({
               ))}
             </div>
           </div>
-          <div className="mb-2">
-            <div className="font-bold text-sm mb-2" style={{ color: TEXT }}>
-              Adiciones
-            </div>
-            <div
-              className="rounded-2xl overflow-hidden"
-              style={{ border: `1px solid ${BORDER}` }}
-            >
-              {ADDITIONS.map((a, i) => {
+          )}
+          {customizationTab === "additions" && (
+          <div>
+            <div className="grid grid-cols-2 gap-1">
+              {ADDITIONS.map((a) => {
                 const q = addQtys[a.name] || 0
                 return (
                   <div
                     key={a.name}
-                    className="flex items-center px-4 py-3"
-                    style={{
-                      borderBottom:
-                        i < ADDITIONS.length - 1
-                          ? `1px solid ${BORDER}`
-                          : "none",
-                    }}
+                    className="flex min-w-0 items-center justify-between gap-1 rounded-xl px-2 py-1"
+                    style={{ border: `1px solid ${BORDER}`, background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
                   >
-                    <div className="flex-1 min-w-0 flex items-baseline gap-2">
-                      <span className="text-sm" style={{ color: TEXT }}>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-xs leading-tight" style={{ color: TEXT }}>
                         {a.name}
                       </span>
-                      <span
-                        className="text-xs font-semibold whitespace-nowrap"
-                        style={{ color: C.amber }}
-                      >
-                        {fmt(a.price)}
+                      <span className="text-[11px] font-semibold leading-tight" style={{ color: q > 0 ? C.mustard : MUTED }}>
+                        {q > 0 ? `+${fmt(a.price * q)}` : fmt(a.price)}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex flex-shrink-0 items-center gap-1">
                       <button
                         onClick={() => changeAdd(a.name, -1)}
                         disabled={q === 0}
                         aria-label={`Quitar ${a.name}`}
-                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
                         style={{
                           background: dark
                             ? "rgba(244,238,220,0.1)"
@@ -3173,7 +3306,7 @@ function AddToCartModal({
                         −
                       </button>
                       <span
-                        className="w-5 text-center font-bold text-sm"
+                        className="w-5 text-center text-sm font-bold"
                         style={{ color: TEXT }}
                       >
                         {q}
@@ -3181,28 +3314,21 @@ function AddToCartModal({
                       <button
                         onClick={() => changeAdd(a.name, 1)}
                         aria-label={`Agregar ${a.name}`}
-                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
                         style={{ background: C.mustard, color: "#fff" }}
                       >
                         +
                       </button>
-                      <span
-                        className="w-16 text-right text-sm font-bold"
-                        style={{ color: q > 0 ? C.mustard : MUTED }}
-                      >
-                        {q > 0 ? `+${fmt(a.price * q)}` : "—"}
-                      </span>
                     </div>
                   </div>
                 )
               })}
             </div>
           </div>
-          <div className="mb-2">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <div className="font-bold text-sm" style={{ color: TEXT }}>
-                Bebidas
-              </div>
+          )}
+          {customizationTab === "beverages" && (
+          <div>
+            <div className="mb-1 flex items-center justify-end gap-3">
               <select
                 aria-label="Tamaño de gaseosa"
                 value={beverageSize}
@@ -3221,42 +3347,31 @@ function AddToCartModal({
                 ))}
               </select>
             </div>
-            <div
-              className="rounded-2xl overflow-hidden"
-              style={{ border: `1px solid ${BORDER}` }}
-            >
-              {BEVERAGES.map((flavor, index) => {
+            <div className="grid grid-cols-2 gap-1">
+              {BEVERAGES.map((flavor) => {
                 const size = selectedBeverageSize
                 const key = `Gaseosa ${flavor} ${size.id}`
                 const quantity = addQtys[key] || 0
                 return (
                   <div
                     key={flavor}
-                    className="flex items-center px-4 py-3"
-                    style={{
-                      borderBottom:
-                        index < BEVERAGES.length - 1
-                          ? `1px solid ${BORDER}`
-                          : "none",
-                    }}
+                    className="flex min-w-0 items-center justify-between gap-1 rounded-xl px-2 py-1"
+                    style={{ border: `1px solid ${BORDER}`, background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
                   >
-                    <div className="flex-1 min-w-0 flex items-baseline gap-2">
-                      <span className="text-sm" style={{ color: TEXT }}>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-xs leading-tight" style={{ color: TEXT }}>
                         {flavor}
                       </span>
-                      <span
-                        className="text-xs font-semibold whitespace-nowrap"
-                        style={{ color: C.amber }}
-                      >
-                        {fmt(size.price)}
+                      <span className="text-[11px] font-semibold leading-tight" style={{ color: quantity > 0 ? C.mustard : MUTED }}>
+                        {quantity > 0 ? `+${fmt(size.price * quantity)}` : fmt(size.price)}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex flex-shrink-0 items-center gap-1">
                       <button
                         onClick={() => changeAdd(key, -1)}
                         disabled={quantity === 0}
                         aria-label={`Quitar gaseosa ${flavor} ${size.label}`}
-                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
                         style={{
                           background: dark
                             ? "rgba(244,238,220,0.1)"
@@ -3267,7 +3382,7 @@ function AddToCartModal({
                         −
                       </button>
                       <span
-                        className="w-5 text-center font-bold text-sm"
+                        className="w-5 text-center text-sm font-bold"
                         style={{ color: TEXT }}
                       >
                         {quantity}
@@ -3275,65 +3390,27 @@ function AddToCartModal({
                       <button
                         onClick={() => changeAdd(key, 1)}
                         aria-label={`Agregar gaseosa ${flavor} ${size.label}`}
-                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
                         style={{ background: C.mustard, color: "#fff" }}
                       >
                         +
                       </button>
-                      <span
-                        className="w-16 text-right text-sm font-bold"
-                        style={{ color: quantity > 0 ? C.mustard : MUTED }}
-                      >
-                        {quantity > 0
-                          ? `+${fmt(size.price * quantity)}`
-                          : "—"}
-                      </span>
                     </div>
                   </div>
                 )
               })}
             </div>
-            {selectedBeverages.length > 0 && (
-              <div className="mt-2 space-y-1">
-                <div className="text-xs font-semibold" style={{ color: MUTED }}>
-                  Seleccionadas
-                </div>
-                {selectedBeverages.map(({ flavor, size, key, quantity }) => (
-                  <div
-                    key={key}
-                    className="flex items-center justify-between gap-2 text-xs"
-                    style={{ color: MUTED }}
-                  >
-                    <span>
-                      {flavor} · {size.label} × {quantity}
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <strong style={{ color: C.mustard }}>
-                        {fmt(size.price * quantity)}
-                      </strong>
-                      <button
-                        type="button"
-                        onClick={() => changeAdd(key, -quantity)}
-                        aria-label={`Quitar todas las ${flavor} ${size.label}`}
-                        className="cursor-pointer font-semibold"
-                        style={{ color: C.red }}
-                      >
-                        Quitar
-                      </button>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
+          )}
         </div>
         <div
-          className="flex flex-shrink-0 flex-col gap-2 px-4 py-3"
+          className="flex w-full flex-shrink-0 flex-col gap-1.5 px-4 py-2"
           style={{ borderTop: `1px solid ${BORDER}`, background: CARD }}
         >
-          <div className="flex items-center gap-3">
+          <div className="mx-auto flex w-full max-w-[400px] flex-col gap-1.5">
+          <div className="flex items-center gap-2.5">
             <div
-              className="flex flex-shrink-0 items-center gap-1 rounded-2xl px-1 py-1"
+              className="flex flex-shrink-0 items-center gap-0.5 rounded-xl px-1 py-1"
               style={{
                 background: dark
                   ? "rgba(244,238,220,0.07)"
@@ -3342,7 +3419,7 @@ function AddToCartModal({
             >
               <button
                 onClick={() => setQty((q) => Math.max(1, q - 1))}
-                className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
+                className="h-9 w-8 rounded-lg flex items-center justify-center font-bold cursor-pointer"
                 style={{ color: TEXT }}
               >
                 −
@@ -3355,7 +3432,7 @@ function AddToCartModal({
               </span>
               <button
                 onClick={() => setQty((q) => q + 1)}
-                className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
+                className="h-9 w-8 rounded-lg flex items-center justify-center font-bold cursor-pointer"
                 style={{ color: TEXT }}
               >
                 +
@@ -3363,7 +3440,7 @@ function AddToCartModal({
             </div>
             <button
               onClick={handleAdd}
-              className="flex flex-1 cursor-pointer items-center justify-between rounded-2xl px-5 py-3.5 text-sm font-bold hover:opacity-90"
+              className="flex flex-1 cursor-pointer items-center justify-between rounded-xl px-4 py-2.5 text-sm font-bold hover:opacity-90"
               style={{ background: C.mustard, color: "#fff" }}
             >
               <span>Agregar al carrito</span>
@@ -3374,12 +3451,13 @@ function AddToCartModal({
             <button
               type="button"
               onClick={handleCheckout}
-              className="w-full cursor-pointer rounded-2xl py-3 text-sm font-bold hover:opacity-90"
+              className="w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
               style={{ background: C.mustard, color: "#fff" }}
             >
               Finalizar compra
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>
@@ -3797,10 +3875,31 @@ function saveLS(key: string, value: unknown) {
   }
 }
 
+function getAdminAccountStatus(email: string): string | undefined {
+  const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
+  return statuses[email.trim().toLowerCase()]
+}
+
 // ponytail: all orders live in this browser's localStorage (client + admin
 // share it); move to a backend when the shop needs multiple devices.
 const loadOrders = () => loadLS<Order[]>("orders", [])
 const saveOrders = (orders: Order[]) => saveLS("orders", orders)
+const loadRegisteredClients = () =>
+  loadLS<RegisteredClient[]>("registeredClients", [])
+const saveRegisteredClient = (user: User) => {
+  if (user.role !== "user" || !user.email.trim()) return
+  const registeredClient: RegisteredClient = {
+    name: user.name.trim(),
+    email: user.email.trim().toLowerCase(),
+    cedula: user.cedula?.trim(),
+    docType: user.docType?.trim(),
+    phone: user.phone?.trim(),
+  }
+  const clients = loadRegisteredClients().filter(
+    (client) => client.email.toLowerCase() !== registeredClient.email,
+  )
+  saveLS("registeredClients", [registeredClient, ...clients])
+}
 
 // Downscale to keep vouchers small enough for localStorage
 function readVoucher(file: File) {
@@ -3887,6 +3986,13 @@ function OrderList({
     <div className="space-y-3">
       {orders.map((o) => {
         const badge = badgeSt(o.status)
+        const paymentStatus =
+          o.paymentStatus ??
+          (o.voucher
+            ? "Pendiente de verificación"
+            : isTransferPaymentMethod(o.pago)
+              ? "Pendiente de verificación"
+              : "Pendiente")
         return (
           <div
             key={o.id}
@@ -3920,6 +4026,21 @@ function OrderList({
                 >
                   {o.status}
                 </span>
+                {paymentStatus !== "Pendiente" && (
+                  <div
+                    className="mt-1 text-[10px] font-semibold"
+                    style={{
+                      color:
+                        paymentStatus === "Pagado"
+                          ? C.forest
+                          : paymentStatus === "Rechazado"
+                            ? C.red
+                            : C.mustard,
+                    }}
+                  >
+                    Pago: {paymentStatus}
+                  </div>
+                )}
               </div>
             </div>
             <button
@@ -4070,6 +4191,17 @@ function OrderDetailModal({
           <div>
             <strong style={{ color: TEXT }}>Pago:</strong> {order.pago}
           </div>
+          {order.paymentStatus && (
+            <div>
+              <strong style={{ color: TEXT }}>Estado del pago:</strong>{" "}
+              {order.paymentStatus}
+            </div>
+          )}
+          {order.paymentStatus === "Rechazado" && order.paymentRejectionReason && (
+            <div style={{ color: C.red }}>
+              <strong>Motivo de rechazo:</strong> {order.paymentRejectionReason}
+            </div>
+          )}
         </div>
 
         {order.pago !== "Efectivo" && (
@@ -4254,8 +4386,8 @@ function CartSummary({
           className="flex justify-between text-sm mb-2"
           style={{ color: MUTED }}
         >
-          <span>Domicilio (Comuna 3)</span>
-          <span style={{ color: C.forest }}>Gratis</span>
+          <span>Domicilio</span>
+          <span style={{ color: MUTED }}>Costo según zona</span>
         </div>
         <div
           className="flex justify-between font-black text-base pt-2"
@@ -4316,10 +4448,21 @@ function CheckoutPage({
   const [editingAddress, setEditingAddress] = useState(
     () => !(user?.addresses?.length),
   )
+  const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(false)
   const [saveAddress, setSaveAddress] = useState(
     () => !(user?.addresses?.length),
   )
   const [deliveryTried, setDeliveryTried] = useState(false)
+  const toggleDeliveryRecipient = () => {
+    const nextIsOtherPerson = !deliverToOtherPerson
+    setDeliverToOtherPerson(nextIsOtherPerson)
+    setDeliveryTried(false)
+    setDelivForm((current) => ({
+      ...current,
+      nombre: nextIsOtherPerson ? "" : user?.name ?? "",
+      telefono: nextIsOtherPerson ? "" : user?.phone ?? "",
+    }))
+  }
   // Prefill delivery data from the account as soon as there is one
   useEffect(() => {
     if (!user) return
@@ -4365,7 +4508,7 @@ function CheckoutPage({
   const payReady = !needsVoucher || !!voucher
   const delivFilled =
     !!delivForm.nombre.trim() &&
-    !!delivForm.telefono.trim() &&
+    !validatePhoneNumber(delivForm.telefono) &&
     !!delivForm.direccion.trim()
   const canOrder = user && delivFilled
 
@@ -4373,7 +4516,22 @@ function CheckoutPage({
   const [loginTried, setLoginTried] = useState(false)
   const [regTried, setRegTried] = useState(false)
   const [codeTried, setCodeTried] = useState(false)
-  const loginErrors = loginTried ? validateLogin(loginForm.email, loginForm.pass) : {}
+  const loginErrors = loginTried
+    ? validateLogin(
+        loginForm.email,
+        loginForm.pass,
+        loadLS<User | null>(
+          `profile:${loginForm.email.trim().toLowerCase()}`,
+          null,
+        )?.password,
+        getAdminAccountStatus(loginForm.email),
+        true,
+        !!loadLS<User | null>(
+          `profile:${loginForm.email.trim().toLowerCase()}`,
+          null,
+        )?.password,
+      )
+    : {}
   const regErrors = regTried ? validateRegister(regForm) : {}
   const codeErr = codeTried ? codeError(code) : ""
   const handleLogin = (e: React.FormEvent) => {
@@ -4381,7 +4539,19 @@ function CheckoutPage({
     setLoginTried(true)
     const email = loginForm.email.trim().toLowerCase()
     const savedProfile = loadLS<User | null>(`profile:${email}`, null)
-    if (Object.keys(validateLogin(loginForm.email, loginForm.pass, savedProfile?.password)).length) return
+    if (
+      Object.keys(
+        validateLogin(
+          loginForm.email,
+          loginForm.pass,
+          savedProfile?.password,
+          getAdminAccountStatus(email),
+          true,
+          !!savedProfile?.password,
+        ),
+      ).length
+    )
+      return
     const role = email.includes("admin") ? "admin" : "user"
     const name = email
       .split("@")[0]
@@ -4404,6 +4574,7 @@ function CheckoutPage({
       name: regForm.name.trim(),
       email: regForm.email.trim().toLowerCase(),
       role: "user",
+      docType: regForm.docType,
       phone: regForm.phone.replace(/\s/g, ""),
       cedula: regForm.docNum.trim(),
       password: regForm.pass,
@@ -4474,9 +4645,11 @@ function CheckoutPage({
             ¡Pedido confirmado!
           </h2>
           <p className="text-sm mb-6" style={{ color: MUTED }}>
-            {placedTotal >= APPROVAL_MIN
-              ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
-              : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
+            {delivForm.pago !== "Efectivo"
+              ? "Recibimos tu comprobante. El pedido queda pendiente de verificación; cuando se apruebe, se enviará a producción."
+              : placedTotal >= APPROVAL_MIN
+                ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
+                : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
             Puedes seguir su estado en &quot;Mis pedidos&quot;.
           </p>
           <div
@@ -4721,9 +4894,14 @@ function CheckoutPage({
                       </label>
                       <select
                         value={regForm.docType}
-                        onChange={(e) =>
-                          setRegForm((f) => ({ ...f, docType: e.target.value }))
-                        }
+                        onChange={(e) => {
+                          const docType = e.target.value
+                          setRegForm((current) => ({
+                            ...current,
+                            docType,
+                            docNum: normalizeAccountDocumentInput(current.docNum, docType),
+                          }))
+                        }}
                         aria-invalid={!!regErrors.docType}
                         className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none"
                         style={{
@@ -4747,7 +4925,10 @@ function CheckoutPage({
                       label="Nº Documento *"
                       placeholder="123456789"
                       value={regForm.docNum}
-                      onChange={(v) => setRegForm((f) => ({ ...f, docNum: v }))}
+                      onChange={(v) => setRegForm((current) => ({
+                        ...current,
+                        docNum: normalizeAccountDocumentInput(v, current.docType),
+                      }))}
                       required
                       error={regErrors.docNum}
                     />
@@ -4765,7 +4946,7 @@ function CheckoutPage({
                       type="tel"
                       placeholder="3XX XXX XXXX"
                       value={regForm.phone}
-                      onChange={(v) => setRegForm((f) => ({ ...f, phone: v }))}
+                      onChange={(v) => setRegForm((f) => ({ ...f, phone: digitsOnly(v).slice(0, 10) }))}
                       error={regErrors.phone}
                     />
                     <InputField
@@ -4864,10 +5045,42 @@ function CheckoutPage({
                   <p className="text-sm mb-5" style={{ color: MUTED }}>
                     ¿A dónde llevamos tu pedido?
                   </p>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={deliverToOtherPerson}
+                    onClick={toggleDeliveryRecipient}
+                    className="mb-4 flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors"
+                    style={{
+                      background: deliverToOtherPerson ? `${C.mustard}12` : "rgba(30,30,30,0.03)",
+                      border: `1px solid ${deliverToOtherPerson ? `${C.mustard}70` : LINE}`,
+                    }}
+                  >
+                    <span className="min-w-0">
+                      <strong className="block text-sm" style={{ color: C.dark }}>
+                        El pedido lo recibe otra persona
+                      </strong>
+                      <span className="mt-0.5 block text-xs" style={{ color: MUTED }}>
+                        {deliverToOtherPerson
+                          ? "Ingresa los datos de quien recibirá el pedido."
+                          : "Activa esta opción para indicar otro destinatario."}
+                      </span>
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="flex h-5 w-9 flex-shrink-0 items-center rounded-full p-0.5 transition-colors"
+                      style={{ background: deliverToOtherPerson ? C.mustard : "rgba(30,30,30,0.18)" }}
+                    >
+                      <span
+                        className="h-4 w-4 rounded-full bg-white transition-transform"
+                        style={{ transform: deliverToOtherPerson ? "translateX(16px)" : "translateX(0)" }}
+                      />
+                    </span>
+                  </button>
                   <div className="grid sm:grid-cols-2 gap-4">
                     {[
-                      ["nombre", "Nombre completo *", "text", "Quién recibe"],
-                      ["telefono", "Teléfono *", "tel", "3XX XXX XXXX"],
+                      ["nombre", deliverToOtherPerson ? "Nombre de quien recibe *" : "Nombre completo *", "text", "Quién recibe"],
+                      ["telefono", deliverToOtherPerson ? "Teléfono de quien recibe *" : "Teléfono *", "tel", "3XX XXX XXXX"],
                       ["notas", "Notas para el pedido", "text", "Ej: sin cebolla, timbre dañado"],
                     ].map(([k, lbl, t, ph]) => (
                       <div
@@ -4883,10 +5096,14 @@ function CheckoutPage({
                           required={k === "nombre" || k === "telefono"}
                           error={
                             deliveryTried &&
-                            (k === "nombre" || k === "telefono") &&
-                            !delivForm[k as "nombre" | "telefono"].trim()
-                              ? `${lbl.replace(" *", "")} es obligatorio.`
-                              : undefined
+                            k === "nombre" &&
+                            !delivForm.nombre.trim()
+                              ? "El nombre es obligatorio."
+                              : deliveryTried && k === "telefono"
+                                ? delivForm.telefono.trim()
+                                  ? validatePhoneNumber(delivForm.telefono)
+                                  : "El teléfono es obligatorio."
+                                : undefined
                           }
                         />
                       </div>
@@ -5159,8 +5376,8 @@ function CheckoutPage({
                 <span>{fmt(subtotal)}</span>
               </div>
               <div className="flex justify-between" style={{ color: MUTED }}>
-                <span>Domicilio (Comuna 3)</span>
-                <span style={{ color: C.forest }}>Gratis</span>
+                <span>Domicilio</span>
+                <span style={{ color: MUTED }}>Costo según zona</span>
               </div>
             </div>
             <div
@@ -5471,6 +5688,17 @@ function ProfilePage({
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
     }
+    if (form.phone.trim()) {
+      const phoneError = validatePhoneNumber(form.phone)
+      if (phoneError) newErrors.phone = phoneError
+    }
+    if (form.cedula.trim()) {
+      const documentError = validateDocumentNumber(
+        form.cedula,
+        user.docType || "Cédula de Ciudadanía",
+      )
+      if (documentError) newErrors.cedula = documentError
+    }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -5652,13 +5880,45 @@ function ProfilePage({
                   label="Teléfono"
                   type="tel"
                   value={form.phone}
-                  onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                  onChange={(v) => {
+                    const phone = normalizePhoneInput(v)
+                    setForm((f) => ({ ...f, phone }))
+                    setErrors((current) => ({
+                      ...current,
+                      phone: phone.trim() ? validatePhoneNumber(phone) : "",
+                    }))
+                  }}
                 />
+                {errors.phone && (
+                  <p className="text-xs mt-1" style={{ color: C.red }}>
+                    {errors.phone}
+                  </p>
+                )}
                 <InputField
                   label="Cédula"
                   value={form.cedula}
-                  onChange={(v) => setForm((f) => ({ ...f, cedula: v }))}
+                  onChange={(v) => {
+                    const cedula = normalizeDocumentInput(
+                      v,
+                      user.docType || "Cédula de Ciudadanía",
+                    )
+                    setForm((f) => ({ ...f, cedula }))
+                    setErrors((current) => ({
+                      ...current,
+                      cedula: cedula.trim()
+                        ? validateDocumentNumber(
+                            cedula,
+                            user.docType || "Cédula de Ciudadanía",
+                          )
+                        : "",
+                    }))
+                  }}
                 />
+                {errors.cedula && (
+                  <p className="text-xs mt-1" style={{ color: C.red }}>
+                    {errors.cedula}
+                  </p>
+                )}
               </>
             ) : (
               [
@@ -6731,14 +6991,13 @@ function LandingPage({
                 className="font-black text-lg text-white"
                 style={{ fontFamily: "Montserrat, sans-serif" }}
               >
-                Domicilio 100% Gratis
+                Domicilios por toda la zona
               </div>
               <div
                 className="text-sm mt-0.5"
                 style={{ color: "rgba(255,255,255,0.75)" }}
               >
-                En la <strong style={{ color: "#fff" }}>Comuna 3</strong> — sin
-                monto mínimo.
+                Consulta la cobertura y el costo del envío al realizar tu pedido.
               </div>
             </div>
           </div>
@@ -7250,7 +7509,7 @@ function LandingPage({
                     className="text-sm font-semibold"
                     style={{ color: C.amber }}
                   >
-                    6:00 – 11:30 pm
+                    6:00pm a 11:30pm
                   </span>
                 </div>
                 <div
@@ -7260,8 +7519,7 @@ function LandingPage({
                     borderTop: "1px solid rgba(250,243,224,0.06)",
                   }}
                 >
-                  🚀 Domicilio gratis en{" "}
-                  <span style={{ color: C.amber }}>Comuna 3</span>
+                  🚀 Domicilios disponibles en toda la zona
                 </div>
               </div>
             </div>
@@ -7462,9 +7720,9 @@ function LandingPage({
               {legalModal === "envios" ? (
                 <div className="flex flex-col gap-3">
                   <p>
-                    Envío gratis en <strong>Comuna 3</strong>. Para otras zonas
-                    se informa el costo antes de confirmar. Tiempo estimado
-                    30–60 minutos en la Comuna 3.
+                    Realizamos domicilios en toda la zona. El costo y el tiempo
+                    estimado de entrega se confirman según la dirección antes de
+                    completar el pedido.
                   </p>
                 </div>
               ) : (
@@ -7577,6 +7835,17 @@ function AdminProfilePage({
       newErrors.email = "El correo electrónico es obligatorio para iniciar sesión y recibir notificaciones."
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
+    }
+    if (form.phone.trim()) {
+      const phoneError = validatePhoneNumber(form.phone)
+      if (phoneError) newErrors.phone = phoneError
+    }
+    if (form.cedula.trim()) {
+      const documentError = validateDocumentNumber(
+        form.cedula,
+        user.docType || "Cédula de Ciudadanía",
+      )
+      if (documentError) newErrors.cedula = documentError
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -7757,13 +8026,45 @@ function AdminProfilePage({
                     label="Teléfono"
                     type="tel"
                     value={form.phone}
-                    onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                    onChange={(v) => {
+                      const phone = normalizePhoneInput(v)
+                      setForm((f) => ({ ...f, phone }))
+                      setErrors((current) => ({
+                        ...current,
+                        phone: phone.trim() ? validatePhoneNumber(phone) : "",
+                      }))
+                    }}
                   />
+                  {errors.phone && (
+                    <p className="text-xs mt-1" style={{ color: C.red }}>
+                      {errors.phone}
+                    </p>
+                  )}
                   <InputField
                     label="Cédula"
                     value={form.cedula}
-                    onChange={(v) => setForm((f) => ({ ...f, cedula: v }))}
+                    onChange={(v) => {
+                      const cedula = normalizeDocumentInput(
+                        v,
+                        user.docType || "Cédula de Ciudadanía",
+                      )
+                      setForm((f) => ({ ...f, cedula }))
+                      setErrors((current) => ({
+                        ...current,
+                        cedula: cedula.trim()
+                          ? validateDocumentNumber(
+                              cedula,
+                              user.docType || "Cédula de Ciudadanía",
+                            )
+                          : "",
+                      }))
+                    }}
                   />
+                  {errors.cedula && (
+                    <p className="text-xs mt-1" style={{ color: C.red }}>
+                      {errors.cedula}
+                    </p>
+                  )}
                 </>
               ) : (
                 [
@@ -8069,14 +8370,21 @@ function AdminPanel({
   const dark = theme === "dark"
   const t = tk(dark)
   // Orders placed by clients in the web store
-  const [clientOrders] = useState(loadOrders)
+  const clientOrders = loadOrders()
   const notifications: AdminNotification[] = [
     ...clientOrders
-      .filter((o) => o.status === "Por confirmar")
+      .filter(
+        (o) =>
+          o.paymentStatus === "Pendiente de verificación" ||
+          (o.status === "Por confirmar" && o.paymentStatus !== "Rechazado"),
+      )
       .map((o, i) => ({
         id: 1000 + i,
         type: "warn" as const,
-        title: "Pedido por confirmar",
+        title:
+          o.paymentStatus === "Pendiente de verificación"
+            ? "Transferencia por verificar"
+            : "Pedido por confirmar",
         message: `${o.cliente} hizo el pedido ${o.id} por ${fmt(o.total)}${
           o.voucher ? " y subió el comprobante de pago" : ""
         }.`,
@@ -8095,6 +8403,18 @@ function AdminPanel({
         config.seed.map((row) => [...row] as (string | number)[]),
       ]),
     ) as Record<string, (string | number)[][]>
+    const savedUserStatuses = loadLS<Record<string, string>>(
+      "adminUserStatuses",
+      {},
+    )
+    initialRows.usuarios = (initialRows.usuarios || []).map((row) => {
+      const email = String(row[4] ?? "").trim().toLowerCase()
+      const savedStatus = savedUserStatuses[email]
+      if (!savedStatus) return row
+      const updatedRow = [...row]
+      updatedRow[5] = savedStatus
+      return updatedRow
+    })
     initialRows.pedidos = [
       ...clientOrders.map((o) => {
         const orderLines: AdminOrderLine[] = o.items.flatMap((item, index) => {
@@ -8116,6 +8436,15 @@ function AdminPanel({
           }))
           return [mainLine, ...additions]
         })
+        const paymentStatus =
+          o.paymentStatus ??
+          (o.voucher
+            ? ["Confirmado", "En cocina", "En camino", "Entregado"].includes(o.status)
+              ? "Pagado"
+              : "Pendiente de verificación"
+            : isTransferPaymentMethod(o.pago)
+              ? "Pendiente de verificación"
+              : "Pendiente")
         return [
           o.id,
           o.cliente,
@@ -8125,13 +8454,18 @@ function AdminPanel({
           o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
           o.total,
           o.status,
-          o.voucher ? "Pagado" : "Pendiente",
-          o.status === "Por confirmar"
-            ? "Pendiente admin"
-            : o.total >= APPROVAL_MIN
+          paymentStatus,
+          o.productionAuthorized
+            ? "Autorizada"
+            : paymentStatus === "Pendiente de verificación" || paymentStatus === "Rechazado"
+              ? "Pendiente de pago"
+              : o.status === "Por confirmar"
+                ? "Pendiente admin"
+                : o.total >= APPROVAL_MIN
               ? "Autorizada"
               : "Enviada a producción",
           JSON.stringify(orderLines),
+          o.paymentRejectionReason ?? "",
         ]
       }),
       ...(initialRows.pedidos || []),
@@ -8142,14 +8476,57 @@ function AdminPanel({
       .slice(0, clientOrders.length)
       .reverse()
       .filter((order) => ["Enviada a producción", "Autorizada"].includes(String(order[9])))
+      .filter((order) => {
+        const stored = clientOrders.find((clientOrder) => clientOrder.id === order[0])
+        return !stored?.productionRecords?.length
+      })
       .forEach((order) => {
         const lines = JSON.parse(String(order[10] ?? "[]")) as AdminOrderLine[]
         initialRows.produccion = buildProductionRows(lines, initialRows.produccion || [], String(order[0]))
+      })
+    initialRows.produccion = [
+      ...clientOrders.flatMap((order) => order.productionRecords ?? []),
+      ...(initialRows.produccion || []),
+    ]
+    initialRows.pedidos
+      .slice(0, clientOrders.length)
+      .reverse()
+      .filter((order) => ["Enviada a producción", "Autorizada"].includes(String(order[9])))
+      .filter((order) => {
+        const stored = clientOrders.find((clientOrder) => clientOrder.id === order[0])
+        return !stored?.productionRecords?.length
+      })
+      .forEach((order) => {
+        const lines = JSON.parse(String(order[10] ?? "[]")) as AdminOrderLine[]
+        initialRows.produccion = buildProductionRows(
+          lines,
+          initialRows.produccion || [],
+          String(order[0]),
+        )
       })
     const supplyProducts = (initialRows.insumos || [])
       .filter((row) => String(row[7]).toLowerCase() === "sí")
       .map(supplyAsProduct)
     initialRows.producto = [...supplyProducts, ...(initialRows.producto || [])]
+    const existingClientEmails = new Set(
+      (initialRows.clientes || []).flatMap((row) =>
+        row.slice(4, 6).map((value) => String(value ?? "").trim().toLowerCase())
+          .filter((value) => value.includes("@")),
+      ),
+    )
+    const registeredClientRows = loadRegisteredClients()
+      .filter((client) => !existingClientEmails.has(client.email.toLowerCase()))
+      .map((client) => [
+        client.name,
+        client.docType ?? "",
+        client.cedula ?? "",
+        client.phone ?? "",
+        client.email,
+        "",
+        "No",
+        "Activo",
+      ])
+    initialRows.clientes = [...registeredClientRows, ...(initialRows.clientes || [])]
     const duplicatedSales = (initialRows.pedidos || [])
       .filter(
         (order) =>
@@ -8190,6 +8567,8 @@ function AdminPanel({
     idx: number | null
   }>({ mode: null, section: "", idx: null })
   const [formData, setFormData] = useState<Record<string, string>>({})
+  const [formValidationAttempted, setFormValidationAttempted] = useState(false)
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string>>({})
   const [imgPreview, setImgPreview] = useState("")
   const [technicalSheetOpen, setTechnicalSheetOpen] = useState(false)
   const [technicalIngredients, setTechnicalIngredients] = useState<TechnicalIngredient[]>([])
@@ -8234,8 +8613,10 @@ function AdminPanel({
   const [pncTarget, setPncTarget] = useState<number | null>(null)
   const [pncForm, setPncForm] = useState<Record<string, string>>({})
   const [pncError, setPncError] = useState("")
+  const [pncFieldErrors, setPncFieldErrors] = useState<Record<string, string>>({})
   const [quickClientOpen, setQuickClientOpen] = useState(false)
   const [quickClientForm, setQuickClientForm] = useState<Record<string, string>>({})
+  const [quickClientErrors, setQuickClientErrors] = useState<Record<string, string>>({})
   const [clientFormError, setClientFormError] = useState("")
   // Validation message for the insumo's technical sheet (producto de insumo)
   const [supplyFormError, setSupplyFormError] = useState("")
@@ -8260,6 +8641,9 @@ function AdminPanel({
     section: string
     idx: number
   } | null>(null)
+  const [paymentRejectionTarget, setPaymentRejectionTarget] = useState<number | null>(null)
+  const [paymentRejectionReason, setPaymentRejectionReason] = useState("")
+  const [paymentRejectionError, setPaymentRejectionError] = useState("")
   const [anulTarget, setAnulTarget] = useState<{
     section: string
     idx: number
@@ -8267,7 +8651,13 @@ function AdminPanel({
   const [chartFilter, setChartFilter] =
     useState<"hoy" | "semana" | "mes" | "año">("semana")
   const [rolesPerms, setRolesPerms] =
-    useState<Record<string, Record<string, string[]>>>({})
+    useState<Record<string, Record<string, string[]>>>(() =>
+      loadLS("adminRolePermissions", {}),
+    )
+
+  useEffect(() => {
+    saveLS("adminRolePermissions", rolesPerms)
+  }, [rolesPerms])
 
   useEffect(() => {
     const fn = (e: MouseEvent) => {
@@ -8594,6 +8984,195 @@ function AdminPanel({
     return `PED-${String(lastNumber + 1).padStart(4, "0")}`
   }
 
+  const getRequiredFormKeys = (
+    sec: string,
+    draft: Record<string, string>,
+    mode: ModalMode,
+  ) => {
+    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
+    const excludedKeys: Record<string, string[]> = {
+      insumos:
+        String(draft["7"] ?? "").toLowerCase() === "sí"
+          ? ["8", "9"]
+          : ["8", "9", "10", "11"],
+      producto: ["5", "6", "7", "8", "10"],
+      produccion: ["0", "1"],
+      "producto-no-conforme": ["0", "1", "2", "5", "6"],
+      compras: ["3", "4"],
+      pedidos: ["1", "5", "9"],
+    }
+    const managedRequiredKeys: Record<string, string[]> = {
+      usuarios: ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])],
+      clientes: [
+        "0",
+        "1",
+        "2",
+        "3",
+        ...(clientIsLocal ? [] : ["4", "5"]),
+      ],
+      proveedores: [
+        "0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14",
+      ],
+      roles: ["0", "1"],
+    }
+
+    if (managedRequiredKeys[sec]) return managedRequiredKeys[sec]
+    return (MOD_CFG[sec]?.fields || [])
+      .filter(
+        (field) =>
+          field.type !== "image" &&
+          !(excludedKeys[sec] || []).includes(field.key),
+      )
+      .map((field) => field.key)
+  }
+
+  const getManagedFieldError = (
+    sec: string,
+    key: string,
+    value: string,
+    draft: Record<string, string>,
+    mode: ModalMode = modal.mode,
+  ) => {
+    const trimmed = value.trim()
+    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
+    const required =
+      sec === "usuarios"
+        ? ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])].includes(key)
+        : sec === "clientes"
+          ? ["0", "1", "2", "3", ...(clientIsLocal ? [] : ["4", "5"])].includes(key)
+          : sec === "proveedores"
+            ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14"].includes(key)
+            : sec === "roles"
+              ? ["0", "1"].includes(key)
+              : false
+
+    if (required && !trimmed) return "Este campo es obligatorio."
+    if (!trimmed) return ""
+
+    if ((sec === "usuarios" && key === "2") || (sec === "clientes" && key === "2")) {
+      return validateDocumentNumber(trimmed, String(draft["1"] ?? ""))
+    }
+    if (sec === "proveedores" && key === "1") {
+      const digits = digitsOnly(trimmed)
+      return /^[\d.-]+$/.test(trimmed) && digits.length >= 8 && digits.length <= 15
+        ? ""
+        : "Escribe un NIT válido (de 8 a 15 dígitos)."
+    }
+    if (sec === "proveedores" && key === "9") {
+      return validateDocumentNumber(trimmed, String(draft["8"] ?? ""))
+    }
+    if ((sec === "usuarios" && key === "4") ||
+        (sec === "clientes" && key === "4") ||
+        (sec === "proveedores" && ["2", "13"].includes(key))) {
+      return EMAIL_PATTERN.test(trimmed) ? "" : "Escribe un correo electrónico válido."
+    }
+    if ((sec === "clientes" && key === "3") ||
+        (sec === "proveedores" && ["3", "12"].includes(key))) {
+      return validatePhoneNumber(trimmed)
+    }
+    if (sec === "roles" && key === "0") {
+      const name = trimmed.toLowerCase()
+      const sameNameExists = (rows.roles || []).some((row, index) => {
+        if (mode === "edit" && modal.idx === index) return false
+        return String(row[0] ?? "").trim().toLowerCase() === name
+      })
+      return sameNameExists ? "Ya existe un rol con este nombre." : ""
+    }
+    return ""
+  }
+
+  const validateManagedForm = (
+    sec: string,
+    draft: Record<string, string>,
+    mode: ModalMode,
+  ) => {
+    const keys = getRequiredFormKeys(sec, draft, mode)
+
+    const duplicateErrors = (() => {
+      if (!["usuarios", "clientes"].includes(sec)) return {}
+
+      const email = String(draft["4"] ?? "").trim().toLowerCase()
+      const document = String(draft["2"] ?? "").trim().toLowerCase()
+      const phone =
+        sec === "clientes"
+          ? String(draft["3"] ?? "").trim().replace(/\s+/g, "")
+          : ""
+
+      const allRows = [
+        ...(rows.usuarios || []).map((row, idx) => ({ section: "usuarios", idx, row })),
+        ...(rows.clientes || []).map((row, idx) => ({ section: "clientes", idx, row })),
+      ]
+      const next: Record<string, string> = {}
+      allRows.forEach(({ section, idx, row }) => {
+        const isCurrentRecord = sec === section && modal.idx === idx
+        if (isCurrentRecord) return
+
+        const rowDocument = String(row[2] ?? "").trim().toLowerCase()
+        const rowEmail = String(row[4] ?? "").trim().toLowerCase()
+        const rowPhone =
+          section === "clientes"
+            ? String(row[3] ?? "").trim().replace(/\s+/g, "")
+            : ""
+
+        if (document && rowDocument && rowDocument === document) {
+          next["2"] = "Ya existe una persona registrada con este documento."
+        }
+        if (sec === "clientes" && phone && rowPhone && rowPhone === phone) {
+          next["3"] = "Ya existe una persona registrada con este teléfono."
+        }
+        if (email && rowEmail && rowEmail === email) {
+          next["4"] = "Ya existe una persona registrada con este correo electrónico."
+        }
+      })
+      return next
+    })()
+
+    return Object.fromEntries(
+      keys.flatMap((key) => {
+        const field = MOD_CFG[sec]?.fields.find((item) => item.key === key)
+        const value = String(draft[key] ?? "")
+        const error = !value.trim()
+          ? "Este campo es obligatorio."
+          : getManagedFieldError(sec, key, value, draft, mode) ||
+          (value.trim() && field?.type === "email" && !EMAIL_PATTERN.test(value.trim())
+            ? "Escribe un correo electrónico válido."
+            : value.trim() && field?.type === "tel"
+              ? validatePhoneNumber(value)
+              : value.trim() && field?.type === "number" &&
+                  (!Number.isFinite(Number(value)) || Number(value) < 0)
+                ? "Ingresa un número válido mayor o igual a cero."
+                : "")
+        const duplicateError = duplicateErrors[key] || ""
+        const finalError = duplicateError || error
+        return finalError ? [[key, finalError]] : []
+      }),
+    )
+  }
+
+  const updateAdminField = (
+    sec: string,
+    key: string,
+    value: string,
+  ) => {
+    const currentDraft = { ...formData, [key]: value }
+    const documentKey =
+      sec === "proveedores" && key === "8"
+        ? "9"
+        : (sec === "usuarios" || sec === "clientes") && key === "1"
+          ? "2"
+          : ""
+    if (documentKey) {
+      currentDraft[documentKey] = normalizeDocumentInput(
+        currentDraft[documentKey] ?? "",
+        value,
+      )
+    }
+    setFormData(currentDraft)
+    if (formValidationAttempted || formFieldErrors[key]) {
+      setFormFieldErrors(validateManagedForm(sec, currentDraft, modal.mode))
+    }
+  }
+
   const openAdd = (sec: string) => {
     const cfg = MOD_CFG[sec]
     if (!cfg) return
@@ -8606,6 +9185,7 @@ function AdminPanel({
       setTechnicalIngredients([])
       setTechnicalSheetError("")
     }
+    if (sec === "ventas") initialFields["8"] = "Sin pedido"
     if (sec === "insumos") {
       initialFields["7"] = "No"
       setSupplyFormError("")
@@ -8617,6 +9197,8 @@ function AdminPanel({
       initialFields["6"] = "No"
       setClientFormError("")
     }
+    setFormValidationAttempted(false)
+    setFormFieldErrors({})
     if (sec === "produccion" || sec === "producto-no-conforme") {
       const currentDateTime = getCurrentDateTimeParts()
       setProductionItems([])
@@ -8667,6 +9249,13 @@ function AdminPanel({
         return [field.key, String(row[rowIndex] ?? "")]
       }),
     )
+    if (sec === "proveedores") {
+      const legacyContactName = String(row[4] ?? "").trim().split(/\s+/)
+      if (!nextForm["10"]) nextForm["10"] = legacyContactName.shift() ?? ""
+      if (!nextForm["11"]) nextForm["11"] = legacyContactName.join(" ")
+    }
+    setFormValidationAttempted(false)
+    setFormFieldErrors({})
     if (sec === "clientes") setClientFormError("")
     if (sec === "compras") resetPurchasePicker()
     if (sec === "insumos") setSupplyFormError("")
@@ -8839,12 +9428,32 @@ function AdminPanel({
       if (Object.keys(getFieldErrors()).length) return
     }
 
+    setFormValidationAttempted(true)
+    const errors = validateManagedForm(sec, formData, modal.mode)
+    setFormFieldErrors(errors)
+    if (Object.keys(errors).length) return
+
+    if (sec === "roles") {
+      const roleName = String(formData["0"] ?? "").trim()
+      const roleDescription = String(formData["1"] ?? "").trim()
+      if (!roleName || !roleDescription) {
+        setFormFieldErrors({
+          "0": roleName ? "" : "Este campo es obligatorio.",
+          "1": roleDescription ? "" : "Este campo es obligatorio.",
+        })
+        return
+      }
+    }
+
     if ((sec === "produccion" || sec === "producto-no-conforme") && !productionItems.length) {
       setProductionFormError("Agrega al menos un producto o producto de insumo.")
       return
     }
     if (sec === "pedidos" && pedidoOrderLines.length === 0) {
-      window.alert("Agrega al menos un producto al pedido.")
+      setFormFieldErrors((current) => ({
+        ...current,
+        "1": "Agrega al menos un producto al pedido.",
+      }))
       return
     }
     if (sec === "producto") {
@@ -8867,6 +9476,15 @@ function AdminPanel({
       sec === "producto-no-conforme" &&
       !getProductSupplyOptions().includes(String(formData["1"] ?? ""))
     ) return
+    if (sec === "insumos" && String(formData["7"] ?? "").toLowerCase() === "sí") {
+      // A producto de insumo must be saved together with its technical sheet
+      if (!String(formData["0"] ?? "").trim())
+        return setSupplyFormError("Escribe el nombre del insumo.")
+      if (!String(formData["10"] ?? "").trim())
+        return setSupplyFormError("Ficha técnica: elige al menos un insumo principal.")
+      if (!String(formData["11"] ?? "").trim())
+        return setSupplyFormError("Ficha técnica: escribe cómo se prepara.")
+    }
     if (sec === "compras") {
       if (!String(formData["0"] ?? "").trim()) {
         setPurchaseFormError("Selecciona el proveedor.")
@@ -8887,6 +9505,9 @@ function AdminPanel({
       if (Number.isFinite(index)) newRow[index] = formData[field.key] ?? ""
       else newRow.push(formData[field.key] ?? "")
     })
+    if (sec === "proveedores") {
+      newRow[4] = `${String(formData["10"] ?? "").trim()} ${String(formData["11"] ?? "").trim()}`.trim()
+    }
     if (sec === "cat-producto") newRow[0] = String(newRow[0] ?? "").trim()
 
     if (sec === "producto") {
@@ -9108,8 +9729,18 @@ function AdminPanel({
         return { ...current, ventas: salesRows }
       })
     }
-    if (sec === "roles" && modal.mode === "add") {
-      setRolesPerms((current) => ({ ...current, [String(newRow[0])]: {} }))
+    if (sec === "roles" && modal.mode === "edit" && previousRow) {
+      const previousRoleName = String(previousRow[0] ?? "")
+      const nextRoleName = String(newRow[0] ?? "")
+      if (previousRoleName !== nextRoleName) {
+        setRolesPerms((current) => {
+          const previousPermissions = current[previousRoleName]
+          const next = { ...current }
+          delete next[previousRoleName]
+          if (previousPermissions) next[nextRoleName] = previousPermissions
+          return next
+        })
+      }
     }
     if (sec === "clientes") setClientFormError("")
     if (sec === "produccion") setProductionFormError("")
@@ -9345,6 +9976,14 @@ function AdminPanel({
       ? inactiveStatus
       : activeStatus
 
+    if (sec === "usuarios") {
+      const email = String(currentRow[4] ?? "").trim().toLowerCase()
+      if (email) {
+        const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
+        saveLS("adminUserStatuses", { ...statuses, [email]: nextValue })
+      }
+    }
+
     setRows((current) => {
       const updated = [...(current[sec] || [])]
       const updatedRow = [...updated[rowIndex]]
@@ -9377,12 +10016,14 @@ function AdminPanel({
       return { ...current, [sec]: updated }
     })
 
-    setAnulled((current) => {
-      const next = new Set(current[sec] || [])
-      if (isStatusActive(nextValue)) next.delete(rowIndex)
-      else next.add(rowIndex)
-      return { ...current, [sec]: next }
-    })
+    if (sec !== "usuarios") {
+      setAnulled((current) => {
+        const next = new Set(current[sec] || [])
+        if (isStatusActive(nextValue)) next.delete(rowIndex)
+        else next.add(rowIndex)
+        return { ...current, [sec]: next }
+      })
+    }
   }
 
   const StatusSwitch = ({
@@ -9453,36 +10094,102 @@ function AdminPanel({
   const approveOrderForProduction = (orderIndex: number) => {
     const order = rows.pedidos?.[orderIndex]
     const proof = paymentProofs[orderIndex]
+    const paymentStatus = String(order?.[8] ?? "")
+    const transferPayment = isTransferPaymentMethod(String(order?.[4] ?? ""))
     const payOnDelivery = String(order?.[5]) === "Contraentrega"
     if (
       !order ||
-      (!payOnDelivery &&
-        (String(order[8]).toLowerCase() !== "pagado" || !proof)) ||
-      ["Autorizada", "Enviada a producción"].includes(String(order[9]))
+      ["Autorizada", "Enviada a producción"].includes(String(order[9])) ||
+      (transferPayment &&
+        !["Pendiente de verificación", "Pagado"].includes(paymentStatus)) ||
+      (transferPayment && paymentStatus === "Pendiente de verificación" && !proof) ||
+      (!transferPayment && !payOnDelivery && paymentStatus !== "Pagado")
     ) return
 
-    // Let the client see the owner's confirmation
+    const requestedItems = getAdminOrderLines(order)
+    if (!requestedItems.length) {
+      window.alert("Este pedido no tiene productos para enviar a producción.")
+      return
+    }
+
+    const storedOrders = loadOrders()
+    const storedOrder = storedOrders.find((item) => item.id === order[0])
+    if (storedOrder?.productionAuthorized) return
+    const currentDateTime = getCurrentDateTimeParts()
+    const productionRecords: (string | number)[][] = []
+    const existingProductionRows = [...(rows.produccion || [])]
+    let priority = Math.max(
+      0,
+      ...existingProductionRows.map((row) => Number(row[3]) || 0),
+    )
+    requestedItems.slice().reverse().forEach((item) => {
+      priority += 1
+      const parent = requestedItems.find((candidate) => candidate.id === item.parentId)
+      const productionRecord: (string | number)[] = [
+        getNextProductionCode(existingProductionRows),
+        parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
+        item.quantity,
+        priority,
+        currentDateTime.date,
+        currentDateTime.time,
+        currentDateTime.date,
+        currentDateTime.time,
+        "Iniciada",
+        "",
+        0,
+        "Sí",
+        JSON.stringify([
+          {
+            status: "Iniciada",
+            date: currentDateTime.date,
+            time: currentDateTime.time,
+          },
+        ]),
+        JSON.stringify([{
+          name: item.product,
+          quantity: item.quantity,
+          category: item.category,
+          ...(item.parentId ? { parentId: item.parentId } : {}),
+        }]),
+        "No",
+      ]
+      existingProductionRows.unshift(productionRecord)
+      productionRecords.unshift(productionRecord)
+    })
     saveOrders(
-      loadOrders().map((o) =>
-        o.id === order[0] ? { ...o, status: "Confirmado" } : o,
+      storedOrders.map((item) =>
+        item.id === order[0]
+          ? {
+              ...item,
+              status: "Confirmado",
+              ...(transferPayment ? { paymentStatus: "Pagado" as const } : {}),
+              productionAuthorized: true,
+              productionRecords,
+            }
+          : item,
       ),
     )
 
-    const currentDateTime = getCurrentDateTimeParts()
-    const requestedItems = getAdminOrderLines(order)
-
     setRows((current) => {
+      const currentOrder = current.pedidos?.[orderIndex]
+      if (!currentOrder || String(currentOrder[9]) === "Autorizada") {
+        return current
+      }
       const orderRows = [...(current.pedidos || [])]
-      const updatedOrder = [...orderRows[orderIndex]]
+      const updatedOrder = [...currentOrder]
+      updatedOrder[8] = transferPayment ? "Pagado" : updatedOrder[8]
       updatedOrder[9] = "Autorizada"
-      if (updatedOrder[7] === "Por confirmar") updatedOrder[7] = "Confirmado"
+      if (
+        transferPayment ||
+        updatedOrder[7] === "Por confirmar" ||
+        updatedOrder[7] === "Pendiente de verificación"
+      ) {
+        updatedOrder[7] = "Confirmado"
+      }
+      updatedOrder[11] = ""
       orderRows[orderIndex] = updatedOrder
 
-      const productionRows = buildProductionRows(
-        requestedItems,
-        current.produccion || [],
-        String(updatedOrder[0]),
-      )
+      const productionRows = [...productionRecords, ...(current.produccion || [])]
 
       let salesRows = [...(current.ventas || [])]
       const notShipped = !["En camino", "Entregado"].includes(
@@ -9517,14 +10224,112 @@ function AdminPanel({
     })
   }
 
+  const rejectTransferPayment = () => {
+    if (paymentRejectionTarget === null) return
+    const orderIndex = paymentRejectionTarget
+    const order = rows.pedidos?.[orderIndex]
+    const reason = paymentRejectionReason.trim()
+    if (!order || !reason) {
+      setPaymentRejectionError("Escribe el motivo por el que rechazas el comprobante.")
+      return
+    }
+    if (
+      !isTransferPaymentMethod(String(order[4] ?? "")) ||
+      String(order[8]) !== "Pendiente de verificación"
+    ) {
+      setPaymentRejectionError("Este comprobante ya no está pendiente de revisión.")
+      return
+    }
+
+    const orderId = String(order[0])
+    saveOrders(
+      loadOrders().map((item) =>
+        item.id === orderId
+          ? {
+              ...item,
+              paymentStatus: "Rechazado",
+              paymentRejectionReason: reason,
+              productionAuthorized: false,
+            }
+          : item,
+      ),
+    )
+    setRows((current) => {
+      const currentOrder = current.pedidos?.[orderIndex]
+      if (!currentOrder || String(currentOrder[8]) !== "Pendiente de verificación") {
+        return current
+      }
+      const orderRows = [...(current.pedidos || [])]
+      const updatedOrder = [...currentOrder]
+      updatedOrder[8] = "Rechazado"
+      updatedOrder[11] = reason
+      orderRows[orderIndex] = updatedOrder
+      return { ...current, pedidos: orderRows }
+    })
+    setPaymentRejectionTarget(null)
+    setPaymentRejectionReason("")
+    setPaymentRejectionError("")
+  }
+
   const saveQuickClient = () => {
     const isLocalClient = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
     const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
-    if (requiredFields.some((key) => !String(quickClientForm[key] ?? "").trim())) {
+    const errors: Record<string, string> = {}
+    requiredFields.forEach((key) => {
+      const value = String(quickClientForm[key] ?? "").trim()
+      if (!value) {
+        errors[key] = "Este campo es obligatorio."
+      } else if (key === "2") {
+        const error = validateDocumentNumber(value, quickClientForm["1"] ?? "")
+        if (error) errors[key] = error
+      } else if (key === "3") {
+        const error = validatePhoneNumber(value)
+        if (error) errors[key] = error
+      } else if (key === "4" && !EMAIL_PATTERN.test(value)) {
+        errors[key] = "Escribe un correo electrónico válido."
+      }
+    })
+    const docNumber = String(quickClientForm["2"] ?? "").trim().toLowerCase()
+    const phone = String(quickClientForm["3"] ?? "").trim().replace(/\s+/g, "")
+    const email = String(quickClientForm["4"] ?? "").trim().toLowerCase()
+    ;(rows.usuarios || []).forEach((userRow) => {
+      if (
+        docNumber &&
+        String(userRow[2] ?? "").trim().toLowerCase() === docNumber
+      ) {
+        errors["2"] = "Ya existe una persona registrada con este documento."
+      }
+      if (
+        email &&
+        String(userRow[4] ?? "").trim().toLowerCase() === email
+      ) {
+        errors["4"] = "Ya existe una persona registrada con este correo electrónico."
+      }
+    })
+    ;(rows.clientes || []).forEach((clientRow) => {
+      if (
+        docNumber &&
+        String(clientRow[2] ?? "").trim().toLowerCase() === docNumber
+      ) {
+        errors["2"] = "Ya existe una persona registrada con este documento."
+      }
+      if (
+        phone &&
+        String(clientRow[3] ?? "").trim().replace(/\s+/g, "") === phone
+      ) {
+        errors["3"] = "Ya existe una persona registrada con este teléfono."
+      }
+      if (
+        email &&
+        String(clientRow[4] ?? "").trim().toLowerCase() === email
+      ) {
+        errors["4"] = "Ya existe una persona registrada con este correo electrónico."
+      }
+    })
+    setQuickClientErrors(errors)
+    if (Object.keys(errors).length) {
       setQuickClientError(
-        isLocalClient
-          ? "Completa nombre, tipo y número de documento y teléfono."
-          : "Completa todos los campos obligatorios del cliente.",
+        "Corrige los campos indicados antes de registrar el cliente.",
       )
       return
     }
@@ -9552,6 +10357,7 @@ function AdminPanel({
     }))
     setFormData((current) => ({ ...current, "1": name }))
     setQuickClientForm({})
+    setQuickClientErrors({})
     setQuickClientError("")
     setQuickClientOpen(false)
   }
@@ -9570,6 +10376,7 @@ function AdminPanel({
       "5": currentDateTime.date,
     })
     setPncError("")
+    setPncFieldErrors({})
     setPncTarget(rowIndex)
   }
 
@@ -9579,7 +10386,29 @@ function AdminPanel({
     if (!order) return
     const availableProducts = getNonconformingProductOptions()
     const affectedProduct = String(pncForm["1"] ?? "").trim()
+    const damagedDescription = String(pncForm["2"] ?? "").trim()
+    const quantity = Number(pncForm["3"])
+    const validationErrors: Record<string, string> = {}
+    if (!affectedProduct) validationErrors["1"] = "Selecciona un producto."
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      validationErrors["3"] = "Ingresa una cantidad mayor que cero."
+    }
+    if (!damagedDescription) {
+      validationErrors["2"] = "Describe el producto o los productos que se dañaron."
+    }
+    if (!String(pncForm["4"] ?? "").trim()) {
+      validationErrors["4"] = "Selecciona el motivo."
+    }
+    if (!String(pncForm["5"] ?? "").trim()) {
+      validationErrors["5"] = "Selecciona la fecha del registro."
+    }
+    setPncFieldErrors(validationErrors)
+    if (Object.keys(validationErrors).length) {
+      setPncError("Completa los campos indicados antes de registrar.")
+      return
+    }
     if (!availableProducts.includes(affectedProduct)) {
+      setPncFieldErrors({ "1": "Solo puedes registrar productos que estén en producción." })
       setPncError("Solo puedes registrar productos que estén en producción.")
       return
     }
@@ -9589,10 +10418,10 @@ function AdminPanel({
     const pncRecord: (string | number)[] = [
       pncForm["0"] || order[0],
       affectedProduct,
-      pncForm["2"] || affectedProduct,
-      Number(pncForm["3"] || order[2] || 1),
-      pncForm["4"] || "Producto perdido",
-      pncForm["5"] || currentDateTime.date,
+      damagedDescription,
+      quantity,
+      String(pncForm["4"]).trim(),
+      String(pncForm["5"]).trim(),
     ]
 
     setRows((current) => {
@@ -9653,6 +10482,7 @@ function AdminPanel({
     setPncTarget(null)
     setPncForm({})
     setPncError("")
+    setPncFieldErrors({})
   }
 
   const changeProductionStatus = (
@@ -10666,7 +11496,16 @@ function AdminPanel({
     }
 
     const renderActions = (rowIndex: number, isAnulled: boolean) => {
-      const detailActionLabel = section === "compras" ? "Ver compra" : "Ver detalle"
+      const orderRow = section === "pedidos" ? rows.pedidos?.[rowIndex] : undefined
+      const needsPaymentReview =
+        !!orderRow &&
+        isTransferPaymentMethod(String(orderRow[4] ?? "")) &&
+        String(orderRow[8]) === "Pendiente de verificación"
+      const detailActionLabel = needsPaymentReview
+        ? "Revisar transferencia"
+        : section === "compras"
+          ? "Ver compra"
+          : "Ver detalle"
       const deleteAssessment = getDeleteAssessment(
         section,
         rows[section]?.[rowIndex],
@@ -10719,7 +11558,36 @@ function AdminPanel({
             </button>
           )}
           {cfg.statusIndex !== undefined ? (
-            !noDelete && deleteButton
+            section === "producto" ? (
+              isAnulled ? (
+                <button
+                  type="button"
+                  title="Reactivar producto"
+                  aria-label="Reactivar producto"
+                  onClick={() =>
+                    toggleStatus(section, rowIndex, cfg.statusIndex!)
+                  }
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                  style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+                >
+                  {Ico.undo}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  title="Anular producto"
+                  aria-label="Anular producto"
+                  aria-haspopup="dialog"
+                  onClick={() => setAnulTarget({ section, idx: rowIndex })}
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                  style={{ color: C.red, background: `${C.red}12` }}
+                >
+                  {Ico.ban}
+                </button>
+              )
+            ) : (
+              !noDelete && deleteButton
+            )
           ) : noDelete ? (
             isAnulled ? (
               <button
@@ -11127,7 +11995,15 @@ function AdminPanel({
   }
 
   // Roles permissions matrix for create/edit
-  const RolesPermMatrix = ({ roleName, readOnly = false }: { roleName: string; readOnly?: boolean }) => {
+  const RolesPermMatrix = ({
+    roleName,
+    permissionKey = roleName,
+    readOnly = false,
+  }: {
+    roleName: string
+    permissionKey?: string
+    readOnly?: boolean
+  }) => {
     const isAdmin = roleName.toLowerCase() === "administrador"
     const perms = isAdmin
       ? Object.fromEntries(
@@ -11136,29 +12012,131 @@ function AdminPanel({
             ["Ver", "Crear", "Editar", "Anular", "Eliminar"],
           ]),
         )
-      : (rolesPerms[roleName] || {})
+      : (rolesPerms[permissionKey] || {})
     const commonActions = ["Ver", "Crear", "Editar"]
     const toggle = (mod: string, action: string) => {
       if (readOnly || isAdmin) return
       setRolesPerms((rp) => {
-        const cur = rp[roleName]?.[mod] || []
+        const cur = rp[permissionKey]?.[mod] || []
         const next = cur.includes(action)
           ? cur.filter((a) => a !== action)
           : [...cur, action]
-        return { ...rp, [roleName]: { ...(rp[roleName] || {}), [mod]: next } }
+        return { ...rp, [permissionKey]: { ...(rp[permissionKey] || {}), [mod]: next } }
       })
     }
+    const setAllPermissions = (select: boolean) => {
+      if (readOnly || isAdmin) return
+      setRolesPerms((rp) => {
+        const nextPerms = Object.fromEntries(
+          PERMISSION_MODULES.map(({ name, finalAction }) => {
+            const actions = [...commonActions, finalAction]
+            return [name, select ? actions : []]
+          }),
+        )
+        return { ...rp, [permissionKey]: nextPerms }
+      })
+    }
+    const setActionForAll = (action: string, select: boolean) => {
+      if (readOnly || isAdmin) return
+      setRolesPerms((rp) => {
+        const current = rp[permissionKey] || {}
+        const nextPerms = Object.fromEntries(
+          PERMISSION_MODULES.map(({ name, finalAction }) => {
+            const targetAction = action === "final" ? finalAction : action
+            const currentActions = current[name] || []
+            const nextActions = select
+              ? currentActions.includes(targetAction)
+                ? currentActions
+                : [...currentActions, targetAction]
+              : currentActions.filter((currentAction) => currentAction !== targetAction)
+            return [name, nextActions]
+          }),
+        )
+        return { ...rp, [permissionKey]: { ...current, ...nextPerms } }
+      })
+    }
+    const columnHeader = (label: string, action: string) => {
+      return (
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5">
+          <span className="text-center text-[10px] font-bold leading-tight break-words" style={{ color: t.muted }}>
+            {label}
+          </span>
+          {!readOnly && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setActionForAll(action, true)}
+                disabled={isAdmin}
+                aria-label={`Seleccionar todo: ${label} en todos los módulos`}
+                title={`Seleccionar todo: ${label} en todos los módulos`}
+                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ background: t.input, color: C.mustard }}
+              >
+                ✓
+              </button>
+              <button
+                type="button"
+                onClick={() => setActionForAll(action, false)}
+                disabled={isAdmin}
+                aria-label={`Quitar todo: ${label} en todos los módulos`}
+                title={`Quitar todo: ${label} en todos los módulos`}
+                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ background: t.input, color: t.muted }}
+              >
+                ×
+              </button>
+            </div>
+          )}
+        </div>
+      )
+    }
     return (
-      <div className="mt-3">
-        <div className="text-xs font-bold mb-2" style={{ color: t.muted }}>
-          Permisos por módulo
+      <div className="mt-2">
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <div className="text-xs font-bold" style={{ color: t.muted }}>
+            Permisos por módulo
+          </div>
+          {!readOnly && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAllPermissions(true)}
+                disabled={isAdmin}
+                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
+                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
+                style={{
+                  background: t.input,
+                  color: t.text,
+                  opacity: isAdmin ? 0.5 : 1,
+                  cursor: isAdmin ? "not-allowed" : "pointer",
+                }}
+              >
+                Seleccionar todo
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllPermissions(false)}
+                disabled={isAdmin}
+                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
+                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
+                style={{
+                  background: t.input,
+                  color: t.text,
+                  opacity: isAdmin ? 0.5 : 1,
+                  cursor: isAdmin ? "not-allowed" : "pointer",
+                }}
+              >
+                Quitar todos
+              </button>
+            </div>
+          )}
         </div>
         <div
-          className="min-w-0 overflow-hidden rounded-xl"
+          className="max-h-[46vh] min-w-0 overflow-auto rounded-xl"
           style={{ border: `1px solid ${t.border}` }}
         >
           <div
-            className="grid min-w-0 items-center px-2.5 py-2"
+            className="sticky top-0 z-10 grid min-w-0 items-center px-2.5 py-1.5"
             style={{
               gridTemplateColumns:
                 "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
@@ -11173,27 +12151,16 @@ function AdminPanel({
               Módulo
             </div>
             {commonActions.map((action) => (
-              <div
-                key={action}
-                className="min-w-0 text-center text-[10px] font-bold leading-tight break-words"
-                style={{ color: t.muted }}
-              >
-                {action}
-              </div>
+              <div key={action}>{columnHeader(action, action)}</div>
             ))}
-            <div
-              className="min-w-0 text-center text-[10px] font-bold leading-tight break-words"
-              style={{ color: t.muted }}
-            >
-              Anular / Eliminar
-            </div>
+            <div>{columnHeader("Anular / Eliminar", "final")}</div>
           </div>
           {PERMISSION_MODULES.map(({ name, finalAction }, index) => {
             const moduleActions = [...commonActions, finalAction]
             return (
               <div
                 key={name}
-                className="grid min-w-0 items-center px-2.5 py-2"
+                className="grid min-w-0 items-center px-2.5 py-1"
                 style={{
                   gridTemplateColumns:
                     "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
@@ -11253,6 +12220,8 @@ function AdminPanel({
     const isSales = modal.section === "ventas"
     const isReturns = modal.section === "devoluciones"
     const isClient = modal.section === "clientes"
+    const isSupplier = modal.section === "proveedores"
+    const isUser = modal.section === "usuarios"
     const row = modal.idx !== null ? rows[modal.section]?.[modal.idx] : null
     const orderDetails = isPedido ? getAdminOrderLines(row || undefined) : []
     const saleOrderLines = getSaleOrderLines(isSales ? row : null)
@@ -11283,7 +12252,7 @@ function AdminPanel({
     // Sections whose first field is a name/main choice that reads better full width
     const WIDE_FIRST_FIELD = ["cat-insumos", "insumos", "proveedores", "compras", "perdidas", "cat-producto", "clientes", "pedidos"]
     const isWideField = (f: FieldType) =>
-      (f.key === "0" && WIDE_FIRST_FIELD.includes(modal.section)) ||
+      (f.key === "0" && (WIDE_FIRST_FIELD.includes(modal.section) || !isSupplier)) ||
       f.type === "textarea" ||
       f.type === "checkbox" ||
       (modal.section === "proveedores" && (f.key === "5" || f.key === "7")) ||
@@ -11381,16 +12350,16 @@ function AdminPanel({
         onClick={() => setModal({ mode: null, section: "", idx: null })}
       >
         <div
-          className={`flex min-w-0 w-full ${isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+          className={`flex min-w-0 w-full ${isRoles ? "max-w-3xl" : isUser ? "max-w-2xl" : isSupplier ? "max-w-4xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
-            maxHeight: isPurchaseModule || isProduct ? "94vh" : "88vh",
+            maxHeight: isPurchaseModule || isProduct ? "94vh" : isRoles ? "82vh" : "88vh",
           }}
           onClick={(e) => e.stopPropagation()}
         >
           <div
-            className="flex items-center justify-between px-5 py-4"
+            className={`flex items-center justify-between px-5 ${isUser || isRoles ? "py-3" : "py-4"}`}
             style={{ borderBottom: `1px solid ${t.border}` }}
           >
             <h3 className="font-semibold text-base" style={{ color: t.text }}>
@@ -11415,16 +12384,21 @@ function AdminPanel({
             </button>
           </div>
           <div
-
-            className={`min-w-0 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-5 ${
-              isPurchaseModule
-                ? // fills the modal's free height; scrolls only if the form doesn't fit
-                  "grid min-h-0 flex-1 content-start gap-x-4 gap-y-3 sm:grid-cols-2"
-                : isProduct
-                  ? "flex min-h-0 flex-1 flex-col gap-3"
-                  : "flex flex-col gap-3"
+            className={`min-w-0 overflow-x-hidden overflow-y-auto px-4 ${isUser ? "py-3 sm:px-5" : "py-4 sm:px-5"} ${
+              isUser
+                ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
+                : isRoles && !isView
+                ? "grid content-start gap-x-4 gap-y-2.5 sm:grid-cols-2"
+                : isPurchaseModule
+                  ? `grid min-h-0 flex-1 content-start gap-x-4 gap-y-3 ${isSupplier ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-2" : "sm:grid-cols-2"}`
+                  : isProduct
+                    ? "flex min-h-0 flex-1 flex-col gap-3"
+                    : "flex flex-col gap-3"
             }`}
-            style={{ maxHeight: isPurchaseModule || isProduct ? undefined : "65vh", scrollbarWidth: "none" }}
+            style={{
+              maxHeight: isPurchaseModule || isProduct ? undefined : isUser ? "58vh" : "65vh",
+              scrollbarWidth: "none",
+            }}
           >
             {/* Purchase module detail header: record name + status */}
             {isView && isPurchaseModule && !isPurchase && row && (
@@ -11597,7 +12571,8 @@ function AdminPanel({
                           style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
                         >
                           {f.label}
-                          {isRequiredField(f.key) && " *"}
+                          {(isRequiredField(f.key) ||
+                            getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)) && " *"}
                         </label>
                         {isView ? (
                           <div
@@ -11609,17 +12584,26 @@ function AdminPanel({
                         ) : f.type === "select" ? (
                           <select
                             value={val}
+                            disabled={isPedido && f.key === "7"}
                             onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
+                              updateAdminField(modal.section, f.key, e.target.value)
                             }
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                            title={
+                              isPedido && f.key === "7"
+                                ? "El pago solo cambia al aprobar o rechazar el comprobante en el detalle del pedido."
+                                : undefined
+                            }
                             style={{
                               background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
                               color: val ? t.text : t.muted,
+                              opacity: isPedido && f.key === "7" ? 0.7 : 1,
                             }}
                           >
                             <option value="">Selecciona...</option>
@@ -11633,16 +12617,18 @@ function AdminPanel({
                           <textarea
                             value={val}
                             onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
+                              updateAdminField(modal.section, f.key, e.target.value)
                             }
-                            rows={2}
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
+                            rows={isPurchaseModule || isProduct ? 2 : 3}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
                             style={{
                               background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
                               color: t.text,
                             }}
                           />
@@ -11651,20 +12637,22 @@ function AdminPanel({
                             type={f.type}
                             value={val}
                             onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
+                              updateAdminField(modal.section, f.key, e.target.value)
                             }
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
                             style={{
                               background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
                               color: t.text,
                             }}
                           />
                         )}
-                        <FieldError msg={shownFieldError(f.key)} />
+                        <FieldError msg={shownFieldError(f.key) || formFieldErrors[f.key]} />
                       </div>
                     )
                   })}
@@ -11687,15 +12675,37 @@ function AdminPanel({
                         className="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
                         style={{ background: C.mustard, color: "#fff" }}
                       >
-                        Ficha técnica
+                        {technicalIngredients.length
+                          ? "Editar ficha técnica"
+                          : "Agregar ficha técnica"}
                       </button>
                     )}
                   </div>
                   {!isView && (
-                    <div className="rounded-xl px-3 py-2.5 text-xs" style={{ background: t.cardAlt, color: t.muted }}>
+                    <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                       {technicalIngredients.length
-                        ? `${technicalIngredients.length} insumo${technicalIngredients.length === 1 ? "" : "s"} en la receta`
-                        : "Ficha técnica opcional. Puedes agregar insumos, cantidades y unidades."}
+                        ? (
+                          <>
+                            <div className="mb-2 text-xs font-bold" style={{ color: t.text }}>
+                              Insumos y cantidades
+                            </div>
+                            {technicalIngredients.map((ingredient, index) => (
+                              <div
+                                key={`${ingredient.name}-${index}`}
+                                className="flex justify-between gap-3 border-t py-2 text-xs"
+                                style={{ borderColor: t.border, color: t.muted }}
+                              >
+                                <span className="min-w-0 truncate">{ingredient.name}</span>
+                                <strong className="shrink-0" style={{ color: t.text }}>
+                                  {ingredient.quantity} {ingredient.unit}
+                                </strong>
+                              </div>
+                            ))}
+                          </>
+                        )
+                        : <span className="text-xs" style={{ color: t.muted }}>
+                            Ficha técnica opcional. Puedes agregar insumos, cantidades y unidades.
+                          </span>}
                     </div>
                   )}
                   {isView && getProductRecipe(row ?? undefined).length > 0 && (
@@ -12004,7 +13014,7 @@ function AdminPanel({
                   const mainSupplies = splitList(src("10"))
                   const setSheet = (key: string, value: string) => {
                     setSupplyFormError("")
-                    setFormData((current) => ({ ...current, [key]: value }))
+                    updateAdminField(modal.section, key, value)
                   }
                   const sheetControl = { background: t.card, border: `1.5px solid ${t.inputB}`, color: t.text }
                   return (
@@ -12087,8 +13097,13 @@ function AdminPanel({
                               onChange={(e) => {
                                 if (e.target.value) setSheet("10", [...mainSupplies, e.target.value].join(", "))
                               }}
+                              aria-invalid={!!formFieldErrors["10"]}
                               className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                              style={{ ...sheetControl, color: t.muted }}
+                              style={{
+                                ...sheetControl,
+                                border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
+                                color: t.muted,
+                              }}
                             >
                               <option value="">+ Agregar insumo a la ficha...</option>
                               {getAvailableInsumos()
@@ -12099,6 +13114,11 @@ function AdminPanel({
                                   </option>
                                 ))}
                             </select>
+                          )}
+                          {formFieldErrors["10"] && (
+                            <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
+                              {formFieldErrors["10"]}
+                            </span>
                           )}
                         </div>
                         <div className="flex flex-col gap-1.5">
@@ -12350,19 +13370,28 @@ function AdminPanel({
                     </section>
                   )
                 }
+                const isLocalClient =
+                  isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
+                const requiredFormField =
+                  !isView &&
+                  getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)
+                const fieldValidationError = formFieldErrors[f.key]
                 // Supplier form: pick which insumos this supplier sells
                 if (modal.section === "proveedores" && !isView && f.key === "7") {
                   const selected = splitList(String(formData["7"] ?? ""))
                   const toggleSupply = (name: string) =>
-                    setFormData((current) => {
-                      const now = splitList(String(current["7"] ?? ""))
-                      const next = now.includes(name) ? now.filter((n) => n !== name) : [...now, name]
-                      return { ...current, "7": next.join(", ") }
-                    })
+                    updateAdminField(
+                      "proveedores",
+                      "7",
+                      (selected.includes(name)
+                        ? selected.filter((item) => item !== name)
+                        : [...selected, name]
+                      ).join(", "),
+                    )
                   return (
-                    <div key="7" className="flex flex-col gap-1.5 sm:col-span-2">
+                    <div key="7" className="flex flex-col gap-1.5 lg:col-start-1 lg:col-span-1">
                       <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                        {f.label}
+                        {f.label}{requiredFormField && " *"}
                       </span>
                       <div className="flex flex-wrap gap-2">
                         {namesOf("insumos").map((name) => {
@@ -12390,6 +13419,11 @@ function AdminPanel({
                       <p className="text-[11px]" style={{ color: t.muted }}>
                         Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
                       </p>
+                      {fieldValidationError && (
+                        <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
+                          {fieldValidationError}
+                        </span>
+                      )}
                     </div>
                   )
                 }
@@ -12426,16 +13460,10 @@ function AdminPanel({
                 })
                 const selectedOrderProduct = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
                 const isSelectedAddition = String(selectedOrderProduct?.[1] ?? "").toLowerCase() === "adiciones"
-                const isLocalClient =
-                  isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
-                const requiredClientField =
-                  isClient &&
-                  !isView &&
-                  (["0", "1", "2", "3"].includes(f.key) ||
-                    (!isLocalClient && ["4", "5"].includes(f.key)))
                 const updateFieldValue = (value: string) => {
                   if (isSales && f.key === "1" && value === "__new_client__") {
                     setQuickClientForm({})
+                    setQuickClientErrors({})
                     setQuickClientError("")
                     setQuickClientOpen(true)
                     return
@@ -12443,32 +13471,74 @@ function AdminPanel({
                   if (isPurchase && f.key === "0") {
                     // Changing supplier keeps only the items the new supplier sells
                     const allowed = supplierSupplies(value)
-                    setFormData((current) => ({
-                      ...current,
+                    const nextForm = {
+                      ...formData,
                       "0": value,
-                      "6": String(current["6"] ?? "")
+                      "6": String(formData["6"] ?? "")
                         .split("\n")
                         .filter((line) => allowed.includes(line.split("|")[0].trim()))
                         .join("\n"),
-                    }))
+                    }
+                    setFormData(nextForm)
+                    if (formValidationAttempted) {
+                      setFormFieldErrors(
+                        validateManagedForm(modal.section, nextForm, modal.mode),
+                      )
+                    }
                     setPurchaseItemSelect("")
                     setPurchaseItemPrice("")
                     setPurchaseFormError("")
                     return
                   }
-                  setFormData((current) => ({ ...current, [f.key]: value }))
+                  if (["usuarios", "clientes", "proveedores"].includes(modal.section)) {
+                    const normalized =
+                      (modal.section === "usuarios" && f.key === "2") ||
+                      (modal.section === "clientes" && f.key === "2") ||
+                      (isSupplier && f.key === "9")
+                        ? normalizeDocumentInput(
+                            value,
+                            String(formData[isSupplier ? "8" : "1"] ?? ""),
+                          )
+                        : ((modal.section === "clientes" && f.key === "3") ||
+                            (isSupplier && ["3", "12"].includes(f.key)))
+                          ? normalizePhoneInput(value)
+                          : isSupplier && f.key === "1"
+                            ? value.replace(/[^0-9.-]/g, "").slice(0, 20)
+                            : value
+                    updateAdminField(modal.section, f.key, normalized)
+                    return
+                  }
+                  updateAdminField(modal.section, f.key, value)
                 }
                 return (
                   <Fragment key={f.key}>
+                  {isSupplier && (f.key === "1" || f.key === "8") && (
+                    <div
+                      className={`pt-1 sm:col-span-2 ${
+                        f.key === "1" ? "lg:col-span-1 lg:col-start-1" : "lg:col-span-1 lg:col-start-2"
+                      }`}
+                    >
+                      <div className="mb-1 h-px" style={{ background: t.border }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                        {f.key === "1" ? "Datos del proveedor" : "Persona de contacto"}
+                      </h4>
+                    </div>
+                  )}
                   <div
-                    className={`flex min-w-0 flex-col gap-1.5 ${isPurchaseModule && isWideField(f) ? "sm:col-span-2" : ""}`}
+                    className={`flex min-w-0 flex-col gap-1 ${
+                      isSupplier
+                      ? `${Number(f.key) < 8 ? "lg:col-start-1" : "lg:col-start-2"} ${isWideField(f) ? "lg:col-span-1" : ""}`
+                        : isPurchaseModule && isWideField(f)
+                          ? "sm:col-span-2"
+                          : ""
+                    }`}
                   >
                     <label
                       className="text-xs font-semibold"
                       style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
                     >
                       {f.label}
-                      {(requiredClientField || isRequiredField(f.key)) && " *"}
+                      {(isRequiredField(f.key) || requiredFormField) && " *"}
                     </label>
                     {isPedido && f.key === "1" && !isView ? (
                       <div className="flex flex-col gap-3">
@@ -12609,11 +13679,13 @@ function AdminPanel({
                         aria-checked={String(val).toLowerCase() === "sí"}
                         onClick={() => {
                           if (isClient) {
-                            setFormData((current) => {
-                              const enabled =
-                                String(current[f.key] ?? "No").toLowerCase() === "sí"
-                              return { ...current, [f.key]: enabled ? "No" : "Sí" }
-                            })
+                            const enabled =
+                              String(formData[f.key] ?? "No").toLowerCase() === "sí"
+                            updateAdminField(
+                              modal.section,
+                              f.key,
+                              enabled ? "No" : "Sí",
+                            )
                           } else {
                             handleSupplyCheckboxToggle()
                           }
@@ -12646,10 +13718,18 @@ function AdminPanel({
                       <select
                         value={val}
                         onChange={(e) => updateFieldValue(e.target.value)}
-                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                        onBlur={() => {
+                          if (requiredFormField) {
+                            setFormFieldErrors(
+                              validateManagedForm(modal.section, formData, modal.mode),
+                            )
+                          }
+                        }}
+                        aria-invalid={!!fieldValidationError}
+                        className={`w-full min-w-0 rounded-xl text-sm outline-none cursor-pointer ${isUser || isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: val ? t.text : t.muted,
                         }}
                       >
@@ -12667,16 +13747,20 @@ function AdminPanel({
                       <textarea
                         value={val}
                         onChange={(e) =>
-                          setFormData((d) => ({
-                            ...d,
-                            [f.key]: e.target.value,
-                          }))
+                          updateAdminField(modal.section, f.key, e.target.value)
                         }
-                        rows={isPurchaseModule ? 2 : 3}
-                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
+                        onBlur={() =>
+                          requiredFormField &&
+                          setFormFieldErrors(
+                            validateManagedForm(modal.section, formData, modal.mode),
+                          )
+                        }
+                        aria-invalid={!!fieldValidationError}
+                        rows={isPurchaseModule ? 2 : isRoles ? 2 : 3}
+                        className={`w-full min-w-0 rounded-xl text-sm outline-none resize-none ${isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: t.text,
                         }}
                       />
@@ -12684,21 +13768,35 @@ function AdminPanel({
                       <input
                         type={f.type}
                         value={val}
-                        onChange={(e) =>
-                          setFormData((d) => ({
-                            ...d,
-                            [f.key]: e.target.value,
-                          }))
+                        inputMode={
+                          (modal.section === "usuarios" && f.key === "2") ||
+                          (isClient && ["2", "3"].includes(f.key)) ||
+                          (isSupplier &&
+                            ["1", "12"].includes(f.key)) ||
+                          (isSupplier &&
+                            f.key === "9" &&
+                            formData["8"] !== "Pasaporte")
+                            ? "numeric"
+                            : undefined
                         }
-                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
+                        onChange={(e) => updateFieldValue(e.target.value)}
+                        onBlur={() => {
+                          if (requiredFormField) {
+                            setFormFieldErrors(
+                              validateManagedForm(modal.section, formData, modal.mode),
+                            )
+                          }
+                        }}
+                        aria-invalid={!!fieldValidationError}
+                        className={`w-full min-w-0 rounded-xl text-sm outline-none ${isUser || isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: t.text,
                         }}
                       />
                     )}
-                    <FieldError msg={shownFieldError(f.key)} />
+                    <FieldError msg={shownFieldError(f.key) || fieldValidationError} />
                   </div>
                   </Fragment>
                 )
@@ -12936,17 +14034,72 @@ function AdminPanel({
                     {!orderDetails.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  disabled={(String(row?.[5]) !== "Contraentrega" && (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) || ["Autorizada", "Enviada a producción"].includes(String(row?.[9]))}
-                  onClick={() => approveOrderForProduction(modal.idx!)}
-                  className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ background: C.mustard, color: "#fff" }}
-                >
-                  {["Autorizada", "Enviada a producción"].includes(String(row?.[9]))
-                    ? "Ya se envió a producción"
-                    : "Confirmar pedido y enviar a producción"}
-                </button>
+                {paymentProofs[modal.idx!] && (
+                  <div className="mt-4">
+                    <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
+                      Comprobante de transferencia
+                    </h4>
+                    <img
+                      src={paymentProofs[modal.idx!]}
+                      alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
+                      className="max-h-64 w-full rounded-xl object-contain"
+                      style={{ background: t.card, border: `1px solid ${t.border}` }}
+                    />
+                  </div>
+                )}
+                {String(row?.[8]) === "Rechazado" && (
+                  <p className="mt-4 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
+                    Transferencia rechazada: {String(row?.[11] || "Sin motivo registrado.")}
+                  </p>
+                )}
+                {isTransferPaymentMethod(String(row?.[4] ?? "")) &&
+                String(row?.[8]) === "Pendiente de verificación" ? (
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentRejectionTarget(modal.idx!)
+                        setPaymentRejectionReason("")
+                        setPaymentRejectionError("")
+                      }}
+                      className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
+                      style={{ background: `${C.red}12`, color: C.red }}
+                    >
+                      Rechazar transferencia
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!paymentProofs[modal.idx!]}
+                      onClick={() => approveOrderForProduction(modal.idx!)}
+                      className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      Aprobar transferencia y enviar a producción
+                    </button>
+                  </div>
+                ) : String(row?.[9]) === "Autorizada" ? (
+                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
+                    Pago aprobado y producción autorizada.
+                  </p>
+                ) : String(row?.[9]) === "Enviada a producción" ? (
+                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
+                    Ya se envió a producción.
+                  </p>
+                ) : String(row?.[8]) !== "Rechazado" && (
+                  <button
+                    type="button"
+                    disabled={
+                      (String(row?.[5]) !== "Contraentrega" &&
+                        (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) ||
+                      ["Autorizada", "Enviada a producción"].includes(String(row?.[9]))
+                    }
+                    onClick={() => approveOrderForProduction(modal.idx!)}
+                    className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ background: C.mustard, color: "#fff" }}
+                  >
+                    Confirmar pedido y enviar a producción
+                  </button>
+                )}
               </div>
             )}
             {isView && isSales && (
@@ -12976,14 +14129,23 @@ function AdminPanel({
             )}
             {/* Roles permissions matrix */}
             {isRoles && !isView && (
-              <RolesPermMatrix roleName={formData["0"] || ""} />
+              <div className="sm:col-span-2">
+                <RolesPermMatrix
+                  roleName={formData["0"] || ""}
+                  permissionKey={
+                    modal.mode === "edit" && row
+                      ? String(row[0] ?? "")
+                      : formData["0"] || ""
+                  }
+                />
+              </div>
             )}
             {isRoles && isView && row && (
               <RolesPermMatrix roleName={String(row[0])} readOnly={true} />
             )}
           </div>
           <div
-            className="px-5 py-4 flex gap-3"
+            className={`px-5 flex gap-3 ${isUser || isRoles ? "py-3" : "py-4"}`}
             style={{ borderTop: `1px solid ${t.border}` }}
           >
             <button
@@ -13294,6 +14456,19 @@ function AdminPanel({
       color: t.text,
       fontFamily: "Poppins, sans-serif",
     }
+    const updatePncField = (key: string, value: string) => {
+      setPncForm((current) => ({ ...current, [key]: value }))
+      setPncFieldErrors((current) => {
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+      setPncError("")
+    }
+    const pncStyle = (key: string) => ({
+      ...controlStyle,
+      border: `1px solid ${pncFieldErrors[key] ? C.red : t.inputB}`,
+    })
     return (
       <div
         className="fixed inset-0 z-[70] flex items-end justify-center px-3 pb-3 pt-8 sm:items-center sm:px-4 sm:pb-4"
@@ -13346,7 +14521,7 @@ function AdminPanel({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Producto o producto de insumo
+                  Producto o producto de insumo *
                   <select value={pncForm["1"] || ""} onChange={(event) => {
                     const selectedProduct = event.target.value
                     const selectedItem = orderItems.find((item) => item.name === selectedProduct)
@@ -13356,18 +14531,29 @@ function AdminPanel({
                       "2": selectedProduct,
                       "3": String(selectedItem?.quantity ?? current["3"] ?? 1),
                     }))
-                  }} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle}>
+                    setPncFieldErrors((current) => {
+                      const next = { ...current }
+                      delete next["1"]
+                      delete next["2"]
+                      delete next["3"]
+                      return next
+                    })
+                    setPncError("")
+                  }} aria-invalid={!!pncFieldErrors["1"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("1")}>
                     <option value="">Selecciona...</option>
                     {productOptions.map((product) => <option key={product} value={product}>{product}</option>)}
                   </select>
+                  {pncFieldErrors["1"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["1"]}</span>}
                 </label>
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Cantidad
-                  <input type="number" min="1" value={pncForm["3"] || "1"} onChange={(event) => setPncForm((current) => ({ ...current, "3": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                  Cantidad *
+                  <input type="number" min="1" value={pncForm["3"] || "1"} onChange={(event) => updatePncField("3", event.target.value)} aria-invalid={!!pncFieldErrors["3"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("3")} />
+                  {pncFieldErrors["3"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["3"]}</span>}
                 </label>
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold sm:col-span-2" style={{ color: t.muted }}>
-                  Productos que se dañaron
-                  <textarea rows={2} value={pncForm["2"] || ""} onChange={(event) => setPncForm((current) => ({ ...current, "2": event.target.value }))} className="w-full min-w-0 resize-none rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                  Productos que se dañaron *
+                  <textarea rows={2} value={pncForm["2"] || ""} onChange={(event) => updatePncField("2", event.target.value)} aria-invalid={!!pncFieldErrors["2"]} className="w-full min-w-0 resize-none rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("2")} />
+                  {pncFieldErrors["2"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["2"]}</span>}
                 </label>
               </div>
             </section>
@@ -13379,14 +14565,16 @@ function AdminPanel({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Motivo
-                  <select value={pncForm["4"] || "Producto perdido"} onChange={(event) => setPncForm((current) => ({ ...current, "4": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle}>
+                  Motivo *
+                  <select value={pncForm["4"] || "Producto perdido"} onChange={(event) => updatePncField("4", event.target.value)} aria-invalid={!!pncFieldErrors["4"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("4")}>
                     {["Tiempo superado", "Error en preparación", "Ingrediente incorrecto", "Daño físico", "Producto perdido", "Otro"].map((reason) => <option key={reason}>{reason}</option>)}
                   </select>
+                  {pncFieldErrors["4"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["4"]}</span>}
                 </label>
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Fecha del registro
-                  <input type="date" value={pncForm["5"] || ""} onChange={(event) => setPncForm((current) => ({ ...current, "5": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                  Fecha del registro *
+                  <input type="date" value={pncForm["5"] || ""} onChange={(event) => updatePncField("5", event.target.value)} aria-invalid={!!pncFieldErrors["5"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("5")} />
+                  {pncFieldErrors["5"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["5"]}</span>}
                 </label>
               </div>
             </section>
@@ -13414,17 +14602,60 @@ function AdminPanel({
   const QuickClientModal = () => {
     if (!quickClientOpen) return null
     const quickIsLocal = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
+    const updateQuickClientField = (
+      key: string,
+      rawValue: string,
+      validateImmediately = false,
+    ) => {
+      const value =
+        key === "2"
+          ? normalizeDocumentInput(rawValue, quickClientForm["1"] ?? "")
+          : key === "3"
+            ? normalizePhoneInput(rawValue)
+            : rawValue
+      const nextForm = { ...quickClientForm, [key]: value }
+      if (key === "1") {
+        nextForm["2"] = normalizeDocumentInput(
+          nextForm["2"] ?? "",
+          value,
+        )
+      }
+      setQuickClientForm(nextForm)
+      if (validateImmediately || quickClientErrors[key] || quickClientError) {
+        const isLocal = String(nextForm["6"] ?? "").toLowerCase() === "sí"
+        const required =
+          key === "0" || key === "1" || key === "2" || key === "3" ||
+          (!isLocal && (key === "4" || key === "5"))
+        let error = required && !value.trim() ? "Este campo es obligatorio." : ""
+        if (!error && key === "2" && value.trim()) {
+          error = validateDocumentNumber(value, nextForm["1"] ?? "")
+        }
+        if (!error && key === "3" && value.trim()) error = validatePhoneNumber(value)
+        if (!error && key === "4" && value.trim() && !EMAIL_PATTERN.test(value.trim())) {
+          error = "Escribe un correo electrónico válido."
+        }
+        setQuickClientErrors((current) => {
+          const updated = { ...current }
+          if (error) updated[key] = error
+          else delete updated[key]
+          return updated
+        })
+        if (!error) setQuickClientError("")
+      }
+    }
     const field = (key: string, label: string, type = "text", options?: string[]) => (
       <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-        {label}
+        {label}{(key === "0" || key === "1" || key === "2" || key === "3" ||
+          (!quickIsLocal && (key === "4" || key === "5"))) && " *"}
         {options ? (
-          <select value={quickClientForm[key] || ""} onChange={(event) => setQuickClientForm((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}>
+          <select value={quickClientForm[key] || ""} onBlur={() => updateQuickClientField(key, quickClientForm[key] || "", true)} onChange={(event) => updateQuickClientField(key, event.target.value)} aria-invalid={!!quickClientErrors[key]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${quickClientErrors[key] ? C.red : t.inputB}`, color: t.text }}>
             <option value="">Selecciona...</option>
             {options.map((option) => <option key={option}>{option}</option>)}
           </select>
         ) : (
-          <input type={type} value={quickClientForm[key] || ""} onChange={(event) => setQuickClientForm((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
+          <input type={type} inputMode={key === "2" || key === "3" ? "numeric" : undefined} value={quickClientForm[key] || ""} onBlur={() => updateQuickClientField(key, quickClientForm[key] || "", true)} onChange={(event) => updateQuickClientField(key, event.target.value)} aria-invalid={!!quickClientErrors[key]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${quickClientErrors[key] ? C.red : t.inputB}`, color: t.text }} />
         )}
+        {quickClientErrors[key] && <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>{quickClientErrors[key]}</span>}
       </label>
     )
     return (
@@ -13445,7 +14676,16 @@ function AdminPanel({
               type="button"
               role="checkbox"
               aria-checked={quickIsLocal}
-              onClick={() => setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))}
+              onClick={() => {
+                setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))
+                setQuickClientErrors((current) => {
+                  const next = { ...current }
+                  if (quickIsLocal) return next
+                  delete next["4"]
+                  delete next["5"]
+                  return next
+                })
+              }}
               className="flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 text-left sm:col-span-2"
               style={{ background: t.input, border: `1px solid ${t.inputB}` }}
             >
@@ -13533,6 +14773,76 @@ function AdminPanel({
                 Anular
               </button>
             )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const PaymentRejectionModal = () => {
+    if (paymentRejectionTarget === null) return null
+    const order = rows.pedidos?.[paymentRejectionTarget]
+    if (!order) return null
+
+    return (
+      <div
+        className="fixed inset-0 z-[70] flex items-center justify-center px-4"
+        style={{ background: "rgba(0,0,0,0.65)" }}
+        onClick={() => setPaymentRejectionTarget(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="payment-rejection-title"
+          className="w-full max-w-md rounded-2xl p-5"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h3 id="payment-rejection-title" className="text-base font-bold" style={{ color: t.text }}>
+            Rechazar transferencia
+          </h3>
+          <p className="mt-2 text-sm" style={{ color: t.muted }}>
+            El pedido {String(order[0])} no se enviará a producción. Escribe el motivo para que quede guardado en el pedido.
+          </p>
+          <textarea
+            autoFocus
+            rows={3}
+            value={paymentRejectionReason}
+            onChange={(event) => {
+              setPaymentRejectionReason(event.target.value)
+              setPaymentRejectionError("")
+            }}
+            placeholder="Ej.: comprobante no válido o pago no recibido"
+            aria-label="Motivo del rechazo"
+            className="mt-4 w-full resize-none rounded-xl px-3 py-2.5 text-sm outline-none"
+            style={{
+              background: t.input,
+              border: `1px solid ${paymentRejectionError ? C.red : t.inputB}`,
+              color: t.text,
+            }}
+          />
+          {paymentRejectionError && (
+            <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
+              {paymentRejectionError}
+            </p>
+          )}
+          <div className="mt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={() => setPaymentRejectionTarget(null)}
+              className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
+              style={{ background: t.input, color: t.muted }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={rejectTransferPayment}
+              className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
+              style={{ background: C.red, color: "#fff" }}
+            >
+              Confirmar rechazo
+            </button>
           </div>
         </div>
       </div>
@@ -14053,6 +15363,7 @@ function AdminPanel({
       <ProductionPncModal />
       <QuickClientModal />
       <AnulModal />
+      <PaymentRejectionModal />
       <DelModal />
       {showAdminProfile && user && (
         <AdminProfilePage
@@ -14104,10 +15415,12 @@ export default function App() {
   const updateUser = (u: User) => {
     setUser(u)
     saveLS(`profile:${u.email.toLowerCase()}`, u)
+    saveRegisteredClient(u)
   }
   const login = (u: User, next: Page = "app") => {
     const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
-    updateUser(saved ? { ...u, ...saved, role: u.role } : u)
+    const authenticatedUser = saved ? { ...u, ...saved, role: u.role } : u
+    updateUser(authenticatedUser)
     setClientView("menu")
     setPage(next)
   }
@@ -14120,7 +15433,22 @@ export default function App() {
     setOrdersVersion((v) => v + 1)
   }
   const setVoucher = (id: string, voucher: string) =>
-    updateOrders((os) => os.map((o) => (o.id === id ? { ...o, voucher } : o)))
+    updateOrders((os) =>
+      os.map((o) =>
+        o.id === id
+          ? {
+              ...o,
+              voucher,
+              ...(o.paymentStatus === "Rechazado"
+                ? {
+                    paymentStatus: "Pendiente de verificación" as const,
+                    paymentRejectionReason: undefined,
+                  }
+                : {}),
+            }
+          : o,
+      ),
+    )
   const goCheckout = () => {
     setPage("checkout")
   }
@@ -14142,6 +15470,7 @@ export default function App() {
       <RegisterPage
         onVerify={(u) => {
           saveLS(`profile:${u.email}`, u)
+          saveRegisteredClient(u)
           setPage("login")
         }}
         onLoginLink={() => setPage("login")}
@@ -14176,7 +15505,10 @@ export default function App() {
         setCart={setCart}
         user={user}
         onLogin={(u) => login(u, "checkout")}
-        onRegisterVerified={(u) => login(u, "checkout")}
+        onRegisterVerified={(u) => {
+          saveRegisteredClient(u)
+          login(u, "checkout")
+        }}
         onBack={() => setPage(user ? "app" : "landing")}
         onPlaceOrder={(info, shouldSaveAddress) => {
           if (!user) return
@@ -14204,7 +15536,12 @@ export default function App() {
               }),
               items: cart.filter((item) => item.qty > 0),
               total: cartTotal(cart),
-              status: cartTotal(cart) >= APPROVAL_MIN ? "Por confirmar" : "Recibido",
+              status:
+                cartTotal(cart) >= APPROVAL_MIN ? "Por confirmar" : "Recibido",
+              paymentStatus:
+                info.pago === "Efectivo"
+                  ? "Pendiente"
+                  : "Pendiente de verificación",
             },
             ...os,
           ])
