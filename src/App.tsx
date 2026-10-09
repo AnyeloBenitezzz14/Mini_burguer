@@ -11,11 +11,13 @@ type User = {
   email: string
   role: "admin" | "user"
   cedula?: string
+  docType?: string
   phone?: string
   addresses?: string[]
   photo?: string
   password?: string
 }
+type RegisteredClient = Pick<User, "name" | "email" | "cedula" | "docType" | "phone">
 type CartItem = {
   id: number
   name: string
@@ -42,7 +44,13 @@ type Order = DeliveryInfo & {
   items: CartItem[]
   total: number
   status: string
+  paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Pagado" | "Rechazado"
+  paymentRejectionReason?: string
+  productionAuthorized?: boolean
+  productionRecords?: (string | number)[][]
 }
+const isTransferPaymentMethod = (method: string) =>
+  ["transferencia", "nequi", "daviplata"].includes(method.trim().toLowerCase())
 type ModalMode = "add" | "edit" | "view" | null
 type FieldType = {
   key: string
@@ -99,6 +107,45 @@ const DOC_TYPES = [
   "Pasaporte",
   "Tarjeta de Identidad",
 ]
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const digitsOnly = (value: string) => value.replace(/\D/g, "")
+const normalizeDocumentInput = (value: string, docType: string) => {
+  if (docType === "Pasaporte") return value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)
+  if (docType === "NIT") return value.replace(/[^0-9.-]/g, "").slice(0, 20)
+  return digitsOnly(value).slice(0, 15)
+}
+const normalizeAccountDocumentInput = (value: string, docType: string) =>
+  docType === "NIT"
+    ? value.replace(/[^0-9-]/g, "").slice(0, 10)
+    : docType
+      ? normalizeDocumentInput(value, docType)
+      : value.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20)
+const normalizePhoneInput = (value: string) =>
+  value.replace(/[^0-9+()\s-]/g, "").slice(0, 20)
+const validateDocumentNumber = (value: string, docType: string) => {
+  const document = value.trim()
+  if (!document) return "Este campo es obligatorio."
+  if (docType === "Pasaporte") {
+    return /^[A-Za-z0-9]{5,20}$/.test(document)
+      ? ""
+      : "Escribe un número de pasaporte válido."
+  }
+  if (docType === "NIT") {
+    const digits = digitsOnly(document)
+    return /^[\d.-]+$/.test(document) && digits.length >= 8 && digits.length <= 15
+      ? ""
+      : "Escribe un NIT válido."
+  }
+  return /^\d{5,15}$/.test(document)
+    ? ""
+    : "Usa solo números (de 5 a 15 dígitos)."
+}
+const validatePhoneNumber = (value: string) => {
+  const digits = digitsOnly(value)
+  return digits.length >= 7 && digits.length <= 15
+    ? ""
+    : "Escribe un teléfono válido (de 7 a 15 dígitos)."
+}
 const SAUCES = [
   "Salsa de la casa",
   "Tártara",
@@ -1267,10 +1314,16 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "1", label: "NIT", type: "text" },
       { key: "2", label: "Correo", type: "email" },
       { key: "3", label: "Teléfono", type: "tel" },
-      { key: "4", label: "Persona de contacto", type: "text" },
       { key: "5", label: "Dirección", type: "text" },
       // Comma-separated insumo names; limits what can be bought from this supplier
       { key: "7", label: "Insumos que suministra", type: "text" },
+      { key: "8", label: "Tipo de documento", type: "select", options: DOC_TYPES },
+      { key: "9", label: "Número de documento", type: "text" },
+      { key: "10", label: "Nombre", type: "text" },
+      { key: "11", label: "Apellido", type: "text" },
+      { key: "12", label: "Teléfono", type: "tel" },
+      { key: "13", label: "Correo electrónico", type: "email" },
+      { key: "14", label: "Cargo", type: "text" },
     ],
     seed: [
       [
@@ -1296,7 +1349,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     // Deletable only while the supplier has no purchases (see getDeleteAssessment)
     statusIndex: 6,
-    hiddenCellIndexes: [5, 7],
+    hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14],
   },
   compras: {
     columns: ["Proveedor", "Fecha", "Subtotal", "Total", "Estado"],
@@ -1552,9 +1605,9 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "6", label: "Cliente de local", type: "checkbox" },
     ],
     seed: [
-      ["Valentina Ríos", "Cédula de Ciudadanía", "1012345678", "310-456-7890", "No", "vale@mail.co", "Cra 58 #42-10, Bello", "Activo"],
-      ["Carlos Mejía", "Cédula de Ciudadanía", "1023456789", "320-987-6543", "No", "carlos@mail.co", "Cll 50 #30-05, Bello", "Activo"],
-      ["Luisa Fernández", "Cédula de Ciudadanía", "1034567890", "315-678-9012", "Sí", "", "Cra 60 #44-20, Bello", "Activo"],
+      ["Valentina Ríos", "Cédula de Ciudadanía", "1012345678", "310-456-7890", "vale@mail.co", "Cra 58 #42-10, Bello", "No", "Activo"],
+      ["Carlos Mejía", "Cédula de Ciudadanía", "1023456789", "320-987-6543", "carlos@mail.co", "Cll 50 #30-05, Bello", "No", "Activo"],
+      ["Luisa Fernández", "Cédula de Ciudadanía", "1034567890", "315-678-9012", "", "Cra 60 #44-20, Bello", "Sí", "Activo"],
     ],
     statusIndex: 7,
     hiddenCellIndexes: [1, 5, 6],
@@ -1692,7 +1745,12 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "7",
         label: "Estado de pago",
         type: "select",
-        options: ["Pendiente", "Pagado"],
+        options: [
+          "Pendiente",
+          "Pendiente de verificación",
+          "Pagado",
+          "Rechazado",
+        ],
       },
       { key: "9", label: "Comprobante de pago", type: "image" },
     ],
@@ -1772,7 +1830,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     noDelete: true,
     autoId: true,
-    hiddenCellIndexes: [2, 3, 4, 5],
+    hiddenCellIndexes: [2, 3, 4, 5, 10, 11],
   },
   devoluciones: {
     columns: ["Código", "Cliente", "Motivo", "Fecha"],
@@ -1916,10 +1974,23 @@ function emailError(email: string) {
   return ""
 }
 
-function validateLogin(email: string, pass: string, savedPass?: string): FieldErrors {
+function validateLogin(
+  email: string,
+  pass: string,
+  savedPass?: string,
+  accountStatus?: string,
+): FieldErrors {
   const e: FieldErrors = {}
   const em = emailError(email)
   if (em) e.email = em
+  else if (
+    accountStatus &&
+    ["inactivo", "inactiva", "anulado", "anulada"].includes(
+      accountStatus.trim().toLowerCase(),
+    )
+  ) {
+    e.email = "Esta cuenta está inactiva. Contacta al administrador."
+  }
   if (!pass) e.pass = "Ingresa tu contraseña."
   else if (pass.length < 8) e.pass = "La contraseña tiene mínimo 8 caracteres."
   else if (savedPass && pass !== savedPass) e.pass = "La contraseña es incorrecta."
@@ -2128,12 +2199,21 @@ function LoginPage({
   // Errors show after the first submit and update live while typing
   const [tried, setTried] = useState(false)
   const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
-  const errors = tried ? validateLogin(email, pass, savedProfile?.password) : {}
+  const accountStatus = getAdminAccountStatus(email)
+  const errors = tried
+    ? validateLogin(email, pass, savedProfile?.password, accountStatus)
+    : {}
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
     const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
-    if (Object.keys(validateLogin(email, pass, savedProfile?.password)).length) return
+    const accountStatus = getAdminAccountStatus(email)
+    if (
+      Object.keys(
+        validateLogin(email, pass, savedProfile?.password, accountStatus),
+      ).length
+    )
+      return
     const role = email.toLowerCase().includes("admin") ? "admin" : "user"
     const name = email
       .split("@")[0]
@@ -2313,7 +2393,15 @@ function RegisterPage({
   const errors = tried ? validateRegister(form) : {}
   const err = codeTried ? codeError(code) : ""
   const upd = (k: keyof typeof form) => (v: string) =>
-    setForm((f) => ({ ...f, [k]: v }))
+    setForm((current) => ({
+      ...current,
+      [k]:
+        k === "docNum"
+          ? normalizeAccountDocumentInput(v, current.docType)
+          : k === "phone"
+            ? digitsOnly(v).slice(0, 10)
+            : v,
+    }))
   const submitForm = (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
@@ -2328,6 +2416,7 @@ function RegisterPage({
       name: `${form.name.trim()} ${form.lastname.trim()}`.trim(),
       email: form.email.trim().toLowerCase(),
       role: "user",
+      docType: form.docType,
       phone: form.phone.replace(/\s/g, ""),
       cedula: form.docNum.trim(),
       password: form.pass,
@@ -2491,7 +2580,14 @@ function RegisterPage({
                 </label>
                 <select
                   value={form.docType}
-                  onChange={(e) => upd("docType")(e.target.value)}
+                  onChange={(e) => {
+                    const docType = e.target.value
+                    setForm((current) => ({
+                      ...current,
+                      docType,
+                      docNum: normalizeAccountDocumentInput(current.docNum, docType),
+                    }))
+                  }}
                   aria-invalid={!!errors.docType}
                   className="w-full px-3 py-2 rounded-xl text-sm outline-none"
                   style={{
@@ -3012,7 +3108,11 @@ function AddToCartModal({
                 (gratis)
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div
+              role="group"
+              aria-label="Salsas"
+              className="flex flex-wrap gap-2 rounded-xl"
+            >
               {SAUCES.map((s) => (
                 <button
                   key={s}
@@ -3707,10 +3807,31 @@ function saveLS(key: string, value: unknown) {
   }
 }
 
+function getAdminAccountStatus(email: string): string | undefined {
+  const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
+  return statuses[email.trim().toLowerCase()]
+}
+
 // ponytail: all orders live in this browser's localStorage (client + admin
 // share it); move to a backend when the shop needs multiple devices.
 const loadOrders = () => loadLS<Order[]>("orders", [])
 const saveOrders = (orders: Order[]) => saveLS("orders", orders)
+const loadRegisteredClients = () =>
+  loadLS<RegisteredClient[]>("registeredClients", [])
+const saveRegisteredClient = (user: User) => {
+  if (user.role !== "user" || !user.email.trim()) return
+  const registeredClient: RegisteredClient = {
+    name: user.name.trim(),
+    email: user.email.trim().toLowerCase(),
+    cedula: user.cedula?.trim(),
+    docType: user.docType?.trim(),
+    phone: user.phone?.trim(),
+  }
+  const clients = loadRegisteredClients().filter(
+    (client) => client.email.toLowerCase() !== registeredClient.email,
+  )
+  saveLS("registeredClients", [registeredClient, ...clients])
+}
 
 // Downscale to keep vouchers small enough for localStorage
 function readVoucher(file: File) {
@@ -3797,6 +3918,13 @@ function OrderList({
     <div className="space-y-3">
       {orders.map((o) => {
         const badge = badgeSt(o.status)
+        const paymentStatus =
+          o.paymentStatus ??
+          (o.voucher
+            ? "Pendiente de verificación"
+            : isTransferPaymentMethod(o.pago)
+              ? "Pendiente de verificación"
+              : "Pendiente")
         return (
           <div
             key={o.id}
@@ -3830,6 +3958,21 @@ function OrderList({
                 >
                   {o.status}
                 </span>
+                {paymentStatus !== "Pendiente" && (
+                  <div
+                    className="mt-1 text-[10px] font-semibold"
+                    style={{
+                      color:
+                        paymentStatus === "Pagado"
+                          ? C.forest
+                          : paymentStatus === "Rechazado"
+                            ? C.red
+                            : C.mustard,
+                    }}
+                  >
+                    Pago: {paymentStatus}
+                  </div>
+                )}
               </div>
             </div>
             <button
@@ -3980,6 +4123,17 @@ function OrderDetailModal({
           <div>
             <strong style={{ color: TEXT }}>Pago:</strong> {order.pago}
           </div>
+          {order.paymentStatus && (
+            <div>
+              <strong style={{ color: TEXT }}>Estado del pago:</strong>{" "}
+              {order.paymentStatus}
+            </div>
+          )}
+          {order.paymentStatus === "Rechazado" && order.paymentRejectionReason && (
+            <div style={{ color: C.red }}>
+              <strong>Motivo de rechazo:</strong> {order.paymentRejectionReason}
+            </div>
+          )}
         </div>
 
         {order.pago !== "Efectivo" && (
@@ -4283,7 +4437,14 @@ function CheckoutPage({
   const [loginTried, setLoginTried] = useState(false)
   const [regTried, setRegTried] = useState(false)
   const [codeTried, setCodeTried] = useState(false)
-  const loginErrors = loginTried ? validateLogin(loginForm.email, loginForm.pass) : {}
+  const loginErrors = loginTried
+    ? validateLogin(
+        loginForm.email,
+        loginForm.pass,
+        undefined,
+        getAdminAccountStatus(loginForm.email),
+      )
+    : {}
   const regErrors = regTried ? validateRegister(regForm) : {}
   const codeErr = codeTried ? codeError(code) : ""
   const handleLogin = (e: React.FormEvent) => {
@@ -4291,7 +4452,17 @@ function CheckoutPage({
     setLoginTried(true)
     const email = loginForm.email.trim().toLowerCase()
     const savedProfile = loadLS<User | null>(`profile:${email}`, null)
-    if (Object.keys(validateLogin(loginForm.email, loginForm.pass, savedProfile?.password)).length) return
+    if (
+      Object.keys(
+        validateLogin(
+          loginForm.email,
+          loginForm.pass,
+          savedProfile?.password,
+          getAdminAccountStatus(email),
+        ),
+      ).length
+    )
+      return
     const role = email.includes("admin") ? "admin" : "user"
     const name = email
       .split("@")[0]
@@ -4314,6 +4485,7 @@ function CheckoutPage({
       name: regForm.name.trim(),
       email: regForm.email.trim().toLowerCase(),
       role: "user",
+      docType: regForm.docType,
       phone: regForm.phone.replace(/\s/g, ""),
       cedula: regForm.docNum.trim(),
       password: regForm.pass,
@@ -4384,9 +4556,11 @@ function CheckoutPage({
             ¡Pedido confirmado!
           </h2>
           <p className="text-sm mb-6" style={{ color: MUTED }}>
-            {placedTotal >= APPROVAL_MIN
-              ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
-              : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
+            {delivForm.pago !== "Efectivo"
+              ? "Recibimos tu comprobante. El pedido queda pendiente de verificación; cuando se apruebe, se enviará a producción."
+              : placedTotal >= APPROVAL_MIN
+                ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
+                : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
             Puedes seguir su estado en &quot;Mis pedidos&quot;.
           </p>
           <div
@@ -4631,9 +4805,14 @@ function CheckoutPage({
                       </label>
                       <select
                         value={regForm.docType}
-                        onChange={(e) =>
-                          setRegForm((f) => ({ ...f, docType: e.target.value }))
-                        }
+                        onChange={(e) => {
+                          const docType = e.target.value
+                          setRegForm((current) => ({
+                            ...current,
+                            docType,
+                            docNum: normalizeAccountDocumentInput(current.docNum, docType),
+                          }))
+                        }}
                         aria-invalid={!!regErrors.docType}
                         className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none"
                         style={{
@@ -4657,7 +4836,10 @@ function CheckoutPage({
                       label="Nº Documento *"
                       placeholder="123456789"
                       value={regForm.docNum}
-                      onChange={(v) => setRegForm((f) => ({ ...f, docNum: v }))}
+                      onChange={(v) => setRegForm((current) => ({
+                        ...current,
+                        docNum: normalizeAccountDocumentInput(v, current.docType),
+                      }))}
                       required
                       error={regErrors.docNum}
                     />
@@ -4675,7 +4857,7 @@ function CheckoutPage({
                       type="tel"
                       placeholder="3XX XXX XXXX"
                       value={regForm.phone}
-                      onChange={(v) => setRegForm((f) => ({ ...f, phone: v }))}
+                      onChange={(v) => setRegForm((f) => ({ ...f, phone: digitsOnly(v).slice(0, 10) }))}
                       error={regErrors.phone}
                     />
                     <InputField
@@ -5381,6 +5563,17 @@ function ProfilePage({
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
     }
+    if (form.phone.trim()) {
+      const phoneError = validatePhoneNumber(form.phone)
+      if (phoneError) newErrors.phone = phoneError
+    }
+    if (form.cedula.trim()) {
+      const documentError = validateDocumentNumber(
+        form.cedula,
+        user.docType || "Cédula de Ciudadanía",
+      )
+      if (documentError) newErrors.cedula = documentError
+    }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -5562,13 +5755,45 @@ function ProfilePage({
                   label="Teléfono"
                   type="tel"
                   value={form.phone}
-                  onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                  onChange={(v) => {
+                    const phone = normalizePhoneInput(v)
+                    setForm((f) => ({ ...f, phone }))
+                    setErrors((current) => ({
+                      ...current,
+                      phone: phone.trim() ? validatePhoneNumber(phone) : "",
+                    }))
+                  }}
                 />
+                {errors.phone && (
+                  <p className="text-xs mt-1" style={{ color: C.red }}>
+                    {errors.phone}
+                  </p>
+                )}
                 <InputField
                   label="Cédula"
                   value={form.cedula}
-                  onChange={(v) => setForm((f) => ({ ...f, cedula: v }))}
+                  onChange={(v) => {
+                    const cedula = normalizeDocumentInput(
+                      v,
+                      user.docType || "Cédula de Ciudadanía",
+                    )
+                    setForm((f) => ({ ...f, cedula }))
+                    setErrors((current) => ({
+                      ...current,
+                      cedula: cedula.trim()
+                        ? validateDocumentNumber(
+                            cedula,
+                            user.docType || "Cédula de Ciudadanía",
+                          )
+                        : "",
+                    }))
+                  }}
                 />
+                {errors.cedula && (
+                  <p className="text-xs mt-1" style={{ color: C.red }}>
+                    {errors.cedula}
+                  </p>
+                )}
               </>
             ) : (
               [
@@ -7488,6 +7713,17 @@ function AdminProfilePage({
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
     }
+    if (form.phone.trim()) {
+      const phoneError = validatePhoneNumber(form.phone)
+      if (phoneError) newErrors.phone = phoneError
+    }
+    if (form.cedula.trim()) {
+      const documentError = validateDocumentNumber(
+        form.cedula,
+        user.docType || "Cédula de Ciudadanía",
+      )
+      if (documentError) newErrors.cedula = documentError
+    }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -7667,13 +7903,45 @@ function AdminProfilePage({
                     label="Teléfono"
                     type="tel"
                     value={form.phone}
-                    onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                    onChange={(v) => {
+                      const phone = normalizePhoneInput(v)
+                      setForm((f) => ({ ...f, phone }))
+                      setErrors((current) => ({
+                        ...current,
+                        phone: phone.trim() ? validatePhoneNumber(phone) : "",
+                      }))
+                    }}
                   />
+                  {errors.phone && (
+                    <p className="text-xs mt-1" style={{ color: C.red }}>
+                      {errors.phone}
+                    </p>
+                  )}
                   <InputField
                     label="Cédula"
                     value={form.cedula}
-                    onChange={(v) => setForm((f) => ({ ...f, cedula: v }))}
+                    onChange={(v) => {
+                      const cedula = normalizeDocumentInput(
+                        v,
+                        user.docType || "Cédula de Ciudadanía",
+                      )
+                      setForm((f) => ({ ...f, cedula }))
+                      setErrors((current) => ({
+                        ...current,
+                        cedula: cedula.trim()
+                          ? validateDocumentNumber(
+                              cedula,
+                              user.docType || "Cédula de Ciudadanía",
+                            )
+                          : "",
+                      }))
+                    }}
                   />
+                  {errors.cedula && (
+                    <p className="text-xs mt-1" style={{ color: C.red }}>
+                      {errors.cedula}
+                    </p>
+                  )}
                 </>
               ) : (
                 [
@@ -7979,14 +8247,21 @@ function AdminPanel({
   const dark = theme === "dark"
   const t = tk(dark)
   // Orders placed by clients in the web store
-  const [clientOrders] = useState(loadOrders)
+  const clientOrders = loadOrders()
   const notifications: AdminNotification[] = [
     ...clientOrders
-      .filter((o) => o.status === "Por confirmar")
+      .filter(
+        (o) =>
+          o.paymentStatus === "Pendiente de verificación" ||
+          (o.status === "Por confirmar" && o.paymentStatus !== "Rechazado"),
+      )
       .map((o, i) => ({
         id: 1000 + i,
         type: "warn" as const,
-        title: "Pedido por confirmar",
+        title:
+          o.paymentStatus === "Pendiente de verificación"
+            ? "Transferencia por verificar"
+            : "Pedido por confirmar",
         message: `${o.cliente} hizo el pedido ${o.id} por ${fmt(o.total)}${
           o.voucher ? " y subió el comprobante de pago" : ""
         }.`,
@@ -8005,6 +8280,18 @@ function AdminPanel({
         config.seed.map((row) => [...row] as (string | number)[]),
       ]),
     ) as Record<string, (string | number)[][]>
+    const savedUserStatuses = loadLS<Record<string, string>>(
+      "adminUserStatuses",
+      {},
+    )
+    initialRows.usuarios = (initialRows.usuarios || []).map((row) => {
+      const email = String(row[4] ?? "").trim().toLowerCase()
+      const savedStatus = savedUserStatuses[email]
+      if (!savedStatus) return row
+      const updatedRow = [...row]
+      updatedRow[5] = savedStatus
+      return updatedRow
+    })
     initialRows.pedidos = [
       ...clientOrders.map((o) => {
         const orderLines: AdminOrderLine[] = o.items.flatMap((item, index) => {
@@ -8026,6 +8313,15 @@ function AdminPanel({
           }))
           return [mainLine, ...additions]
         })
+        const paymentStatus =
+          o.paymentStatus ??
+          (o.voucher
+            ? ["Confirmado", "En cocina", "En camino", "Entregado"].includes(o.status)
+              ? "Pagado"
+              : "Pendiente de verificación"
+            : isTransferPaymentMethod(o.pago)
+              ? "Pendiente de verificación"
+              : "Pendiente")
         return [
           o.id,
           o.cliente,
@@ -8035,21 +8331,49 @@ function AdminPanel({
           o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
           o.total,
           o.status,
-          o.voucher ? "Pagado" : "Pendiente",
-          o.status === "Por confirmar"
-            ? "Pendiente admin"
-            : o.total >= APPROVAL_MIN
+          paymentStatus,
+          o.productionAuthorized
+            ? "Autorizada"
+            : paymentStatus === "Pendiente de verificación" || paymentStatus === "Rechazado"
+              ? "Pendiente de pago"
+              : o.status === "Por confirmar"
+                ? "Pendiente admin"
+                : o.total >= APPROVAL_MIN
               ? "Autorizada"
               : "No requerida",
           JSON.stringify(orderLines),
+          o.paymentRejectionReason ?? "",
         ]
       }),
       ...(initialRows.pedidos || []),
+    ]
+    initialRows.produccion = [
+      ...clientOrders.flatMap((order) => order.productionRecords ?? []),
+      ...(initialRows.produccion || []),
     ]
     const supplyProducts = (initialRows.insumos || [])
       .filter((row) => String(row[7]).toLowerCase() === "sí")
       .map(supplyAsProduct)
     initialRows.producto = [...supplyProducts, ...(initialRows.producto || [])]
+    const existingClientEmails = new Set(
+      (initialRows.clientes || []).flatMap((row) =>
+        row.slice(4, 6).map((value) => String(value ?? "").trim().toLowerCase())
+          .filter((value) => value.includes("@")),
+      ),
+    )
+    const registeredClientRows = loadRegisteredClients()
+      .filter((client) => !existingClientEmails.has(client.email.toLowerCase()))
+      .map((client) => [
+        client.name,
+        client.docType ?? "",
+        client.cedula ?? "",
+        client.phone ?? "",
+        client.email,
+        "",
+        "No",
+        "Activo",
+      ])
+    initialRows.clientes = [...registeredClientRows, ...(initialRows.clientes || [])]
     const duplicatedSales = (initialRows.pedidos || [])
       .filter(
         (order) =>
@@ -8090,6 +8414,8 @@ function AdminPanel({
     idx: number | null
   }>({ mode: null, section: "", idx: null })
   const [formData, setFormData] = useState<Record<string, string>>({})
+  const [formValidationAttempted, setFormValidationAttempted] = useState(false)
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string>>({})
   const [imgPreview, setImgPreview] = useState("")
   const [technicalSheetOpen, setTechnicalSheetOpen] = useState(false)
   const [technicalIngredients, setTechnicalIngredients] = useState<TechnicalIngredient[]>([])
@@ -8136,6 +8462,7 @@ function AdminPanel({
   const [pncError, setPncError] = useState("")
   const [quickClientOpen, setQuickClientOpen] = useState(false)
   const [quickClientForm, setQuickClientForm] = useState<Record<string, string>>({})
+  const [quickClientErrors, setQuickClientErrors] = useState<Record<string, string>>({})
   const [clientFormError, setClientFormError] = useState("")
   // Validation message for the insumo's technical sheet (producto de insumo)
   const [supplyFormError, setSupplyFormError] = useState("")
@@ -8144,6 +8471,9 @@ function AdminPanel({
     section: string
     idx: number
   } | null>(null)
+  const [paymentRejectionTarget, setPaymentRejectionTarget] = useState<number | null>(null)
+  const [paymentRejectionReason, setPaymentRejectionReason] = useState("")
+  const [paymentRejectionError, setPaymentRejectionError] = useState("")
   const [anulTarget, setAnulTarget] = useState<{
     section: string
     idx: number
@@ -8151,7 +8481,13 @@ function AdminPanel({
   const [chartFilter, setChartFilter] =
     useState<"hoy" | "semana" | "mes" | "año">("semana")
   const [rolesPerms, setRolesPerms] =
-    useState<Record<string, Record<string, string[]>>>({})
+    useState<Record<string, Record<string, string[]>>>(() =>
+      loadLS("adminRolePermissions", {}),
+    )
+
+  useEffect(() => {
+    saveLS("adminRolePermissions", rolesPerms)
+  }, [rolesPerms])
 
   useEffect(() => {
     const fn = (e: MouseEvent) => {
@@ -8478,6 +8814,153 @@ function AdminPanel({
     return `PED-${String(lastNumber + 1).padStart(4, "0")}`
   }
 
+  const getManagedFieldError = (
+    sec: string,
+    key: string,
+    value: string,
+    draft: Record<string, string>,
+    mode: ModalMode = modal.mode,
+  ) => {
+    const trimmed = value.trim()
+    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
+    const required =
+      sec === "usuarios"
+        ? ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])].includes(key)
+        : sec === "clientes"
+          ? ["0", "1", "2", "3", ...(clientIsLocal ? [] : ["4", "5"])].includes(key)
+          : sec === "proveedores"
+            ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14"].includes(key)
+            : sec === "roles"
+              ? ["0", "1"].includes(key)
+              : false
+
+    if (required && !trimmed) return "Este campo es obligatorio."
+    if (!trimmed) return ""
+
+    if ((sec === "usuarios" && key === "2") || (sec === "clientes" && key === "2")) {
+      return validateDocumentNumber(trimmed, String(draft["1"] ?? ""))
+    }
+    if (sec === "proveedores" && key === "1") {
+      const digits = digitsOnly(trimmed)
+      return /^[\d.-]+$/.test(trimmed) && digits.length >= 8 && digits.length <= 15
+        ? ""
+        : "Escribe un NIT válido (de 8 a 15 dígitos)."
+    }
+    if (sec === "proveedores" && key === "9") {
+      return validateDocumentNumber(trimmed, String(draft["8"] ?? ""))
+    }
+    if ((sec === "usuarios" && key === "4") ||
+        (sec === "clientes" && key === "4") ||
+        (sec === "proveedores" && ["2", "13"].includes(key))) {
+      return EMAIL_PATTERN.test(trimmed) ? "" : "Escribe un correo electrónico válido."
+    }
+    if ((sec === "clientes" && key === "3") ||
+        (sec === "proveedores" && ["3", "12"].includes(key))) {
+      return validatePhoneNumber(trimmed)
+    }
+    if (sec === "roles" && key === "0") {
+      const name = trimmed.toLowerCase()
+      const sameNameExists = (rows.roles || []).some((row, index) => {
+        if (mode === "edit" && modal.idx === index) return false
+        return String(row[0] ?? "").trim().toLowerCase() === name
+      })
+      return sameNameExists ? "Ya existe un rol con este nombre." : ""
+    }
+    return ""
+  }
+
+  const validateManagedForm = (
+    sec: string,
+    draft: Record<string, string>,
+    mode: ModalMode,
+  ) => {
+    const keys =
+      sec === "usuarios"
+        ? ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])]
+        : sec === "clientes"
+          ? ["0", "1", "2", "3", "4", "5"]
+          : sec === "proveedores"
+            ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14"]
+            : sec === "roles"
+              ? ["0", "1"]
+              : []
+
+    const duplicateErrors = (() => {
+      if (!["usuarios", "clientes"].includes(sec)) return {}
+
+      const email = String(draft["4"] ?? "").trim().toLowerCase()
+      const document = String(draft["2"] ?? "").trim().toLowerCase()
+      const phone =
+        sec === "clientes"
+          ? String(draft["3"] ?? "").trim().replace(/\s+/g, "")
+          : ""
+
+      const allRows = [
+        ...(rows.usuarios || []).map((row, idx) => ({ section: "usuarios", idx, row })),
+        ...(rows.clientes || []).map((row, idx) => ({ section: "clientes", idx, row })),
+      ]
+      const next: Record<string, string> = {}
+      allRows.forEach(({ section, idx, row }) => {
+        const isCurrentRecord = sec === section && modal.idx === idx
+        if (isCurrentRecord) return
+
+        const rowDocument = String(row[2] ?? "").trim().toLowerCase()
+        const rowEmail = String(row[4] ?? "").trim().toLowerCase()
+        const rowPhone =
+          section === "clientes"
+            ? String(row[3] ?? "").trim().replace(/\s+/g, "")
+            : ""
+
+        if (document && rowDocument && rowDocument === document) {
+          next["2"] = "Ya existe una persona registrada con este documento."
+        }
+        if (sec === "clientes" && phone && rowPhone && rowPhone === phone) {
+          next["3"] = "Ya existe una persona registrada con este teléfono."
+        }
+        if (email && rowEmail && rowEmail === email) {
+          next["4"] = "Ya existe una persona registrada con este correo electrónico."
+        }
+      })
+      return next
+    })()
+
+    return Object.fromEntries(
+      keys.flatMap((key) => {
+        if (sec === "clientes" &&
+            String(draft["6"] ?? "").toLowerCase() === "sí" &&
+            ["4", "5"].includes(key)) return []
+        const error = getManagedFieldError(sec, key, draft[key] ?? "", draft, mode)
+        const duplicateError = duplicateErrors[key] || ""
+        const finalError = duplicateError || error
+        return finalError ? [[key, finalError]] : []
+      }),
+    )
+  }
+
+  const updateAdminField = (
+    sec: string,
+    key: string,
+    value: string,
+  ) => {
+    const currentDraft = { ...formData, [key]: value }
+    const documentKey =
+      sec === "proveedores" && key === "8"
+        ? "9"
+        : (sec === "usuarios" || sec === "clientes") && key === "1"
+          ? "2"
+          : ""
+    if (documentKey) {
+      currentDraft[documentKey] = normalizeDocumentInput(
+        currentDraft[documentKey] ?? "",
+        value,
+      )
+    }
+    setFormData(currentDraft)
+    if (formValidationAttempted || formFieldErrors[key]) {
+      setFormFieldErrors(validateManagedForm(sec, currentDraft, modal.mode))
+    }
+  }
+
   const openAdd = (sec: string) => {
     const cfg = MOD_CFG[sec]
     if (!cfg) return
@@ -8501,6 +8984,8 @@ function AdminPanel({
       initialFields["6"] = "No"
       setClientFormError("")
     }
+    setFormValidationAttempted(false)
+    setFormFieldErrors({})
     if (sec === "produccion" || sec === "producto-no-conforme") {
       const currentDateTime = getCurrentDateTimeParts()
       setProductionItems([])
@@ -8548,6 +9033,13 @@ function AdminPanel({
         return [field.key, String(row[rowIndex] ?? "")]
       }),
     )
+    if (sec === "proveedores") {
+      const legacyContactName = String(row[4] ?? "").trim().split(/\s+/)
+      if (!nextForm["10"]) nextForm["10"] = legacyContactName.shift() ?? ""
+      if (!nextForm["11"]) nextForm["11"] = legacyContactName.join(" ")
+    }
+    setFormValidationAttempted(false)
+    setFormFieldErrors({})
     if (sec === "clientes") setClientFormError("")
     if (sec === "compras") resetPurchasePicker()
     if (sec === "insumos") setSupplyFormError("")
@@ -8602,6 +9094,25 @@ function AdminPanel({
     const config = MOD_CFG[sec]
     if (!config) return
 
+    if (["usuarios", "clientes", "proveedores", "roles"].includes(sec)) {
+      setFormValidationAttempted(true)
+      const errors = validateManagedForm(sec, formData, modal.mode)
+      setFormFieldErrors(errors)
+      if (Object.keys(errors).length) return
+    }
+
+    if (sec === "roles") {
+      const roleName = String(formData["0"] ?? "").trim()
+      const roleDescription = String(formData["1"] ?? "").trim()
+      if (!roleName || !roleDescription) {
+        setFormFieldErrors({
+          "0": roleName ? "" : "Este campo es obligatorio.",
+          "1": roleDescription ? "" : "Este campo es obligatorio.",
+        })
+        return
+      }
+    }
+
     if ((sec === "produccion" || sec === "producto-no-conforme") && !productionItems.length) {
       setProductionFormError("Agrega al menos un producto o producto de insumo.")
       return
@@ -8637,21 +9148,6 @@ function AdminPanel({
       sec === "producto-no-conforme" &&
       !getProductSupplyOptions().includes(String(formData["1"] ?? ""))
     ) return
-    if (sec === "clientes") {
-      const isLocalClient = String(formData["6"] ?? "").toLowerCase() === "sí"
-      const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
-      const missingField = requiredFields.find(
-        (key) => !String(formData[key] ?? "").trim(),
-      )
-      if (missingField) {
-        setClientFormError(
-          isLocalClient
-            ? "Completa nombre, tipo y número de documento y teléfono."
-            : "Completa todos los campos obligatorios del cliente.",
-        )
-        return
-      }
-    }
     if (sec === "insumos" && String(formData["7"] ?? "").toLowerCase() === "sí") {
       // A producto de insumo must be saved together with its technical sheet
       if (!String(formData["0"] ?? "").trim())
@@ -8681,6 +9177,9 @@ function AdminPanel({
       if (Number.isFinite(index)) newRow[index] = formData[field.key] ?? ""
       else newRow.push(formData[field.key] ?? "")
     })
+    if (sec === "proveedores") {
+      newRow[4] = `${String(formData["10"] ?? "").trim()} ${String(formData["11"] ?? "").trim()}`.trim()
+    }
     if (sec === "cat-producto") newRow[0] = String(newRow[0] ?? "").trim()
 
     if (sec === "producto") {
@@ -8870,8 +9369,18 @@ function AdminPanel({
         return { ...current, ventas: salesRows }
       })
     }
-    if (sec === "roles" && modal.mode === "add") {
-      setRolesPerms((current) => ({ ...current, [String(newRow[0])]: {} }))
+    if (sec === "roles" && modal.mode === "edit" && previousRow) {
+      const previousRoleName = String(previousRow[0] ?? "")
+      const nextRoleName = String(newRow[0] ?? "")
+      if (previousRoleName !== nextRoleName) {
+        setRolesPerms((current) => {
+          const previousPermissions = current[previousRoleName]
+          const next = { ...current }
+          delete next[previousRoleName]
+          if (previousPermissions) next[nextRoleName] = previousPermissions
+          return next
+        })
+      }
     }
     if (sec === "clientes") setClientFormError("")
     if (sec === "produccion") setProductionFormError("")
@@ -9107,6 +9616,14 @@ function AdminPanel({
       ? inactiveStatus
       : activeStatus
 
+    if (sec === "usuarios") {
+      const email = String(currentRow[4] ?? "").trim().toLowerCase()
+      if (email) {
+        const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
+        saveLS("adminUserStatuses", { ...statuses, [email]: nextValue })
+      }
+    }
+
     setRows((current) => {
       const updated = [...(current[sec] || [])]
       const updatedRow = [...updated[rowIndex]]
@@ -9129,12 +9646,14 @@ function AdminPanel({
       return { ...current, [sec]: updated }
     })
 
-    setAnulled((current) => {
-      const next = new Set(current[sec] || [])
-      if (isStatusActive(nextValue)) next.delete(rowIndex)
-      else next.add(rowIndex)
-      return { ...current, [sec]: next }
-    })
+    if (sec !== "usuarios") {
+      setAnulled((current) => {
+        const next = new Set(current[sec] || [])
+        if (isStatusActive(nextValue)) next.delete(rowIndex)
+        else next.add(rowIndex)
+        return { ...current, [sec]: next }
+      })
+    }
   }
 
   const StatusSwitch = ({
@@ -9205,68 +9724,101 @@ function AdminPanel({
   const approveOrderForProduction = (orderIndex: number) => {
     const order = rows.pedidos?.[orderIndex]
     const proof = paymentProofs[orderIndex]
+    const paymentStatus = String(order?.[8] ?? "")
+    const transferPayment = isTransferPaymentMethod(String(order?.[4] ?? ""))
     const payOnDelivery = String(order?.[5]) === "Contraentrega"
     if (
       !order ||
-      (!payOnDelivery &&
-        (String(order[8]).toLowerCase() !== "pagado" || !proof)) ||
-      String(order[9]) === "Autorizada"
+      String(order[9]) === "Autorizada" ||
+      (transferPayment &&
+        (paymentStatus !== "Pendiente de verificación" || !proof)) ||
+      (!transferPayment && !payOnDelivery && paymentStatus !== "Pagado")
     ) return
 
-    // Let the client see the owner's confirmation
+    const requestedItems = getAdminOrderLines(order)
+    if (!requestedItems.length) {
+      window.alert("Este pedido no tiene productos para enviar a producción.")
+      return
+    }
+
+    const storedOrders = loadOrders()
+    const storedOrder = storedOrders.find((item) => item.id === order[0])
+    if (storedOrder?.productionAuthorized) return
+    const currentDateTime = getCurrentDateTimeParts()
+    const productionRecords: (string | number)[][] = []
+    const existingProductionRows = [...(rows.produccion || [])]
+    let priority = Math.max(
+      0,
+      ...existingProductionRows.map((row) => Number(row[3]) || 0),
+    )
+    requestedItems.slice().reverse().forEach((item) => {
+      priority += 1
+      const parent = requestedItems.find((candidate) => candidate.id === item.parentId)
+      const productionRecord: (string | number)[] = [
+        getNextProductionCode(existingProductionRows),
+        parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
+        item.quantity,
+        priority,
+        currentDateTime.date,
+        currentDateTime.time,
+        currentDateTime.date,
+        currentDateTime.time,
+        "Iniciada",
+        "",
+        0,
+        "Sí",
+        JSON.stringify([
+          {
+            status: "Iniciada",
+            date: currentDateTime.date,
+            time: currentDateTime.time,
+          },
+        ]),
+        JSON.stringify([{
+          name: item.product,
+          quantity: item.quantity,
+          category: item.category,
+          ...(item.parentId ? { parentId: item.parentId } : {}),
+        }]),
+        "No",
+      ]
+      existingProductionRows.unshift(productionRecord)
+      productionRecords.unshift(productionRecord)
+    })
     saveOrders(
-      loadOrders().map((o) =>
-        o.id === order[0] ? { ...o, status: "Confirmado" } : o,
+      storedOrders.map((item) =>
+        item.id === order[0]
+          ? {
+              ...item,
+              status: "Confirmado",
+              ...(transferPayment ? { paymentStatus: "Pagado" as const } : {}),
+              productionAuthorized: true,
+              productionRecords,
+            }
+          : item,
       ),
     )
 
-    const currentDateTime = getCurrentDateTimeParts()
-    const requestedItems = getAdminOrderLines(order)
-
     setRows((current) => {
+      const currentOrder = current.pedidos?.[orderIndex]
+      if (!currentOrder || String(currentOrder[9]) === "Autorizada") {
+        return current
+      }
       const orderRows = [...(current.pedidos || [])]
-      const updatedOrder = [...orderRows[orderIndex]]
+      const updatedOrder = [...currentOrder]
+      updatedOrder[8] = transferPayment ? "Pagado" : updatedOrder[8]
       updatedOrder[9] = "Autorizada"
-      if (updatedOrder[7] === "Por confirmar") updatedOrder[7] = "Confirmado"
+      if (
+        transferPayment ||
+        updatedOrder[7] === "Por confirmar" ||
+        updatedOrder[7] === "Pendiente de verificación"
+      ) {
+        updatedOrder[7] = "Confirmado"
+      }
+      updatedOrder[11] = ""
       orderRows[orderIndex] = updatedOrder
 
-      const productionRows = [...(current.produccion || [])]
-      let priority = Math.max(
-        0,
-        ...productionRows.map((row) => Number(row[3]) || 0),
-      )
-      requestedItems.slice().reverse().forEach((item) => {
-        priority += 1
-        const parent = requestedItems.find((candidate) => candidate.id === item.parentId)
-        productionRows.unshift([
-          getNextProductionCode(productionRows),
-          parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
-          item.quantity,
-          priority,
-          currentDateTime.date,
-          currentDateTime.time,
-          currentDateTime.date,
-          currentDateTime.time,
-          "Iniciada",
-          "",
-          0,
-          "Sí",
-          JSON.stringify([
-            {
-              status: "Iniciada",
-              date: currentDateTime.date,
-              time: currentDateTime.time,
-            },
-          ]),
-          JSON.stringify([{
-            name: item.product,
-            quantity: item.quantity,
-            category: item.category,
-            ...(item.parentId ? { parentId: item.parentId } : {}),
-          }]),
-          "No",
-        ])
-      })
+      const productionRows = [...productionRecords, ...(current.produccion || [])]
 
       let salesRows = [...(current.ventas || [])]
       const notShipped = !["En camino", "Entregado"].includes(
@@ -9301,14 +9853,75 @@ function AdminPanel({
     })
   }
 
+  const rejectTransferPayment = () => {
+    if (paymentRejectionTarget === null) return
+    const orderIndex = paymentRejectionTarget
+    const order = rows.pedidos?.[orderIndex]
+    const reason = paymentRejectionReason.trim()
+    if (!order || !reason) {
+      setPaymentRejectionError("Escribe el motivo por el que rechazas el comprobante.")
+      return
+    }
+    if (
+      !isTransferPaymentMethod(String(order[4] ?? "")) ||
+      String(order[8]) !== "Pendiente de verificación"
+    ) {
+      setPaymentRejectionError("Este comprobante ya no está pendiente de revisión.")
+      return
+    }
+
+    const orderId = String(order[0])
+    saveOrders(
+      loadOrders().map((item) =>
+        item.id === orderId
+          ? {
+              ...item,
+              paymentStatus: "Rechazado",
+              paymentRejectionReason: reason,
+              productionAuthorized: false,
+            }
+          : item,
+      ),
+    )
+    setRows((current) => {
+      const currentOrder = current.pedidos?.[orderIndex]
+      if (!currentOrder || String(currentOrder[8]) !== "Pendiente de verificación") {
+        return current
+      }
+      const orderRows = [...(current.pedidos || [])]
+      const updatedOrder = [...currentOrder]
+      updatedOrder[8] = "Rechazado"
+      updatedOrder[11] = reason
+      orderRows[orderIndex] = updatedOrder
+      return { ...current, pedidos: orderRows }
+    })
+    setPaymentRejectionTarget(null)
+    setPaymentRejectionReason("")
+    setPaymentRejectionError("")
+  }
+
   const saveQuickClient = () => {
     const isLocalClient = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
     const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
-    if (requiredFields.some((key) => !String(quickClientForm[key] ?? "").trim())) {
+    const errors: Record<string, string> = {}
+    requiredFields.forEach((key) => {
+      const value = String(quickClientForm[key] ?? "").trim()
+      if (!value) {
+        errors[key] = "Este campo es obligatorio."
+      } else if (key === "2") {
+        const error = validateDocumentNumber(value, quickClientForm["1"] ?? "")
+        if (error) errors[key] = error
+      } else if (key === "3") {
+        const error = validatePhoneNumber(value)
+        if (error) errors[key] = error
+      } else if (key === "4" && !EMAIL_PATTERN.test(value)) {
+        errors[key] = "Escribe un correo electrónico válido."
+      }
+    })
+    setQuickClientErrors(errors)
+    if (Object.keys(errors).length) {
       setQuickClientError(
-        isLocalClient
-          ? "Completa nombre, tipo y número de documento y teléfono."
-          : "Completa todos los campos obligatorios del cliente.",
+        "Corrige los campos indicados antes de registrar el cliente.",
       )
       return
     }
@@ -9329,6 +9942,7 @@ function AdminPanel({
     }))
     setFormData((current) => ({ ...current, "1": name }))
     setQuickClientForm({})
+    setQuickClientErrors({})
     setQuickClientError("")
     setQuickClientOpen(false)
   }
@@ -10421,7 +11035,16 @@ function AdminPanel({
     }
 
     const renderActions = (rowIndex: number, isAnulled: boolean) => {
-      const detailActionLabel = section === "compras" ? "Ver compra" : "Ver detalle"
+      const orderRow = section === "pedidos" ? rows.pedidos?.[rowIndex] : undefined
+      const needsPaymentReview =
+        !!orderRow &&
+        isTransferPaymentMethod(String(orderRow[4] ?? "")) &&
+        String(orderRow[8]) === "Pendiente de verificación"
+      const detailActionLabel = needsPaymentReview
+        ? "Revisar transferencia"
+        : section === "compras"
+          ? "Ver compra"
+          : "Ver detalle"
       const deleteAssessment = getDeleteAssessment(
         section,
         rows[section]?.[rowIndex],
@@ -10474,7 +11097,36 @@ function AdminPanel({
             </button>
           )}
           {cfg.statusIndex !== undefined ? (
-            !noDelete && deleteButton
+            section === "producto" ? (
+              isAnulled ? (
+                <button
+                  type="button"
+                  title="Reactivar producto"
+                  aria-label="Reactivar producto"
+                  onClick={() =>
+                    toggleStatus(section, rowIndex, cfg.statusIndex!)
+                  }
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                  style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+                >
+                  {Ico.undo}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  title="Anular producto"
+                  aria-label="Anular producto"
+                  aria-haspopup="dialog"
+                  onClick={() => setAnulTarget({ section, idx: rowIndex })}
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                  style={{ color: C.red, background: `${C.red}12` }}
+                >
+                  {Ico.ban}
+                </button>
+              )
+            ) : (
+              !noDelete && deleteButton
+            )
           ) : noDelete ? (
             isAnulled ? (
               <button
@@ -10880,7 +11532,15 @@ function AdminPanel({
   }
 
   // Roles permissions matrix for create/edit
-  const RolesPermMatrix = ({ roleName, readOnly = false }: { roleName: string; readOnly?: boolean }) => {
+  const RolesPermMatrix = ({
+    roleName,
+    permissionKey = roleName,
+    readOnly = false,
+  }: {
+    roleName: string
+    permissionKey?: string
+    readOnly?: boolean
+  }) => {
     const isAdmin = roleName.toLowerCase() === "administrador"
     const perms = isAdmin
       ? Object.fromEntries(
@@ -10889,22 +11549,70 @@ function AdminPanel({
             ["Ver", "Crear", "Editar", "Anular", "Eliminar"],
           ]),
         )
-      : (rolesPerms[roleName] || {})
+      : (rolesPerms[permissionKey] || {})
     const commonActions = ["Ver", "Crear", "Editar"]
     const toggle = (mod: string, action: string) => {
       if (readOnly || isAdmin) return
       setRolesPerms((rp) => {
-        const cur = rp[roleName]?.[mod] || []
+        const cur = rp[permissionKey]?.[mod] || []
         const next = cur.includes(action)
           ? cur.filter((a) => a !== action)
           : [...cur, action]
-        return { ...rp, [roleName]: { ...(rp[roleName] || {}), [mod]: next } }
+        return { ...rp, [permissionKey]: { ...(rp[permissionKey] || {}), [mod]: next } }
+      })
+    }
+    const setAllPermissions = (select: boolean) => {
+      if (readOnly || isAdmin) return
+      setRolesPerms((rp) => {
+        const nextPerms = Object.fromEntries(
+          PERMISSION_MODULES.map(({ name, finalAction }) => {
+            const actions = [...commonActions, finalAction]
+            return [name, select ? actions : []]
+          }),
+        )
+        return { ...rp, [permissionKey]: nextPerms }
       })
     }
     return (
       <div className="mt-3">
-        <div className="text-xs font-bold mb-2" style={{ color: t.muted }}>
-          Permisos por módulo
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="text-xs font-bold" style={{ color: t.muted }}>
+            Permisos por módulo
+          </div>
+          {!readOnly && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAllPermissions(true)}
+                disabled={isAdmin}
+                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
+                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
+                style={{
+                  background: t.input,
+                  color: t.text,
+                  opacity: isAdmin ? 0.5 : 1,
+                  cursor: isAdmin ? "not-allowed" : "pointer",
+                }}
+              >
+                Seleccionar todo
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllPermissions(false)}
+                disabled={isAdmin}
+                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
+                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
+                style={{
+                  background: t.input,
+                  color: t.text,
+                  opacity: isAdmin ? 0.5 : 1,
+                  cursor: isAdmin ? "not-allowed" : "pointer",
+                }}
+              >
+                Quitar todos
+              </button>
+            </div>
+          )}
         </div>
         <div
           className="min-w-0 overflow-hidden rounded-xl"
@@ -11006,6 +11714,7 @@ function AdminPanel({
     const isSales = modal.section === "ventas"
     const isReturns = modal.section === "devoluciones"
     const isClient = modal.section === "clientes"
+    const isSupplier = modal.section === "proveedores"
     const row = modal.idx !== null ? rows[modal.section]?.[modal.idx] : null
     const orderDetails = isPedido ? getAdminOrderLines(row || undefined) : []
     const saleOrderLines = getSaleOrderLines(isSales ? row : null)
@@ -11025,7 +11734,7 @@ function AdminPanel({
     const namesOf = (sec: string) =>
       (rows[sec] || []).map((r) => String(r[0] ?? "")).filter(Boolean)
     const isWideField = (f: FieldType) =>
-      f.key === "0" ||
+      (f.key === "0" && !isSupplier) ||
       f.type === "textarea" ||
       f.type === "checkbox" ||
       (modal.section === "proveedores" && (f.key === "5" || f.key === "7"))
@@ -11121,7 +11830,7 @@ function AdminPanel({
         onClick={() => setModal({ mode: null, section: "", idx: null })}
       >
         <div
-          className={`flex min-w-0 w-full ${isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+          className={`flex min-w-0 w-full ${isSupplier ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
@@ -11157,7 +11866,9 @@ function AdminPanel({
           <div
 
             className={`min-w-0 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-5 ${
-              isPurchaseModule ? "grid content-start gap-x-4 gap-y-3 sm:grid-cols-2" : "flex flex-col gap-3"
+              isPurchaseModule
+                ? `grid content-start gap-x-4 gap-y-3 ${isSupplier ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-2" : "sm:grid-cols-2"}`
+                : "flex flex-col gap-3"
             }`}
             style={{ maxHeight: "65vh", scrollbarWidth: "none" }}
           >
@@ -11337,6 +12048,7 @@ function AdminPanel({
                         ) : f.type === "select" ? (
                           <select
                             value={val}
+                            disabled={isPedido && f.key === "7"}
                             onChange={(e) =>
                               setFormData((d) => ({
                                 ...d,
@@ -11344,10 +12056,16 @@ function AdminPanel({
                               }))
                             }
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                            title={
+                              isPedido && f.key === "7"
+                                ? "El pago solo cambia al aprobar o rechazar el comprobante en el detalle del pedido."
+                                : undefined
+                            }
                             style={{
                               background: t.input,
                               border: `1.5px solid ${t.inputB}`,
                               color: val ? t.text : t.muted,
+                              opacity: isPedido && f.key === "7" ? 0.7 : 1,
                             }}
                           >
                             <option value="">Selecciona...</option>
@@ -11414,15 +12132,37 @@ function AdminPanel({
                         className="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
                         style={{ background: C.mustard, color: "#fff" }}
                       >
-                        Ficha técnica
+                        {technicalIngredients.length
+                          ? "Editar ficha técnica"
+                          : "Agregar ficha técnica"}
                       </button>
                     )}
                   </div>
                   {!isView && (
-                    <div className="rounded-xl px-3 py-2.5 text-xs" style={{ background: t.cardAlt, color: t.muted }}>
+                    <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                       {technicalIngredients.length
-                        ? `${technicalIngredients.length} insumo${technicalIngredients.length === 1 ? "" : "s"} en la receta`
-                        : "Ficha técnica opcional. Puedes agregar insumos, cantidades y unidades."}
+                        ? (
+                          <>
+                            <div className="mb-2 text-xs font-bold" style={{ color: t.text }}>
+                              Insumos y cantidades
+                            </div>
+                            {technicalIngredients.map((ingredient, index) => (
+                              <div
+                                key={`${ingredient.name}-${index}`}
+                                className="flex justify-between gap-3 border-t py-2 text-xs"
+                                style={{ borderColor: t.border, color: t.muted }}
+                              >
+                                <span className="min-w-0 truncate">{ingredient.name}</span>
+                                <strong className="shrink-0" style={{ color: t.text }}>
+                                  {ingredient.quantity} {ingredient.unit}
+                                </strong>
+                              </div>
+                            ))}
+                          </>
+                        )
+                        : <span className="text-xs" style={{ color: t.muted }}>
+                            Ficha técnica opcional. Puedes agregar insumos, cantidades y unidades.
+                          </span>}
                     </div>
                   )}
                   {isView && getProductRecipe(row ?? undefined).length > 0 && (
@@ -12043,19 +12783,41 @@ function AdminPanel({
                     </section>
                   )
                 }
+                const isLocalClient =
+                  isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
+                const requiredClientField =
+                  isClient &&
+                  !isView &&
+                  (["0", "1", "2", "3"].includes(f.key) ||
+                    (!isLocalClient && ["4", "5"].includes(f.key)))
+                const requiredManagedField =
+                  !isView &&
+                  ((modal.section === "usuarios" &&
+                    ["0", "1", "2", "3", "4"].includes(f.key)) ||
+                    (modal.section === "usuarios" && modal.mode === "add" && f.key === "6") ||
+                    (modal.section === "roles" && ["0", "1"].includes(f.key)) ||
+                    (isClient &&
+                      (["0", "1", "2", "3"].includes(f.key) ||
+                        (!isLocalClient && ["4", "5"].includes(f.key)))) ||
+                    (isSupplier &&
+                      ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14"].includes(f.key)))
+                const fieldValidationError = formFieldErrors[f.key]
                 // Supplier form: pick which insumos this supplier sells
                 if (modal.section === "proveedores" && !isView && f.key === "7") {
                   const selected = splitList(String(formData["7"] ?? ""))
                   const toggleSupply = (name: string) =>
-                    setFormData((current) => {
-                      const now = splitList(String(current["7"] ?? ""))
-                      const next = now.includes(name) ? now.filter((n) => n !== name) : [...now, name]
-                      return { ...current, "7": next.join(", ") }
-                    })
+                    updateAdminField(
+                      "proveedores",
+                      "7",
+                      (selected.includes(name)
+                        ? selected.filter((item) => item !== name)
+                        : [...selected, name]
+                      ).join(", "),
+                    )
                   return (
-                    <div key="7" className="flex flex-col gap-1.5 sm:col-span-2">
+                    <div key="7" className="flex flex-col gap-1.5 lg:col-start-1 lg:col-span-1">
                       <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                        {f.label}
+                        {f.label}{requiredManagedField && " *"}
                       </span>
                       <div className="flex flex-wrap gap-2">
                         {namesOf("insumos").map((name) => {
@@ -12083,6 +12845,11 @@ function AdminPanel({
                       <p className="text-[11px]" style={{ color: t.muted }}>
                         Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
                       </p>
+                      {fieldValidationError && (
+                        <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
+                          {fieldValidationError}
+                        </span>
+                      )}
                     </div>
                   )
                 }
@@ -12119,16 +12886,10 @@ function AdminPanel({
                 })
                 const selectedOrderProduct = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
                 const isSelectedAddition = String(selectedOrderProduct?.[1] ?? "").toLowerCase() === "adiciones"
-                const isLocalClient =
-                  isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
-                const requiredClientField =
-                  isClient &&
-                  !isView &&
-                  (["0", "1", "2", "3"].includes(f.key) ||
-                    (!isLocalClient && ["4", "5"].includes(f.key)))
                 const updateFieldValue = (value: string) => {
                   if (isSales && f.key === "1" && value === "__new_client__") {
                     setQuickClientForm({})
+                    setQuickClientErrors({})
                     setQuickClientError("")
                     setQuickClientOpen(true)
                     return
@@ -12149,19 +12910,55 @@ function AdminPanel({
                     setPurchaseFormError("")
                     return
                   }
+                  if (["usuarios", "clientes", "proveedores"].includes(modal.section)) {
+                    const normalized =
+                      (modal.section === "usuarios" && f.key === "2") ||
+                      (modal.section === "clientes" && f.key === "2") ||
+                      (isSupplier && f.key === "9")
+                        ? normalizeDocumentInput(
+                            value,
+                            String(formData[isSupplier ? "8" : "1"] ?? ""),
+                          )
+                        : ((modal.section === "clientes" && f.key === "3") ||
+                            (isSupplier && ["3", "12"].includes(f.key)))
+                          ? normalizePhoneInput(value)
+                          : isSupplier && f.key === "1"
+                            ? value.replace(/[^0-9.-]/g, "").slice(0, 20)
+                            : value
+                    updateAdminField(modal.section, f.key, normalized)
+                    return
+                  }
                   setFormData((current) => ({ ...current, [f.key]: value }))
                 }
                 return (
                   <Fragment key={f.key}>
+                  {isSupplier && (f.key === "0" || f.key === "8") && (
+                    <div
+                      className={`pt-1 sm:col-span-2 ${
+                        f.key === "0" ? "lg:col-span-1 lg:col-start-1" : "lg:col-span-1 lg:col-start-2"
+                      }`}
+                    >
+                      <div className="mb-1 h-px" style={{ background: t.border }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                        {f.key === "0" ? "Datos del proveedor" : "Persona de contacto"}
+                      </h4>
+                    </div>
+                  )}
                   <div
-                    className={`flex min-w-0 flex-col gap-1.5 ${isPurchaseModule && isWideField(f) ? "sm:col-span-2" : ""}`}
+                    className={`flex min-w-0 flex-col gap-1 ${
+                      isSupplier
+                      ? `${Number(f.key) < 8 ? "lg:col-start-1" : "lg:col-start-2"} ${isWideField(f) ? "lg:col-span-1" : ""}`
+                        : isPurchaseModule && isWideField(f)
+                          ? "sm:col-span-2"
+                          : ""
+                    }`}
                   >
                     <label
                       className="text-xs font-semibold"
                       style={{ color: t.muted }}
                     >
                       {f.label}
-                      {requiredClientField && " *"}
+                      {(requiredClientField || requiredManagedField) && " *"}
                     </label>
                     {isPedido && f.key === "1" && !isView ? (
                       <div className="flex flex-col gap-3">
@@ -12301,11 +13098,13 @@ function AdminPanel({
                         aria-checked={String(val).toLowerCase() === "sí"}
                         onClick={() => {
                           if (isClient) {
-                            setFormData((current) => {
-                              const enabled =
-                                String(current[f.key] ?? "No").toLowerCase() === "sí"
-                              return { ...current, [f.key]: enabled ? "No" : "Sí" }
-                            })
+                            const enabled =
+                              String(formData[f.key] ?? "No").toLowerCase() === "sí"
+                            updateAdminField(
+                              modal.section,
+                              f.key,
+                              enabled ? "No" : "Sí",
+                            )
                           } else {
                             handleSupplyCheckboxToggle()
                           }
@@ -12338,10 +13137,24 @@ function AdminPanel({
                       <select
                         value={val}
                         onChange={(e) => updateFieldValue(e.target.value)}
+                        onBlur={() => {
+                          if (requiredManagedField) {
+                            setFormFieldErrors((current) => ({
+                              ...current,
+                              [f.key]: getManagedFieldError(
+                                modal.section,
+                                f.key,
+                                val,
+                                formData,
+                              ),
+                            }))
+                          }
+                        }}
+                        aria-invalid={!!fieldValidationError}
                         className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: val ? t.text : t.muted,
                         }}
                       >
@@ -12376,19 +13189,44 @@ function AdminPanel({
                       <input
                         type={f.type}
                         value={val}
-                        onChange={(e) =>
-                          setFormData((d) => ({
-                            ...d,
-                            [f.key]: e.target.value,
-                          }))
+                        inputMode={
+                          (modal.section === "usuarios" && f.key === "2") ||
+                          (isClient && ["2", "3"].includes(f.key)) ||
+                          (isSupplier &&
+                            ["1", "12"].includes(f.key)) ||
+                          (isSupplier &&
+                            f.key === "9" &&
+                            formData["8"] !== "Pasaporte")
+                            ? "numeric"
+                            : undefined
                         }
+                        onChange={(e) => updateFieldValue(e.target.value)}
+                        onBlur={() => {
+                          if (requiredManagedField) {
+                            setFormFieldErrors((current) => ({
+                              ...current,
+                              [f.key]: getManagedFieldError(
+                                modal.section,
+                                f.key,
+                                val,
+                                formData,
+                              ),
+                            }))
+                          }
+                        }}
+                        aria-invalid={!!fieldValidationError}
                         className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: t.text,
                         }}
                       />
+                    )}
+                    {fieldValidationError && !isView && (
+                      <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
+                        {fieldValidationError}
+                      </span>
                     )}
                   </div>
                   </Fragment>
@@ -12582,15 +13420,68 @@ function AdminPanel({
                     {!orderDetails.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  disabled={(String(row?.[5]) !== "Contraentrega" && (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) || String(row?.[9]) === "Autorizada"}
-                  onClick={() => approveOrderForProduction(modal.idx!)}
-                  className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ background: C.mustard, color: "#fff" }}
-                >
-                  {String(row?.[9]) === "Autorizada" ? "Producción ya autorizada" : "Confirmar pedido y enviar a producción"}
-                </button>
+                {paymentProofs[modal.idx!] && (
+                  <div className="mt-4">
+                    <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
+                      Comprobante de transferencia
+                    </h4>
+                    <img
+                      src={paymentProofs[modal.idx!]}
+                      alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
+                      className="max-h-64 w-full rounded-xl object-contain"
+                      style={{ background: t.card, border: `1px solid ${t.border}` }}
+                    />
+                  </div>
+                )}
+                {String(row?.[8]) === "Rechazado" && (
+                  <p className="mt-4 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
+                    Transferencia rechazada: {String(row?.[11] || "Sin motivo registrado.")}
+                  </p>
+                )}
+                {isTransferPaymentMethod(String(row?.[4] ?? "")) &&
+                String(row?.[8]) === "Pendiente de verificación" ? (
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentRejectionTarget(modal.idx!)
+                        setPaymentRejectionReason("")
+                        setPaymentRejectionError("")
+                      }}
+                      className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
+                      style={{ background: `${C.red}12`, color: C.red }}
+                    >
+                      Rechazar transferencia
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!paymentProofs[modal.idx!]}
+                      onClick={() => approveOrderForProduction(modal.idx!)}
+                      className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      Aprobar transferencia y enviar a producción
+                    </button>
+                  </div>
+                ) : String(row?.[9]) === "Autorizada" ? (
+                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
+                    Pago aprobado y producción autorizada.
+                  </p>
+                ) : String(row?.[8]) !== "Rechazado" && (
+                  <button
+                    type="button"
+                    disabled={
+                      (String(row?.[5]) !== "Contraentrega" &&
+                        (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) ||
+                      String(row?.[9]) === "Autorizada"
+                    }
+                    onClick={() => approveOrderForProduction(modal.idx!)}
+                    className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ background: C.mustard, color: "#fff" }}
+                  >
+                    Confirmar pedido y enviar a producción
+                  </button>
+                )}
               </div>
             )}
             {isView && isSales && (
@@ -12620,7 +13511,14 @@ function AdminPanel({
             )}
             {/* Roles permissions matrix */}
             {isRoles && !isView && (
-              <RolesPermMatrix roleName={formData["0"] || ""} />
+              <RolesPermMatrix
+                roleName={formData["0"] || ""}
+                permissionKey={
+                  modal.mode === "edit" && row
+                    ? String(row[0] ?? "")
+                    : formData["0"] || ""
+                }
+              />
             )}
             {isRoles && isView && row && (
               <RolesPermMatrix roleName={String(row[0])} readOnly={true} />
@@ -13058,17 +13956,60 @@ function AdminPanel({
   const QuickClientModal = () => {
     if (!quickClientOpen) return null
     const quickIsLocal = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
+    const updateQuickClientField = (
+      key: string,
+      rawValue: string,
+      validateImmediately = false,
+    ) => {
+      const value =
+        key === "2"
+          ? normalizeDocumentInput(rawValue, quickClientForm["1"] ?? "")
+          : key === "3"
+            ? normalizePhoneInput(rawValue)
+            : rawValue
+      const nextForm = { ...quickClientForm, [key]: value }
+      if (key === "1") {
+        nextForm["2"] = normalizeDocumentInput(
+          nextForm["2"] ?? "",
+          value,
+        )
+      }
+      setQuickClientForm(nextForm)
+      if (validateImmediately || quickClientErrors[key] || quickClientError) {
+        const isLocal = String(nextForm["6"] ?? "").toLowerCase() === "sí"
+        const required =
+          key === "0" || key === "1" || key === "2" || key === "3" ||
+          (!isLocal && (key === "4" || key === "5"))
+        let error = required && !value.trim() ? "Este campo es obligatorio." : ""
+        if (!error && key === "2" && value.trim()) {
+          error = validateDocumentNumber(value, nextForm["1"] ?? "")
+        }
+        if (!error && key === "3" && value.trim()) error = validatePhoneNumber(value)
+        if (!error && key === "4" && value.trim() && !EMAIL_PATTERN.test(value.trim())) {
+          error = "Escribe un correo electrónico válido."
+        }
+        setQuickClientErrors((current) => {
+          const updated = { ...current }
+          if (error) updated[key] = error
+          else delete updated[key]
+          return updated
+        })
+        if (!error) setQuickClientError("")
+      }
+    }
     const field = (key: string, label: string, type = "text", options?: string[]) => (
       <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-        {label}
+        {label}{(key === "0" || key === "1" || key === "2" || key === "3" ||
+          (!quickIsLocal && (key === "4" || key === "5"))) && " *"}
         {options ? (
-          <select value={quickClientForm[key] || ""} onChange={(event) => setQuickClientForm((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}>
+          <select value={quickClientForm[key] || ""} onBlur={() => updateQuickClientField(key, quickClientForm[key] || "", true)} onChange={(event) => updateQuickClientField(key, event.target.value)} aria-invalid={!!quickClientErrors[key]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${quickClientErrors[key] ? C.red : t.inputB}`, color: t.text }}>
             <option value="">Selecciona...</option>
             {options.map((option) => <option key={option}>{option}</option>)}
           </select>
         ) : (
-          <input type={type} value={quickClientForm[key] || ""} onChange={(event) => setQuickClientForm((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
+          <input type={type} inputMode={key === "2" || key === "3" ? "numeric" : undefined} value={quickClientForm[key] || ""} onBlur={() => updateQuickClientField(key, quickClientForm[key] || "", true)} onChange={(event) => updateQuickClientField(key, event.target.value)} aria-invalid={!!quickClientErrors[key]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${quickClientErrors[key] ? C.red : t.inputB}`, color: t.text }} />
         )}
+        {quickClientErrors[key] && <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>{quickClientErrors[key]}</span>}
       </label>
     )
     return (
@@ -13089,7 +14030,16 @@ function AdminPanel({
               type="button"
               role="checkbox"
               aria-checked={quickIsLocal}
-              onClick={() => setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))}
+              onClick={() => {
+                setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))
+                setQuickClientErrors((current) => {
+                  const next = { ...current }
+                  if (quickIsLocal) return next
+                  delete next["4"]
+                  delete next["5"]
+                  return next
+                })
+              }}
               className="flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 text-left sm:col-span-2"
               style={{ background: t.input, border: `1px solid ${t.inputB}` }}
             >
@@ -13177,6 +14127,76 @@ function AdminPanel({
                 Anular
               </button>
             )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const PaymentRejectionModal = () => {
+    if (paymentRejectionTarget === null) return null
+    const order = rows.pedidos?.[paymentRejectionTarget]
+    if (!order) return null
+
+    return (
+      <div
+        className="fixed inset-0 z-[70] flex items-center justify-center px-4"
+        style={{ background: "rgba(0,0,0,0.65)" }}
+        onClick={() => setPaymentRejectionTarget(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="payment-rejection-title"
+          className="w-full max-w-md rounded-2xl p-5"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h3 id="payment-rejection-title" className="text-base font-bold" style={{ color: t.text }}>
+            Rechazar transferencia
+          </h3>
+          <p className="mt-2 text-sm" style={{ color: t.muted }}>
+            El pedido {String(order[0])} no se enviará a producción. Escribe el motivo para que quede guardado en el pedido.
+          </p>
+          <textarea
+            autoFocus
+            rows={3}
+            value={paymentRejectionReason}
+            onChange={(event) => {
+              setPaymentRejectionReason(event.target.value)
+              setPaymentRejectionError("")
+            }}
+            placeholder="Ej.: comprobante no válido o pago no recibido"
+            aria-label="Motivo del rechazo"
+            className="mt-4 w-full resize-none rounded-xl px-3 py-2.5 text-sm outline-none"
+            style={{
+              background: t.input,
+              border: `1px solid ${paymentRejectionError ? C.red : t.inputB}`,
+              color: t.text,
+            }}
+          />
+          {paymentRejectionError && (
+            <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
+              {paymentRejectionError}
+            </p>
+          )}
+          <div className="mt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={() => setPaymentRejectionTarget(null)}
+              className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
+              style={{ background: t.input, color: t.muted }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={rejectTransferPayment}
+              className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
+              style={{ background: C.red, color: "#fff" }}
+            >
+              Confirmar rechazo
+            </button>
           </div>
         </div>
       </div>
@@ -13697,6 +14717,7 @@ function AdminPanel({
       <ProductionPncModal />
       <QuickClientModal />
       <AnulModal />
+      <PaymentRejectionModal />
       <DelModal />
       {showAdminProfile && user && (
         <AdminProfilePage
@@ -13748,10 +14769,12 @@ export default function App() {
   const updateUser = (u: User) => {
     setUser(u)
     saveLS(`profile:${u.email.toLowerCase()}`, u)
+    saveRegisteredClient(u)
   }
   const login = (u: User, next: Page = "app") => {
     const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
-    updateUser(saved ? { ...u, ...saved, role: u.role } : u)
+    const authenticatedUser = saved ? { ...u, ...saved, role: u.role } : u
+    updateUser(authenticatedUser)
     setClientView("menu")
     setPage(next)
   }
@@ -13764,7 +14787,22 @@ export default function App() {
     setOrdersVersion((v) => v + 1)
   }
   const setVoucher = (id: string, voucher: string) =>
-    updateOrders((os) => os.map((o) => (o.id === id ? { ...o, voucher } : o)))
+    updateOrders((os) =>
+      os.map((o) =>
+        o.id === id
+          ? {
+              ...o,
+              voucher,
+              ...(o.paymentStatus === "Rechazado"
+                ? {
+                    paymentStatus: "Pendiente de verificación" as const,
+                    paymentRejectionReason: undefined,
+                  }
+                : {}),
+            }
+          : o,
+      ),
+    )
   const goCheckout = () => {
     setPage("checkout")
   }
@@ -13786,6 +14824,7 @@ export default function App() {
       <RegisterPage
         onVerify={(u) => {
           saveLS(`profile:${u.email}`, u)
+          saveRegisteredClient(u)
           setPage("login")
         }}
         onLoginLink={() => setPage("login")}
@@ -13820,7 +14859,10 @@ export default function App() {
         setCart={setCart}
         user={user}
         onLogin={(u) => login(u, "checkout")}
-        onRegisterVerified={(u) => login(u, "checkout")}
+        onRegisterVerified={(u) => {
+          saveRegisteredClient(u)
+          login(u, "checkout")
+        }}
         onBack={() => setPage(user ? "app" : "landing")}
         onPlaceOrder={(info, shouldSaveAddress) => {
           if (!user) return
@@ -13848,7 +14890,12 @@ export default function App() {
               }),
               items: cart.filter((item) => item.qty > 0),
               total: cartTotal(cart),
-              status: cartTotal(cart) >= APPROVAL_MIN ? "Por confirmar" : "Recibido",
+              status:
+                cartTotal(cart) >= APPROVAL_MIN ? "Por confirmar" : "Recibido",
+              paymentStatus:
+                info.pago === "Efectivo"
+                  ? "Pendiente"
+                  : "Pendiente de verificación",
             },
             ...os,
           ])
