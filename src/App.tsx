@@ -11069,9 +11069,10 @@ function AdminPanel({
     "En camino": "Terminado",
     Entregado: "Terminado",
   }
+  // Choosing the current status again still catches up production that fell behind
   const setClientOrderStatus = async (orderIndex: number, status: string) => {
     const order = rows.pedidos?.[orderIndex]
-    if (!order || String(order[7]) === status) return
+    if (!order) return
     const orderId = String(order[0])
     // Move the order's production first; "En cocina" takes the supplies out of the stock
     const target = ORDER_TO_PRODUCTION[status]
@@ -11087,6 +11088,7 @@ function AdminPanel({
         if (!(await changeProductionStatus(index, target))) return
       }
     }
+    if (String(order[7]) === status) return
     saveOrders(loadOrders().map((item) => (item.id === orderId ? { ...item, status } : item)))
     pushOrder(orderId)
     setRows((current) => ({
@@ -14981,6 +14983,16 @@ function AdminPanel({
                         ))}
                     </select>
                   </label>
+                )}
+                {loadOrders().some((order) => order.id === row?.[0]) && ORDER_TO_PRODUCTION[String(row?.[7])] && (
+                  <button
+                    type="button"
+                    onClick={() => setClientOrderStatus(modal.idx!, String(row?.[7]))}
+                    className="mt-2 w-full cursor-pointer rounded-xl py-2 text-xs font-bold"
+                    style={{ background: `${C.mustard}14`, color: C.mustard }}
+                  >
+                    Sincronizar producción con «{String(row?.[7])}»
+                  </button>
                 )}
                 {String(row?.[8]) === "Rechazado" && (
                   <p className="mt-4 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
