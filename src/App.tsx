@@ -11062,10 +11062,31 @@ function AdminPanel({
     })
   }
 
-  const setClientOrderStatus = (orderIndex: number, status: string) => {
+  // Order status -> status its production orders move to (forward only)
+  const ORDER_TO_PRODUCTION: Record<string, (typeof PRODUCTION_STATUSES)[number]> = {
+    Confirmado: "Iniciada",
+    "En cocina": "En cocina",
+    "En camino": "Terminado",
+    Entregado: "Terminado",
+  }
+  const setClientOrderStatus = async (orderIndex: number, status: string) => {
     const order = rows.pedidos?.[orderIndex]
     if (!order || String(order[7]) === status) return
     const orderId = String(order[0])
+    // Move the order's production first; "En cocina" takes the supplies out of the stock
+    const target = ORDER_TO_PRODUCTION[status]
+    if (target) {
+      const codes = new Set([
+        ...(loadOrders().find((o) => o.id === orderId)?.productionRecords ?? []).map((r) => String(r[0])),
+        ...(rows.produccion || []).filter((r) => String(r[15] ?? "") === orderId).map((r) => String(r[0])),
+      ])
+      const rank = (s: string) => PRODUCTION_STATUSES.indexOf(s as (typeof PRODUCTION_STATUSES)[number])
+      for (const [index, row] of (rows.produccion || []).entries()) {
+        if (!codes.has(String(row[0])) || rank(String(row[8])) >= rank(target) || row[8] === "Producto no conforme") continue
+        // changeProductionStatus already told the admin why (stock, ficha técnica...)
+        if (!(await changeProductionStatus(index, target))) return
+      }
+    }
     saveOrders(loadOrders().map((item) => (item.id === orderId ? { ...item, status } : item)))
     pushOrder(orderId)
     setRows((current) => ({
@@ -11344,9 +11365,10 @@ function AdminPanel({
   const changeProductionStatus = async (
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
-  ) => {
+  ): Promise<boolean> => {
     const sourceRow = rows.produccion?.[rowIndex]
-    if (!sourceRow || String(sourceRow[8]) === nextStatus) return
+    if (!sourceRow) return false
+    if (String(sourceRow[8]) === nextStatus) return true
     const consumeStock = nextStatus === "En cocina" && String(sourceRow[14]) !== "Sí"
     const requiredSupplies = new Map<string, { quantity: number; unit: string }>()
     if (consumeStock) {
@@ -11357,7 +11379,7 @@ function AdminPanel({
           const unit = String(supply?.[2] ?? "").trim()
           if (!supply || !unit || unit.toLowerCase() !== ingredient.unit.trim().toLowerCase()) {
             window.alert(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y use la misma unidad de la ficha técnica.`)
-            return
+            return false
           }
           const current = requiredSupplies.get(ingredient.name)
           requiredSupplies.set(ingredient.name, {
@@ -11371,7 +11393,7 @@ function AdminPanel({
         const stock = Number(supply?.[4])
         if (!Number.isFinite(stock) || stock < requirement.quantity) {
           window.alert(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
-          return
+          return false
         }
       }
       // The backend takes the supplies out of the stock (all or nothing, once per order) before the status changes
@@ -11384,7 +11406,7 @@ function AdminPanel({
         } catch (err) {
           window.alert(`No se pudo iniciar la producción: ${(err as Error).message}`)
           loadModule("insumos")
-          return
+          return false
         }
       }
     }
@@ -11479,6 +11501,7 @@ function AdminPanel({
 
       return { ...current, produccion: productionRows, ...(supplies ? { insumos: supplies } : {}) }
     })
+    return true
   }
 
   const ProductionStatusSelect = ({ rowIndex }: { rowIndex: number }) => {
