@@ -11335,7 +11335,7 @@ function AdminPanel({
     setPncFieldErrors({})
   }
 
-  const changeProductionStatus = (
+  const changeProductionStatus = async (
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
   ) => {
@@ -11365,6 +11365,19 @@ function AdminPanel({
         const stock = Number(supply?.[4])
         if (!Number.isFinite(stock) || stock < requirement.quantity) {
           window.alert(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
+          return
+        }
+      }
+      // The backend takes the supplies out of the stock (all or nothing, once per order) before the status changes
+      if (requiredSupplies.size) {
+        try {
+          await api("/consumos-produccion", "POST", {
+            numero_orden: String(sourceRow[0]),
+            insumos: [...requiredSupplies].map(([insumo, r]) => ({ insumo, cantidad: r.quantity })),
+          })
+        } catch (err) {
+          window.alert(`No se pudo iniciar la producción: ${(err as Error).message}`)
+          loadModule("insumos")
           return
         }
       }
