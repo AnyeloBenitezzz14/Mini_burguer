@@ -9091,28 +9091,17 @@ function AdminPanel({
       })
       .forEach((order) => {
         const lines = JSON.parse(String(order[10] ?? "[]")) as AdminOrderLine[]
-        initialRows.produccion = buildProductionRows(lines, initialRows.produccion || [], String(order[0]))
+        const before = initialRows.produccion || []
+        initialRows.produccion = buildProductionRows(lines, before, String(order[0]))
+        // Saved on the order (and in the backend) so opening the panel again doesn't create them again
+        const created = initialRows.produccion.filter((row) => !before.includes(row))
+        saveOrders(loadOrders().map((o) => (o.id === order[0] ? { ...o, productionRecords: created } : o)))
+        pushOrder(String(order[0]))
       })
     initialRows.produccion = [
       ...clientOrders.flatMap((order) => order.productionRecords ?? []),
       ...(initialRows.produccion || []),
     ]
-    initialRows.pedidos
-      .slice(0, clientOrders.length)
-      .reverse()
-      .filter((order) => ["Enviada a producción", "Autorizada"].includes(String(order[9])))
-      .filter((order) => {
-        const stored = clientOrders.find((clientOrder) => clientOrder.id === order[0])
-        return !stored?.productionRecords?.length
-      })
-      .forEach((order) => {
-        const lines = JSON.parse(String(order[10] ?? "[]")) as AdminOrderLine[]
-        initialRows.produccion = buildProductionRows(
-          lines,
-          initialRows.produccion || [],
-          String(order[0]),
-        )
-      })
     const supplyProducts = (initialRows.insumos || [])
       .filter((row) => String(row[7]).toLowerCase() === "sí")
       .map(supplyAsProduct)
@@ -11071,6 +11060,23 @@ function AdminPanel({
         ventas: salesRows,
       }
     })
+  }
+
+  const setClientOrderStatus = (orderIndex: number, status: string) => {
+    const order = rows.pedidos?.[orderIndex]
+    if (!order || String(order[7]) === status) return
+    const orderId = String(order[0])
+    saveOrders(loadOrders().map((item) => (item.id === orderId ? { ...item, status } : item)))
+    pushOrder(orderId)
+    setRows((current) => ({
+      ...current,
+      pedidos: (current.pedidos || []).map((row, index) => {
+        if (index !== orderIndex) return row
+        const updated = [...row]
+        updated[7] = status
+        return updated
+      }),
+    }))
   }
 
   const rejectTransferPayment = () => {
@@ -14933,6 +14939,25 @@ function AdminPanel({
                       style={{ background: t.card, border: `1px solid ${t.border}` }}
                     />
                   </div>
+                )}
+                {loadOrders().some((order) => order.id === row?.[0]) && (
+                  <label className="mt-4 flex items-center justify-between gap-3 text-xs font-semibold" style={{ color: t.text }}>
+                    Estado del pedido (lo ve el cliente)
+                    <select
+                      value={String(row?.[7] ?? "")}
+                      onChange={(e) => setClientOrderStatus(modal.idx!, e.target.value)}
+                      className="rounded-lg px-3 py-2 text-sm"
+                      style={{ background: t.card, color: t.text, border: `1px solid ${t.border}` }}
+                    >
+                      {[...new Set([String(row?.[7] ?? ""), "Por confirmar", ...ORDER_STEPS, "Cancelado"])]
+                        .filter(Boolean)
+                        .map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
                 )}
                 {String(row?.[8]) === "Rechazado" && (
                   <p className="mt-4 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
