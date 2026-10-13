@@ -3934,7 +3934,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
             version: text(row[9]),
             insumos_principales: text(row[10]),
             preparacion: text(row[11]),
-            ingredientes: [],
+            // no recipe lines in the insumo form: the backend keeps the saved ones
           })
         : Promise.resolve(),
   },
