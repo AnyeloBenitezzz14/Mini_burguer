@@ -16,6 +16,8 @@ type User = {
   addresses?: string[]
   photo?: string
   password?: string
+  // Backend modules this user may see (VER), from the login. Undefined = everything.
+  permissions?: string[]
 }
 type RegisteredClient = Pick<User, "name" | "email" | "cedula" | "docType" | "phone">
 type CartItem = {
@@ -1186,12 +1188,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "0", label: "Nombre del rol", type: "text" },
       { key: "1", label: "Descripción", type: "textarea" },
     ],
-    seed: [
-      ["Administrador", "Acceso total al sistema", "Activo"],
-      ["Empleado", "Gestión interna del restaurante", "Activo"],
-      ["Domiciliario", "Gestión de entregas a domicilio", "Activo"],
-      ["Cliente", "Acceso a pedidos y seguimiento de compras", "Activo"],
-    ],
+    seed: [],
     noExport: true,
     noDelete: true,
     statusIndex: 2,
@@ -1222,35 +1219,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "4", label: "Correo electrónico", type: "email" },
       { key: "6", label: "Contraseña", type: "text" },
     ],
-    seed: [
-      [
-        "Admin Parche",
-        "Cédula de Ciudadanía",
-        "12345678",
-        "Administrador",
-        "admin@parche.co",
-        "Activo",
-        "Demo123*",
-      ],
-      [
-        "Juan Rúa",
-        "Cédula de Ciudadanía",
-        "98765432",
-        "Empleado",
-        "juan@parche.co",
-        "Activo",
-        "Demo123*",
-      ],
-      [
-        "María Gómez",
-        "Cédula de Ciudadanía",
-        "45678901",
-        "Domiciliario",
-        "maria@parche.co",
-        "Activo",
-        "Demo123*",
-      ],
-    ],
+    seed: [],
     noExport: true,
     noDelete: true,
     statusIndex: 5,
@@ -1262,13 +1231,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "0", label: "Nombre categoría", type: "text" },
       { key: "1", label: "Descripción", type: "textarea" },
     ],
-    seed: [
-      ["Carnes", "Carnes y proteínas cárnicas", "Activa"],
-      ["Lácteos", "Quesos y derivados lácteos", "Activa"],
-      ["Verduras", "Vegetales y hortalizas", "Activa"],
-      ["Panes", "Panes y masas artesanales", "Activa"],
-      ["Salsas", "Salsas y aderezos", "Activa"],
-    ],
+    seed: [],
     noExport: true,
     statusIndex: 2,
   },
@@ -1305,13 +1268,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "10", label: "Insumos principales", type: "textarea" },
       { key: "11", label: "Cómo se prepara", type: "textarea" },
     ],
-    seed: [
-      ["Carne de res 100g", "Carnes", "g", 1800, 450, 200, 1000, "No", "", "", "", "", "Activo"],
-      ["Queso cheddar", "Lácteos", "kg", 28000, 12, 15, 50, "No", "", "", "", "", "Activo"],
-      ["Pan brioche", "Panes", "und", 900, 80, 30, 200, "Sí", "Ficha técnica - Pan brioche", "v1.0", "Pan brioche", "1. Seleccionar el pan. 2. Preparar según laFicha. 3. Armar y servir.", "Activo"],
-      ["Lechuga", "Verduras", "kg", 4000, 5, 10, 30, "No", "", "", "", "", "Activo"],
-      ["Salchicha", "Carnes", "und", 2500, 60, 25, 150, "No", "", "", "", "", "Activo"],
-    ],
+    seed: [],
     noDelete: true,
     statusIndex: 12,
     hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11],
@@ -1341,28 +1298,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "13", label: "Correo electrónico", type: "email" },
       { key: "14", label: "Cargo", type: "text" },
     ],
-    seed: [
-      [
-        "Carnes Premium SAS",
-        "900.123.456-1",
-        "ventas@carnes.co",
-        "310-456-7890",
-        "Pedro Álvarez",
-        "Cll 50 #32-10, Medellín",
-        "Activo",
-        "Carne de res 100g, Salchicha, Pan brioche",
-      ],
-      [
-        "Lácteos del Valle",
-        "800.234.567-2",
-        "info@lacteos.co",
-        "320-987-6543",
-        "Sandra Ríos",
-        "Cra 45 #20-05, Bello",
-        "Activo",
-        "Queso cheddar",
-      ],
-    ],
+    seed: [],
     // Deletable only while the supplier has no purchases (see getDeleteAssessment)
     statusIndex: 6,
     hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14],
@@ -1374,12 +1310,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Proveedor",
         type: "select",
-        options: [
-          "Carnes Premium SAS",
-          "Lácteos del Valle",
-          "AgroVerde",
-          "Panes Artesanales",
-        ],
+        options: [],
       },
       { key: "1", label: "Fecha de compra", type: "date" },
       { key: "2", label: "Fecha de registro", type: "date" },
@@ -1391,35 +1322,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         type: "textarea",
       },
     ],
-    seed: [
-      [
-        "Carnes Premium SAS",
-        "2024-01-20",
-        "2024-01-20",
-        42500,
-        42500,
-        "Activo",
-        "Carne de res 100g | 20 | 1800\nPan brioche | 5 | 900\nSalsa de la casa | 1 | 2000",
-      ],
-      [
-        "Lácteos del Valle",
-        "2024-01-18",
-        "2024-01-18",
-        28000,
-        28000,
-        "Activo",
-        "Queso cheddar | 1 | 28000",
-      ],
-      [
-        "Panes Artesanales",
-        "2024-01-17",
-        "2024-01-18",
-        22500,
-        22500,
-        "Activo",
-        "Pan brioche | 25 | 900",
-      ],
-    ],
+    seed: [],
     noDelete: true,
     statusIndex: 5,
     inactiveStatus: "Anulado",
@@ -1432,13 +1335,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Insumo",
         type: "select",
-        options: [
-          "Carne de res 100g",
-          "Queso cheddar",
-          "Pan brioche",
-          "Lechuga",
-          "Salchicha",
-        ],
+        options: [],
       },
       { key: "1", label: "Cantidad", type: "text" },
       {
@@ -1452,11 +1349,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       // Filled when the loss is sent from a purchase ("Compra a X del <fecha>")
       { key: "5", label: "Origen", type: "text" },
     ],
-    seed: [
-      ["Lechuga", "0.5 kg", "Deterioro", "María G.", "2024-01-20"],
-      ["Pan brioche", "4 und", "Horno", "María G.", "2024-01-19"],
-      ["Queso cheddar", "0.3 kg", "Vencimiento", "Juan R.", "2024-01-15"],
-    ],
+    seed: [],
     noExport: true,
     noDelete: true,
     hiddenCellIndexes: [5],
@@ -1501,6 +1394,9 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Patacones",
           "Arepa Burger",
           "Arepa Rellena",
+          "Salsas",
+          "Bebidas",
+          "Sabores de bebida",
           "Producto de insumo",
         ],
       },
@@ -1567,11 +1463,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "3", label: "Fecha de creación", type: "date" },
       { key: "4", label: "Hora de creación", type: "time" },
     ],
-    seed: [
-      ["OP-0089", "Doble", 2, 1, "2024-01-21", "08:00", "2024-01-21", "10:15", "En cocina", "", 0, "Sí", JSON.stringify([{ status: "Recibida", date: "2024-01-21", time: "08:00" }, { status: "Iniciada", date: "2024-01-21", time: "09:10" }, { status: "En cocina", date: "2024-01-21", time: "10:15" }]), JSON.stringify([{ name: "Doble", quantity: 2 }])],
-      ["OP-0088", "Mini", 4, 2, "2024-01-21", "07:30", "2024-01-21", "11:30", "Terminado", "2024-01-21 11:30", 1, "Sí", JSON.stringify([{ status: "Recibida", date: "2024-01-21", time: "07:30" }, { status: "Iniciada", date: "2024-01-21", time: "08:00" }, { status: "En cocina", date: "2024-01-21", time: "09:00" }, { status: "Terminado", date: "2024-01-21", time: "11:30" }]), JSON.stringify([{ name: "Mini", quantity: 4 }])],
-      ["OP-0087", "Salchipapa Mega", 2, 3, "2024-01-20", "16:45", "2024-01-20", "16:45", "Recibida", "", 0, "No", JSON.stringify([{ status: "Recibida", date: "2024-01-20", time: "16:45" }]), JSON.stringify([{ name: "Salchipapa Mega", quantity: 2 }])],
-    ],
+    seed: [],
     autoId: true,
     statusIndex: 8,
     // 14 = stock already consumed (Sí/No), 15 = order code it came from (internal data)
@@ -1605,10 +1497,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["und", "kg", "g", "L", "ml", "paq"],
       },
     ],
-    seed: [
-      ["OP-0085", "Mini", "Mini", 1, "Tiempo superado", "2024-01-20", "", "und", "Activo"],
-      ["OP-0088", "Doble", "Doble", 2, "Error en preparación", "2024-01-21", "", "und", "Activo"],
-    ],
+    seed: [],
     autoId: true,
     noDelete: true,
     statusIndex: 8,
@@ -1637,12 +1526,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "5", label: "Dirección", type: "text" },
       { key: "6", label: "Cliente de local", type: "checkbox" },
     ],
-    seed: [
-      // Same order as the fields: nombre, tipo doc, nº doc, teléfono, correo, dirección, ¿de local?, estado
-      ["Valentina Ríos", "Cédula de Ciudadanía", "1012345678", "310-456-7890", "vale@mail.co", "Cra 58 #42-10, Bello", "No", "Activo"],
-      ["Carlos Mejía", "Cédula de Ciudadanía", "1023456789", "320-987-6543", "carlos@mail.co", "Cll 50 #30-05, Bello", "No", "Activo"],
-      ["Luisa Fernández", "Cédula de Ciudadanía", "1034567890", "315-678-9012", "", "Cra 60 #44-20, Bello", "Sí", "Activo"],
-    ],
+    seed: [],
     statusIndex: 7,
     hiddenCellIndexes: [1, 5, 6],
   },
@@ -1660,18 +1544,13 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Usuario (vendedor)",
         type: "select",
-        options: ["Admin Parche", "Juan Rúa", "María Gómez"],
+        options: [],
       },
       {
         key: "1",
         label: "Cliente",
         type: "select",
-        options: [
-          "Valentina Ríos",
-          "Carlos Mejía",
-          "Luisa Fernández",
-          "Diego Pérez",
-        ],
+        options: [],
       },
       { key: "2", label: "Fecha", type: "date" },
       {
@@ -1702,34 +1581,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Recibido", "En preparación", "En camino", "Entregado", "Cancelado"],
       },
     ],
-    seed: [
-      [
-        "VTA-0306",
-        "Juan Rúa",
-        "Diego Pérez",
-        "2024-01-21",
-        "Local",
-        "Efectivo",
-        13000,
-        13000,
-        "Completada",
-        "Sin pedido",
-        "Completada",
-      ],
-      [
-        "VTA-0305",
-        "Juan Rúa",
-        "Luisa Fernández",
-        "2024-01-21",
-        "Domicilio",
-        "Nequi",
-        22000,
-        22000,
-        "Completada",
-        "Sin pedido",
-        "Completada",
-      ],
-    ],
+    seed: [],
     noDelete: true,
     autoId: true,
     hiddenCellIndexes: [1, 4, 5, 6, 9, 11, 12],
@@ -1748,12 +1600,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Cliente",
         type: "select",
-        options: [
-          "Valentina Ríos",
-          "Carlos Mejía",
-          "Luisa Fernández",
-          "Diego Pérez",
-        ],
+        options: [],
       },
       { key: "1", label: "Productos solicitados", type: "textarea" },
       {
@@ -1788,80 +1635,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       },
       { key: "9", label: "Comprobante de pago", type: "image" },
     ],
-    seed: [
-      [
-        "PED-0195",
-        "Valentina Ríos",
-        "2 Mini, 1 Salchipapa Sencilla",
-        "Online",
-        "Transferencia",
-        "Anticipado",
-        85000,
-        "En preparación",
-        "Pagado",
-        "No requerida",
-      ],
-      [
-        "PED-0194",
-        "Carlos Mejía",
-        "4 Mini, 2 Sencilla",
-        "Local",
-        "Efectivo",
-        "Contraentrega",
-        168000,
-        "Recibido",
-        "Pendiente",
-        "Pendiente admin",
-      ],
-      [
-        "PED-0193",
-        "Luisa Fernández",
-        "1 Mega Gourmet",
-        "Online",
-        "Pago en el local",
-        "Contraentrega",
-        23000,
-        "Entregado",
-        "Pagado",
-        "No requerida",
-      ],
-      [
-        "PED-0192",
-        "Diego Pérez",
-        "1 Doble, 1 Chuzo de Pollo, 2 gaseosas",
-        "Local",
-        "Efectivo",
-        "Contraentrega",
-        57000,
-        "En camino",
-        "Pendiente",
-        "No requerida",
-      ],
-      [
-        "PED-0191",
-        "Valentina Ríos",
-        "3 Super Gourmet, 1 Mega Gourmet Q+T",
-        "Online",
-        "Transferencia",
-        "Anticipado",
-        122000,
-        "Entregado",
-        "Pagado",
-        "No requerida",
-      ],
-      [
-        "PED-0190",
-        "Carlos Mejía",
-        "5 Mini, 3 Tradicional, 2 porciones de papas",
-        "Online",
-        "Transferencia",
-        "Anticipado",
-        192000,
-        "En preparación",
-        "Pagado",
-        "Autorizada",
-      ],
-    ],
+    seed: [],
     noDelete: true,
     autoId: true,
     // 10 = order lines JSON saved by admin-created orders (was showing as "Dato 7")
@@ -1877,12 +1651,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "2",
         label: "Cliente",
         type: "select",
-        options: [
-          "Valentina Ríos",
-          "Carlos Mejía",
-          "Luisa Fernández",
-          "Diego Pérez",
-        ],
+        options: [],
       },
       { key: "3", label: "Nombre cliente (texto libre)", type: "text" },
       {
@@ -1893,9 +1662,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       },
       { key: "5", label: "Fecha", type: "date" },
     ],
-    seed: [
-      ["DEV-001", "VTA-0305", "Ana López", "Ana López", "Reposición", "2024-01-19"],
-    ],
+    seed: [],
     noDelete: true,
     noExport: true,
     hiddenCellIndexes: [1, 3],
@@ -2293,28 +2060,23 @@ function LoginPage({
   const [pass, setPass] = useState("")
   // Errors show after the first submit and update live while typing
   const [tried, setTried] = useState(false)
-  const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
-  const accountStatus = getAdminAccountStatus(email)
-  const errors = tried
-    ? validateLogin(email, pass, savedProfile?.password, accountStatus)
-    : {}
-  const submit = (e: React.FormEvent) => {
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  // Password and account status are checked by the backend
+  const errors = tried ? validateLogin(email, pass) : {}
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
-    const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
-    const accountStatus = getAdminAccountStatus(email)
-    if (
-      Object.keys(
-        validateLogin(email, pass, savedProfile?.password, accountStatus),
-      ).length
-    )
-      return
-    const role = email.toLowerCase().includes("admin") ? "admin" : "user"
-    const name = email
-      .split("@")[0]
-      .replace(/\./g, " ")
-      .replace(/\b\w/g, (ch) => ch.toUpperCase())
-    onLogin({ name, email: email.trim().toLowerCase(), role })
+    setServerErr("")
+    if (busy || Object.keys(validateLogin(email, pass)).length) return
+    setBusy(true)
+    try {
+      onLogin(await apiLogin(email, pass))
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
   return (
     <div
@@ -2415,12 +2177,14 @@ function LoginPage({
             >
               ¿Olvidaste tu contraseña?
             </button>
+            <FieldError msg={serverErr} />
             <button
               type="submit"
+              disabled={busy}
               className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
               style={{ background: C.mustard, color: "#fff" }}
             >
-              Iniciar sesión
+              {busy ? "Ingresando..." : "Iniciar sesión"}
             </button>
             <div
               className="flex items-center gap-3 text-xs"
@@ -2503,19 +2267,30 @@ function RegisterPage({
     if (Object.keys(validateRegister(form)).length) return
     setStep("verifying")
   }
-  const submitCode = (e: React.FormEvent) => {
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  const submitCode = async (e: React.FormEvent) => {
     e.preventDefault()
     setCodeTried(true)
-    if (codeError(code)) return
-    onVerify({
+    setServerErr("")
+    if (busy || codeError(code)) return
+    const u: User = {
       name: `${form.name.trim()} ${form.lastname.trim()}`.trim(),
       email: form.email.trim().toLowerCase(),
       role: "user",
       docType: form.docType,
       phone: form.phone.replace(/\s/g, ""),
       cedula: form.docNum.trim(),
-      password: form.pass,
-    })
+    }
+    setBusy(true)
+    try {
+      await apiRegister({ ...u, password: form.pass })
+      onVerify(u)
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
   if (step === "verifying")
     return (
@@ -2551,13 +2326,14 @@ function RegisterPage({
               letterSpacing: "0.3em",
             }}
           />
-          <FieldError msg={err} />
+          <FieldError msg={err || serverErr} />
           <button
             type="submit"
+            disabled={busy}
             className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
             style={{ background: C.mustard, color: "#fff" }}
           >
-            Verificar y continuar
+            {busy ? "Creando cuenta..." : "Verificar y continuar"}
           </button>
           <button
             type="button"
@@ -3876,6 +3652,528 @@ function saveLS(key: string, value: unknown) {
   }
 }
 
+// ── Backend (parche-backend) ───────────────────────────────────────────────────
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api"
+// Uploaded photos come as "/imagenes/<id>" (served by the API); other images are full URLs
+const imageUrl = (u: string | undefined) => (u?.startsWith("/imagenes/") ? API_URL + u : u || "")
+
+// Calls the backend (with the login token) and returns `data`; throws with the server's message so forms can show it
+async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  const token = loadLS<string>("token", "")
+  let res: Response
+  try {
+    res = await fetch(API_URL + path, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch {
+    throw new Error("No se pudo conectar con el servidor. Intenta de nuevo.")
+  }
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.detalles?.[0]?.mensaje || json.mensaje || "Ocurrió un error. Intenta de nuevo.")
+  return json.data
+}
+
+type AuthData = {
+  token: string
+  usuario: {
+    correo: string
+    nombre: string | null
+    tipo_documento: string | null
+    documento: string | null
+    telefono: string | null
+    direcciones: string[] | null
+    roles: string[]
+  }
+  permisos: { modulo: string; privilegios: string[] }[]
+}
+
+const toUser = ({ token, usuario: u, permisos }: AuthData): User => {
+  saveLS("token", token)
+  return {
+    permissions: permisos.filter((p) => p.privilegios.includes("VER")).map((p) => p.modulo),
+    name: u.nombre || u.correo,
+    email: u.correo.toLowerCase(),
+    role: u.roles.includes("CLIENTE") ? "user" : "admin",
+    docType: u.tipo_documento || undefined,
+    cedula: u.documento || undefined,
+    phone: u.telefono || undefined,
+    addresses: u.direcciones?.length ? u.direcciones : undefined,
+  }
+}
+
+const apiLogin = async (email: string, pass: string) =>
+  toUser(await api<AuthData>("/auth/login", "POST", { correo: email.trim(), contrasena: pass }))
+
+type CatalogItem = {
+  id: number
+  nombre: string
+  descripcion: string | null
+  etiqueta: string | null
+  precio: number
+  categoria: string
+  imagenes: string[]
+}
+
+// Backend category name → menu category id (inverse of PRODUCT_CAT_LABEL)
+const MENU_CAT_ID = Object.fromEntries(
+  Object.entries(PRODUCT_CAT_LABEL).map(([id, label]) => [label, id]),
+)
+
+// ── Admin tables ↔ backend ─────────────────────────────────────────────────────
+// Each synced admin module maps a backend record to its table row and back. The row
+// keeps the record id at `idIndex` (never shown) so edits update the same record.
+type Row = (string | number)[]
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DbRecord = Record<string, any>
+type SyncSpec = {
+  path: string
+  update: "PATCH" | "PUT"
+  idIndex: number
+  idOf: (r: DbRecord) => number
+  toRow: (r: DbRecord) => Row
+  toBody: (row: Row) => Promise<DbRecord> | DbRecord
+  // Rows that live only in the browser (not sent to the backend)
+  localOnly?: (row: Row) => boolean
+  // Backend records this module shows (default: all)
+  shows?: (r: DbRecord) => boolean
+  // Status changes that use their own route instead of a full update
+  setStatus?: (id: string | number, row: Row) => Promise<unknown>
+  // Modules to reload after a save (e.g. stock changes in Insumos)
+  reloads?: string[]
+  // Saves what lives in other tables once the record has its id (e.g. the ficha técnica)
+  afterSave?: (id: number, row: Row) => Promise<unknown>
+}
+
+const isActiveStatus = (v: string | number | undefined) =>
+  !["Inactivo", "Inactiva", "Anulado", "Anulada"].includes(String(v ?? ""))
+const estadoOf = (v: string | number | undefined) => (isActiveStatus(v) ? "ACTIVO" : "INACTIVO")
+const text = (v: string | number | undefined) => String(v ?? "").trim()
+// Optional e-mails must be omitted (not "") or the backend rejects them
+const optionalEmail = (v: string | number | undefined) => text(v) || undefined
+const withId = (row: Row, idIndex: number, id: number) => {
+  row[idIndex] = id
+  return row
+}
+
+// Finds a backend record id by its name (same name matching as the admin: no accents/case)
+async function idByName(path: string, nameKey: string, idKey: string, name: string | number, what: string) {
+  const record = (await api<DbRecord[]>(path)).find((r) => normalizeName(r[nameKey]) === normalizeName(name))
+  if (!record) throw new Error(`${what} «${name}» no existe en la base de datos.`)
+  return record[idKey] as number
+}
+const categoryIdByName = (path: string, name: string | number) =>
+  idByName(path, "nombre_categoria", "id_categoria", name, "La categoría")
+
+// Purchase items text: one "insumo | cantidad | costo unitario" per line
+const parsePurchaseLines = (value: string | number | undefined) =>
+  String(value ?? "")
+    .split(/\n|;/)
+    .map((line) => line.split("|").map((part) => part.trim()))
+    .filter(([name]) => name)
+    .map(([name, quantity, unitPrice]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0 }))
+
+const categorySpec = (path: string): SyncSpec => ({
+  path,
+  update: "PUT",
+  idIndex: 3,
+  idOf: (c) => c.id_categoria,
+  toRow: (c) =>
+    withId([c.nombre_categoria, c.descripcion || "", c.estado === "ACTIVO" ? "Activa" : "Inactiva"], 3, c.id_categoria),
+  toBody: (row) => ({ nombre_categoria: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
+})
+
+// Backend role names are uppercase (ADMINISTRADOR); the admin shows them as "Administrador"
+const roleLabel = (name: string) => name.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
+
+const DB_SYNC: Record<string, SyncSpec> = {
+  // [0 nombre, 1 descripción, 2 estado]. The permissions matrix is still kept in the browser.
+  roles: {
+    path: "/roles",
+    update: "PUT",
+    idIndex: 3,
+    idOf: (r) => r.id_rol,
+    toRow: (r) =>
+      withId([roleLabel(r.nombre_rol), r.descripcion || "", r.estado === "ACTIVO" ? "Activo" : "Inactivo"], 3, r.id_rol),
+    toBody: (row) => ({ nombre_rol: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
+  },
+  // [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, 6 contraseña (only to create/change it)]
+  usuarios: {
+    path: "/usuarios",
+    update: "PATCH",
+    idIndex: 7,
+    // Customers are managed in Clientes
+    shows: (u) => !u.roles?.includes("CLIENTE"),
+    idOf: (u) => u.id_usuario,
+    toRow: (u) =>
+      withId(
+        [u.nombre || "", u.tipo_documento || "", u.documento || "", roleLabel(u.roles?.[0] || ""), u.correo,
+          u.estado === "ACTIVO" ? "Activo" : "Inactivo", ""],
+        7,
+        u.id_usuario,
+      ),
+    toBody: (row) => {
+      const rol = text(row[3]).toUpperCase()
+      return {
+        nombre: text(row[0]),
+        tipo_documento: text(row[1]),
+        documento: text(row[2]),
+        roles: [rol],
+        tipo: rol === "CLIENTE" ? "CLIENTE" : "EMPLEADO",
+        correo: text(row[4]),
+        estado: estadoOf(row[5]),
+        // Blank on edit = keep the current password
+        contrasena: text(row[6]) || undefined,
+      }
+    },
+  },
+  // [0 nombre, 1 categoría, 2 precio, 3 descripción, 4 estado, 5-9 ficha técnica, 10 disponibilidad]
+  // Ficha técnica and disponibilidad are not in the backend yet.
+  producto: {
+    path: "/productos",
+    update: "PATCH",
+    idIndex: 11,
+    idOf: (p) => p.id_insumo_producto,
+    toRow: (p) =>
+      withId(
+        [p.nombre, p.nombre_categoria, p.precio, p.descripcion || "", p.estado === "ACTIVO" ? "Activo" : "Inactivo",
+          p.ficha?.nombre || `Ficha ${p.nombre}`, p.ficha?.version || "v1.0", p.ficha?.insumos_principales || "",
+          p.ficha?.preparacion || "",
+          JSON.stringify((p.ficha?.ingredientes || []).map((i: DbRecord) => ({ name: i.insumo, quantity: i.cantidad, unit: i.medida || "" }))),
+          "Disponible"],
+        11,
+        p.id_insumo_producto,
+      ),
+    toBody: async (row) => ({
+      nombre: text(row[0]),
+      id_categoria: await categoryIdByName("/categorias-productos", row[1]),
+      precio: Number(row[2]),
+      descripcion: text(row[3]),
+      estado: estadoOf(row[4]),
+    }),
+    localOnly: (row) => row[1] === "Producto de insumo",
+    afterSave: (id, row) => {
+      let recipe: TechnicalIngredient[] = []
+      try {
+        recipe = JSON.parse(String(row[9] || "[]"))
+      } catch {
+        // unreadable recipe: saved without ingredients
+      }
+      return api(`/productos/${id}/ficha`, "PUT", {
+        nombre: text(row[5]),
+        version: text(row[6]),
+        insumos_principales: text(row[7]),
+        preparacion: text(row[8]),
+        ingredientes: recipe
+          .filter((i) => Number(i.quantity) > 0)
+          .map((i) => ({ insumo: i.name, cantidad: Number(i.quantity), medida: i.unit || undefined })),
+      })
+    },
+  },
+  "cat-producto": categorySpec("/categorias-productos"),
+  // [0 nombre, 1 tipo doc, 2 documento, 3 teléfono, 4 correo, 5 dirección, 6 de local (Sí/No), 7 estado]
+  // Customers who registered in the app also show up here (their e-mail is their login).
+  clientes: {
+    path: "/clientes",
+    update: "PATCH",
+    idIndex: 8,
+    idOf: (c) => c.id_persona,
+    toRow: (c) =>
+      withId(
+        [c.nombre, c.tipo_documento || "", c.documento || "", c.telefono || "", c.correo || "", c.direccion || "",
+          c.de_local ? "Sí" : "No", c.estado === "ACTIVO" ? "Activo" : "Inactivo"],
+        8,
+        c.id_persona,
+      ),
+    toBody: (row) => ({
+      nombre: text(row[0]),
+      tipo_documento: text(row[1]),
+      documento: text(row[2]),
+      telefono: text(row[3]),
+      correo: optionalEmail(row[4]),
+      direccion: text(row[5]),
+      de_local: text(row[6]).toLowerCase() === "sí",
+      estado: estadoOf(row[7]),
+    }),
+  },
+  "cat-insumos": categorySpec("/categorias-insumos"),
+  // [0 nombre, 1 categoría, 2 unidad, 3 costo, 4 stock, 5 mínimo, 6 (sin uso), 7 producto de insumo,
+  //  8-11 ficha técnica, 12 estado]. The ficha técnica texts are not in the backend yet.
+  insumos: {
+    path: "/insumos",
+    update: "PATCH",
+    idIndex: 13,
+    idOf: (i) => i.id_insumo_producto,
+    toRow: (i) =>
+      withId(
+        [i.nombre, i.nombre_categoria, i.medida || "und", i.costo, i.stock, i.minimo, "",
+          i.tiene_ficha_tecnica ? "Sí" : "No",
+          i.tiene_ficha_tecnica ? i.ficha?.nombre || `Ficha técnica - ${i.nombre}` : "",
+          i.tiene_ficha_tecnica ? i.ficha?.version || "v1.0" : "",
+          i.ficha?.insumos_principales || "", i.ficha?.preparacion || "", i.estado === "ACTIVO" ? "Activo" : "Inactivo"],
+        13,
+        i.id_insumo_producto,
+      ),
+    toBody: async (row) => ({
+      nombre: text(row[0]),
+      id_categoria: await categoryIdByName("/categorias-insumos", row[1]),
+      medida: text(row[2]),
+      costo: Number(row[3]) || 0,
+      stock: Number(row[4]) || 0,
+      minimo: Number(row[5]) || 0,
+      tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
+      estado: estadoOf(row[12]),
+    }),
+    afterSave: (id, row) =>
+      text(row[7]).toLowerCase() === "sí"
+        ? api(`/insumos/${id}/ficha`, "PUT", {
+            nombre: text(row[8]),
+            version: text(row[9]),
+            insumos_principales: text(row[10]),
+            preparacion: text(row[11]),
+            // no recipe lines in the insumo form: the backend keeps the saved ones
+          })
+        : Promise.resolve(),
+  },
+  // [0 proveedor, 1 fecha compra, 2 fecha registro, 3 subtotal, 4 total, 5 estado (Activo/Anulado), 6 insumos]
+  // The backend adds the insumos to stock (and takes them back when the purchase is anulada).
+  compras: {
+    path: "/compras",
+    update: "PUT",
+    idIndex: 7,
+    idOf: (c) => c.id_compra,
+    toRow: (c) =>
+      withId(
+        [c.proveedor, c.fecha, c.fecha_registro, c.subtotal, c.total, c.estado === "REGISTRADA" ? "Activo" : "Anulado",
+          c.detalles.map((d: DbRecord) => `${d.insumo} | ${d.cantidad} | ${d.costo_unitario}`).join("\n")],
+        7,
+        c.id_compra,
+      ),
+    toBody: async (row) => {
+      const insumos = await api<DbRecord[]>("/insumos")
+      const items = parsePurchaseLines(row[6]).map((line) => {
+        const insumo = insumos.find((i) => normalizeName(i.nombre) === normalizeName(line.name))
+        if (!insumo) throw new Error(`El insumo «${line.name}» no existe en la base de datos.`)
+        return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice }
+      })
+      return {
+        id_proveedor: await idByName("/proveedores", "nombre", "id_proveedor", row[0], "El proveedor"),
+        fecha: text(row[1]),
+        iva: Math.max(0, Number(row[4]) - Number(row[3]) || 0),
+        items,
+      }
+    },
+    setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", { estado: isActiveStatus(row[5]) ? "REGISTRADA" : "ANULADA" }),
+    reloads: ["insumos"],
+  },
+  // [0 insumo, 1 cantidad con unidad ("0.5 kg"), 2 motivo, 3 responsable, 4 fecha, 5 origen]
+  // The backend takes the quantity out of the insumo's stock.
+  perdidas: {
+    path: "/perdidas-insumos",
+    update: "PUT",
+    idIndex: 6,
+    idOf: (p) => p.id_perdida,
+    toRow: (p) =>
+      withId(
+        [p.insumo, `${p.cantidad} ${p.medida || ""}`.trim(), p.motivo || "", p.responsable || "", p.fecha, p.observacion || ""],
+        6,
+        p.id_perdida,
+      ),
+    toBody: async (row) => {
+      const cantidad = parseFloat(String(row[1]).replace(",", "."))
+      if (!(cantidad > 0)) throw new Error(`La cantidad «${row[1]}» no es válida.`)
+      return {
+        id_insumo_producto: await idByName("/insumos", "nombre", "id_insumo_producto", row[0], "El insumo"),
+        cantidad,
+        motivo: text(row[2]),
+        responsable: text(row[3]),
+        fecha: text(row[4]) || undefined,
+        observacion: text(row[5]),
+      }
+    },
+    reloads: ["insumos"],
+  },
+  // [0 nombre, 1 NIT, 2 correo, 3 teléfono, 4 contacto, 5 dirección, 6 estado, 7 insumos,
+  //  8-14 contacto: tipo doc, nº doc, nombre, apellido, teléfono, correo, cargo]
+  proveedores: {
+    path: "/proveedores",
+    update: "PATCH",
+    idIndex: 15,
+    idOf: (p) => p.id_proveedor,
+    // Nombre/apellido (10, 11) stay empty: the edit form splits them from "contacto"
+    toRow: (p) =>
+      withId(
+        [p.nombre, p.nit || "", p.correo || "", p.telefono || "", p.contacto || "", p.direccion || "",
+          p.estado === "ACTIVO" ? "Activo" : "Inactivo", p.insumos || "", p.contacto_tipo_documento || "",
+          p.contacto_documento || "", "", "", p.contacto_telefono || "", p.contacto_correo || "", p.contacto_cargo || ""],
+        15,
+        p.id_proveedor,
+      ),
+    toBody: (row) => ({
+      nombre: text(row[0]),
+      nit: text(row[1]),
+      correo: optionalEmail(row[2]),
+      telefono: text(row[3]),
+      contacto: text(row[4]),
+      direccion: text(row[5]),
+      estado: estadoOf(row[6]),
+      insumos: text(row[7]),
+      contacto_tipo_documento: text(row[8]),
+      contacto_documento: text(row[9]),
+      contacto_telefono: text(row[12]),
+      contacto_correo: optionalEmail(row[13]),
+      contacto_cargo: text(row[14]),
+    }),
+  },
+}
+
+// Creates (no id yet) or updates the row's record in the backend; returns its id
+async function saveRowToDb(spec: SyncSpec, row: Row) {
+  const body = await spec.toBody(row)
+  const id = row[spec.idIndex]
+  const saved = id
+    ? await api<DbRecord>(`${spec.path}/${id}`, spec.update, body)
+    : await api<DbRecord>(spec.path, "POST", body)
+  return spec.idOf(saved)
+}
+
+// ── Permissions ↔ backend ──────────────────────────────────────────────────────
+// Panel section -> backend module (also the names of the permissions matrix)
+const SECTION_MODULE: Record<string, string> = {
+  roles: "ROLES_PERMISOS",
+  usuarios: "USUARIOS",
+  "cat-insumos": "CATEGORIAS_INSUMOS",
+  insumos: "INSUMOS",
+  proveedores: "PROVEEDORES",
+  compras: "COMPRAS",
+  perdidas: "PERDIDA_INSUMOS",
+  "cat-producto": "CATEGORIAS_PRODUCTO",
+  producto: "PRODUCTOS",
+  produccion: "ORDENES_PRODUCCION",
+  "producto-no-conforme": "PRODUCTO_NO_CONFORME",
+  clientes: "CLIENTES",
+  pedidos: "PEDIDOS",
+  ventas: "VENTAS",
+  devoluciones: "DEVOLUCIONES",
+}
+const PERM_MODULE: Record<string, string> = {
+  "Roles y permisos": "ROLES_PERMISOS",
+  Usuarios: "USUARIOS",
+  "Categoría Insumos": "CATEGORIAS_INSUMOS",
+  Insumos: "INSUMOS",
+  Proveedores: "PROVEEDORES",
+  Compras: "COMPRAS",
+  "Pérdida Insumos": "PERDIDA_INSUMOS",
+  "Categoría Producto": "CATEGORIAS_PRODUCTO",
+  Productos: "PRODUCTOS",
+  Producción: "ORDENES_PRODUCCION",
+  "Producto No Conforme": "PRODUCTO_NO_CONFORME",
+  Clientes: "CLIENTES",
+  Pedidos: "PEDIDOS",
+  Ventas: "VENTAS",
+  Devoluciones: "DEVOLUCIONES",
+}
+// The backend has one privilege for both "Anular" and "Eliminar" (each module shows one of them)
+const PERM_ACTION: Record<string, string> = { Ver: "VER", Crear: "CREAR", Editar: "EDITAR", Anular: "ELIMINAR", Eliminar: "ELIMINAR" }
+type RolePerms = Record<string, string[]>
+const permsToDb = (perms: RolePerms) =>
+  PERMISSION_MODULES.map(({ name }) => ({
+    modulo: PERM_MODULE[name],
+    privilegios: [...new Set((perms[name] || []).map((a) => PERM_ACTION[a]).filter(Boolean))].sort(),
+  })).filter((p) => p.privilegios.length)
+const permsFromDb = (permisos: { modulo: string; privilegios: string[] }[]): RolePerms =>
+  Object.fromEntries(
+    PERMISSION_MODULES.map(({ name, finalAction }) => [
+      name,
+      (permisos.find((p) => p.modulo === PERM_MODULE[name])?.privilegios || []).map((p) =>
+        p === "ELIMINAR" ? finalAction : p[0] + p.slice(1).toLowerCase(),
+      ),
+    ]),
+  )
+
+// ── Panel modules stored as whole rows ─────────────────────────────────────────
+// Their logic lives in the panel (status history, order lines, stock already used...), so the
+// backend stores each row as-is (plus its main columns). AdminPanel saves any change automatically.
+type PanelSyncSpec = {
+  path: string
+  // Position of the backend id in the row (right after the panel's own cells; never shown)
+  idIndex: number
+  // Rows built in the browser before loading that must still be saved (default: none)
+  keepLocal?: (row: Row, dbRows: Row[]) => boolean
+  // Rows this module saves (default: all); the others are kept as they are and never sent
+  owns?: (row: Row) => boolean
+}
+const PANEL_SYNC: Record<string, PanelSyncSpec> = {
+  // Production orders rebuilt from client orders (not the demo seed) are saved if the backend doesn't have them
+  produccion: {
+    path: "/ordenes-produccion",
+    idIndex: 16,
+    keepLocal: (row, dbRows) =>
+      !dbRows.some((r) => r[0] === row[0]) && !MOD_CFG.produccion.seed.some((r) => r[0] === row[0]),
+  },
+  "producto-no-conforme": { path: "/productos-no-conformes", idIndex: 9 },
+  ventas: { path: "/ventas", idIndex: 13 },
+  devoluciones: { path: "/devoluciones", idIndex: 6 },
+  // Orders created by hand in the panel; web store orders are saved through /pedidos
+  pedidos: {
+    path: "/pedidos-panel",
+    idIndex: 12,
+    owns: (row) => !loadOrders().some((order) => order.id === row[0]),
+  },
+}
+const syncIdIndex = (sec: string) => (DB_SYNC[sec] ?? PANEL_SYNC[sec])?.idIndex
+// Pads the row so the id never leaves empty gaps before it
+const withPanelId = (row: Row, idIndex: number, id: string | number) => {
+  const padded = Array.from({ length: Math.max(row.length, idIndex) }, (_, i) => row[i] ?? "")
+  padded[idIndex] = id
+  return padded
+}
+
+// Backend categories that feed the customization options instead of the menu
+const EXTRA_CATS = ["Adiciones", "Salsas", "Bebidas", "Sabores de bebida"]
+
+// shortcut: replaces the menu arrays in place so every screen reading them shows the backend data;
+// move them into state/context when the admin panel edits them live.
+async function loadMenu() {
+  const items = await api<CatalogItem[]>("/catalogo")
+  const inCat = (cat: string) => items.filter((p) => p.categoria === cat)
+  ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio })))
+  SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
+  BEVERAGES.splice(0, BEVERAGES.length, ...inCat("Sabores de bebida").map((p) => p.nombre))
+  // The customizer always needs at least one size, so keep the built-in ones if none are active
+  const sizes = inCat("Bebidas").map((p) => ({ id: p.nombre, label: p.nombre, price: p.precio }))
+  if (sizes.length) BEVERAGE_SIZES.splice(0, BEVERAGE_SIZES.length, ...sizes)
+  PRODUCTS.splice(
+    0,
+    PRODUCTS.length,
+    ...items.filter((p) => !EXTRA_CATS.includes(p.categoria)).map((p) => ({
+      id: p.id,
+      name: p.nombre,
+      desc: p.descripcion || "",
+      price: p.precio,
+      priceStr: fmt(p.precio),
+      img: imageUrl(p.imagenes[0]),
+      cat: MENU_CAT_ID[p.categoria] || p.categoria.toLowerCase(),
+      badge: p.etiqueta || "",
+    })),
+  )
+}
+
+const apiRegister = async (u: User) =>
+  toUser(
+    await api<AuthData>("/auth/registro", "POST", {
+      correo: u.email,
+      contrasena: u.password,
+      nombre: u.name,
+      tipo_documento: u.docType || undefined,
+      documento: u.cedula || undefined,
+    }),
+  )
+
 function getAdminAccountStatus(email: string): string | undefined {
   const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
   return statuses[email.trim().toLowerCase()]
@@ -3885,6 +4183,56 @@ function getAdminAccountStatus(email: string): string | undefined {
 // share it); move to a backend when the shop needs multiple devices.
 const loadOrders = () => loadLS<Order[]>("orders", [])
 const saveOrders = (orders: Order[]) => saveLS("orders", orders)
+
+// ── Pedidos ↔ backend: the "orders" cache above is refreshed from the backend on login,
+// so client and admin see the same orders from any device.
+const orderDbId = (id: string) => Number(id.replace("PED-", ""))
+const orderFromDb = (p: DbRecord): Order => ({
+  id: `PED-${p.id_pedido}`,
+  email: p.correo,
+  cliente: p.cliente,
+  date: new Date(p.creado_en).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }),
+  nombre: p.nombre_contacto || p.cliente,
+  telefono: p.telefono_contacto || "",
+  direccion: p.direccion_entrega || "",
+  notas: p.observacion || "",
+  pago: p.metodo_pago || "Efectivo",
+  voucher: p.comprobante || undefined,
+  items: p.items.map((it: DbRecord, i: number) => {
+    const product = PRODUCTS.find((x) => x.name === it.producto)
+    return {
+      id: i + 1,
+      name: it.producto,
+      description: product?.desc,
+      price: it.precio_unitario,
+      qty: it.cantidad,
+      img: product?.img || "",
+      sauces: it.detalle?.salsas || [],
+      additions: (it.detalle?.adiciones || []).map((a: DbRecord) => ({ name: a.nombre, qty: a.cantidad, price: a.precio })),
+    }
+  }),
+  total: p.total,
+  status: p.estado,
+  paymentStatus: p.estado_pago,
+  paymentRejectionReason: p.motivo_rechazo_pago || undefined,
+  productionAuthorized: p.produccion_autorizada,
+  productionRecords: p.registros_produccion,
+})
+// Staff get every order; clients only their own
+const refreshOrders = async (role: User["role"]) =>
+  saveOrders((await api<DbRecord[]>(role === "admin" ? "/pedidos" : "/pedidos/mios")).map(orderFromDb))
+// Saves the panel's changes to a client order (status, payment, production)
+const pushOrder = (id: string) => {
+  const o = loadOrders().find((order) => order.id === id)
+  if (!o) return
+  api(`/pedidos/${orderDbId(o.id)}`, "PATCH", {
+    estado: o.status,
+    estado_pago: o.paymentStatus,
+    motivo_rechazo_pago: o.paymentRejectionReason ?? null,
+    produccion_autorizada: !!o.productionAuthorized,
+    registros_produccion: o.productionRecords ?? [],
+  }).catch((err) => window.alert(`El pedido ${o.id} no se guardó en la base de datos: ${(err as Error).message}`))
+}
 const loadRegisteredClients = () =>
   loadLS<RegisteredClient[]>("registeredClients", [])
 const saveRegisteredClient = (user: User) => {
@@ -4424,7 +4772,7 @@ function CheckoutPage({
   onLogin: (u: User) => void
   onRegisterVerified: (u: User) => void
   onBack: () => void
-  onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => void
+  onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<void>
   onComplete: () => void
 }) {
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
@@ -4489,15 +4837,25 @@ function CheckoutPage({
   const subtotal = cartTotal(cart)
   const hasActiveItems = cart.some((item) => item.qty > 0)
   const activeCart = cart.filter((item) => item.qty > 0)
-  const placeOrder = () => {
+  const [orderError, setOrderError] = useState("")
+  const [placing, setPlacing] = useState(false)
+  const placeOrder = async () => {
     setDeliveryTried(true)
-    if (!user || !delivFilled || !payReady || cart.length === 0) return
-    onPlaceOrder(
-      { ...delivForm, voucher: needsVoucher ? voucher : undefined },
-      saveAddress || !(user.addresses?.length),
-    )
-    setPlacedTotal(subtotal)
-    setOrdered(true)
+    if (placing || !user || !delivFilled || !payReady || cart.length === 0) return
+    setOrderError("")
+    setPlacing(true)
+    try {
+      await onPlaceOrder(
+        { ...delivForm, voucher: needsVoucher ? voucher : undefined },
+        saveAddress || !(user.addresses?.length),
+      )
+      setPlacedTotal(subtotal)
+      setOrdered(true)
+    } catch (err) {
+      setOrderError((err as Error).message)
+    } finally {
+      setPlacing(false)
+    }
   }
   const continueToReview = () => {
     setDeliveryTried(true)
@@ -4517,49 +4875,26 @@ function CheckoutPage({
   const [loginTried, setLoginTried] = useState(false)
   const [regTried, setRegTried] = useState(false)
   const [codeTried, setCodeTried] = useState(false)
-  const loginErrors = loginTried
-    ? validateLogin(
-        loginForm.email,
-        loginForm.pass,
-        loadLS<User | null>(
-          `profile:${loginForm.email.trim().toLowerCase()}`,
-          null,
-        )?.password,
-        getAdminAccountStatus(loginForm.email),
-        true,
-        !!loadLS<User | null>(
-          `profile:${loginForm.email.trim().toLowerCase()}`,
-          null,
-        )?.password,
-      )
-    : {}
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  // Password, account existence and status are checked by the backend
+  const loginErrors = loginTried ? validateLogin(loginForm.email, loginForm.pass) : {}
   const regErrors = regTried ? validateRegister(regForm) : {}
   const codeErr = codeTried ? codeError(code) : ""
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoginTried(true)
-    const email = loginForm.email.trim().toLowerCase()
-    const savedProfile = loadLS<User | null>(`profile:${email}`, null)
-    if (
-      Object.keys(
-        validateLogin(
-          loginForm.email,
-          loginForm.pass,
-          savedProfile?.password,
-          getAdminAccountStatus(email),
-          true,
-          !!savedProfile?.password,
-        ),
-      ).length
-    )
-      return
-    const role = email.includes("admin") ? "admin" : "user"
-    const name = email
-      .split("@")[0]
-      .replace(/\./g, " ")
-      .replace(/\b\w/g, (ch) => ch.toUpperCase())
-    onLogin({ name, email, role })
-    setCheckoutStep(2)
+    setServerErr("")
+    if (busy || Object.keys(validateLogin(loginForm.email, loginForm.pass)).length) return
+    setBusy(true)
+    try {
+      onLogin(await apiLogin(loginForm.email, loginForm.pass))
+      setCheckoutStep(2)
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
   const handleRegisterForm = (e: React.FormEvent) => {
     e.preventDefault()
@@ -4567,20 +4902,30 @@ function CheckoutPage({
     if (Object.keys(validateRegister(regForm)).length) return
     setRegStep("verifying")
   }
-  const handleVerify = (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault()
     setCodeTried(true)
-    if (codeError(code)) return
-    onRegisterVerified({
+    setServerErr("")
+    if (busy || codeError(code)) return
+    const u: User = {
       name: regForm.name.trim(),
       email: regForm.email.trim().toLowerCase(),
       role: "user",
       docType: regForm.docType,
       phone: regForm.phone.replace(/\s/g, ""),
       cedula: regForm.docNum.trim(),
-      password: regForm.pass,
-    })
-    setCheckoutStep(2)
+    }
+    setBusy(true)
+    try {
+      // Registering returns a token, so the client is logged in right away
+      await apiRegister({ ...u, password: regForm.pass })
+      onRegisterVerified(u)
+      setCheckoutStep(2)
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const MUTED = "rgba(30,30,30,0.55)"
@@ -4610,9 +4955,9 @@ function CheckoutPage({
           disabled: cart.length === 0,
         }
       : {
-          label: "Confirmar pedido",
+          label: placing ? "Enviando pedido..." : "Confirmar pedido",
           onClick: placeOrder,
-          disabled: !hasActiveItems || !canOrder || !payReady,
+          disabled: placing || !hasActiveItems || !canOrder || !payReady,
         }
 
   if (ordered)
@@ -4870,12 +5215,14 @@ function CheckoutPage({
                       required
                       error={loginErrors.pass}
                     />
+                    <FieldError msg={serverErr} />
                     <button
                       type="submit"
+                      disabled={busy}
                       className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
                       style={{ background: C.mustard, color: "#fff" }}
                     >
-                      Iniciar sesión
+                      {busy ? "Ingresando..." : "Iniciar sesión"}
                     </button>
                   </form>
                 )}
@@ -5016,13 +5363,14 @@ function CheckoutPage({
                         color: "#1A1714",
                       }}
                     />
-                    <FieldError msg={codeErr} />
+                    <FieldError msg={codeErr || serverErr} />
                     <button
                       type="submit"
+                      disabled={busy}
                       className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
                       style={{ background: C.mustard, color: "#fff" }}
                     >
-                      Verificar
+                      {busy ? "Creando cuenta..." : "Verificar"}
                     </button>
                     <button
                       type="button"
@@ -5392,6 +5740,7 @@ function CheckoutPage({
               <span>Total</span>
               <span style={{ color: C.mustard }}>{fmt(subtotal)}</span>
             </div>
+            <FieldError msg={orderError} />
             {cta ? (
               <button
                 onClick={cta.onClick}
@@ -5501,18 +5850,13 @@ function ChangePasswordForm({
   const TEXT = "#1A1714"
   const MUTED = "rgba(30,30,30,0.5)"
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setSuccess(false)
 
-    // Validate current password
-    if (!user.password) {
-      setError("No tienes una contraseña establecida. Usa la opción de recuperar contraseña.")
-      return
-    }
-    if (currentPass !== user.password) {
-      setError("La contraseña actual es incorrecta.")
+    if (!currentPass) {
+      setError("Escribe tu contraseña actual.")
       return
     }
 
@@ -5530,8 +5874,13 @@ function ChangePasswordForm({
       return
     }
 
-    // Update password
-    onUpdateUser({ ...user, password: newPass })
+    // The backend checks the current password and saves the new one
+    try {
+      await api("/auth/me/contrasena", "PATCH", { actual: currentPass, nueva: newPass })
+    } catch (err) {
+      setError((err as Error).message)
+      return
+    }
     setCurrentPass("")
     setNewPass("")
     setConfirmPass("")
@@ -8353,6 +8702,13 @@ function AdminPanel({
 }) {
   const [theme, setTheme] = useState<Theme>("light")
   const [section, setSection] = useState<AdminSection>("dashboard")
+  // Sales are registered in the name of whoever is logged in (default seller)
+  const sellerName = user?.name || "Administrador"
+  // Only the modules this user's role may see (the backend enforces it too)
+  const canSee = (key: string) => key === "dashboard" || !user?.permissions || user.permissions.includes(SECTION_MODULE[key])
+  const visibleMenu = SIDEBAR_MENU.map((g) => ({ ...g, children: g.children.filter((c) => canSee(c.key)) })).filter(
+    (g) => (g.key.endsWith("-g") ? g.children.length > 0 : canSee(g.key)),
+  )
   const [open, setOpen] = useState<string[]>(["ventas-g"])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -8483,28 +8839,17 @@ function AdminPanel({
       })
       .forEach((order) => {
         const lines = JSON.parse(String(order[10] ?? "[]")) as AdminOrderLine[]
-        initialRows.produccion = buildProductionRows(lines, initialRows.produccion || [], String(order[0]))
+        const before = initialRows.produccion || []
+        initialRows.produccion = buildProductionRows(lines, before, String(order[0]))
+        // Saved on the order (and in the backend) so opening the panel again doesn't create them again
+        const created = initialRows.produccion.filter((row) => !before.includes(row))
+        saveOrders(loadOrders().map((o) => (o.id === order[0] ? { ...o, productionRecords: created } : o)))
+        pushOrder(String(order[0]))
       })
     initialRows.produccion = [
       ...clientOrders.flatMap((order) => order.productionRecords ?? []),
       ...(initialRows.produccion || []),
     ]
-    initialRows.pedidos
-      .slice(0, clientOrders.length)
-      .reverse()
-      .filter((order) => ["Enviada a producción", "Autorizada"].includes(String(order[9])))
-      .filter((order) => {
-        const stored = clientOrders.find((clientOrder) => clientOrder.id === order[0])
-        return !stored?.productionRecords?.length
-      })
-      .forEach((order) => {
-        const lines = JSON.parse(String(order[10] ?? "[]")) as AdminOrderLine[]
-        initialRows.produccion = buildProductionRows(
-          lines,
-          initialRows.produccion || [],
-          String(order[0]),
-        )
-      })
     const supplyProducts = (initialRows.insumos || [])
       .filter((row) => String(row[7]).toLowerCase() === "sí")
       .map(supplyAsProduct)
@@ -8536,7 +8881,7 @@ function AdminPanel({
       )
       .map((order, index) => [
         `VTA-AUTO-${String(index + 1).padStart(2, "0")}`,
-        "Admin Parche",
+        sellerName,
         order[1],
         clientOrders.find((clientOrder) => clientOrder.id === order[0])?.date ?? "",
         order[3],
@@ -8553,6 +8898,166 @@ function AdminPanel({
   })
   const [anulled, setAnulled] = useState<Record<string, Set<number>>>({})
   const [prodImgs, setProdImgs] = useState<Record<number, string>>({})
+  // Modules in DB_SYNC are loaded from the backend; their localOnly rows stay in the browser
+  const loadModule = (sec: string) => {
+    const spec = DB_SYNC[sec]
+    return api<DbRecord[]>(spec.path)
+      .then((records) => {
+        setRows((current) => {
+          const next = {
+            ...current,
+            [sec]: [
+              ...records.filter((r) => spec.shows?.(r) ?? true).map(spec.toRow),
+              ...(current[sec] || []).filter((row) => spec.localOnly?.(row)),
+            ],
+          }
+          // Insumos marked "Producto de insumo" also show up in Productos
+          if (sec === "insumos")
+            next.producto = [
+              ...(current.producto || []).filter((row) => row[1] !== "Producto de insumo"),
+              ...next.insumos.filter((row) => text(row[7]).toLowerCase() === "sí").map(supplyAsProduct),
+            ]
+          return next
+        })
+        // Backend products come first in the table, so their row index matches the record order
+        if (sec === "producto")
+          setProdImgs(
+            Object.fromEntries(
+              records.flatMap((p, i) => (p.imagenes?.[0] ? [[i, imageUrl(p.imagenes[0])]] : [])),
+            ),
+          )
+      })
+      .catch((err) => console.warn(`No se pudo cargar «${sec}» del backend:`, err))
+  }
+  useEffect(() => {
+    Object.keys(DB_SYNC).forEach(loadModule)
+  }, [])
+  // Saves a row in the backend (statusOnly: just its Activo/Inactivo change); on failure tells the admin
+  // and reloads that table from the backend
+  const syncRow = (
+    sec: string,
+    row: Row,
+    isNew: boolean,
+    statusOnly = false,
+    // Extra save once the record has its id (e.g. the product photo)
+    alsoSave?: (id: number) => Promise<unknown>,
+  ) => {
+    const spec = DB_SYNC[sec]
+    if (!spec || spec.localOnly?.(row)) return
+    if (!isNew && !row[spec.idIndex]) {
+      window.alert("Este registro no está vinculado a la base de datos. Recarga la página e inténtalo de nuevo.")
+      return
+    }
+    const saved =
+      statusOnly && spec.setStatus
+        ? spec.setStatus(row[spec.idIndex], row).then(() => Number(row[spec.idIndex]))
+        : saveRowToDb(spec, row)
+    saved
+      .then((id) => {
+        setRows((current) => ({
+          ...current,
+          [sec]: (current[sec] || []).map((r) => (r === row ? withId([...r], spec.idIndex, id) : r)),
+        }))
+        spec.reloads?.forEach(loadModule)
+        if (statusOnly) return
+        return Promise.all([spec.afterSave?.(id, row), alsoSave?.(id)])
+      })
+      .catch((err) => {
+        window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
+        loadModule(sec)
+      })
+  }
+  const deleteRowInDb = (sec: string, row: Row | undefined) => {
+    const spec = DB_SYNC[sec]
+    const id = spec && row?.[spec.idIndex]
+    if (!id) return
+    api(`${spec.path}/${id}`, "DELETE").catch((err) => {
+      window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`)
+      loadModule(sec)
+    })
+  }
+  // PANEL_SYNC modules: loaded once, then every created/changed/removed row is saved automatically
+  const panelLoaded = useRef<Record<string, boolean>>({})
+  // Last saved version of each row, by backend id (to only send real changes)
+  const panelSaved = useRef<Record<string, Map<string | number, string>>>({})
+  useEffect(() => {
+    Object.entries(PANEL_SYNC).forEach(([sec, spec]) =>
+      api<DbRecord[]>(spec.path)
+        .then((records) => {
+          const dbRows = records.map((r) => withPanelId(r.datos_panel, spec.idIndex, r.id))
+          panelSaved.current[sec] = new Map(dbRows.map((r) => [r[spec.idIndex], JSON.stringify(r)]))
+          setRows((current) => ({
+            ...current,
+            [sec]: [
+              ...dbRows,
+              ...(current[sec] || []).filter(
+                (r) => !r[spec.idIndex] && (spec.keepLocal?.(r, dbRows) || spec.owns?.(r) === false),
+              ),
+            ],
+          }))
+          panelLoaded.current[sec] = true
+        })
+        .catch((err) => console.warn(`No se pudo cargar «${sec}» del backend:`, err)),
+    )
+  }, [])
+  useEffect(() => {
+    Object.entries(PANEL_SYNC).forEach(([sec, spec]) => {
+      if (!panelLoaded.current[sec]) return
+      const saved = panelSaved.current[sec]
+      const present = new Set<string | number>()
+      const created: Row[] = []
+      for (const row of rows[sec] || []) {
+        if (spec.owns?.(row) === false) continue
+        const id = row[spec.idIndex]
+        if (!id) created.push(row)
+        else if (String(id).startsWith("guardando-")) continue
+        else {
+          present.add(id)
+          const json = JSON.stringify(row)
+          if (saved.get(id) === json) continue
+          saved.set(id, json)
+          api(`${spec.path}/${id}`, "PUT", { datos_panel: row.slice(0, spec.idIndex) }).catch((err) => {
+            saved.delete(id)
+            window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
+          })
+        }
+      }
+      // Rows removed in the panel
+      for (const id of [...saved.keys()]) {
+        if (present.has(id)) continue
+        saved.delete(id)
+        api(`${spec.path}/${id}`, "DELETE").catch((err) =>
+          window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`),
+        )
+      }
+      // New rows: mark them while they are created so they're sent only once
+      created.forEach((row) => {
+        const tempId = `guardando-${Math.random().toString(36).slice(2)}`
+        const data = row.slice(0, spec.idIndex)
+        setRows((current) => ({
+          ...current,
+          [sec]: (current[sec] || []).map((r) => (r === row ? withPanelId(r, spec.idIndex, tempId) : r)),
+        }))
+        api<DbRecord>(spec.path, "POST", { datos_panel: data })
+          .then(({ id }) => {
+            // If the row changed while it was being created, the next pass sends the change
+            saved.set(id, JSON.stringify(withPanelId(data, spec.idIndex, id)))
+            setRows((current) => ({
+              ...current,
+              [sec]: (current[sec] || []).map((r) => (r[spec.idIndex] === tempId ? withPanelId(r, spec.idIndex, id) : r)),
+            }))
+          })
+          .catch((err) => {
+            window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
+            // Back to "new" so it is retried on the next change
+            setRows((current) => ({
+              ...current,
+              [sec]: (current[sec] || []).map((r) => (r[spec.idIndex] === tempId ? withPanelId(r, spec.idIndex, "") : r)),
+            }))
+          })
+      })
+    })
+  }, [rows])
   const [paymentProofs, setPaymentProofs] = useState<Record<number, string>>(
     () =>
       Object.fromEntries(
@@ -8659,6 +9164,37 @@ function AdminPanel({
   useEffect(() => {
     saveLS("adminRolePermissions", rolesPerms)
   }, [rolesPerms])
+  // Permissions matrix: loaded from the backend, then each role's changes are saved (Administrador always has all)
+  const permsLoaded = useRef(false)
+  const permsSaved = useRef(new Map<string | number, string>())
+  useEffect(() => {
+    api<DbRecord[]>("/roles")
+      .then((roles) => Promise.all(roles.map((r) => api<DbRecord>(`/roles/${r.id_rol}`))))
+      .then((roles) => {
+        const next = Object.fromEntries(roles.map((r) => [roleLabel(r.nombre_rol), permsFromDb(r.permisos)]))
+        roles.forEach((r) => permsSaved.current.set(r.id_rol, JSON.stringify(permsToDb(next[roleLabel(r.nombre_rol)]))))
+        setRolesPerms(next)
+        permsLoaded.current = true
+      })
+      .catch((err) => console.warn("No se pudieron cargar los permisos del backend:", err))
+  }, [])
+  useEffect(() => {
+    if (!permsLoaded.current) return
+    for (const role of rows.roles || []) {
+      const id = role[DB_SYNC.roles.idIndex]
+      const name = String(role[0] ?? "")
+      if (!id || name.toLowerCase() === "administrador") continue
+      const permisos = permsToDb(rolesPerms[name] || {})
+      const json = JSON.stringify(permisos)
+      if (permsSaved.current.get(id) === json) continue
+      permsSaved.current.set(id, json)
+      api(`/roles/${id}/permisos`, "PUT", { permisos }).catch((err) => {
+        permsSaved.current.delete(id)
+        window.alert(`Los permisos de «${name}» no se guardaron en la base de datos: ${(err as Error).message}`)
+      })
+    }
+  }, [rolesPerms, rows.roles])
+
 
   useEffect(() => {
     const fn = (e: MouseEvent) => {
@@ -8739,30 +9275,11 @@ function AdminPanel({
       : getAutoTechVersion(rows.producto || [])
   }
 
-  const getAvailableInsumos = () => {
-    const sourceRows = rows.insumos || []
-    const options = sourceRows
-      .map((row) => String(row[0] ?? "").trim())
-      .filter(Boolean)
-
-    return [
-      ...new Set(
-        options.length
-          ? options
-          : [
-              "Carne de res 100g",
-              "Queso cheddar",
-              "Pan brioche",
-              "Lechuga",
-              "Salchicha",
-              "Tomate",
-              "Cebolla",
-              "Papas",
-              "Salsa de la casa",
-            ],
-      ),
-    ].sort((a, b) => a.localeCompare(b))
-  }
+  // Only real insumos (from the backend) can go in a ficha técnica
+  const getAvailableInsumos = () =>
+    [...new Set((rows.insumos || []).map((row) => String(row[0] ?? "").trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b),
+    )
 
   const getProductRecipe = (product: (string | number)[] | undefined) => {
     if (!product) return []
@@ -8992,15 +9509,21 @@ function AdminPanel({
   ) => {
     const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
     const excludedKeys: Record<string, string[]> = {
-      insumos:
-        String(draft["7"] ?? "").toLowerCase() === "sí"
+      insumos: [
+        // "Stock actual" isn't shown when creating (a new insumo starts at 0)
+        ...(mode === "add" ? ["4"] : []),
+        ...(String(draft["7"] ?? "").toLowerCase() === "sí"
           ? ["8", "9"]
-          : ["8", "9", "10", "11"],
+          : ["8", "9", "10", "11"]),
+      ],
       producto: ["5", "6", "7", "8", "10", ...(mode === "add" ? ["2"] : [])],
       produccion: ["0", "1"],
       "producto-no-conforme": ["0", "1", "2", "5", "6"],
       compras: ["3", "4"],
-      pedidos: ["1", "5", "9"],
+      // "Origen" is only filled when the loss is sent from a purchase
+      perdidas: ["5"],
+      // 4 (modalidad) and 7 (estado de pago) are derived from the payment method
+      pedidos: ["1", "4", "5", "7", "9"],
     }
     const managedRequiredKeys: Record<string, string[]> = {
       usuarios: ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])],
@@ -9011,8 +9534,10 @@ function AdminPanel({
         "3",
         ...(clientIsLocal ? [] : ["4", "5"]),
       ],
+      // "7" (insumos que suministra) is optional: they can be assigned later, and
+      // Compras already warns when a supplier has none
       proveedores: [
-        "0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14",
+        "0", "1", "2", "3", "5", "8", "9", "10", "11", "12", "13", "14",
       ],
       roles: ["0", "1"],
     }
@@ -9169,7 +9694,9 @@ function AdminPanel({
       )
     }
     setFormData(currentDraft)
-    if (formValidationAttempted || formFieldErrors[key]) {
+    // Recompute while any error is shown: a change in one field (e.g. "Cliente de local")
+    // can clear the errors of other fields
+    if (formValidationAttempted || Object.keys(formFieldErrors).length) {
       setFormFieldErrors(validateManagedForm(sec, currentDraft, modal.mode))
     }
   }
@@ -9186,7 +9713,10 @@ function AdminPanel({
       setTechnicalIngredients([])
       setTechnicalSheetError("")
     }
-    if (sec === "ventas") initialFields["8"] = "Sin pedido"
+    if (sec === "ventas") {
+      initialFields["8"] = "Sin pedido"
+      initialFields["0"] = sellerName
+    }
     if (sec === "insumos") {
       initialFields["7"] = "No"
       setSupplyFormError("")
@@ -9403,9 +9933,12 @@ function AdminPanel({
       const dup = !e["0"] && duplicateOf("producto", v("0"))
       if (dup) e["0"] = `Ya existe el producto «${String(dup[0])}».`
       if (!v("1")) e["1"] = "Selecciona la categoría."
+      // Sauces and drink flavors are included free, so they may cost 0
+      const minPrice = ["Salsas", "Sabores de bebida"].includes(v("1")) ? 0 : 1
       if (!v("2")) {
         if (modal.mode !== "add") e["2"] = "Escribe el precio."
-      } else if (!(n("2") > 0)) e["2"] = "El precio debe ser mayor que 0."
+      } else if (!(n("2") >= minPrice))
+        e["2"] = minPrice ? "El precio debe ser mayor que 0." : "El precio no puede ser negativo."
       else if (!Number.isInteger(n("2"))) e["2"] = "El precio debe ser un valor entero, sin decimales."
       checkText("3", "La descripción", 10, 200, "Escribe una descripción.")
     }
@@ -9420,6 +9953,17 @@ function AdminPanel({
   const isRequiredField = (key: string) =>
     modal.mode !== "view" && (REQUIRED_KEYS[modal.section] || []).includes(key)
 
+  // After a failed "Guardar", bring the first field with an error into view (it may be
+  // below the visible part of the form) and focus it
+  const revealFirstFormError = () =>
+    window.setTimeout(() => {
+      const target = document.querySelector<HTMLElement>(
+        '.fixed.inset-0 [aria-invalid="true"], .fixed.inset-0 [role="alert"]',
+      )
+      target?.scrollIntoView({ block: "center", behavior: "smooth" })
+      if (target?.matches("input, select, textarea")) target.focus({ preventScroll: true })
+    }, 60)
+
   const saveModal = () => {
     const sec = modal.section
     const config = MOD_CFG[sec]
@@ -9427,13 +9971,13 @@ function AdminPanel({
 
     if (VALIDATED_SECTIONS.includes(sec)) {
       setFormTried(true)
-      if (Object.keys(getFieldErrors()).length) return
+      if (Object.keys(getFieldErrors()).length) return revealFirstFormError()
     }
 
     setFormValidationAttempted(true)
     const errors = validateManagedForm(sec, formData, modal.mode)
     setFormFieldErrors(errors)
-    if (Object.keys(errors).length) return
+    if (Object.keys(errors).length) return revealFirstFormError()
 
     if (sec === "roles") {
       const roleName = String(formData["0"] ?? "").trim()
@@ -9641,6 +10185,9 @@ function AdminPanel({
           : "Activo"
       newRow[config.statusIndex] = previousRow?.[config.statusIndex] ?? defaultStatus
     }
+    // Keep the backend id so the edit updates the same record
+    const idIndex = syncIdIndex(sec)
+    if (idIndex !== undefined) newRow[idIndex] = previousRow?.[idIndex] ?? ""
 
     setRows((current) => {
       const updated = [...(current[sec] || [])]
@@ -9691,6 +10238,17 @@ function AdminPanel({
 
       return { ...current, [sec]: updated }
     })
+    // The photo is sent only when it changed (new upload or new URL)
+    const previousImg = modal.idx !== null ? prodImgs[modal.idx] : ""
+    syncRow(
+      sec,
+      newRow,
+      modal.mode === "add",
+      false,
+      sec === "producto" && imgPreview && imgPreview !== previousImg
+        ? (id) => api(`/productos/${id}/imagen`, "PUT", { imagen: imgPreview })
+        : undefined,
+    )
     if (sec === "producto" && imgPreview) {
       const imageIndex = modal.mode === "add" ? 0 : modal.idx!
       setProdImgs((current) => ({ ...current, [imageIndex]: imgPreview }))
@@ -9715,7 +10273,7 @@ function AdminPanel({
         if (salesRows.some((sale) => sale[9] === newRow[0])) return current
         salesRows.unshift([
           `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
-          "Admin Parche",
+          sellerName,
           newRow[1],
           getCurrentDateTimeParts().date,
           newRow[2],
@@ -9986,6 +10544,13 @@ function AdminPanel({
       }
     }
 
+    if (DB_SYNC[sec]) {
+      // e.g. inactive products disappear from the customer menu
+      const syncedRow = [...currentRow]
+      syncedRow[statusIndex] = nextValue
+      syncRow(sec, syncedRow, false, true)
+    }
+
     setRows((current) => {
       const updated = [...(current[sec] || [])]
       const updatedRow = [...updated[rowIndex]]
@@ -10171,6 +10736,7 @@ function AdminPanel({
           : item,
       ),
     )
+    pushOrder(String(order[0]))
 
     setRows((current) => {
       const currentOrder = current.pedidos?.[orderIndex]
@@ -10203,7 +10769,7 @@ function AdminPanel({
       if (notShipped && !alreadyDuplicated) {
         salesRows.unshift([
           `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
-          "Admin Parche",
+          sellerName,
           updatedOrder[1],
           currentDateTime.date,
           updatedOrder[3],
@@ -10224,6 +10790,46 @@ function AdminPanel({
         ventas: salesRows,
       }
     })
+  }
+
+  // Order status -> status its production orders move to (forward only)
+  const ORDER_TO_PRODUCTION: Record<string, (typeof PRODUCTION_STATUSES)[number]> = {
+    Confirmado: "Iniciada",
+    "En cocina": "En cocina",
+    "En camino": "Terminado",
+    Entregado: "Terminado",
+  }
+  // Choosing the current status again still catches up production that fell behind
+  const setClientOrderStatus = async (orderIndex: number, status: string) => {
+    const order = rows.pedidos?.[orderIndex]
+    if (!order) return
+    const orderId = String(order[0])
+    // Move the order's production first; "En cocina" takes the supplies out of the stock
+    const target = ORDER_TO_PRODUCTION[status]
+    if (target) {
+      const codes = new Set([
+        ...(loadOrders().find((o) => o.id === orderId)?.productionRecords ?? []).map((r) => String(r[0])),
+        ...(rows.produccion || []).filter((r) => String(r[15] ?? "") === orderId).map((r) => String(r[0])),
+      ])
+      const rank = (s: string) => PRODUCTION_STATUSES.indexOf(s as (typeof PRODUCTION_STATUSES)[number])
+      for (const [index, row] of (rows.produccion || []).entries()) {
+        if (!codes.has(String(row[0])) || rank(String(row[8])) >= rank(target) || row[8] === "Producto no conforme") continue
+        // changeProductionStatus already told the admin why (stock, ficha técnica...)
+        if (!(await changeProductionStatus(index, target))) return
+      }
+    }
+    if (String(order[7]) === status) return
+    saveOrders(loadOrders().map((item) => (item.id === orderId ? { ...item, status } : item)))
+    pushOrder(orderId)
+    setRows((current) => ({
+      ...current,
+      pedidos: (current.pedidos || []).map((row, index) => {
+        if (index !== orderIndex) return row
+        const updated = [...row]
+        updated[7] = status
+        return updated
+      }),
+    }))
   }
 
   const rejectTransferPayment = () => {
@@ -10256,6 +10862,7 @@ function AdminPanel({
           : item,
       ),
     )
+    pushOrder(orderId)
     setRows((current) => {
       const currentOrder = current.pedidos?.[orderIndex]
       if (!currentOrder || String(currentOrder[8]) !== "Pendiente de verificación") {
@@ -10487,12 +11094,13 @@ function AdminPanel({
     setPncFieldErrors({})
   }
 
-  const changeProductionStatus = (
+  const changeProductionStatus = async (
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
-  ) => {
+  ): Promise<boolean> => {
     const sourceRow = rows.produccion?.[rowIndex]
-    if (!sourceRow || String(sourceRow[8]) === nextStatus) return
+    if (!sourceRow) return false
+    if (String(sourceRow[8]) === nextStatus) return true
     const consumeStock = nextStatus === "En cocina" && String(sourceRow[14]) !== "Sí"
     const requiredSupplies = new Map<string, { quantity: number; unit: string }>()
     if (consumeStock) {
@@ -10503,7 +11111,7 @@ function AdminPanel({
           const unit = String(supply?.[2] ?? "").trim()
           if (!supply || !unit || unit.toLowerCase() !== ingredient.unit.trim().toLowerCase()) {
             window.alert(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y use la misma unidad de la ficha técnica.`)
-            return
+            return false
           }
           const current = requiredSupplies.get(ingredient.name)
           requiredSupplies.set(ingredient.name, {
@@ -10517,7 +11125,20 @@ function AdminPanel({
         const stock = Number(supply?.[4])
         if (!Number.isFinite(stock) || stock < requirement.quantity) {
           window.alert(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
-          return
+          return false
+        }
+      }
+      // The backend takes the supplies out of the stock (all or nothing, once per order) before the status changes
+      if (requiredSupplies.size) {
+        try {
+          await api("/consumos-produccion", "POST", {
+            numero_orden: String(sourceRow[0]),
+            insumos: [...requiredSupplies].map(([insumo, r]) => ({ insumo, cantidad: r.quantity })),
+          })
+        } catch (err) {
+          window.alert(`No se pudo iniciar la producción: ${(err as Error).message}`)
+          loadModule("insumos")
+          return false
         }
       }
     }
@@ -10612,6 +11233,7 @@ function AdminPanel({
 
       return { ...current, produccion: productionRows, ...(supplies ? { insumos: supplies } : {}) }
     })
+    return true
   }
 
   const ProductionStatusSelect = ({ rowIndex }: { rowIndex: number }) => {
@@ -10720,6 +11342,7 @@ function AdminPanel({
     if (!target) return
     if (!getDeleteAssessment(target.section, rows[target.section]?.[target.idx]).allowed)
       return
+    deleteRowInDb(target.section, rows[target.section]?.[target.idx])
 
     setRows((current) => {
       const currentRow = current[target.section]?.[target.idx]
@@ -10732,11 +11355,9 @@ function AdminPanel({
     setDelTarget(null)
   }
   const handleFile = (file: File) => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      if (e.target?.result) setImgPreview(e.target.result as string)
-    }
-    reader.readAsDataURL(file)
+    readVoucher(file)
+      .then(setImgPreview)
+      .catch(() => window.alert("No se pudo leer la imagen. Prueba con otra (JPG o PNG)."))
   }
 
   const parsePurchaseItems = (value: string | number | undefined) =>
@@ -11403,7 +12024,10 @@ function AdminPanel({
         ? [0, 1, 2, 4]
         : row
             .map((_, index) => index)
-            .filter((index) => !cfg.hiddenCellIndexes?.includes(index))
+            .filter(
+              (index) =>
+                !cfg.hiddenCellIndexes?.includes(index) && index !== syncIdIndex(section),
+            )
     const getDisplayCells = (row: (string | number)[]) =>
       getDisplayCellIndexes(row).map((index) => row[index])
     const columnCount = Math.max(
@@ -12252,6 +12876,13 @@ function AdminPanel({
     }
     const purchaseEntity = PURCHASE_ENTITIES[modal.section]
     const isPurchaseModule = !!purchaseEntity
+    // Sellers: active staff users (from the backend) plus whoever is logged in
+    const sellerOptions = [
+      ...new Set([
+        sellerName,
+        ...(rows.usuarios || []).filter((r) => isActiveStatus(r[5])).map((r) => String(r[0])),
+      ]),
+    ].filter(Boolean)
     const namesOf = (sec: string) =>
       (rows[sec] || []).map((r) => String(r[0] ?? "")).filter(Boolean)
     // Sections whose first field is a name/main choice that reads better full width
@@ -12399,14 +13030,19 @@ function AdminPanel({
                 : isRoles && !isView
                 ? "grid content-start gap-x-4 gap-y-2.5 sm:grid-cols-2"
                 : isPurchaseModule
-                  ? `grid min-h-0 flex-1 content-start gap-x-4 gap-y-3 ${isSupplier ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-2" : "sm:grid-cols-2"}`
+                  ? `grid min-h-0 flex-1 content-start gap-x-4 gap-y-3 ${
+                      // Supplier: 4 columns on large screens — supplier data spans the left two,
+                      // contact person goes two fields per row on the right (keeps "Cargo" in view)
+                      isSupplier ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4" : "sm:grid-cols-2"
+                    }`
                   : isProduct
                     ? "flex min-h-0 flex-1 flex-col gap-3"
                     : "flex flex-col gap-3"
             }`}
             style={{
               maxHeight: isPurchaseModule || isProduct ? undefined : isUser ? "58vh" : "65vh",
-              scrollbarWidth: "none",
+              // A visible (thin) scrollbar tells the user there are more fields below
+              scrollbarWidth: "thin",
             }}
           >
             {/* Purchase module detail header: record name + status */}
@@ -13403,7 +14039,7 @@ function AdminPanel({
                       ).join(", "),
                     )
                   return (
-                    <div key="7" className="flex flex-col gap-1.5 lg:col-start-1 lg:col-span-1">
+                    <div key="7" className="flex flex-col gap-1.5 lg:col-start-1 lg:col-span-2">
                       <span className="text-xs font-semibold" style={{ color: t.muted }}>
                         {f.label}{requiredFormField && " *"}
                       </span>
@@ -13448,6 +14084,8 @@ function AdminPanel({
                 const fieldOptions =
                   isProduction && f.key === "0"
                     ? availableProductionProducts
+                    : isSales && f.key === "0"
+                      ? sellerOptions
                     : (isSales && f.key === "1") ||
                           (isPedido && f.key === "0") ||
                           (isReturns && f.key === "2")
@@ -13458,7 +14096,9 @@ function AdminPanel({
                             ? namesOf("insumos")
                             : isSupply && f.key === "1" && namesOf("cat-insumos").length
                               ? namesOf("cat-insumos")
-                              : f.options
+                              : isUser && f.key === "3" && namesOf("roles").length
+                                ? (rows.roles || []).filter((r) => isActiveStatus(r[2])).map((r) => String(r[0]))
+                                : f.options
                 const pedidoCategories = [
                   "Todas",
                   ...new Set(
@@ -13532,7 +14172,7 @@ function AdminPanel({
                   {isSupplier && (f.key === "1" || f.key === "8") && (
                     <div
                       className={`pt-1 sm:col-span-2 ${
-                        f.key === "1" ? "lg:col-span-1 lg:col-start-1" : "lg:col-span-1 lg:col-start-2"
+                        f.key === "1" ? "lg:col-span-2 lg:col-start-1" : "lg:col-span-2 lg:col-start-3"
                       }`}
                     >
                       <div className="mb-1 h-px" style={{ background: t.border }} />
@@ -13544,7 +14184,13 @@ function AdminPanel({
                   <div
                     className={`flex min-w-0 flex-col gap-1 ${
                       isSupplier
-                      ? `${Number(f.key) < 8 ? "lg:col-start-1" : "lg:col-start-2"} ${isWideField(f) ? "lg:col-span-1" : ""}`
+                      ? Number(f.key) < 8
+                        ? "lg:col-span-2 lg:col-start-1"
+                        : f.key === "14"
+                          ? "lg:col-span-2 lg:col-start-3" // Cargo
+                          : Number(f.key) % 2 === 0
+                            ? "lg:col-start-3" // tipo doc, nombre, teléfono
+                            : "lg:col-start-4" // nº doc, apellido, correo
                         : isPurchaseModule && isWideField(f)
                           ? "sm:col-span-2"
                           : ""
@@ -14064,6 +14710,35 @@ function AdminPanel({
                     />
                   </div>
                 )}
+                {loadOrders().some((order) => order.id === row?.[0]) && (
+                  <label className="mt-4 flex items-center justify-between gap-3 text-xs font-semibold" style={{ color: t.text }}>
+                    Estado del pedido (lo ve el cliente)
+                    <select
+                      value={String(row?.[7] ?? "")}
+                      onChange={(e) => setClientOrderStatus(modal.idx!, e.target.value)}
+                      className="rounded-lg px-3 py-2 text-sm"
+                      style={{ background: t.card, color: t.text, border: `1px solid ${t.border}` }}
+                    >
+                      {[...new Set([String(row?.[7] ?? ""), "Por confirmar", ...ORDER_STEPS, "Cancelado"])]
+                        .filter(Boolean)
+                        .map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+                {loadOrders().some((order) => order.id === row?.[0]) && ORDER_TO_PRODUCTION[String(row?.[7])] && (
+                  <button
+                    type="button"
+                    onClick={() => setClientOrderStatus(modal.idx!, String(row?.[7]))}
+                    className="mt-2 w-full cursor-pointer rounded-xl py-2 text-xs font-bold"
+                    style={{ background: `${C.mustard}14`, color: C.mustard }}
+                  >
+                    Sincronizar producción con «{String(row?.[7])}»
+                  </button>
+                )}
                 {String(row?.[8]) === "Rechazado" && (
                   <p className="mt-4 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
                     Transferencia rechazada: {String(row?.[11] || "Sin motivo registrado.")}
@@ -14334,20 +15009,16 @@ function AdminPanel({
             if (!lossDraft.motivo) return setLossError("Selecciona el motivo de la pérdida.")
             if (!lossDraft.responsable.trim()) return setLossError("Escribe quién es el responsable.")
             if (!lossDraft.fecha) return setLossError("Selecciona la fecha.")
-            setRows((current) => ({
-              ...current,
-              perdidas: [
-                [
-                  lossDraft.insumo,
-                  `${qty} ${lossDraft.unit}`,
-                  lossDraft.motivo,
-                  lossDraft.responsable.trim(),
-                  lossDraft.fecha,
-                  lossDraft.origin,
-                ],
-                ...(current.perdidas || []),
-              ],
-            }))
+            const lossRow: Row = [
+              lossDraft.insumo,
+              `${qty} ${lossDraft.unit}`,
+              lossDraft.motivo,
+              lossDraft.responsable.trim(),
+              lossDraft.fecha,
+              lossDraft.origin,
+            ]
+            setRows((current) => ({ ...current, perdidas: [lossRow, ...(current.perdidas || [])] }))
+            syncRow("perdidas", lossRow, true)
             setPurchaseNotice(
               `Se envió a Pérdida de insumos: ${qty.toLocaleString("es-CO")} ${lossDraft.unit} de «${lossDraft.insumo}» (${lossDraft.motivo}).`,
             )
@@ -14975,7 +15646,7 @@ function AdminPanel({
         className="flex-1 overflow-y-auto py-3 px-2"
         style={{ scrollbarWidth: "none" }}
       >
-        {SIDEBAR_MENU.map((g) => {
+        {visibleMenu.map((g) => {
           const leaf = g.children.length === 0
           const active = leaf && section === g.key
           const anyChild = g.children.some((c) => c.key === section)
@@ -15412,6 +16083,14 @@ export default function App() {
 
   useEffect(() => saveLS("cart", cart), [cart])
 
+  // Menu comes from the backend; if it can't be reached, the built-in PRODUCTS stay
+  const [, setMenuVersion] = useState(0)
+  useEffect(() => {
+    loadMenu()
+      .then(() => setMenuVersion((v) => v + 1))
+      .catch((err) => console.warn("No se pudo cargar el menú del backend:", err))
+  }, [])
+
   // Listen for admin user updates from the AdminProfilePage
   useEffect(() => {
     const handler = (e: Event) => {
@@ -15423,6 +16102,18 @@ export default function App() {
     return () => window.removeEventListener("admin-user-updated", handler)
   }, [])
 
+  // Orders come from the backend; the panel opens once they're loaded
+  const [ordersLoadedFor, setOrdersLoadedFor] = useState("")
+  useEffect(() => {
+    if (!user) return
+    refreshOrders(user.role)
+      .catch((err) => console.warn("No se pudieron cargar los pedidos del backend:", err))
+      .finally(() => {
+        setOrdersLoadedFor(user.email)
+        setOrdersVersion((v) => v + 1)
+      })
+  }, [user?.email, user?.role])
+
   // Re-read on every render so status changes made in the admin panel show up
   const orders = user
     ? loadOrders().filter((o) => o.email === user.email)
@@ -15433,15 +16124,29 @@ export default function App() {
     setUser(u)
     saveLS(`profile:${u.email.toLowerCase()}`, u)
     saveRegisteredClient(u)
+    // Name, document, phone and addresses live in the backend (the photo stays in this browser)
+    if (loadLS("token", ""))
+      api("/auth/me", "PATCH", {
+        nombre: u.name,
+        tipo_documento: u.docType,
+        documento: u.cedula,
+        telefono: u.phone,
+        direcciones: u.addresses,
+      }).catch((err) => console.warn("No se pudo guardar el perfil en el backend:", err))
   }
   const login = (u: User, next: Page = "app") => {
     const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
-    const authenticatedUser = saved ? { ...u, ...saved, role: u.role } : u
+    // What the backend has wins; the browser copy only fills the gaps (e.g. the photo)
+    const fromBackend = Object.fromEntries(Object.entries(u).filter(([, v]) => v !== undefined)) as User
+    const authenticatedUser = saved ? { ...saved, ...fromBackend, password: undefined } : u
     updateUser(authenticatedUser)
     setClientView("menu")
     setPage(next)
   }
   const logout = () => {
+    localStorage.removeItem("token")
+    localStorage.removeItem("orders") // may hold every customer's orders (admin)
+    setOrdersLoadedFor("")
     setUser(null)
     setPage("landing")
   }
@@ -15449,23 +16154,11 @@ export default function App() {
     saveOrders(fn(loadOrders()))
     setOrdersVersion((v) => v + 1)
   }
+  // The backend puts a rejected payment back to "Pendiente de verificación"
   const setVoucher = (id: string, voucher: string) =>
-    updateOrders((os) =>
-      os.map((o) =>
-        o.id === id
-          ? {
-              ...o,
-              voucher,
-              ...(o.paymentStatus === "Rechazado"
-                ? {
-                    paymentStatus: "Pendiente de verificación" as const,
-                    paymentRejectionReason: undefined,
-                  }
-                : {}),
-            }
-          : o,
-      ),
-    )
+    api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobante`, "PATCH", { comprobante: voucher })
+      .then((p) => updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o))))
+      .catch((err) => window.alert(`No se pudo subir el comprobante: ${(err as Error).message}`))
   const goCheckout = () => {
     setPage("checkout")
   }
@@ -15476,7 +16169,7 @@ export default function App() {
   if (page === "login")
     return (
       <LoginPage
-        onLogin={login}
+        onLogin={(u) => login(u, u.role === "admin" ? "admin" : "app")}
         onRegister={() => setPage("register")}
         onForgot={() => setPage("forgot")}
         onBack={() => setPage("landing")}
@@ -15527,7 +16220,7 @@ export default function App() {
           login(u, "checkout")
         }}
         onBack={() => setPage(user ? "app" : "landing")}
-        onPlaceOrder={(info, shouldSaveAddress) => {
+        onPlaceOrder={async (info, shouldSaveAddress) => {
           if (!user) return
           if (shouldSaveAddress) {
             const normalizedAddress = info.direccion.trim()
@@ -15541,27 +16234,24 @@ export default function App() {
               ],
             })
           }
-          updateOrders((os) => [
-            {
-              ...info,
-              email: user.email,
-              cliente: user.name,
-              id: `PED-${Date.now().toString().slice(-6)}`,
-              date: new Date().toLocaleString("es-CO", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              }),
-              items: cart.filter((item) => item.qty > 0),
-              total: cartTotal(cart),
-              status:
-                cartTotal(cart) >= APPROVAL_MIN ? "Por confirmar" : "Recibido",
-              paymentStatus:
-                info.pago === "Efectivo"
-                  ? "Pendiente"
-                  : "Pendiente de verificación",
-            },
-            ...os,
-          ])
+          // The backend prices the order with the menu in the database and sets its status
+          const created = await api<DbRecord>("/pedidos", "POST", {
+            nombre: info.nombre,
+            telefono: info.telefono,
+            direccion: info.direccion,
+            notas: info.notas,
+            pago: info.pago,
+            comprobante: info.voucher,
+            items: cart
+              .filter((item) => item.qty > 0)
+              .map((item) => ({
+                producto: item.name,
+                cantidad: item.qty,
+                salsas: item.sauces || [],
+                adiciones: (item.additions || []).map((a) => ({ nombre: a.name, cantidad: a.qty })),
+              })),
+          })
+          updateOrders((os) => [orderFromDb(created), ...os])
           setCart([])
         }}
         onComplete={() => {
@@ -15596,7 +16286,13 @@ export default function App() {
         onVoucher={setVoucher}
       />
     )
-  if (page === "admin")
+  if (page === "admin" && user?.role === "admin" && ordersLoadedFor !== user.email)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.mustard }}>
+        Cargando pedidos…
+      </div>
+    )
+  if (page === "admin" && user?.role === "admin")
     return (
       <AdminPanel
         onSwitchToClient={() => setPage(user ? "app" : "landing")}
@@ -15607,18 +16303,8 @@ export default function App() {
   return (
     <LandingPage
       onLogin={() => setPage("login")}
-      onAdmin={() => {
-        // Create a default admin user if none exists
-        if (!user) {
-          const adminUser: User = {
-            name: "Admin Parche",
-            email: "admin@parche.co",
-            role: "admin",
-          }
-          updateUser(adminUser)
-        }
-        setPage("admin")
-      }}
+      // The admin panel needs a real admin login (the backend checks its token)
+      onAdmin={() => setPage(user?.role === "admin" ? "admin" : "login")}
       onGuestMenu={goGuestMenu}
       onCheckout={goCheckout}
       cart={cart}
