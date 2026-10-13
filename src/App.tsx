@@ -1363,6 +1363,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [
       ["Hamburguesas", "Burgers artesanales de la casa", "Activa"],
       ["Adiciones", "Extras para agregar a los productos", "Activa"],
+      ["Bebidas", "Bebidas y presentaciones disponibles para la venta", "Activa"],
       ["Salchipapas", "Papas fritas con salchicha", "Activa"],
       ["Perros Calientes", "Hot dogs", "Activa"],
       ["Perras", "Versiones especiales", "Activa"],
@@ -9515,7 +9516,7 @@ function AdminPanel({
           ? ["8", "9"]
           : ["8", "9", "10", "11"]),
       ],
-      producto: ["5", "6", "7", "8", "10"],
+      producto: ["5", "6", "7", "8", "10", ...(mode === "add" ? ["2"] : [])],
       produccion: ["0", "1"],
       "producto-no-conforme": ["0", "1", "2", "5", "6"],
       compras: ["3", "4"],
@@ -9844,7 +9845,7 @@ function AdminPanel({
     "cat-insumos": ["0", "1"],
     "cat-producto": ["0", "1"],
     insumos: ["0", "1", "2", "3", "5"],
-    producto: ["0", "1", "2", "3"],
+    producto: ["0", "1", "3"],
     clientes: ["0", "1", "2", "3"], // correo/dirección too unless "Cliente de local"
     pedidos: ["0", "2", "3"],
   }
@@ -9934,8 +9935,9 @@ function AdminPanel({
       if (!v("1")) e["1"] = "Selecciona la categoría."
       // Sauces and drink flavors are included free, so they may cost 0
       const minPrice = ["Salsas", "Sabores de bebida"].includes(v("1")) ? 0 : 1
-      if (!v("2")) e["2"] = "Escribe el precio."
-      else if (!(n("2") >= minPrice))
+      if (!v("2")) {
+        if (modal.mode !== "add") e["2"] = "Escribe el precio."
+      } else if (!(n("2") >= minPrice))
         e["2"] = minPrice ? "El precio debe ser mayor que 0." : "El precio no puede ser negativo."
       else if (!Number.isInteger(n("2"))) e["2"] = "El precio debe ser un valor entero, sin decimales."
       checkText("3", "La descripción", 10, 200, "Escribe una descripción.")
@@ -12093,6 +12095,9 @@ function AdminPanel({
       cell: string | number,
       rowCellIndex: number,
     ): string | number => {
+      if (section === "producto" && rowCellIndex === 2 && !(Number(cell) > 0)) {
+        return "Sin precio"
+      }
       if (section !== "ventas") return cell
       if (rowCellIndex === 3) return formatSalesDate(cell)
       if (rowCellIndex === 7) {
@@ -12929,7 +12934,11 @@ function AdminPanel({
           )
         : dataFields
     const productMainFields = isProduct
-      ? dataFields.filter((field) => ["0", "1", "2", "3", "10"].includes(field.key))
+      ? dataFields.filter(
+          (field) =>
+            ["0", "1", "2", "3", "10"].includes(field.key) &&
+            !(modal.mode === "add" && field.key === "2"),
+        )
       : dataFields
     const productTechFields = isProduct
       ? dataFields.filter((field) => ["5", "6", "7", "8"].includes(field.key))
@@ -12981,7 +12990,7 @@ function AdminPanel({
         onClick={() => setModal({ mode: null, section: "", idx: null })}
       >
         <div
-          className={`flex min-w-0 w-full ${isRoles ? "max-w-3xl" : isUser ? "max-w-2xl" : isSupplier ? "max-w-4xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+          className={`flex min-w-0 w-full ${isRoles || isProduct ? "max-w-3xl" : isUser ? "max-w-2xl" : isSupplier ? "max-w-4xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
@@ -13179,6 +13188,11 @@ function AdminPanel({
                   >
                     Producto
                   </div>
+                  {modal.mode === "add" && (
+                    <p className="text-xs" style={{ color: t.muted }}>
+                      Puedes agregar el precio después desde la opción Editar.
+                    </p>
+                  )}
                   {productMainFields.map((f) => {
                     const val = isView
                       ? String(row ? (row[Number(f.key)] ?? "—") : "—")
@@ -14096,7 +14110,10 @@ function AdminPanel({
                 ]
                 const filteredOrderProducts = availableProductos.filter((productName) => {
                   const product = rows.producto?.find((item) => item[0] === productName)
-                  return pedidoProductCategory === "Todas" || String(product?.[1] ?? "") === pedidoProductCategory
+                  return (
+                    Number(product?.[2]) > 0 &&
+                    (pedidoProductCategory === "Todas" || String(product?.[1] ?? "") === pedidoProductCategory)
+                  )
                 })
                 const selectedOrderProduct = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
                 const isSelectedAddition = String(selectedOrderProduct?.[1] ?? "").toLowerCase() === "adiciones"
