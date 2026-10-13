@@ -11,11 +11,15 @@ type User = {
   email: string
   role: "admin" | "user"
   cedula?: string
+  docType?: string
   phone?: string
   addresses?: string[]
   photo?: string
   password?: string
+  // Backend modules this user may see (VER), from the login. Undefined = everything.
+  permissions?: string[]
 }
+type RegisteredClient = Pick<User, "name" | "email" | "cedula" | "docType" | "phone">
 type CartItem = {
   id: number
   name: string
@@ -42,7 +46,13 @@ type Order = DeliveryInfo & {
   items: CartItem[]
   total: number
   status: string
+  paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Pagado" | "Rechazado"
+  paymentRejectionReason?: string
+  productionAuthorized?: boolean
+  productionRecords?: (string | number)[][]
 }
+const isTransferPaymentMethod = (method: string) =>
+  ["transferencia", "nequi", "daviplata"].includes(method.trim().toLowerCase())
 type ModalMode = "add" | "edit" | "view" | null
 type FieldType = {
   key: string
@@ -99,6 +109,45 @@ const DOC_TYPES = [
   "Pasaporte",
   "Tarjeta de Identidad",
 ]
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const digitsOnly = (value: string) => value.replace(/\D/g, "")
+const normalizeDocumentInput = (value: string, docType: string) => {
+  if (docType === "Pasaporte") return value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)
+  if (docType === "NIT") return value.replace(/[^0-9.-]/g, "").slice(0, 20)
+  return digitsOnly(value).slice(0, 15)
+}
+const normalizeAccountDocumentInput = (value: string, docType: string) =>
+  docType === "NIT"
+    ? value.replace(/[^0-9-]/g, "").slice(0, 10)
+    : docType
+      ? normalizeDocumentInput(value, docType)
+      : value.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20)
+const normalizePhoneInput = (value: string) =>
+  value.replace(/[^0-9+()\s-]/g, "").slice(0, 20)
+const validateDocumentNumber = (value: string, docType: string) => {
+  const document = value.trim()
+  if (!document) return "Este campo es obligatorio."
+  if (docType === "Pasaporte") {
+    return /^[A-Za-z0-9]{5,20}$/.test(document)
+      ? ""
+      : "Escribe un número de pasaporte válido."
+  }
+  if (docType === "NIT") {
+    const digits = digitsOnly(document)
+    return /^[\d.-]+$/.test(document) && digits.length >= 8 && digits.length <= 15
+      ? ""
+      : "Escribe un NIT válido."
+  }
+  return /^\d{5,15}$/.test(document)
+    ? ""
+    : "Usa solo números (de 5 a 15 dígitos)."
+}
+const validatePhoneNumber = (value: string) => {
+  const digits = digitsOnly(value)
+  return digits.length >= 7 && digits.length <= 15
+    ? ""
+    : "Escribe un teléfono válido (de 7 a 15 dígitos)."
+}
 const SAUCES = [
   "Salsa de la casa",
   "Tártara",
@@ -124,7 +173,6 @@ const ADDITIONS = [
 ]
 const BEVERAGES = [
   "Coca-Cola",
-  "Sprite",
   "Manzana",
   "Colombiana",
   "Uva",
@@ -221,18 +269,8 @@ const PRODUCTS: Product[] = [
     badge: "Nueva",
   },
   {
-    id: 9,
-    name: "Atún",
-    desc: "Atún premium con queso cheddar y tocineta crujiente.",
-    price: 17500,
-    priceStr: "$17.500",
-    img: "https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=500&h=400&fit=crop",
-    cat: "hamburguesas",
-    badge: "",
-  },
-  {
     id: 10,
-    name: "Mediano",
+    name: "Perro Mediano",
     desc: "Salchicha mediana, papitas fosforito y salsas.",
     price: 14500,
     priceStr: "$14.500",
@@ -262,7 +300,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 13,
-    name: "Pequeña",
+    name: "Perra Pequeña",
     desc: "Tocino/tocineta, queso y salsas.",
     price: 14500,
     priceStr: "$14.500",
@@ -292,7 +330,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 16,
-    name: "Sencilla",
+    name: "Salchipapa Sencilla",
     desc: "Papas a la francesa doradas y salchicha premium.",
     price: 13000,
     priceStr: "$13.000",
@@ -302,7 +340,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 17,
-    name: "Especial",
+    name: "Salchipapa Especial",
     desc: "Papas, salchicha, queso fundido y tocineta crujiente.",
     price: 16000,
     priceStr: "$16.000",
@@ -312,7 +350,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 18,
-    name: "Mega",
+    name: "Salchipapa Mega",
     desc: "Papas, salchicha, 3 huevos, 1 nugget, queso, carne y tocineta.",
     price: 20000,
     priceStr: "$20.000",
@@ -322,7 +360,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 19,
-    name: "Mega Gourmet",
+    name: "Salchipapa Mega Gourmet",
     desc: "Papas, salchicha, 3 huevos, pollo, cerdo, jamón, maicitos y queso.",
     price: 23000,
     priceStr: "$23.000",
@@ -332,7 +370,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 20,
-    name: "Mega Gourmet Q+T",
+    name: "Salchipapa Mega Gourmet Q+T",
     desc: "Mega Gourmet con extra de queso y tocineta gratinada.",
     price: 27000,
     priceStr: "$27.000",
@@ -342,7 +380,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 21,
-    name: "Esp. Gourmet Pers.",
+    name: "Salchipapa Gourmet Personal",
     desc: "Porción personal gourmet con carnes mixtas y maicitos.",
     price: 20500,
     priceStr: "$20.500",
@@ -352,7 +390,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 22,
-    name: "Super Gourmet",
+    name: "Salchipapa Super Gourmet",
     desc: "Papas, salchicha, pollo, jamón, maicitos, queso, tocineta y carne.",
     price: 33000,
     priceStr: "$33.000",
@@ -1077,6 +1115,33 @@ function fmt(n: number) {
   return `$${n.toLocaleString("es-CO")}`
 }
 
+// Document numbers compared without dots, dashes, spaces or case ("1.012.345" === "1012345")
+function normalizeDocument(value: string | number | undefined) {
+  return String(value ?? "").replace(/[^0-9a-z]/gi, "").toLowerCase()
+}
+
+// Compare names ignoring case, accents and extra spaces ("Cárnes " === "carnes")
+function normalizeName(value: string | number | undefined) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+// Menu category ids (PRODUCTS[].cat) → product category names used in the admin
+const PRODUCT_CAT_LABEL: Record<string, string> = {
+  hamburguesas: "Hamburguesas",
+  perros: "Perros Calientes",
+  perras: "Perras",
+  salchipapas: "Salchipapas",
+  chuzos: "Chuzos",
+  patacones: "Patacones",
+  "arepa-burger": "Arepa Burger",
+  "arepa-rellena": "Arepa Rellena",
+}
+
 // ── Admin config ───────────────────────────────────────────────────────────────
 type ModConfig = {
   columns: string[]
@@ -1123,12 +1188,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "0", label: "Nombre del rol", type: "text" },
       { key: "1", label: "Descripción", type: "textarea" },
     ],
-    seed: [
-      ["Administrador", "Acceso total al sistema", "Activo"],
-      ["Empleado", "Gestión interna del restaurante", "Activo"],
-      ["Domiciliario", "Gestión de entregas a domicilio", "Activo"],
-      ["Cliente", "Acceso a pedidos y seguimiento de compras", "Activo"],
-    ],
+    seed: [],
     noExport: true,
     noDelete: true,
     statusIndex: 2,
@@ -1136,7 +1196,6 @@ const MOD_CFG: Record<string, ModConfig> = {
   usuarios: {
     columns: ["Nombre", "Tipo Doc.", "Documento", "Rol", "Correo", "Estado"],
     fields: [
-      { key: "0", label: "Nombre completo", type: "text" },
       {
         key: "1",
         label: "Tipo de documento",
@@ -1150,6 +1209,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         ],
       },
       { key: "2", label: "Número de documento", type: "text" },
+      { key: "0", label: "Nombre completo", type: "text" },
       {
         key: "3",
         label: "Rol",
@@ -1159,35 +1219,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "4", label: "Correo electrónico", type: "email" },
       { key: "6", label: "Contraseña", type: "text" },
     ],
-    seed: [
-      [
-        "Admin Parche",
-        "Cédula de Ciudadanía",
-        "12345678",
-        "Administrador",
-        "admin@parche.co",
-        "Activo",
-        "Demo123*",
-      ],
-      [
-        "Juan Rúa",
-        "Cédula de Ciudadanía",
-        "98765432",
-        "Empleado",
-        "juan@parche.co",
-        "Activo",
-        "Demo123*",
-      ],
-      [
-        "María Gómez",
-        "Cédula de Ciudadanía",
-        "45678901",
-        "Domiciliario",
-        "maria@parche.co",
-        "Activo",
-        "Demo123*",
-      ],
-    ],
+    seed: [],
     noExport: true,
     noDelete: true,
     statusIndex: 5,
@@ -1199,13 +1231,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "0", label: "Nombre categoría", type: "text" },
       { key: "1", label: "Descripción", type: "textarea" },
     ],
-    seed: [
-      ["Carnes", "Carnes y proteínas cárnicas", "Activa"],
-      ["Lácteos", "Quesos y derivados lácteos", "Activa"],
-      ["Verduras", "Vegetales y hortalizas", "Activa"],
-      ["Panes", "Panes y masas artesanales", "Activa"],
-      ["Salsas", "Salsas y aderezos", "Activa"],
-    ],
+    seed: [],
     noExport: true,
     statusIndex: 2,
   },
@@ -1235,20 +1261,14 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "3", label: "Costo unitario", type: "number" },
       { key: "4", label: "Stock actual", type: "number" },
       { key: "5", label: "Stock mínimo", type: "number" },
-      { key: "6", label: "Stock máximo", type: "number" },
+      // row[6] (old "Stock máximo") is no longer used; kept so later indexes don't shift
       { key: "7", label: "Producto de insumo", type: "checkbox" },
       { key: "8", label: "Nombre de la ficha técnica", type: "text" },
       { key: "9", label: "Versión de la ficha", type: "text" },
       { key: "10", label: "Insumos principales", type: "textarea" },
       { key: "11", label: "Cómo se prepara", type: "textarea" },
     ],
-    seed: [
-      ["Carne de res 100g", "Carnes", "g", 1800, 450, 200, 1000, "No", "", "", "", "", "Activo"],
-      ["Queso cheddar", "Lácteos", "kg", 28000, 12, 15, 50, "No", "", "", "", "", "Activo"],
-      ["Pan brioche", "Panes", "und", 900, 80, 30, 200, "Sí", "Ficha técnica - Pan brioche", "v1.0", "Pan brioche", "1. Seleccionar el pan. 2. Preparar según laFicha. 3. Armar y servir.", "Activo"],
-      ["Lechuga", "Verduras", "kg", 4000, 5, 10, 30, "No", "", "", "", "", "Activo"],
-      ["Salchicha", "Carnes", "und", 2500, 60, 25, 150, "No", "", "", "", "", "Activo"],
-    ],
+    seed: [],
     noDelete: true,
     statusIndex: 12,
     hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11],
@@ -1263,40 +1283,25 @@ const MOD_CFG: Record<string, ModConfig> = {
       "Estado",
     ],
     fields: [
-      { key: "0", label: "Nombre empresa", type: "text" },
       { key: "1", label: "NIT", type: "text" },
+      { key: "0", label: "Nombre empresa", type: "text" },
       { key: "2", label: "Correo", type: "email" },
       { key: "3", label: "Teléfono", type: "tel" },
-      { key: "4", label: "Persona de contacto", type: "text" },
       { key: "5", label: "Dirección", type: "text" },
       // Comma-separated insumo names; limits what can be bought from this supplier
       { key: "7", label: "Insumos que suministra", type: "text" },
+      { key: "8", label: "Tipo de documento", type: "select", options: DOC_TYPES },
+      { key: "9", label: "Número de documento", type: "text" },
+      { key: "10", label: "Nombre", type: "text" },
+      { key: "11", label: "Apellido", type: "text" },
+      { key: "12", label: "Teléfono", type: "tel" },
+      { key: "13", label: "Correo electrónico", type: "email" },
+      { key: "14", label: "Cargo", type: "text" },
     ],
-    seed: [
-      [
-        "Carnes Premium SAS",
-        "900.123.456-1",
-        "ventas@carnes.co",
-        "310-456-7890",
-        "Pedro Álvarez",
-        "Cll 50 #32-10, Medellín",
-        "Activo",
-        "Carne de res 100g, Salchicha, Pan brioche",
-      ],
-      [
-        "Lácteos del Valle",
-        "800.234.567-2",
-        "info@lacteos.co",
-        "320-987-6543",
-        "Sandra Ríos",
-        "Cra 45 #20-05, Bello",
-        "Activo",
-        "Queso cheddar",
-      ],
-    ],
+    seed: [],
     // Deletable only while the supplier has no purchases (see getDeleteAssessment)
     statusIndex: 6,
-    hiddenCellIndexes: [5, 7],
+    hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14],
   },
   compras: {
     columns: ["Proveedor", "Fecha", "Subtotal", "Total", "Estado"],
@@ -1305,12 +1310,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Proveedor",
         type: "select",
-        options: [
-          "Carnes Premium SAS",
-          "Lácteos del Valle",
-          "AgroVerde",
-          "Panes Artesanales",
-        ],
+        options: [],
       },
       { key: "1", label: "Fecha de compra", type: "date" },
       { key: "2", label: "Fecha de registro", type: "date" },
@@ -1322,35 +1322,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         type: "textarea",
       },
     ],
-    seed: [
-      [
-        "Carnes Premium SAS",
-        "2024-01-20",
-        "2024-01-20",
-        42500,
-        42500,
-        "Activo",
-        "Carne de res 100g | 20 | 1800\nPan brioche | 5 | 900\nSalsa de la casa | 1 | 2000",
-      ],
-      [
-        "Lácteos del Valle",
-        "2024-01-18",
-        "2024-01-18",
-        28000,
-        28000,
-        "Activo",
-        "Queso cheddar | 1 | 28000",
-      ],
-      [
-        "Panes Artesanales",
-        "2024-01-17",
-        "2024-01-18",
-        22500,
-        22500,
-        "Activo",
-        "Pan brioche | 25 | 900",
-      ],
-    ],
+    seed: [],
     noDelete: true,
     statusIndex: 5,
     inactiveStatus: "Anulado",
@@ -1363,13 +1335,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Insumo",
         type: "select",
-        options: [
-          "Carne de res 100g",
-          "Queso cheddar",
-          "Pan brioche",
-          "Lechuga",
-          "Salchicha",
-        ],
+        options: [],
       },
       { key: "1", label: "Cantidad", type: "text" },
       {
@@ -1383,11 +1349,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       // Filled when the loss is sent from a purchase ("Compra a X del <fecha>")
       { key: "5", label: "Origen", type: "text" },
     ],
-    seed: [
-      ["Lechuga", "0.5 kg", "Deterioro", "María G.", "2024-01-20"],
-      ["Pan brioche", "4 und", "Horno", "María G.", "2024-01-19"],
-      ["Queso cheddar", "0.3 kg", "Vencimiento", "Juan R.", "2024-01-15"],
-    ],
+    seed: [],
     noExport: true,
     noDelete: true,
     hiddenCellIndexes: [5],
@@ -1401,6 +1363,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [
       ["Hamburguesas", "Burgers artesanales de la casa", "Activa"],
       ["Adiciones", "Extras para agregar a los productos", "Activa"],
+      ["Bebidas", "Bebidas y presentaciones disponibles para la venta", "Activa"],
       ["Salchipapas", "Papas fritas con salchicha", "Activa"],
       ["Perros Calientes", "Hot dogs", "Activa"],
       ["Perras", "Versiones especiales", "Activa"],
@@ -1431,6 +1394,9 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Patacones",
           "Arepa Burger",
           "Arepa Rellena",
+          "Salsas",
+          "Bebidas",
+          "Sabores de bebida",
           "Producto de insumo",
         ],
       },
@@ -1447,17 +1413,31 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Disponible", "No disponible"],
       },
     ],
-    seed: PRODUCTS.slice(0, 10).map((p) => [
-      p.name,
-      p.cat.replace(/-/g, " "),
-      p.price,
-      p.desc,
-      "Activo",
-      "Ficha Mini Burger",
-      "v2.1",
-      `Carne 100g, pan brioche, queso, lechuga, salsa de la casa`,
-      "1. Asar la carne. 2. Tostar el pan. 3. Armar y servir.",
-    ]),
+    // Every menu product (so each category has its products in the order picker) + additions
+    seed: [
+      ...PRODUCTS.map((p) => [
+        p.name,
+        PRODUCT_CAT_LABEL[p.cat] ?? p.cat,
+        p.price,
+        p.desc,
+        "Activo",
+        `Ficha ${p.name}`,
+        "v1.0",
+        "",
+        "",
+      ]),
+      ...ADDITIONS.map((a) => [
+        a.name,
+        "Adiciones",
+        a.price,
+        "Adición para agregar a los productos.",
+        "Activo",
+        "",
+        "",
+        "",
+        "",
+      ]),
+    ],
     noExport: true,
     noDelete: true,
     statusIndex: 4,
@@ -1483,14 +1463,11 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "3", label: "Fecha de creación", type: "date" },
       { key: "4", label: "Hora de creación", type: "time" },
     ],
-    seed: [
-      ["OP-0089", "Doble", 2, 1, "2024-01-21", "08:00", "2024-01-21", "10:15", "En cocina", "", 0, "Sí", JSON.stringify([{ status: "Recibida", date: "2024-01-21", time: "08:00" }, { status: "Iniciada", date: "2024-01-21", time: "09:10" }, { status: "En cocina", date: "2024-01-21", time: "10:15" }]), JSON.stringify([{ name: "Doble", quantity: 2 }])],
-      ["OP-0088", "Mini", 4, 2, "2024-01-21", "07:30", "2024-01-21", "11:30", "Terminado", "2024-01-21 11:30", 1, "Sí", JSON.stringify([{ status: "Recibida", date: "2024-01-21", time: "07:30" }, { status: "Iniciada", date: "2024-01-21", time: "08:00" }, { status: "En cocina", date: "2024-01-21", time: "09:00" }, { status: "Terminado", date: "2024-01-21", time: "11:30" }]), JSON.stringify([{ name: "Mini", quantity: 4 }])],
-      ["OP-0087", "Salchipapa Mega", 2, 3, "2024-01-20", "16:45", "2024-01-20", "16:45", "Recibida", "", 0, "No", JSON.stringify([{ status: "Recibida", date: "2024-01-20", time: "16:45" }]), JSON.stringify([{ name: "Salchipapa Mega", quantity: 2 }])],
-    ],
+    seed: [],
     autoId: true,
     statusIndex: 8,
-    hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13],
+    // 14 = stock already consumed (Sí/No), 15 = order code it came from (internal data)
+    hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13, 14, 15],
   },
   "producto-no-conforme": {
     columns: ["Orden", "Productos o insumos dañados", "Cantidad", "Motivo", "Fecha", "Estado"],
@@ -1520,10 +1497,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["und", "kg", "g", "L", "ml", "paq"],
       },
     ],
-    seed: [
-      ["OP-0085", "Mini", "Mini", 1, "Tiempo superado", "2024-01-20", "", "und", "Activo"],
-      ["OP-0088", "Doble", "Doble", 2, "Error en preparación", "2024-01-21", "", "und", "Activo"],
-    ],
+    seed: [],
     autoId: true,
     noDelete: true,
     statusIndex: 8,
@@ -1531,8 +1505,8 @@ const MOD_CFG: Record<string, ModConfig> = {
   },
   clientes: {
     columns: ["Nombre", "Número de documento", "Teléfono", "Correo", "Estado"],
+    // Form order: document type + number on one line, then the name (keys keep row positions)
     fields: [
-      { key: "0", label: "Nombre completo", type: "text" },
       {
         key: "1",
         label: "Tipo de documento",
@@ -1546,16 +1520,13 @@ const MOD_CFG: Record<string, ModConfig> = {
         ],
       },
       { key: "2", label: "Número de documento", type: "text" },
+      { key: "0", label: "Nombre completo", type: "text" },
       { key: "3", label: "Teléfono", type: "tel" },
       { key: "4", label: "Correo electrónico", type: "email" },
       { key: "5", label: "Dirección", type: "text" },
       { key: "6", label: "Cliente de local", type: "checkbox" },
     ],
-    seed: [
-      ["Valentina Ríos", "Cédula de Ciudadanía", "1012345678", "310-456-7890", "No", "vale@mail.co", "Cra 58 #42-10, Bello", "Activo"],
-      ["Carlos Mejía", "Cédula de Ciudadanía", "1023456789", "320-987-6543", "No", "carlos@mail.co", "Cll 50 #30-05, Bello", "Activo"],
-      ["Luisa Fernández", "Cédula de Ciudadanía", "1034567890", "315-678-9012", "Sí", "", "Cra 60 #44-20, Bello", "Activo"],
-    ],
+    seed: [],
     statusIndex: 7,
     hiddenCellIndexes: [1, 5, 6],
   },
@@ -1573,18 +1544,13 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Usuario (vendedor)",
         type: "select",
-        options: ["Admin Parche", "Juan Rúa", "María Gómez"],
+        options: [],
       },
       {
         key: "1",
         label: "Cliente",
         type: "select",
-        options: [
-          "Valentina Ríos",
-          "Carlos Mejía",
-          "Luisa Fernández",
-          "Diego Pérez",
-        ],
+        options: [],
       },
       { key: "2", label: "Fecha", type: "date" },
       {
@@ -1615,34 +1581,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Recibido", "En preparación", "En camino", "Entregado", "Cancelado"],
       },
     ],
-    seed: [
-      [
-        "VTA-0306",
-        "Juan Rúa",
-        "Diego Pérez",
-        "2024-01-21",
-        "Local",
-        "Efectivo",
-        13000,
-        13000,
-        "Completada",
-        "Sin pedido",
-        "Completada",
-      ],
-      [
-        "VTA-0305",
-        "Juan Rúa",
-        "Luisa Fernández",
-        "2024-01-21",
-        "Domicilio",
-        "Nequi",
-        22000,
-        22000,
-        "Completada",
-        "Sin pedido",
-        "Completada",
-      ],
-    ],
+    seed: [],
     noDelete: true,
     autoId: true,
     hiddenCellIndexes: [1, 4, 5, 6, 9, 11, 12],
@@ -1661,12 +1600,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Cliente",
         type: "select",
-        options: [
-          "Valentina Ríos",
-          "Carlos Mejía",
-          "Luisa Fernández",
-          "Diego Pérez",
-        ],
+        options: [],
       },
       { key: "1", label: "Productos solicitados", type: "textarea" },
       {
@@ -1692,87 +1626,21 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "7",
         label: "Estado de pago",
         type: "select",
-        options: ["Pendiente", "Pagado"],
+        options: [
+          "Pendiente",
+          "Pendiente de verificación",
+          "Pagado",
+          "Rechazado",
+        ],
       },
       { key: "9", label: "Comprobante de pago", type: "image" },
     ],
-    seed: [
-      [
-        "PED-0195",
-        "Valentina Ríos",
-        "2 Mini, 1 Salchipapa Sencilla",
-        "Online",
-        "Transferencia",
-        "Anticipado",
-        85000,
-        "En preparación",
-        "Pagado",
-        "No requerida",
-      ],
-      [
-        "PED-0194",
-        "Carlos Mejía",
-        "4 Mini, 2 Sencilla",
-        "Local",
-        "Efectivo",
-        "Contraentrega",
-        168000,
-        "Recibido",
-        "Pendiente",
-        "Pendiente admin",
-      ],
-      [
-        "PED-0193",
-        "Luisa Fernández",
-        "1 Mega Gourmet",
-        "Online",
-        "Pago en el local",
-        "Contraentrega",
-        23000,
-        "Entregado",
-        "Pagado",
-        "No requerida",
-      ],
-      [
-        "PED-0192",
-        "Diego Pérez",
-        "1 Doble, 1 Chuzo de Pollo, 2 gaseosas",
-        "Local",
-        "Efectivo",
-        "Contraentrega",
-        57000,
-        "En camino",
-        "Pendiente",
-        "No requerida",
-      ],
-      [
-        "PED-0191",
-        "Valentina Ríos",
-        "3 Super Gourmet, 1 Mega Gourmet Q+T",
-        "Online",
-        "Transferencia",
-        "Anticipado",
-        122000,
-        "Entregado",
-        "Pagado",
-        "No requerida",
-      ],
-      [
-        "PED-0190",
-        "Carlos Mejía",
-        "5 Mini, 3 Tradicional, 2 porciones de papas",
-        "Online",
-        "Transferencia",
-        "Anticipado",
-        192000,
-        "En preparación",
-        "Pagado",
-        "Autorizada",
-      ],
-    ],
+    seed: [],
     noDelete: true,
     autoId: true,
-    hiddenCellIndexes: [2, 3, 4, 5],
+    // 10 = order lines JSON saved by admin-created orders (was showing as "Dato 7")
+    // 11 = payment rejection reason
+    hiddenCellIndexes: [2, 3, 4, 5, 10, 11],
   },
   devoluciones: {
     columns: ["Código", "Cliente", "Motivo", "Fecha"],
@@ -1783,12 +1651,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "2",
         label: "Cliente",
         type: "select",
-        options: [
-          "Valentina Ríos",
-          "Carlos Mejía",
-          "Luisa Fernández",
-          "Diego Pérez",
-        ],
+        options: [],
       },
       { key: "3", label: "Nombre cliente (texto libre)", type: "text" },
       {
@@ -1799,9 +1662,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       },
       { key: "5", label: "Fecha", type: "date" },
     ],
-    seed: [
-      ["DEV-001", "VTA-0305", "Ana López", "Ana López", "Reposición", "2024-01-19"],
-    ],
+    seed: [],
     noDelete: true,
     noExport: true,
     hiddenCellIndexes: [1, 3],
@@ -1819,6 +1680,61 @@ const supplyAsProduct = (row: (string | number)[]): (string | number)[] => [
   String(row[10] || row[0] || "Insumo"),
   String(row[11] || "Insumo producto con ficha técnica y control de inventario."),
 ]
+
+// ── Orders → production ───────────────────────────────────────────────────────
+// Pedido payment rules: the method decides the modality and whether it's paid,
+// so the admin doesn't pick them by hand (e.g. Online + Efectivo = contraentrega, pendiente)
+function derivePedidoPayment(method: string, hasProof: boolean) {
+  if (method === "Transferencia")
+    return { modalidad: "Anticipado", estadoPago: hasProof ? "Pagado" : "Pendiente" }
+  if (method === "Efectivo" || method === "Pago en el local")
+    return { modalidad: "Contraentrega", estadoPago: "Pendiente" }
+  return { modalidad: "", estadoPago: "" }
+}
+
+// One production order per order line (same format "Confirmar pedido y enviar a
+// producción" always used). Returns the production rows with the new ones on top.
+function buildProductionRows(
+  lines: AdminOrderLine[],
+  productionRows: (string | number)[][],
+  orderCode: string,
+) {
+  const now = new Date()
+  const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-")
+  const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+  const result = [...productionRows]
+  let priority = Math.max(0, ...result.map((row) => Number(row[3]) || 0))
+  let lastCode = Math.max(0, ...result.map((row) => Number(/^OP-(\d+)$/i.exec(String(row[0] ?? ""))?.[1] ?? 0)))
+  lines.slice().reverse().forEach((item) => {
+    priority += 1
+    lastCode += 1
+    const parent = lines.find((candidate) => candidate.id === item.parentId)
+    result.unshift([
+      `OP-${String(lastCode).padStart(4, "0")}`,
+      parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
+      item.quantity,
+      priority,
+      date,
+      time,
+      date,
+      time,
+      "Iniciada",
+      "",
+      0,
+      "Sí",
+      JSON.stringify([{ status: "Iniciada", date, time }]),
+      JSON.stringify([{
+        name: item.product,
+        quantity: item.quantity,
+        category: item.category,
+        ...(item.parentId ? { parentId: item.parentId } : {}),
+      }]),
+      "No",
+      orderCode,
+    ])
+  })
+  return result
+}
 
 const SIDEBAR_MENU = [
   {
@@ -1916,10 +1832,27 @@ function emailError(email: string) {
   return ""
 }
 
-function validateLogin(email: string, pass: string, savedPass?: string): FieldErrors {
+function validateLogin(
+  email: string,
+  pass: string,
+  savedPass?: string,
+  accountStatus?: string,
+  requireRegisteredAccount = false,
+  accountExists = !!savedPass,
+): FieldErrors {
   const e: FieldErrors = {}
   const em = emailError(email)
   if (em) e.email = em
+  else if (
+    accountStatus &&
+    ["inactivo", "inactiva", "anulado", "anulada"].includes(
+      accountStatus.trim().toLowerCase(),
+    )
+  ) {
+    e.email = "Esta cuenta está inactiva. Contacta al administrador."
+  } else if (requireRegisteredAccount && !accountExists) {
+    e.email = "No encontramos una cuenta con ese correo. Regístrate para continuar."
+  }
   if (!pass) e.pass = "Ingresa tu contraseña."
   else if (pass.length < 8) e.pass = "La contraseña tiene mínimo 8 caracteres."
   else if (savedPass && pass !== savedPass) e.pass = "La contraseña es incorrecta."
@@ -2127,19 +2060,23 @@ function LoginPage({
   const [pass, setPass] = useState("")
   // Errors show after the first submit and update live while typing
   const [tried, setTried] = useState(false)
-  const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
-  const errors = tried ? validateLogin(email, pass, savedProfile?.password) : {}
-  const submit = (e: React.FormEvent) => {
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  // Password and account status are checked by the backend
+  const errors = tried ? validateLogin(email, pass) : {}
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
-    const savedProfile = loadLS<User | null>(`profile:${email.trim().toLowerCase()}`, null)
-    if (Object.keys(validateLogin(email, pass, savedProfile?.password)).length) return
-    const role = email.toLowerCase().includes("admin") ? "admin" : "user"
-    const name = email
-      .split("@")[0]
-      .replace(/\./g, " ")
-      .replace(/\b\w/g, (ch) => ch.toUpperCase())
-    onLogin({ name, email: email.trim().toLowerCase(), role })
+    setServerErr("")
+    if (busy || Object.keys(validateLogin(email, pass)).length) return
+    setBusy(true)
+    try {
+      onLogin(await apiLogin(email, pass))
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
   return (
     <div
@@ -2240,12 +2177,14 @@ function LoginPage({
             >
               ¿Olvidaste tu contraseña?
             </button>
+            <FieldError msg={serverErr} />
             <button
               type="submit"
+              disabled={busy}
               className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
               style={{ background: C.mustard, color: "#fff" }}
             >
-              Iniciar sesión
+              {busy ? "Ingresando..." : "Iniciar sesión"}
             </button>
             <div
               className="flex items-center gap-3 text-xs"
@@ -2313,25 +2252,45 @@ function RegisterPage({
   const errors = tried ? validateRegister(form) : {}
   const err = codeTried ? codeError(code) : ""
   const upd = (k: keyof typeof form) => (v: string) =>
-    setForm((f) => ({ ...f, [k]: v }))
+    setForm((current) => ({
+      ...current,
+      [k]:
+        k === "docNum"
+          ? normalizeAccountDocumentInput(v, current.docType)
+          : k === "phone"
+            ? digitsOnly(v).slice(0, 10)
+            : v,
+    }))
   const submitForm = (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
     if (Object.keys(validateRegister(form)).length) return
     setStep("verifying")
   }
-  const submitCode = (e: React.FormEvent) => {
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  const submitCode = async (e: React.FormEvent) => {
     e.preventDefault()
     setCodeTried(true)
-    if (codeError(code)) return
-    onVerify({
+    setServerErr("")
+    if (busy || codeError(code)) return
+    const u: User = {
       name: `${form.name.trim()} ${form.lastname.trim()}`.trim(),
       email: form.email.trim().toLowerCase(),
       role: "user",
+      docType: form.docType,
       phone: form.phone.replace(/\s/g, ""),
       cedula: form.docNum.trim(),
-      password: form.pass,
-    })
+    }
+    setBusy(true)
+    try {
+      await apiRegister({ ...u, password: form.pass })
+      onVerify(u)
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
   if (step === "verifying")
     return (
@@ -2367,13 +2326,14 @@ function RegisterPage({
               letterSpacing: "0.3em",
             }}
           />
-          <FieldError msg={err} />
+          <FieldError msg={err || serverErr} />
           <button
             type="submit"
+            disabled={busy}
             className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
             style={{ background: C.mustard, color: "#fff" }}
           >
-            Verificar y continuar
+            {busy ? "Creando cuenta..." : "Verificar y continuar"}
           </button>
           <button
             type="button"
@@ -2491,7 +2451,14 @@ function RegisterPage({
                 </label>
                 <select
                   value={form.docType}
-                  onChange={(e) => upd("docType")(e.target.value)}
+                  onChange={(e) => {
+                    const docType = e.target.value
+                    setForm((current) => ({
+                      ...current,
+                      docType,
+                      docNum: normalizeAccountDocumentInput(current.docNum, docType),
+                    }))
+                  }}
                   aria-invalid={!!errors.docType}
                   className="w-full px-3 py-2 rounded-xl text-sm outline-none"
                   style={{
@@ -2613,6 +2580,7 @@ function ForgotPage({
 }) {
   const [email, setEmail] = useState("")
   const [sent, setSent] = useState(false)
+  const [emailErr, setEmailErr] = useState("")
   if (sent)
     return (
       <AuthLayout title="Correo enviado" sub="Revisa tu bandeja de entrada">
@@ -2649,7 +2617,9 @@ function ForgotPage({
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          if (email) setSent(true)
+          const error = emailError(email)
+          setEmailErr(error)
+          if (!error) setSent(true)
         }}
         className="flex flex-col gap-3"
       >
@@ -2658,8 +2628,12 @@ function ForgotPage({
           type="email"
           placeholder="tu@correo.com"
           value={email}
-          onChange={setEmail}
+          onChange={(value) => {
+            setEmail(value)
+            if (emailErr) setEmailErr(emailError(value))
+          }}
           required
+          error={emailErr}
         />
         <button
           type="submit"
@@ -2886,12 +2860,16 @@ function AddToCartModal({
   const [selSauces, setSelSauces] = useState<string[]>([])
   const [addQtys, setAddQtys] = useState<Record<string, number>>({})
   const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0].id)
+  const [customizationTab, setCustomizationTab] = useState<"sauces" | "additions" | "beverages">("sauces")
   const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
   const toggleSauce = (s: string) =>
-    setSelSauces((p) => (p.includes(s) ? p.filter((x) => x !== s) : [...p, s]))
+    setSelSauces((p) => {
+      if (p.includes(s)) return p.filter((x) => x !== s)
+      return p.length < 4 ? [...p, s] : p
+    })
   const changeAdd = (name: string, d: number) =>
     setAddQtys((p) => ({ ...p, [name]: Math.max(0, (p[name] || 0) + d) }))
   const addTotal = ADDITIONS.reduce(
@@ -2911,12 +2889,15 @@ function AddToCartModal({
   )
   const selectedBeverageSize =
     BEVERAGE_SIZES.find((size) => size.id === beverageSize) ?? BEVERAGE_SIZES[0]
-  const selectedBeverages = BEVERAGES.flatMap((flavor) =>
-    BEVERAGE_SIZES.flatMap((size) => {
-      const key = `Gaseosa ${flavor} ${size.id}`
-      const quantity = addQtys[key] || 0
-      return quantity > 0 ? [{ flavor, size, key, quantity }] : []
-    }),
+  const selectedBeverageCount = BEVERAGES.reduce(
+    (total, flavor) =>
+      total +
+      BEVERAGE_SIZES.reduce(
+        (sizeTotal, size) =>
+          sizeTotal + (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0),
+        0,
+      ),
+    0,
   )
   const unitPrice = product.price + addTotal + beverageTotal
   const total = unitPrice * qty
@@ -2951,20 +2932,25 @@ function AddToCartModal({
         className="w-full max-w-md rounded-3xl overflow-hidden flex flex-col"
         style={{
           background: CARD,
-          maxHeight: "90vh",
+          maxHeight: "98dvh",
           boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
         <div
           className="relative flex-shrink-0 overflow-hidden"
-          style={{ height: "230px", background: CARD }}
+          style={{ height: "clamp(120px, 26vh, 230px)", background: dark ? "#111" : "#1E1C18" }}
         >
           <img
             src={product.img}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
+          />
+          <img
+            src={product.img}
             alt={product.name}
-            className="w-full h-full object-cover"
-            style={{ objectPosition: "center 55%" }}
+            className="relative z-10 h-full w-full object-contain"
           />
           <button
             onClick={onClose}
@@ -2975,7 +2961,7 @@ function AddToCartModal({
           </button>
         </div>
         <div
-          className="flex items-center justify-between gap-3 px-5 py-3 flex-shrink-0"
+          className="flex items-center justify-between gap-3 px-5 py-2 flex-shrink-0"
           style={{ background: dark ? "#1E1C18" : "#fff" }}
         >
           <div>
@@ -2999,25 +2985,51 @@ function AddToCartModal({
           )}
         </div>
         <div
-          className="overflow-y-auto flex-1 px-5 py-4"
-          style={{ scrollbarWidth: "none" }}
+          className="min-h-0 flex-1 overflow-hidden px-4 py-1.5 sm:px-5"
         >
-          <p className="text-sm leading-relaxed mb-4" style={{ color: MUTED }}>
+          <p className="mb-1 line-clamp-1 text-xs leading-snug sm:text-sm" style={{ color: MUTED }}>
             {product.desc}
           </p>
-          <div className="mb-4">
-            <div className="font-bold text-sm mb-2" style={{ color: TEXT }}>
-              Salsas{" "}
-              <span className="font-normal text-xs" style={{ color: MUTED }}>
-                (gratis)
+          <div className="mb-1.5 grid grid-cols-3 gap-1 rounded-xl p-1" style={{ background: dark ? "rgba(244,238,220,0.06)" : "rgba(30,30,30,0.05)" }}>
+            {([
+              ["sauces", `Salsas ${selSauces.length}/4`],
+              ["additions", `Adiciones ${ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)}`],
+              ["beverages", `Bebidas ${selectedBeverageCount}`],
+            ] as const).map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setCustomizationTab(tab)}
+                className="rounded-lg px-2 py-1.5 text-sm font-bold transition-colors"
+                style={{
+                  background: customizationTab === tab ? C.mustard : "transparent",
+                  color: customizationTab === tab ? "#fff" : MUTED,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {customizationTab === "sauces" && (
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="font-bold text-sm" style={{ color: TEXT }}>Elige hasta 4 salsas gratis</div>
+              <span className="text-[11px] font-semibold" style={{ color: selSauces.length === 4 ? C.amber : MUTED }}>
+                {selSauces.length}/4
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div
+              role="group"
+              aria-label="Salsas"
+              className="flex flex-wrap gap-1.5"
+            >
               {SAUCES.map((s) => (
                 <button
                   key={s}
                   onClick={() => toggleSauce(s)}
-                  className="px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer"
+                  disabled={!selSauces.includes(s) && selSauces.length >= 4}
+                  aria-pressed={selSauces.includes(s)}
+                  className="rounded-full px-2.5 py-1.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:px-3 sm:text-xs"
                   style={{
                     background: selSauces.includes(s)
                       ? C.mustard
@@ -3035,44 +3047,32 @@ function AddToCartModal({
               ))}
             </div>
           </div>
-          <div className="mb-2">
-            <div className="font-bold text-sm mb-2" style={{ color: TEXT }}>
-              Adiciones
-            </div>
-            <div
-              className="rounded-2xl overflow-hidden"
-              style={{ border: `1px solid ${BORDER}` }}
-            >
-              {ADDITIONS.map((a, i) => {
+          )}
+          {customizationTab === "additions" && (
+          <div>
+            <div className="grid grid-cols-2 gap-1">
+              {ADDITIONS.map((a) => {
                 const q = addQtys[a.name] || 0
                 return (
                   <div
                     key={a.name}
-                    className="flex items-center px-4 py-3"
-                    style={{
-                      borderBottom:
-                        i < ADDITIONS.length - 1
-                          ? `1px solid ${BORDER}`
-                          : "none",
-                    }}
+                    className="flex min-w-0 items-center justify-between gap-1 rounded-xl px-2 py-1"
+                    style={{ border: `1px solid ${BORDER}`, background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
                   >
-                    <div className="flex-1 min-w-0 flex items-baseline gap-2">
-                      <span className="text-sm" style={{ color: TEXT }}>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-xs leading-tight" style={{ color: TEXT }}>
                         {a.name}
                       </span>
-                      <span
-                        className="text-xs font-semibold whitespace-nowrap"
-                        style={{ color: C.amber }}
-                      >
-                        {fmt(a.price)}
+                      <span className="text-[11px] font-semibold leading-tight" style={{ color: q > 0 ? C.mustard : MUTED }}>
+                        {q > 0 ? `+${fmt(a.price * q)}` : fmt(a.price)}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex flex-shrink-0 items-center gap-1">
                       <button
                         onClick={() => changeAdd(a.name, -1)}
                         disabled={q === 0}
                         aria-label={`Quitar ${a.name}`}
-                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
                         style={{
                           background: dark
                             ? "rgba(244,238,220,0.1)"
@@ -3083,7 +3083,7 @@ function AddToCartModal({
                         −
                       </button>
                       <span
-                        className="w-5 text-center font-bold text-sm"
+                        className="w-5 text-center text-sm font-bold"
                         style={{ color: TEXT }}
                       >
                         {q}
@@ -3091,28 +3091,21 @@ function AddToCartModal({
                       <button
                         onClick={() => changeAdd(a.name, 1)}
                         aria-label={`Agregar ${a.name}`}
-                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
                         style={{ background: C.mustard, color: "#fff" }}
                       >
                         +
                       </button>
-                      <span
-                        className="w-16 text-right text-sm font-bold"
-                        style={{ color: q > 0 ? C.mustard : MUTED }}
-                      >
-                        {q > 0 ? `+${fmt(a.price * q)}` : "—"}
-                      </span>
                     </div>
                   </div>
                 )
               })}
             </div>
           </div>
-          <div className="mb-2">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <div className="font-bold text-sm" style={{ color: TEXT }}>
-                Bebidas
-              </div>
+          )}
+          {customizationTab === "beverages" && (
+          <div>
+            <div className="mb-1 flex items-center justify-end gap-3">
               <select
                 aria-label="Tamaño de gaseosa"
                 value={beverageSize}
@@ -3131,42 +3124,31 @@ function AddToCartModal({
                 ))}
               </select>
             </div>
-            <div
-              className="rounded-2xl overflow-hidden"
-              style={{ border: `1px solid ${BORDER}` }}
-            >
-              {BEVERAGES.map((flavor, index) => {
+            <div className="grid grid-cols-2 gap-1">
+              {BEVERAGES.map((flavor) => {
                 const size = selectedBeverageSize
                 const key = `Gaseosa ${flavor} ${size.id}`
                 const quantity = addQtys[key] || 0
                 return (
                   <div
                     key={flavor}
-                    className="flex items-center px-4 py-3"
-                    style={{
-                      borderBottom:
-                        index < BEVERAGES.length - 1
-                          ? `1px solid ${BORDER}`
-                          : "none",
-                    }}
+                    className="flex min-w-0 items-center justify-between gap-1 rounded-xl px-2 py-1"
+                    style={{ border: `1px solid ${BORDER}`, background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
                   >
-                    <div className="flex-1 min-w-0 flex items-baseline gap-2">
-                      <span className="text-sm" style={{ color: TEXT }}>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-xs leading-tight" style={{ color: TEXT }}>
                         {flavor}
                       </span>
-                      <span
-                        className="text-xs font-semibold whitespace-nowrap"
-                        style={{ color: C.amber }}
-                      >
-                        {fmt(size.price)}
+                      <span className="text-[11px] font-semibold leading-tight" style={{ color: quantity > 0 ? C.mustard : MUTED }}>
+                        {quantity > 0 ? `+${fmt(size.price * quantity)}` : fmt(size.price)}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
+                    <div className="flex flex-shrink-0 items-center gap-1">
                       <button
                         onClick={() => changeAdd(key, -1)}
                         disabled={quantity === 0}
                         aria-label={`Quitar gaseosa ${flavor} ${size.label}`}
-                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer disabled:opacity-30 disabled:cursor-default"
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
                         style={{
                           background: dark
                             ? "rgba(244,238,220,0.1)"
@@ -3177,7 +3159,7 @@ function AddToCartModal({
                         −
                       </button>
                       <span
-                        className="w-5 text-center font-bold text-sm"
+                        className="w-5 text-center text-sm font-bold"
                         style={{ color: TEXT }}
                       >
                         {quantity}
@@ -3185,65 +3167,27 @@ function AddToCartModal({
                       <button
                         onClick={() => changeAdd(key, 1)}
                         aria-label={`Agregar gaseosa ${flavor} ${size.label}`}
-                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
                         style={{ background: C.mustard, color: "#fff" }}
                       >
                         +
                       </button>
-                      <span
-                        className="w-16 text-right text-sm font-bold"
-                        style={{ color: quantity > 0 ? C.mustard : MUTED }}
-                      >
-                        {quantity > 0
-                          ? `+${fmt(size.price * quantity)}`
-                          : "—"}
-                      </span>
                     </div>
                   </div>
                 )
               })}
             </div>
-            {selectedBeverages.length > 0 && (
-              <div className="mt-2 space-y-1">
-                <div className="text-xs font-semibold" style={{ color: MUTED }}>
-                  Seleccionadas
-                </div>
-                {selectedBeverages.map(({ flavor, size, key, quantity }) => (
-                  <div
-                    key={key}
-                    className="flex items-center justify-between gap-2 text-xs"
-                    style={{ color: MUTED }}
-                  >
-                    <span>
-                      {flavor} · {size.label} × {quantity}
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <strong style={{ color: C.mustard }}>
-                        {fmt(size.price * quantity)}
-                      </strong>
-                      <button
-                        type="button"
-                        onClick={() => changeAdd(key, -quantity)}
-                        aria-label={`Quitar todas las ${flavor} ${size.label}`}
-                        className="cursor-pointer font-semibold"
-                        style={{ color: C.red }}
-                      >
-                        Quitar
-                      </button>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
+          )}
         </div>
         <div
-          className="flex flex-shrink-0 flex-col gap-2 px-4 py-3"
+          className="flex w-full flex-shrink-0 flex-col gap-1.5 px-4 py-2"
           style={{ borderTop: `1px solid ${BORDER}`, background: CARD }}
         >
-          <div className="flex items-center gap-3">
+          <div className="mx-auto flex w-full max-w-[400px] flex-col gap-1.5">
+          <div className="flex items-center gap-2.5">
             <div
-              className="flex flex-shrink-0 items-center gap-1 rounded-2xl px-1 py-1"
+              className="flex flex-shrink-0 items-center gap-0.5 rounded-xl px-1 py-1"
               style={{
                 background: dark
                   ? "rgba(244,238,220,0.07)"
@@ -3252,7 +3196,7 @@ function AddToCartModal({
             >
               <button
                 onClick={() => setQty((q) => Math.max(1, q - 1))}
-                className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
+                className="h-9 w-8 rounded-lg flex items-center justify-center font-bold cursor-pointer"
                 style={{ color: TEXT }}
               >
                 −
@@ -3265,7 +3209,7 @@ function AddToCartModal({
               </span>
               <button
                 onClick={() => setQty((q) => q + 1)}
-                className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
+                className="h-9 w-8 rounded-lg flex items-center justify-center font-bold cursor-pointer"
                 style={{ color: TEXT }}
               >
                 +
@@ -3273,7 +3217,7 @@ function AddToCartModal({
             </div>
             <button
               onClick={handleAdd}
-              className="flex flex-1 cursor-pointer items-center justify-between rounded-2xl px-5 py-3.5 text-sm font-bold hover:opacity-90"
+              className="flex flex-1 cursor-pointer items-center justify-between rounded-xl px-4 py-2.5 text-sm font-bold hover:opacity-90"
               style={{ background: C.mustard, color: "#fff" }}
             >
               <span>Agregar al carrito</span>
@@ -3284,12 +3228,13 @@ function AddToCartModal({
             <button
               type="button"
               onClick={handleCheckout}
-              className="w-full cursor-pointer rounded-2xl py-3 text-sm font-bold hover:opacity-90"
+              className="w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
               style={{ background: C.mustard, color: "#fff" }}
             >
               Finalizar compra
             </button>
           )}
+          </div>
         </div>
       </div>
     </div>
@@ -3707,10 +3652,603 @@ function saveLS(key: string, value: unknown) {
   }
 }
 
+// ── Backend (parche-backend) ───────────────────────────────────────────────────
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api"
+// Uploaded photos come as "/imagenes/<id>" (served by the API); other images are full URLs
+const imageUrl = (u: string | undefined) => (u?.startsWith("/imagenes/") ? API_URL + u : u || "")
+
+// Calls the backend (with the login token) and returns `data`; throws with the server's message so forms can show it
+async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  const token = loadLS<string>("token", "")
+  let res: Response
+  try {
+    res = await fetch(API_URL + path, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch {
+    throw new Error("No se pudo conectar con el servidor. Intenta de nuevo.")
+  }
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.detalles?.[0]?.mensaje || json.mensaje || "Ocurrió un error. Intenta de nuevo.")
+  return json.data
+}
+
+type AuthData = {
+  token: string
+  usuario: {
+    correo: string
+    nombre: string | null
+    tipo_documento: string | null
+    documento: string | null
+    telefono: string | null
+    direcciones: string[] | null
+    roles: string[]
+  }
+  permisos: { modulo: string; privilegios: string[] }[]
+}
+
+const toUser = ({ token, usuario: u, permisos }: AuthData): User => {
+  saveLS("token", token)
+  return {
+    permissions: permisos.filter((p) => p.privilegios.includes("VER")).map((p) => p.modulo),
+    name: u.nombre || u.correo,
+    email: u.correo.toLowerCase(),
+    role: u.roles.includes("CLIENTE") ? "user" : "admin",
+    docType: u.tipo_documento || undefined,
+    cedula: u.documento || undefined,
+    phone: u.telefono || undefined,
+    addresses: u.direcciones?.length ? u.direcciones : undefined,
+  }
+}
+
+const apiLogin = async (email: string, pass: string) =>
+  toUser(await api<AuthData>("/auth/login", "POST", { correo: email.trim(), contrasena: pass }))
+
+type CatalogItem = {
+  id: number
+  nombre: string
+  descripcion: string | null
+  etiqueta: string | null
+  precio: number
+  categoria: string
+  imagenes: string[]
+}
+
+// Backend category name → menu category id (inverse of PRODUCT_CAT_LABEL)
+const MENU_CAT_ID = Object.fromEntries(
+  Object.entries(PRODUCT_CAT_LABEL).map(([id, label]) => [label, id]),
+)
+
+// ── Admin tables ↔ backend ─────────────────────────────────────────────────────
+// Each synced admin module maps a backend record to its table row and back. The row
+// keeps the record id at `idIndex` (never shown) so edits update the same record.
+type Row = (string | number)[]
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DbRecord = Record<string, any>
+type SyncSpec = {
+  path: string
+  update: "PATCH" | "PUT"
+  idIndex: number
+  idOf: (r: DbRecord) => number
+  toRow: (r: DbRecord) => Row
+  toBody: (row: Row) => Promise<DbRecord> | DbRecord
+  // Rows that live only in the browser (not sent to the backend)
+  localOnly?: (row: Row) => boolean
+  // Backend records this module shows (default: all)
+  shows?: (r: DbRecord) => boolean
+  // Status changes that use their own route instead of a full update
+  setStatus?: (id: string | number, row: Row) => Promise<unknown>
+  // Modules to reload after a save (e.g. stock changes in Insumos)
+  reloads?: string[]
+  // Saves what lives in other tables once the record has its id (e.g. the ficha técnica)
+  afterSave?: (id: number, row: Row) => Promise<unknown>
+}
+
+const isActiveStatus = (v: string | number | undefined) =>
+  !["Inactivo", "Inactiva", "Anulado", "Anulada"].includes(String(v ?? ""))
+const estadoOf = (v: string | number | undefined) => (isActiveStatus(v) ? "ACTIVO" : "INACTIVO")
+const text = (v: string | number | undefined) => String(v ?? "").trim()
+// Optional e-mails must be omitted (not "") or the backend rejects them
+const optionalEmail = (v: string | number | undefined) => text(v) || undefined
+const withId = (row: Row, idIndex: number, id: number) => {
+  row[idIndex] = id
+  return row
+}
+
+// Finds a backend record id by its name (same name matching as the admin: no accents/case)
+async function idByName(path: string, nameKey: string, idKey: string, name: string | number, what: string) {
+  const record = (await api<DbRecord[]>(path)).find((r) => normalizeName(r[nameKey]) === normalizeName(name))
+  if (!record) throw new Error(`${what} «${name}» no existe en la base de datos.`)
+  return record[idKey] as number
+}
+const categoryIdByName = (path: string, name: string | number) =>
+  idByName(path, "nombre_categoria", "id_categoria", name, "La categoría")
+
+// Purchase items text: one "insumo | cantidad | costo unitario" per line
+const parsePurchaseLines = (value: string | number | undefined) =>
+  String(value ?? "")
+    .split(/\n|;/)
+    .map((line) => line.split("|").map((part) => part.trim()))
+    .filter(([name]) => name)
+    .map(([name, quantity, unitPrice]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0 }))
+
+const categorySpec = (path: string): SyncSpec => ({
+  path,
+  update: "PUT",
+  idIndex: 3,
+  idOf: (c) => c.id_categoria,
+  toRow: (c) =>
+    withId([c.nombre_categoria, c.descripcion || "", c.estado === "ACTIVO" ? "Activa" : "Inactiva"], 3, c.id_categoria),
+  toBody: (row) => ({ nombre_categoria: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
+})
+
+// Backend role names are uppercase (ADMINISTRADOR); the admin shows them as "Administrador"
+const roleLabel = (name: string) => name.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
+
+const DB_SYNC: Record<string, SyncSpec> = {
+  // [0 nombre, 1 descripción, 2 estado]. The permissions matrix is still kept in the browser.
+  roles: {
+    path: "/roles",
+    update: "PUT",
+    idIndex: 3,
+    idOf: (r) => r.id_rol,
+    toRow: (r) =>
+      withId([roleLabel(r.nombre_rol), r.descripcion || "", r.estado === "ACTIVO" ? "Activo" : "Inactivo"], 3, r.id_rol),
+    toBody: (row) => ({ nombre_rol: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
+  },
+  // [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, 6 contraseña (only to create/change it)]
+  usuarios: {
+    path: "/usuarios",
+    update: "PATCH",
+    idIndex: 7,
+    // Customers are managed in Clientes
+    shows: (u) => !u.roles?.includes("CLIENTE"),
+    idOf: (u) => u.id_usuario,
+    toRow: (u) =>
+      withId(
+        [u.nombre || "", u.tipo_documento || "", u.documento || "", roleLabel(u.roles?.[0] || ""), u.correo,
+          u.estado === "ACTIVO" ? "Activo" : "Inactivo", ""],
+        7,
+        u.id_usuario,
+      ),
+    toBody: (row) => {
+      const rol = text(row[3]).toUpperCase()
+      return {
+        nombre: text(row[0]),
+        tipo_documento: text(row[1]),
+        documento: text(row[2]),
+        roles: [rol],
+        tipo: rol === "CLIENTE" ? "CLIENTE" : "EMPLEADO",
+        correo: text(row[4]),
+        estado: estadoOf(row[5]),
+        // Blank on edit = keep the current password
+        contrasena: text(row[6]) || undefined,
+      }
+    },
+  },
+  // [0 nombre, 1 categoría, 2 precio, 3 descripción, 4 estado, 5-9 ficha técnica, 10 disponibilidad]
+  // Ficha técnica and disponibilidad are not in the backend yet.
+  producto: {
+    path: "/productos",
+    update: "PATCH",
+    idIndex: 11,
+    idOf: (p) => p.id_insumo_producto,
+    toRow: (p) =>
+      withId(
+        [p.nombre, p.nombre_categoria, p.precio, p.descripcion || "", p.estado === "ACTIVO" ? "Activo" : "Inactivo",
+          p.ficha?.nombre || `Ficha ${p.nombre}`, p.ficha?.version || "v1.0", p.ficha?.insumos_principales || "",
+          p.ficha?.preparacion || "",
+          JSON.stringify((p.ficha?.ingredientes || []).map((i: DbRecord) => ({ name: i.insumo, quantity: i.cantidad, unit: i.medida || "" }))),
+          "Disponible"],
+        11,
+        p.id_insumo_producto,
+      ),
+    toBody: async (row) => ({
+      nombre: text(row[0]),
+      id_categoria: await categoryIdByName("/categorias-productos", row[1]),
+      precio: Number(row[2]),
+      descripcion: text(row[3]),
+      estado: estadoOf(row[4]),
+    }),
+    localOnly: (row) => row[1] === "Producto de insumo",
+    afterSave: (id, row) => {
+      let recipe: TechnicalIngredient[] = []
+      try {
+        recipe = JSON.parse(String(row[9] || "[]"))
+      } catch {
+        // unreadable recipe: saved without ingredients
+      }
+      return api(`/productos/${id}/ficha`, "PUT", {
+        nombre: text(row[5]),
+        version: text(row[6]),
+        insumos_principales: text(row[7]),
+        preparacion: text(row[8]),
+        ingredientes: recipe
+          .filter((i) => Number(i.quantity) > 0)
+          .map((i) => ({ insumo: i.name, cantidad: Number(i.quantity), medida: i.unit || undefined })),
+      })
+    },
+  },
+  "cat-producto": categorySpec("/categorias-productos"),
+  // [0 nombre, 1 tipo doc, 2 documento, 3 teléfono, 4 correo, 5 dirección, 6 de local (Sí/No), 7 estado]
+  // Customers who registered in the app also show up here (their e-mail is their login).
+  clientes: {
+    path: "/clientes",
+    update: "PATCH",
+    idIndex: 8,
+    idOf: (c) => c.id_persona,
+    toRow: (c) =>
+      withId(
+        [c.nombre, c.tipo_documento || "", c.documento || "", c.telefono || "", c.correo || "", c.direccion || "",
+          c.de_local ? "Sí" : "No", c.estado === "ACTIVO" ? "Activo" : "Inactivo"],
+        8,
+        c.id_persona,
+      ),
+    toBody: (row) => ({
+      nombre: text(row[0]),
+      tipo_documento: text(row[1]),
+      documento: text(row[2]),
+      telefono: text(row[3]),
+      correo: optionalEmail(row[4]),
+      direccion: text(row[5]),
+      de_local: text(row[6]).toLowerCase() === "sí",
+      estado: estadoOf(row[7]),
+    }),
+  },
+  "cat-insumos": categorySpec("/categorias-insumos"),
+  // [0 nombre, 1 categoría, 2 unidad, 3 costo, 4 stock, 5 mínimo, 6 (sin uso), 7 producto de insumo,
+  //  8-11 ficha técnica, 12 estado]. The ficha técnica texts are not in the backend yet.
+  insumos: {
+    path: "/insumos",
+    update: "PATCH",
+    idIndex: 13,
+    idOf: (i) => i.id_insumo_producto,
+    toRow: (i) =>
+      withId(
+        [i.nombre, i.nombre_categoria, i.medida || "und", i.costo, i.stock, i.minimo, "",
+          i.tiene_ficha_tecnica ? "Sí" : "No",
+          i.tiene_ficha_tecnica ? i.ficha?.nombre || `Ficha técnica - ${i.nombre}` : "",
+          i.tiene_ficha_tecnica ? i.ficha?.version || "v1.0" : "",
+          i.ficha?.insumos_principales || "", i.ficha?.preparacion || "", i.estado === "ACTIVO" ? "Activo" : "Inactivo"],
+        13,
+        i.id_insumo_producto,
+      ),
+    toBody: async (row) => ({
+      nombre: text(row[0]),
+      id_categoria: await categoryIdByName("/categorias-insumos", row[1]),
+      medida: text(row[2]),
+      costo: Number(row[3]) || 0,
+      stock: Number(row[4]) || 0,
+      minimo: Number(row[5]) || 0,
+      tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
+      estado: estadoOf(row[12]),
+    }),
+    afterSave: (id, row) =>
+      text(row[7]).toLowerCase() === "sí"
+        ? api(`/insumos/${id}/ficha`, "PUT", {
+            nombre: text(row[8]),
+            version: text(row[9]),
+            insumos_principales: text(row[10]),
+            preparacion: text(row[11]),
+            // no recipe lines in the insumo form: the backend keeps the saved ones
+          })
+        : Promise.resolve(),
+  },
+  // [0 proveedor, 1 fecha compra, 2 fecha registro, 3 subtotal, 4 total, 5 estado (Activo/Anulado), 6 insumos]
+  // The backend adds the insumos to stock (and takes them back when the purchase is anulada).
+  compras: {
+    path: "/compras",
+    update: "PUT",
+    idIndex: 7,
+    idOf: (c) => c.id_compra,
+    toRow: (c) =>
+      withId(
+        [c.proveedor, c.fecha, c.fecha_registro, c.subtotal, c.total, c.estado === "REGISTRADA" ? "Activo" : "Anulado",
+          c.detalles.map((d: DbRecord) => `${d.insumo} | ${d.cantidad} | ${d.costo_unitario}`).join("\n")],
+        7,
+        c.id_compra,
+      ),
+    toBody: async (row) => {
+      const insumos = await api<DbRecord[]>("/insumos")
+      const items = parsePurchaseLines(row[6]).map((line) => {
+        const insumo = insumos.find((i) => normalizeName(i.nombre) === normalizeName(line.name))
+        if (!insumo) throw new Error(`El insumo «${line.name}» no existe en la base de datos.`)
+        return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice }
+      })
+      return {
+        id_proveedor: await idByName("/proveedores", "nombre", "id_proveedor", row[0], "El proveedor"),
+        fecha: text(row[1]),
+        iva: Math.max(0, Number(row[4]) - Number(row[3]) || 0),
+        items,
+      }
+    },
+    setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", { estado: isActiveStatus(row[5]) ? "REGISTRADA" : "ANULADA" }),
+    reloads: ["insumos"],
+  },
+  // [0 insumo, 1 cantidad con unidad ("0.5 kg"), 2 motivo, 3 responsable, 4 fecha, 5 origen]
+  // The backend takes the quantity out of the insumo's stock.
+  perdidas: {
+    path: "/perdidas-insumos",
+    update: "PUT",
+    idIndex: 6,
+    idOf: (p) => p.id_perdida,
+    toRow: (p) =>
+      withId(
+        [p.insumo, `${p.cantidad} ${p.medida || ""}`.trim(), p.motivo || "", p.responsable || "", p.fecha, p.observacion || ""],
+        6,
+        p.id_perdida,
+      ),
+    toBody: async (row) => {
+      const cantidad = parseFloat(String(row[1]).replace(",", "."))
+      if (!(cantidad > 0)) throw new Error(`La cantidad «${row[1]}» no es válida.`)
+      return {
+        id_insumo_producto: await idByName("/insumos", "nombre", "id_insumo_producto", row[0], "El insumo"),
+        cantidad,
+        motivo: text(row[2]),
+        responsable: text(row[3]),
+        fecha: text(row[4]) || undefined,
+        observacion: text(row[5]),
+      }
+    },
+    reloads: ["insumos"],
+  },
+  // [0 nombre, 1 NIT, 2 correo, 3 teléfono, 4 contacto, 5 dirección, 6 estado, 7 insumos,
+  //  8-14 contacto: tipo doc, nº doc, nombre, apellido, teléfono, correo, cargo]
+  proveedores: {
+    path: "/proveedores",
+    update: "PATCH",
+    idIndex: 15,
+    idOf: (p) => p.id_proveedor,
+    // Nombre/apellido (10, 11) stay empty: the edit form splits them from "contacto"
+    toRow: (p) =>
+      withId(
+        [p.nombre, p.nit || "", p.correo || "", p.telefono || "", p.contacto || "", p.direccion || "",
+          p.estado === "ACTIVO" ? "Activo" : "Inactivo", p.insumos || "", p.contacto_tipo_documento || "",
+          p.contacto_documento || "", "", "", p.contacto_telefono || "", p.contacto_correo || "", p.contacto_cargo || ""],
+        15,
+        p.id_proveedor,
+      ),
+    toBody: (row) => ({
+      nombre: text(row[0]),
+      nit: text(row[1]),
+      correo: optionalEmail(row[2]),
+      telefono: text(row[3]),
+      contacto: text(row[4]),
+      direccion: text(row[5]),
+      estado: estadoOf(row[6]),
+      insumos: text(row[7]),
+      contacto_tipo_documento: text(row[8]),
+      contacto_documento: text(row[9]),
+      contacto_telefono: text(row[12]),
+      contacto_correo: optionalEmail(row[13]),
+      contacto_cargo: text(row[14]),
+    }),
+  },
+}
+
+// Creates (no id yet) or updates the row's record in the backend; returns its id
+async function saveRowToDb(spec: SyncSpec, row: Row) {
+  const body = await spec.toBody(row)
+  const id = row[spec.idIndex]
+  const saved = id
+    ? await api<DbRecord>(`${spec.path}/${id}`, spec.update, body)
+    : await api<DbRecord>(spec.path, "POST", body)
+  return spec.idOf(saved)
+}
+
+// ── Permissions ↔ backend ──────────────────────────────────────────────────────
+// Panel section -> backend module (also the names of the permissions matrix)
+const SECTION_MODULE: Record<string, string> = {
+  roles: "ROLES_PERMISOS",
+  usuarios: "USUARIOS",
+  "cat-insumos": "CATEGORIAS_INSUMOS",
+  insumos: "INSUMOS",
+  proveedores: "PROVEEDORES",
+  compras: "COMPRAS",
+  perdidas: "PERDIDA_INSUMOS",
+  "cat-producto": "CATEGORIAS_PRODUCTO",
+  producto: "PRODUCTOS",
+  produccion: "ORDENES_PRODUCCION",
+  "producto-no-conforme": "PRODUCTO_NO_CONFORME",
+  clientes: "CLIENTES",
+  pedidos: "PEDIDOS",
+  ventas: "VENTAS",
+  devoluciones: "DEVOLUCIONES",
+}
+const PERM_MODULE: Record<string, string> = {
+  "Roles y permisos": "ROLES_PERMISOS",
+  Usuarios: "USUARIOS",
+  "Categoría Insumos": "CATEGORIAS_INSUMOS",
+  Insumos: "INSUMOS",
+  Proveedores: "PROVEEDORES",
+  Compras: "COMPRAS",
+  "Pérdida Insumos": "PERDIDA_INSUMOS",
+  "Categoría Producto": "CATEGORIAS_PRODUCTO",
+  Productos: "PRODUCTOS",
+  Producción: "ORDENES_PRODUCCION",
+  "Producto No Conforme": "PRODUCTO_NO_CONFORME",
+  Clientes: "CLIENTES",
+  Pedidos: "PEDIDOS",
+  Ventas: "VENTAS",
+  Devoluciones: "DEVOLUCIONES",
+}
+// The backend has one privilege for both "Anular" and "Eliminar" (each module shows one of them)
+const PERM_ACTION: Record<string, string> = { Ver: "VER", Crear: "CREAR", Editar: "EDITAR", Anular: "ELIMINAR", Eliminar: "ELIMINAR" }
+type RolePerms = Record<string, string[]>
+const permsToDb = (perms: RolePerms) =>
+  PERMISSION_MODULES.map(({ name }) => ({
+    modulo: PERM_MODULE[name],
+    privilegios: [...new Set((perms[name] || []).map((a) => PERM_ACTION[a]).filter(Boolean))].sort(),
+  })).filter((p) => p.privilegios.length)
+const permsFromDb = (permisos: { modulo: string; privilegios: string[] }[]): RolePerms =>
+  Object.fromEntries(
+    PERMISSION_MODULES.map(({ name, finalAction }) => [
+      name,
+      (permisos.find((p) => p.modulo === PERM_MODULE[name])?.privilegios || []).map((p) =>
+        p === "ELIMINAR" ? finalAction : p[0] + p.slice(1).toLowerCase(),
+      ),
+    ]),
+  )
+
+// ── Panel modules stored as whole rows ─────────────────────────────────────────
+// Their logic lives in the panel (status history, order lines, stock already used...), so the
+// backend stores each row as-is (plus its main columns). AdminPanel saves any change automatically.
+type PanelSyncSpec = {
+  path: string
+  // Position of the backend id in the row (right after the panel's own cells; never shown)
+  idIndex: number
+  // Rows built in the browser before loading that must still be saved (default: none)
+  keepLocal?: (row: Row, dbRows: Row[]) => boolean
+  // Rows this module saves (default: all); the others are kept as they are and never sent
+  owns?: (row: Row) => boolean
+}
+const PANEL_SYNC: Record<string, PanelSyncSpec> = {
+  // Production orders rebuilt from client orders (not the demo seed) are saved if the backend doesn't have them
+  produccion: {
+    path: "/ordenes-produccion",
+    idIndex: 16,
+    keepLocal: (row, dbRows) =>
+      !dbRows.some((r) => r[0] === row[0]) && !MOD_CFG.produccion.seed.some((r) => r[0] === row[0]),
+  },
+  "producto-no-conforme": { path: "/productos-no-conformes", idIndex: 9 },
+  ventas: { path: "/ventas", idIndex: 13 },
+  devoluciones: { path: "/devoluciones", idIndex: 6 },
+  // Orders created by hand in the panel; web store orders are saved through /pedidos
+  pedidos: {
+    path: "/pedidos-panel",
+    idIndex: 12,
+    owns: (row) => !loadOrders().some((order) => order.id === row[0]),
+  },
+}
+const syncIdIndex = (sec: string) => (DB_SYNC[sec] ?? PANEL_SYNC[sec])?.idIndex
+// Pads the row so the id never leaves empty gaps before it
+const withPanelId = (row: Row, idIndex: number, id: string | number) => {
+  const padded = Array.from({ length: Math.max(row.length, idIndex) }, (_, i) => row[i] ?? "")
+  padded[idIndex] = id
+  return padded
+}
+
+// Backend categories that feed the customization options instead of the menu
+const EXTRA_CATS = ["Adiciones", "Salsas", "Bebidas", "Sabores de bebida"]
+
+// shortcut: replaces the menu arrays in place so every screen reading them shows the backend data;
+// move them into state/context when the admin panel edits them live.
+async function loadMenu() {
+  const items = await api<CatalogItem[]>("/catalogo")
+  const inCat = (cat: string) => items.filter((p) => p.categoria === cat)
+  ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio })))
+  SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
+  BEVERAGES.splice(0, BEVERAGES.length, ...inCat("Sabores de bebida").map((p) => p.nombre))
+  // The customizer always needs at least one size, so keep the built-in ones if none are active
+  const sizes = inCat("Bebidas").map((p) => ({ id: p.nombre, label: p.nombre, price: p.precio }))
+  if (sizes.length) BEVERAGE_SIZES.splice(0, BEVERAGE_SIZES.length, ...sizes)
+  PRODUCTS.splice(
+    0,
+    PRODUCTS.length,
+    ...items.filter((p) => !EXTRA_CATS.includes(p.categoria)).map((p) => ({
+      id: p.id,
+      name: p.nombre,
+      desc: p.descripcion || "",
+      price: p.precio,
+      priceStr: fmt(p.precio),
+      img: imageUrl(p.imagenes[0]),
+      cat: MENU_CAT_ID[p.categoria] || p.categoria.toLowerCase(),
+      badge: p.etiqueta || "",
+    })),
+  )
+}
+
+const apiRegister = async (u: User) =>
+  toUser(
+    await api<AuthData>("/auth/registro", "POST", {
+      correo: u.email,
+      contrasena: u.password,
+      nombre: u.name,
+      tipo_documento: u.docType || undefined,
+      documento: u.cedula || undefined,
+    }),
+  )
+
+function getAdminAccountStatus(email: string): string | undefined {
+  const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
+  return statuses[email.trim().toLowerCase()]
+}
+
 // ponytail: all orders live in this browser's localStorage (client + admin
 // share it); move to a backend when the shop needs multiple devices.
 const loadOrders = () => loadLS<Order[]>("orders", [])
 const saveOrders = (orders: Order[]) => saveLS("orders", orders)
+
+// ── Pedidos ↔ backend: the "orders" cache above is refreshed from the backend on login,
+// so client and admin see the same orders from any device.
+const orderDbId = (id: string) => Number(id.replace("PED-", ""))
+const orderFromDb = (p: DbRecord): Order => ({
+  id: `PED-${p.id_pedido}`,
+  email: p.correo,
+  cliente: p.cliente,
+  date: new Date(p.creado_en).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }),
+  nombre: p.nombre_contacto || p.cliente,
+  telefono: p.telefono_contacto || "",
+  direccion: p.direccion_entrega || "",
+  notas: p.observacion || "",
+  pago: p.metodo_pago || "Efectivo",
+  voucher: p.comprobante || undefined,
+  items: p.items.map((it: DbRecord, i: number) => {
+    const product = PRODUCTS.find((x) => x.name === it.producto)
+    return {
+      id: i + 1,
+      name: it.producto,
+      description: product?.desc,
+      price: it.precio_unitario,
+      qty: it.cantidad,
+      img: product?.img || "",
+      sauces: it.detalle?.salsas || [],
+      additions: (it.detalle?.adiciones || []).map((a: DbRecord) => ({ name: a.nombre, qty: a.cantidad, price: a.precio })),
+    }
+  }),
+  total: p.total,
+  status: p.estado,
+  paymentStatus: p.estado_pago,
+  paymentRejectionReason: p.motivo_rechazo_pago || undefined,
+  productionAuthorized: p.produccion_autorizada,
+  productionRecords: p.registros_produccion,
+})
+// Staff get every order; clients only their own
+const refreshOrders = async (role: User["role"]) =>
+  saveOrders((await api<DbRecord[]>(role === "admin" ? "/pedidos" : "/pedidos/mios")).map(orderFromDb))
+// Saves the panel's changes to a client order (status, payment, production)
+const pushOrder = (id: string) => {
+  const o = loadOrders().find((order) => order.id === id)
+  if (!o) return
+  api(`/pedidos/${orderDbId(o.id)}`, "PATCH", {
+    estado: o.status,
+    estado_pago: o.paymentStatus,
+    motivo_rechazo_pago: o.paymentRejectionReason ?? null,
+    produccion_autorizada: !!o.productionAuthorized,
+    registros_produccion: o.productionRecords ?? [],
+  }).catch((err) => window.alert(`El pedido ${o.id} no se guardó en la base de datos: ${(err as Error).message}`))
+}
+const loadRegisteredClients = () =>
+  loadLS<RegisteredClient[]>("registeredClients", [])
+const saveRegisteredClient = (user: User) => {
+  if (user.role !== "user" || !user.email.trim()) return
+  const registeredClient: RegisteredClient = {
+    name: user.name.trim(),
+    email: user.email.trim().toLowerCase(),
+    cedula: user.cedula?.trim(),
+    docType: user.docType?.trim(),
+    phone: user.phone?.trim(),
+  }
+  const clients = loadRegisteredClients().filter(
+    (client) => client.email.toLowerCase() !== registeredClient.email,
+  )
+  saveLS("registeredClients", [registeredClient, ...clients])
+}
 
 // Downscale to keep vouchers small enough for localStorage
 function readVoucher(file: File) {
@@ -3797,6 +4335,13 @@ function OrderList({
     <div className="space-y-3">
       {orders.map((o) => {
         const badge = badgeSt(o.status)
+        const paymentStatus =
+          o.paymentStatus ??
+          (o.voucher
+            ? "Pendiente de verificación"
+            : isTransferPaymentMethod(o.pago)
+              ? "Pendiente de verificación"
+              : "Pendiente")
         return (
           <div
             key={o.id}
@@ -3830,6 +4375,21 @@ function OrderList({
                 >
                   {o.status}
                 </span>
+                {paymentStatus !== "Pendiente" && (
+                  <div
+                    className="mt-1 text-[10px] font-semibold"
+                    style={{
+                      color:
+                        paymentStatus === "Pagado"
+                          ? C.forest
+                          : paymentStatus === "Rechazado"
+                            ? C.red
+                            : C.mustard,
+                    }}
+                  >
+                    Pago: {paymentStatus}
+                  </div>
+                )}
               </div>
             </div>
             <button
@@ -3980,6 +4540,17 @@ function OrderDetailModal({
           <div>
             <strong style={{ color: TEXT }}>Pago:</strong> {order.pago}
           </div>
+          {order.paymentStatus && (
+            <div>
+              <strong style={{ color: TEXT }}>Estado del pago:</strong>{" "}
+              {order.paymentStatus}
+            </div>
+          )}
+          {order.paymentStatus === "Rechazado" && order.paymentRejectionReason && (
+            <div style={{ color: C.red }}>
+              <strong>Motivo de rechazo:</strong> {order.paymentRejectionReason}
+            </div>
+          )}
         </div>
 
         {order.pago !== "Efectivo" && (
@@ -4164,8 +4735,8 @@ function CartSummary({
           className="flex justify-between text-sm mb-2"
           style={{ color: MUTED }}
         >
-          <span>Domicilio (Comuna 3)</span>
-          <span style={{ color: C.forest }}>Gratis</span>
+          <span>Domicilio</span>
+          <span style={{ color: MUTED }}>Costo según zona</span>
         </div>
         <div
           className="flex justify-between font-black text-base pt-2"
@@ -4201,7 +4772,7 @@ function CheckoutPage({
   onLogin: (u: User) => void
   onRegisterVerified: (u: User) => void
   onBack: () => void
-  onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => void
+  onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<void>
   onComplete: () => void
 }) {
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
@@ -4226,10 +4797,21 @@ function CheckoutPage({
   const [editingAddress, setEditingAddress] = useState(
     () => !(user?.addresses?.length),
   )
+  const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(false)
   const [saveAddress, setSaveAddress] = useState(
     () => !(user?.addresses?.length),
   )
   const [deliveryTried, setDeliveryTried] = useState(false)
+  const toggleDeliveryRecipient = () => {
+    const nextIsOtherPerson = !deliverToOtherPerson
+    setDeliverToOtherPerson(nextIsOtherPerson)
+    setDeliveryTried(false)
+    setDelivForm((current) => ({
+      ...current,
+      nombre: nextIsOtherPerson ? "" : user?.name ?? "",
+      telefono: nextIsOtherPerson ? "" : user?.phone ?? "",
+    }))
+  }
   // Prefill delivery data from the account as soon as there is one
   useEffect(() => {
     if (!user) return
@@ -4255,15 +4837,25 @@ function CheckoutPage({
   const subtotal = cartTotal(cart)
   const hasActiveItems = cart.some((item) => item.qty > 0)
   const activeCart = cart.filter((item) => item.qty > 0)
-  const placeOrder = () => {
+  const [orderError, setOrderError] = useState("")
+  const [placing, setPlacing] = useState(false)
+  const placeOrder = async () => {
     setDeliveryTried(true)
-    if (!user || !delivFilled || !payReady || cart.length === 0) return
-    onPlaceOrder(
-      { ...delivForm, voucher: needsVoucher ? voucher : undefined },
-      saveAddress || !(user.addresses?.length),
-    )
-    setPlacedTotal(subtotal)
-    setOrdered(true)
+    if (placing || !user || !delivFilled || !payReady || cart.length === 0) return
+    setOrderError("")
+    setPlacing(true)
+    try {
+      await onPlaceOrder(
+        { ...delivForm, voucher: needsVoucher ? voucher : undefined },
+        saveAddress || !(user.addresses?.length),
+      )
+      setPlacedTotal(subtotal)
+      setOrdered(true)
+    } catch (err) {
+      setOrderError((err as Error).message)
+    } finally {
+      setPlacing(false)
+    }
   }
   const continueToReview = () => {
     setDeliveryTried(true)
@@ -4275,7 +4867,7 @@ function CheckoutPage({
   const payReady = !needsVoucher || !!voucher
   const delivFilled =
     !!delivForm.nombre.trim() &&
-    !!delivForm.telefono.trim() &&
+    !validatePhoneNumber(delivForm.telefono) &&
     !!delivForm.direccion.trim()
   const canOrder = user && delivFilled
 
@@ -4283,22 +4875,26 @@ function CheckoutPage({
   const [loginTried, setLoginTried] = useState(false)
   const [regTried, setRegTried] = useState(false)
   const [codeTried, setCodeTried] = useState(false)
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  // Password, account existence and status are checked by the backend
   const loginErrors = loginTried ? validateLogin(loginForm.email, loginForm.pass) : {}
   const regErrors = regTried ? validateRegister(regForm) : {}
   const codeErr = codeTried ? codeError(code) : ""
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoginTried(true)
-    const email = loginForm.email.trim().toLowerCase()
-    const savedProfile = loadLS<User | null>(`profile:${email}`, null)
-    if (Object.keys(validateLogin(loginForm.email, loginForm.pass, savedProfile?.password)).length) return
-    const role = email.includes("admin") ? "admin" : "user"
-    const name = email
-      .split("@")[0]
-      .replace(/\./g, " ")
-      .replace(/\b\w/g, (ch) => ch.toUpperCase())
-    onLogin({ name, email, role })
-    setCheckoutStep(2)
+    setServerErr("")
+    if (busy || Object.keys(validateLogin(loginForm.email, loginForm.pass)).length) return
+    setBusy(true)
+    try {
+      onLogin(await apiLogin(loginForm.email, loginForm.pass))
+      setCheckoutStep(2)
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
   const handleRegisterForm = (e: React.FormEvent) => {
     e.preventDefault()
@@ -4306,19 +4902,30 @@ function CheckoutPage({
     if (Object.keys(validateRegister(regForm)).length) return
     setRegStep("verifying")
   }
-  const handleVerify = (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault()
     setCodeTried(true)
-    if (codeError(code)) return
-    onRegisterVerified({
+    setServerErr("")
+    if (busy || codeError(code)) return
+    const u: User = {
       name: regForm.name.trim(),
       email: regForm.email.trim().toLowerCase(),
       role: "user",
+      docType: regForm.docType,
       phone: regForm.phone.replace(/\s/g, ""),
       cedula: regForm.docNum.trim(),
-      password: regForm.pass,
-    })
-    setCheckoutStep(2)
+    }
+    setBusy(true)
+    try {
+      // Registering returns a token, so the client is logged in right away
+      await apiRegister({ ...u, password: regForm.pass })
+      onRegisterVerified(u)
+      setCheckoutStep(2)
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const MUTED = "rgba(30,30,30,0.55)"
@@ -4348,9 +4955,9 @@ function CheckoutPage({
           disabled: cart.length === 0,
         }
       : {
-          label: "Confirmar pedido",
+          label: placing ? "Enviando pedido..." : "Confirmar pedido",
           onClick: placeOrder,
-          disabled: !hasActiveItems || !canOrder || !payReady,
+          disabled: placing || !hasActiveItems || !canOrder || !payReady,
         }
 
   if (ordered)
@@ -4384,9 +4991,11 @@ function CheckoutPage({
             ¡Pedido confirmado!
           </h2>
           <p className="text-sm mb-6" style={{ color: MUTED }}>
-            {placedTotal >= APPROVAL_MIN
-              ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
-              : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
+            {delivForm.pago !== "Efectivo"
+              ? "Recibimos tu comprobante. El pedido queda pendiente de verificación; cuando se apruebe, se enviará a producción."
+              : placedTotal >= APPROVAL_MIN
+                ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
+                : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
             Puedes seguir su estado en &quot;Mis pedidos&quot;.
           </p>
           <div
@@ -4606,12 +5215,14 @@ function CheckoutPage({
                       required
                       error={loginErrors.pass}
                     />
+                    <FieldError msg={serverErr} />
                     <button
                       type="submit"
+                      disabled={busy}
                       className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
                       style={{ background: C.mustard, color: "#fff" }}
                     >
-                      Iniciar sesión
+                      {busy ? "Ingresando..." : "Iniciar sesión"}
                     </button>
                   </form>
                 )}
@@ -4631,9 +5242,14 @@ function CheckoutPage({
                       </label>
                       <select
                         value={regForm.docType}
-                        onChange={(e) =>
-                          setRegForm((f) => ({ ...f, docType: e.target.value }))
-                        }
+                        onChange={(e) => {
+                          const docType = e.target.value
+                          setRegForm((current) => ({
+                            ...current,
+                            docType,
+                            docNum: normalizeAccountDocumentInput(current.docNum, docType),
+                          }))
+                        }}
                         aria-invalid={!!regErrors.docType}
                         className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none"
                         style={{
@@ -4657,7 +5273,10 @@ function CheckoutPage({
                       label="Nº Documento *"
                       placeholder="123456789"
                       value={regForm.docNum}
-                      onChange={(v) => setRegForm((f) => ({ ...f, docNum: v }))}
+                      onChange={(v) => setRegForm((current) => ({
+                        ...current,
+                        docNum: normalizeAccountDocumentInput(v, current.docType),
+                      }))}
                       required
                       error={regErrors.docNum}
                     />
@@ -4675,7 +5294,7 @@ function CheckoutPage({
                       type="tel"
                       placeholder="3XX XXX XXXX"
                       value={regForm.phone}
-                      onChange={(v) => setRegForm((f) => ({ ...f, phone: v }))}
+                      onChange={(v) => setRegForm((f) => ({ ...f, phone: digitsOnly(v).slice(0, 10) }))}
                       error={regErrors.phone}
                     />
                     <InputField
@@ -4744,13 +5363,14 @@ function CheckoutPage({
                         color: "#1A1714",
                       }}
                     />
-                    <FieldError msg={codeErr} />
+                    <FieldError msg={codeErr || serverErr} />
                     <button
                       type="submit"
+                      disabled={busy}
                       className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
                       style={{ background: C.mustard, color: "#fff" }}
                     >
-                      Verificar
+                      {busy ? "Creando cuenta..." : "Verificar"}
                     </button>
                     <button
                       type="button"
@@ -4774,10 +5394,42 @@ function CheckoutPage({
                   <p className="text-sm mb-5" style={{ color: MUTED }}>
                     ¿A dónde llevamos tu pedido?
                   </p>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={deliverToOtherPerson}
+                    onClick={toggleDeliveryRecipient}
+                    className="mb-4 flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors"
+                    style={{
+                      background: deliverToOtherPerson ? `${C.mustard}12` : "rgba(30,30,30,0.03)",
+                      border: `1px solid ${deliverToOtherPerson ? `${C.mustard}70` : LINE}`,
+                    }}
+                  >
+                    <span className="min-w-0">
+                      <strong className="block text-sm" style={{ color: C.dark }}>
+                        El pedido lo recibe otra persona
+                      </strong>
+                      <span className="mt-0.5 block text-xs" style={{ color: MUTED }}>
+                        {deliverToOtherPerson
+                          ? "Ingresa los datos de quien recibirá el pedido."
+                          : "Activa esta opción para indicar otro destinatario."}
+                      </span>
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="flex h-5 w-9 flex-shrink-0 items-center rounded-full p-0.5 transition-colors"
+                      style={{ background: deliverToOtherPerson ? C.mustard : "rgba(30,30,30,0.18)" }}
+                    >
+                      <span
+                        className="h-4 w-4 rounded-full bg-white transition-transform"
+                        style={{ transform: deliverToOtherPerson ? "translateX(16px)" : "translateX(0)" }}
+                      />
+                    </span>
+                  </button>
                   <div className="grid sm:grid-cols-2 gap-4">
                     {[
-                      ["nombre", "Nombre completo *", "text", "Quién recibe"],
-                      ["telefono", "Teléfono *", "tel", "3XX XXX XXXX"],
+                      ["nombre", deliverToOtherPerson ? "Nombre de quien recibe *" : "Nombre completo *", "text", "Quién recibe"],
+                      ["telefono", deliverToOtherPerson ? "Teléfono de quien recibe *" : "Teléfono *", "tel", "3XX XXX XXXX"],
                       ["notas", "Notas para el pedido", "text", "Ej: sin cebolla, timbre dañado"],
                     ].map(([k, lbl, t, ph]) => (
                       <div
@@ -4793,10 +5445,14 @@ function CheckoutPage({
                           required={k === "nombre" || k === "telefono"}
                           error={
                             deliveryTried &&
-                            (k === "nombre" || k === "telefono") &&
-                            !delivForm[k as "nombre" | "telefono"].trim()
-                              ? `${lbl.replace(" *", "")} es obligatorio.`
-                              : undefined
+                            k === "nombre" &&
+                            !delivForm.nombre.trim()
+                              ? "El nombre es obligatorio."
+                              : deliveryTried && k === "telefono"
+                                ? delivForm.telefono.trim()
+                                  ? validatePhoneNumber(delivForm.telefono)
+                                  : "El teléfono es obligatorio."
+                                : undefined
                           }
                         />
                       </div>
@@ -5069,8 +5725,8 @@ function CheckoutPage({
                 <span>{fmt(subtotal)}</span>
               </div>
               <div className="flex justify-between" style={{ color: MUTED }}>
-                <span>Domicilio (Comuna 3)</span>
-                <span style={{ color: C.forest }}>Gratis</span>
+                <span>Domicilio</span>
+                <span style={{ color: MUTED }}>Costo según zona</span>
               </div>
             </div>
             <div
@@ -5084,6 +5740,7 @@ function CheckoutPage({
               <span>Total</span>
               <span style={{ color: C.mustard }}>{fmt(subtotal)}</span>
             </div>
+            <FieldError msg={orderError} />
             {cta ? (
               <button
                 onClick={cta.onClick}
@@ -5193,18 +5850,13 @@ function ChangePasswordForm({
   const TEXT = "#1A1714"
   const MUTED = "rgba(30,30,30,0.5)"
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError("")
     setSuccess(false)
 
-    // Validate current password
-    if (!user.password) {
-      setError("No tienes una contraseña establecida. Usa la opción de recuperar contraseña.")
-      return
-    }
-    if (currentPass !== user.password) {
-      setError("La contraseña actual es incorrecta.")
+    if (!currentPass) {
+      setError("Escribe tu contraseña actual.")
       return
     }
 
@@ -5222,8 +5874,13 @@ function ChangePasswordForm({
       return
     }
 
-    // Update password
-    onUpdateUser({ ...user, password: newPass })
+    // The backend checks the current password and saves the new one
+    try {
+      await api("/auth/me/contrasena", "PATCH", { actual: currentPass, nueva: newPass })
+    } catch (err) {
+      setError((err as Error).message)
+      return
+    }
     setCurrentPass("")
     setNewPass("")
     setConfirmPass("")
@@ -5380,6 +6037,17 @@ function ProfilePage({
       newErrors.email = "El correo electrónico es obligatorio para iniciar sesión y recibir notificaciones."
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
+    }
+    if (form.phone.trim()) {
+      const phoneError = validatePhoneNumber(form.phone)
+      if (phoneError) newErrors.phone = phoneError
+    }
+    if (form.cedula.trim()) {
+      const documentError = validateDocumentNumber(
+        form.cedula,
+        user.docType || "Cédula de Ciudadanía",
+      )
+      if (documentError) newErrors.cedula = documentError
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -5562,13 +6230,45 @@ function ProfilePage({
                   label="Teléfono"
                   type="tel"
                   value={form.phone}
-                  onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                  onChange={(v) => {
+                    const phone = normalizePhoneInput(v)
+                    setForm((f) => ({ ...f, phone }))
+                    setErrors((current) => ({
+                      ...current,
+                      phone: phone.trim() ? validatePhoneNumber(phone) : "",
+                    }))
+                  }}
                 />
+                {errors.phone && (
+                  <p className="text-xs mt-1" style={{ color: C.red }}>
+                    {errors.phone}
+                  </p>
+                )}
                 <InputField
                   label="Cédula"
                   value={form.cedula}
-                  onChange={(v) => setForm((f) => ({ ...f, cedula: v }))}
+                  onChange={(v) => {
+                    const cedula = normalizeDocumentInput(
+                      v,
+                      user.docType || "Cédula de Ciudadanía",
+                    )
+                    setForm((f) => ({ ...f, cedula }))
+                    setErrors((current) => ({
+                      ...current,
+                      cedula: cedula.trim()
+                        ? validateDocumentNumber(
+                            cedula,
+                            user.docType || "Cédula de Ciudadanía",
+                          )
+                        : "",
+                    }))
+                  }}
                 />
+                {errors.cedula && (
+                  <p className="text-xs mt-1" style={{ color: C.red }}>
+                    {errors.cedula}
+                  </p>
+                )}
               </>
             ) : (
               [
@@ -6641,14 +7341,13 @@ function LandingPage({
                 className="font-black text-lg text-white"
                 style={{ fontFamily: "Montserrat, sans-serif" }}
               >
-                Domicilio 100% Gratis
+                Domicilios por toda la zona
               </div>
               <div
                 className="text-sm mt-0.5"
                 style={{ color: "rgba(255,255,255,0.75)" }}
               >
-                En la <strong style={{ color: "#fff" }}>Comuna 3</strong> — sin
-                monto mínimo.
+                Consulta la cobertura y el costo del envío al realizar tu pedido.
               </div>
             </div>
           </div>
@@ -7160,7 +7859,7 @@ function LandingPage({
                     className="text-sm font-semibold"
                     style={{ color: C.amber }}
                   >
-                    6:00 – 11:30 pm
+                    6:00pm a 11:30pm
                   </span>
                 </div>
                 <div
@@ -7170,8 +7869,7 @@ function LandingPage({
                     borderTop: "1px solid rgba(250,243,224,0.06)",
                   }}
                 >
-                  🚀 Domicilio gratis en{" "}
-                  <span style={{ color: C.amber }}>Comuna 3</span>
+                  🚀 Domicilios disponibles en toda la zona
                 </div>
               </div>
             </div>
@@ -7372,9 +8070,9 @@ function LandingPage({
               {legalModal === "envios" ? (
                 <div className="flex flex-col gap-3">
                   <p>
-                    Envío gratis en <strong>Comuna 3</strong>. Para otras zonas
-                    se informa el costo antes de confirmar. Tiempo estimado
-                    30–60 minutos en la Comuna 3.
+                    Realizamos domicilios en toda la zona. El costo y el tiempo
+                    estimado de entrega se confirman según la dirección antes de
+                    completar el pedido.
                   </p>
                 </div>
               ) : (
@@ -7487,6 +8185,17 @@ function AdminProfilePage({
       newErrors.email = "El correo electrónico es obligatorio para iniciar sesión y recibir notificaciones."
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
+    }
+    if (form.phone.trim()) {
+      const phoneError = validatePhoneNumber(form.phone)
+      if (phoneError) newErrors.phone = phoneError
+    }
+    if (form.cedula.trim()) {
+      const documentError = validateDocumentNumber(
+        form.cedula,
+        user.docType || "Cédula de Ciudadanía",
+      )
+      if (documentError) newErrors.cedula = documentError
     }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
@@ -7667,13 +8376,45 @@ function AdminProfilePage({
                     label="Teléfono"
                     type="tel"
                     value={form.phone}
-                    onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                    onChange={(v) => {
+                      const phone = normalizePhoneInput(v)
+                      setForm((f) => ({ ...f, phone }))
+                      setErrors((current) => ({
+                        ...current,
+                        phone: phone.trim() ? validatePhoneNumber(phone) : "",
+                      }))
+                    }}
                   />
+                  {errors.phone && (
+                    <p className="text-xs mt-1" style={{ color: C.red }}>
+                      {errors.phone}
+                    </p>
+                  )}
                   <InputField
                     label="Cédula"
                     value={form.cedula}
-                    onChange={(v) => setForm((f) => ({ ...f, cedula: v }))}
+                    onChange={(v) => {
+                      const cedula = normalizeDocumentInput(
+                        v,
+                        user.docType || "Cédula de Ciudadanía",
+                      )
+                      setForm((f) => ({ ...f, cedula }))
+                      setErrors((current) => ({
+                        ...current,
+                        cedula: cedula.trim()
+                          ? validateDocumentNumber(
+                              cedula,
+                              user.docType || "Cédula de Ciudadanía",
+                            )
+                          : "",
+                      }))
+                    }}
                   />
+                  {errors.cedula && (
+                    <p className="text-xs mt-1" style={{ color: C.red }}>
+                      {errors.cedula}
+                    </p>
+                  )}
                 </>
               ) : (
                 [
@@ -7961,6 +8702,13 @@ function AdminPanel({
 }) {
   const [theme, setTheme] = useState<Theme>("light")
   const [section, setSection] = useState<AdminSection>("dashboard")
+  // Sales are registered in the name of whoever is logged in (default seller)
+  const sellerName = user?.name || "Administrador"
+  // Only the modules this user's role may see (the backend enforces it too)
+  const canSee = (key: string) => key === "dashboard" || !user?.permissions || user.permissions.includes(SECTION_MODULE[key])
+  const visibleMenu = SIDEBAR_MENU.map((g) => ({ ...g, children: g.children.filter((c) => canSee(c.key)) })).filter(
+    (g) => (g.key.endsWith("-g") ? g.children.length > 0 : canSee(g.key)),
+  )
   const [open, setOpen] = useState<string[]>(["ventas-g"])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -7979,14 +8727,21 @@ function AdminPanel({
   const dark = theme === "dark"
   const t = tk(dark)
   // Orders placed by clients in the web store
-  const [clientOrders] = useState(loadOrders)
+  const clientOrders = loadOrders()
   const notifications: AdminNotification[] = [
     ...clientOrders
-      .filter((o) => o.status === "Por confirmar")
+      .filter(
+        (o) =>
+          o.paymentStatus === "Pendiente de verificación" ||
+          (o.status === "Por confirmar" && o.paymentStatus !== "Rechazado"),
+      )
       .map((o, i) => ({
         id: 1000 + i,
         type: "warn" as const,
-        title: "Pedido por confirmar",
+        title:
+          o.paymentStatus === "Pendiente de verificación"
+            ? "Transferencia por verificar"
+            : "Pedido por confirmar",
         message: `${o.cliente} hizo el pedido ${o.id} por ${fmt(o.total)}${
           o.voucher ? " y subió el comprobante de pago" : ""
         }.`,
@@ -8005,6 +8760,18 @@ function AdminPanel({
         config.seed.map((row) => [...row] as (string | number)[]),
       ]),
     ) as Record<string, (string | number)[][]>
+    const savedUserStatuses = loadLS<Record<string, string>>(
+      "adminUserStatuses",
+      {},
+    )
+    initialRows.usuarios = (initialRows.usuarios || []).map((row) => {
+      const email = String(row[4] ?? "").trim().toLowerCase()
+      const savedStatus = savedUserStatuses[email]
+      if (!savedStatus) return row
+      const updatedRow = [...row]
+      updatedRow[5] = savedStatus
+      return updatedRow
+    })
     initialRows.pedidos = [
       ...clientOrders.map((o) => {
         const orderLines: AdminOrderLine[] = o.items.flatMap((item, index) => {
@@ -8026,6 +8793,15 @@ function AdminPanel({
           }))
           return [mainLine, ...additions]
         })
+        const paymentStatus =
+          o.paymentStatus ??
+          (o.voucher
+            ? ["Confirmado", "En cocina", "En camino", "Entregado"].includes(o.status)
+              ? "Pagado"
+              : "Pendiente de verificación"
+            : isTransferPaymentMethod(o.pago)
+              ? "Pendiente de verificación"
+              : "Pendiente")
         return [
           o.id,
           o.cliente,
@@ -8035,21 +8811,68 @@ function AdminPanel({
           o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
           o.total,
           o.status,
-          o.voucher ? "Pagado" : "Pendiente",
-          o.status === "Por confirmar"
-            ? "Pendiente admin"
-            : o.total >= APPROVAL_MIN
+          paymentStatus,
+          o.productionAuthorized
+            ? "Autorizada"
+            : paymentStatus === "Pendiente de verificación" || paymentStatus === "Rechazado"
+              ? "Pendiente de pago"
+              : o.status === "Por confirmar"
+                ? "Pendiente admin"
+                : o.total >= APPROVAL_MIN
               ? "Autorizada"
-              : "No requerida",
+              : "Enviada a producción",
           JSON.stringify(orderLines),
+          o.paymentRejectionReason ?? "",
         ]
       }),
       ...(initialRows.pedidos || []),
+    ]
+    // Client orders that don't wait for the owner (or were already confirmed) get their
+    // production orders; oldest first so the newest ends up on top
+    initialRows.pedidos
+      .slice(0, clientOrders.length)
+      .reverse()
+      .filter((order) => ["Enviada a producción", "Autorizada"].includes(String(order[9])))
+      .filter((order) => {
+        const stored = clientOrders.find((clientOrder) => clientOrder.id === order[0])
+        return !stored?.productionRecords?.length
+      })
+      .forEach((order) => {
+        const lines = JSON.parse(String(order[10] ?? "[]")) as AdminOrderLine[]
+        const before = initialRows.produccion || []
+        initialRows.produccion = buildProductionRows(lines, before, String(order[0]))
+        // Saved on the order (and in the backend) so opening the panel again doesn't create them again
+        const created = initialRows.produccion.filter((row) => !before.includes(row))
+        saveOrders(loadOrders().map((o) => (o.id === order[0] ? { ...o, productionRecords: created } : o)))
+        pushOrder(String(order[0]))
+      })
+    initialRows.produccion = [
+      ...clientOrders.flatMap((order) => order.productionRecords ?? []),
+      ...(initialRows.produccion || []),
     ]
     const supplyProducts = (initialRows.insumos || [])
       .filter((row) => String(row[7]).toLowerCase() === "sí")
       .map(supplyAsProduct)
     initialRows.producto = [...supplyProducts, ...(initialRows.producto || [])]
+    const existingClientEmails = new Set(
+      (initialRows.clientes || []).flatMap((row) =>
+        row.slice(4, 6).map((value) => String(value ?? "").trim().toLowerCase())
+          .filter((value) => value.includes("@")),
+      ),
+    )
+    const registeredClientRows = loadRegisteredClients()
+      .filter((client) => !existingClientEmails.has(client.email.toLowerCase()))
+      .map((client) => [
+        client.name,
+        client.docType ?? "",
+        client.cedula ?? "",
+        client.phone ?? "",
+        client.email,
+        "",
+        "No",
+        "Activo",
+      ])
+    initialRows.clientes = [...registeredClientRows, ...(initialRows.clientes || [])]
     const duplicatedSales = (initialRows.pedidos || [])
       .filter(
         (order) =>
@@ -8058,7 +8881,7 @@ function AdminPanel({
       )
       .map((order, index) => [
         `VTA-AUTO-${String(index + 1).padStart(2, "0")}`,
-        "Admin Parche",
+        sellerName,
         order[1],
         clientOrders.find((clientOrder) => clientOrder.id === order[0])?.date ?? "",
         order[3],
@@ -8075,6 +8898,166 @@ function AdminPanel({
   })
   const [anulled, setAnulled] = useState<Record<string, Set<number>>>({})
   const [prodImgs, setProdImgs] = useState<Record<number, string>>({})
+  // Modules in DB_SYNC are loaded from the backend; their localOnly rows stay in the browser
+  const loadModule = (sec: string) => {
+    const spec = DB_SYNC[sec]
+    return api<DbRecord[]>(spec.path)
+      .then((records) => {
+        setRows((current) => {
+          const next = {
+            ...current,
+            [sec]: [
+              ...records.filter((r) => spec.shows?.(r) ?? true).map(spec.toRow),
+              ...(current[sec] || []).filter((row) => spec.localOnly?.(row)),
+            ],
+          }
+          // Insumos marked "Producto de insumo" also show up in Productos
+          if (sec === "insumos")
+            next.producto = [
+              ...(current.producto || []).filter((row) => row[1] !== "Producto de insumo"),
+              ...next.insumos.filter((row) => text(row[7]).toLowerCase() === "sí").map(supplyAsProduct),
+            ]
+          return next
+        })
+        // Backend products come first in the table, so their row index matches the record order
+        if (sec === "producto")
+          setProdImgs(
+            Object.fromEntries(
+              records.flatMap((p, i) => (p.imagenes?.[0] ? [[i, imageUrl(p.imagenes[0])]] : [])),
+            ),
+          )
+      })
+      .catch((err) => console.warn(`No se pudo cargar «${sec}» del backend:`, err))
+  }
+  useEffect(() => {
+    Object.keys(DB_SYNC).forEach(loadModule)
+  }, [])
+  // Saves a row in the backend (statusOnly: just its Activo/Inactivo change); on failure tells the admin
+  // and reloads that table from the backend
+  const syncRow = (
+    sec: string,
+    row: Row,
+    isNew: boolean,
+    statusOnly = false,
+    // Extra save once the record has its id (e.g. the product photo)
+    alsoSave?: (id: number) => Promise<unknown>,
+  ) => {
+    const spec = DB_SYNC[sec]
+    if (!spec || spec.localOnly?.(row)) return
+    if (!isNew && !row[spec.idIndex]) {
+      window.alert("Este registro no está vinculado a la base de datos. Recarga la página e inténtalo de nuevo.")
+      return
+    }
+    const saved =
+      statusOnly && spec.setStatus
+        ? spec.setStatus(row[spec.idIndex], row).then(() => Number(row[spec.idIndex]))
+        : saveRowToDb(spec, row)
+    saved
+      .then((id) => {
+        setRows((current) => ({
+          ...current,
+          [sec]: (current[sec] || []).map((r) => (r === row ? withId([...r], spec.idIndex, id) : r)),
+        }))
+        spec.reloads?.forEach(loadModule)
+        if (statusOnly) return
+        return Promise.all([spec.afterSave?.(id, row), alsoSave?.(id)])
+      })
+      .catch((err) => {
+        window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
+        loadModule(sec)
+      })
+  }
+  const deleteRowInDb = (sec: string, row: Row | undefined) => {
+    const spec = DB_SYNC[sec]
+    const id = spec && row?.[spec.idIndex]
+    if (!id) return
+    api(`${spec.path}/${id}`, "DELETE").catch((err) => {
+      window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`)
+      loadModule(sec)
+    })
+  }
+  // PANEL_SYNC modules: loaded once, then every created/changed/removed row is saved automatically
+  const panelLoaded = useRef<Record<string, boolean>>({})
+  // Last saved version of each row, by backend id (to only send real changes)
+  const panelSaved = useRef<Record<string, Map<string | number, string>>>({})
+  useEffect(() => {
+    Object.entries(PANEL_SYNC).forEach(([sec, spec]) =>
+      api<DbRecord[]>(spec.path)
+        .then((records) => {
+          const dbRows = records.map((r) => withPanelId(r.datos_panel, spec.idIndex, r.id))
+          panelSaved.current[sec] = new Map(dbRows.map((r) => [r[spec.idIndex], JSON.stringify(r)]))
+          setRows((current) => ({
+            ...current,
+            [sec]: [
+              ...dbRows,
+              ...(current[sec] || []).filter(
+                (r) => !r[spec.idIndex] && (spec.keepLocal?.(r, dbRows) || spec.owns?.(r) === false),
+              ),
+            ],
+          }))
+          panelLoaded.current[sec] = true
+        })
+        .catch((err) => console.warn(`No se pudo cargar «${sec}» del backend:`, err)),
+    )
+  }, [])
+  useEffect(() => {
+    Object.entries(PANEL_SYNC).forEach(([sec, spec]) => {
+      if (!panelLoaded.current[sec]) return
+      const saved = panelSaved.current[sec]
+      const present = new Set<string | number>()
+      const created: Row[] = []
+      for (const row of rows[sec] || []) {
+        if (spec.owns?.(row) === false) continue
+        const id = row[spec.idIndex]
+        if (!id) created.push(row)
+        else if (String(id).startsWith("guardando-")) continue
+        else {
+          present.add(id)
+          const json = JSON.stringify(row)
+          if (saved.get(id) === json) continue
+          saved.set(id, json)
+          api(`${spec.path}/${id}`, "PUT", { datos_panel: row.slice(0, spec.idIndex) }).catch((err) => {
+            saved.delete(id)
+            window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
+          })
+        }
+      }
+      // Rows removed in the panel
+      for (const id of [...saved.keys()]) {
+        if (present.has(id)) continue
+        saved.delete(id)
+        api(`${spec.path}/${id}`, "DELETE").catch((err) =>
+          window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`),
+        )
+      }
+      // New rows: mark them while they are created so they're sent only once
+      created.forEach((row) => {
+        const tempId = `guardando-${Math.random().toString(36).slice(2)}`
+        const data = row.slice(0, spec.idIndex)
+        setRows((current) => ({
+          ...current,
+          [sec]: (current[sec] || []).map((r) => (r === row ? withPanelId(r, spec.idIndex, tempId) : r)),
+        }))
+        api<DbRecord>(spec.path, "POST", { datos_panel: data })
+          .then(({ id }) => {
+            // If the row changed while it was being created, the next pass sends the change
+            saved.set(id, JSON.stringify(withPanelId(data, spec.idIndex, id)))
+            setRows((current) => ({
+              ...current,
+              [sec]: (current[sec] || []).map((r) => (r[spec.idIndex] === tempId ? withPanelId(r, spec.idIndex, id) : r)),
+            }))
+          })
+          .catch((err) => {
+            window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
+            // Back to "new" so it is retried on the next change
+            setRows((current) => ({
+              ...current,
+              [sec]: (current[sec] || []).map((r) => (r[spec.idIndex] === tempId ? withPanelId(r, spec.idIndex, "") : r)),
+            }))
+          })
+      })
+    })
+  }, [rows])
   const [paymentProofs, setPaymentProofs] = useState<Record<number, string>>(
     () =>
       Object.fromEntries(
@@ -8090,6 +9073,8 @@ function AdminPanel({
     idx: number | null
   }>({ mode: null, section: "", idx: null })
   const [formData, setFormData] = useState<Record<string, string>>({})
+  const [formValidationAttempted, setFormValidationAttempted] = useState(false)
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string>>({})
   const [imgPreview, setImgPreview] = useState("")
   const [technicalSheetOpen, setTechnicalSheetOpen] = useState(false)
   const [technicalIngredients, setTechnicalIngredients] = useState<TechnicalIngredient[]>([])
@@ -8134,16 +9119,37 @@ function AdminPanel({
   const [pncTarget, setPncTarget] = useState<number | null>(null)
   const [pncForm, setPncForm] = useState<Record<string, string>>({})
   const [pncError, setPncError] = useState("")
+  const [pncFieldErrors, setPncFieldErrors] = useState<Record<string, string>>({})
   const [quickClientOpen, setQuickClientOpen] = useState(false)
   const [quickClientForm, setQuickClientForm] = useState<Record<string, string>>({})
+  const [quickClientErrors, setQuickClientErrors] = useState<Record<string, string>>({})
   const [clientFormError, setClientFormError] = useState("")
   // Validation message for the insumo's technical sheet (producto de insumo)
   const [supplyFormError, setSupplyFormError] = useState("")
+  // Live validation (categories, insumos, productos): a field shows its error once it
+  // has been changed or after the first "Guardar"
+  const [formInitial, setFormInitial] = useState<Record<string, string>>({})
+  const [formTried, setFormTried] = useState(false)
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    const changed = Object.keys(formData).filter(
+      (key) => (formData[key] ?? "") !== (formInitial[key] ?? ""),
+    )
+    if (changed.some((key) => !touchedFields[key]))
+      setTouchedFields((current) => ({
+        ...current,
+        ...Object.fromEntries(changed.map((key) => [key, true])),
+      }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData])
   const [quickClientError, setQuickClientError] = useState("")
   const [delTarget, setDelTarget] = useState<{
     section: string
     idx: number
   } | null>(null)
+  const [paymentRejectionTarget, setPaymentRejectionTarget] = useState<number | null>(null)
+  const [paymentRejectionReason, setPaymentRejectionReason] = useState("")
+  const [paymentRejectionError, setPaymentRejectionError] = useState("")
   const [anulTarget, setAnulTarget] = useState<{
     section: string
     idx: number
@@ -8151,7 +9157,44 @@ function AdminPanel({
   const [chartFilter, setChartFilter] =
     useState<"hoy" | "semana" | "mes" | "año">("semana")
   const [rolesPerms, setRolesPerms] =
-    useState<Record<string, Record<string, string[]>>>({})
+    useState<Record<string, Record<string, string[]>>>(() =>
+      loadLS("adminRolePermissions", {}),
+    )
+
+  useEffect(() => {
+    saveLS("adminRolePermissions", rolesPerms)
+  }, [rolesPerms])
+  // Permissions matrix: loaded from the backend, then each role's changes are saved (Administrador always has all)
+  const permsLoaded = useRef(false)
+  const permsSaved = useRef(new Map<string | number, string>())
+  useEffect(() => {
+    api<DbRecord[]>("/roles")
+      .then((roles) => Promise.all(roles.map((r) => api<DbRecord>(`/roles/${r.id_rol}`))))
+      .then((roles) => {
+        const next = Object.fromEntries(roles.map((r) => [roleLabel(r.nombre_rol), permsFromDb(r.permisos)]))
+        roles.forEach((r) => permsSaved.current.set(r.id_rol, JSON.stringify(permsToDb(next[roleLabel(r.nombre_rol)]))))
+        setRolesPerms(next)
+        permsLoaded.current = true
+      })
+      .catch((err) => console.warn("No se pudieron cargar los permisos del backend:", err))
+  }, [])
+  useEffect(() => {
+    if (!permsLoaded.current) return
+    for (const role of rows.roles || []) {
+      const id = role[DB_SYNC.roles.idIndex]
+      const name = String(role[0] ?? "")
+      if (!id || name.toLowerCase() === "administrador") continue
+      const permisos = permsToDb(rolesPerms[name] || {})
+      const json = JSON.stringify(permisos)
+      if (permsSaved.current.get(id) === json) continue
+      permsSaved.current.set(id, json)
+      api(`/roles/${id}/permisos`, "PUT", { permisos }).catch((err) => {
+        permsSaved.current.delete(id)
+        window.alert(`Los permisos de «${name}» no se guardaron en la base de datos: ${(err as Error).message}`)
+      })
+    }
+  }, [rolesPerms, rows.roles])
+
 
   useEffect(() => {
     const fn = (e: MouseEvent) => {
@@ -8232,30 +9275,11 @@ function AdminPanel({
       : getAutoTechVersion(rows.producto || [])
   }
 
-  const getAvailableInsumos = () => {
-    const sourceRows = rows.insumos || []
-    const options = sourceRows
-      .map((row) => String(row[0] ?? "").trim())
-      .filter(Boolean)
-
-    return [
-      ...new Set(
-        options.length
-          ? options
-          : [
-              "Carne de res 100g",
-              "Queso cheddar",
-              "Pan brioche",
-              "Lechuga",
-              "Salchicha",
-              "Tomate",
-              "Cebolla",
-              "Papas",
-              "Salsa de la casa",
-            ],
-      ),
-    ].sort((a, b) => a.localeCompare(b))
-  }
+  // Only real insumos (from the backend) can go in a ficha técnica
+  const getAvailableInsumos = () =>
+    [...new Set((rows.insumos || []).map((row) => String(row[0] ?? "").trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b),
+    )
 
   const getProductRecipe = (product: (string | number)[] | undefined) => {
     if (!product) return []
@@ -8478,6 +9502,205 @@ function AdminPanel({
     return `PED-${String(lastNumber + 1).padStart(4, "0")}`
   }
 
+  const getRequiredFormKeys = (
+    sec: string,
+    draft: Record<string, string>,
+    mode: ModalMode,
+  ) => {
+    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
+    const excludedKeys: Record<string, string[]> = {
+      insumos: [
+        // "Stock actual" isn't shown when creating (a new insumo starts at 0)
+        ...(mode === "add" ? ["4"] : []),
+        ...(String(draft["7"] ?? "").toLowerCase() === "sí"
+          ? ["8", "9"]
+          : ["8", "9", "10", "11"]),
+      ],
+      producto: ["5", "6", "7", "8", "10", ...(mode === "add" ? ["2"] : [])],
+      produccion: ["0", "1"],
+      "producto-no-conforme": ["0", "1", "2", "5", "6"],
+      compras: ["3", "4"],
+      // "Origen" is only filled when the loss is sent from a purchase
+      perdidas: ["5"],
+      // 4 (modalidad) and 7 (estado de pago) are derived from the payment method
+      pedidos: ["1", "4", "5", "7", "9"],
+    }
+    const managedRequiredKeys: Record<string, string[]> = {
+      usuarios: ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])],
+      clientes: [
+        "0",
+        "1",
+        "2",
+        "3",
+        ...(clientIsLocal ? [] : ["4", "5"]),
+      ],
+      // "7" (insumos que suministra) is optional: they can be assigned later, and
+      // Compras already warns when a supplier has none
+      proveedores: [
+        "0", "1", "2", "3", "5", "8", "9", "10", "11", "12", "13", "14",
+      ],
+      roles: ["0", "1"],
+    }
+
+    if (managedRequiredKeys[sec]) return managedRequiredKeys[sec]
+    return (MOD_CFG[sec]?.fields || [])
+      .filter(
+        (field) =>
+          field.type !== "image" &&
+          !(excludedKeys[sec] || []).includes(field.key),
+      )
+      .map((field) => field.key)
+  }
+
+  const getManagedFieldError = (
+    sec: string,
+    key: string,
+    value: string,
+    draft: Record<string, string>,
+    mode: ModalMode = modal.mode,
+  ) => {
+    const trimmed = value.trim()
+    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
+    const required =
+      sec === "usuarios"
+        ? ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])].includes(key)
+        : sec === "clientes"
+          ? ["0", "1", "2", "3", ...(clientIsLocal ? [] : ["4", "5"])].includes(key)
+          : sec === "proveedores"
+            ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14"].includes(key)
+            : sec === "roles"
+              ? ["0", "1"].includes(key)
+              : false
+
+    if (required && !trimmed) return "Este campo es obligatorio."
+    if (!trimmed) return ""
+
+    if ((sec === "usuarios" && key === "2") || (sec === "clientes" && key === "2")) {
+      return validateDocumentNumber(trimmed, String(draft["1"] ?? ""))
+    }
+    if (sec === "proveedores" && key === "1") {
+      const digits = digitsOnly(trimmed)
+      return /^[\d.-]+$/.test(trimmed) && digits.length >= 8 && digits.length <= 15
+        ? ""
+        : "Escribe un NIT válido (de 8 a 15 dígitos)."
+    }
+    if (sec === "proveedores" && key === "9") {
+      return validateDocumentNumber(trimmed, String(draft["8"] ?? ""))
+    }
+    if ((sec === "usuarios" && key === "4") ||
+        (sec === "clientes" && key === "4") ||
+        (sec === "proveedores" && ["2", "13"].includes(key))) {
+      return EMAIL_PATTERN.test(trimmed) ? "" : "Escribe un correo electrónico válido."
+    }
+    if ((sec === "clientes" && key === "3") ||
+        (sec === "proveedores" && ["3", "12"].includes(key))) {
+      return validatePhoneNumber(trimmed)
+    }
+    if (sec === "roles" && key === "0") {
+      const name = trimmed.toLowerCase()
+      const sameNameExists = (rows.roles || []).some((row, index) => {
+        if (mode === "edit" && modal.idx === index) return false
+        return String(row[0] ?? "").trim().toLowerCase() === name
+      })
+      return sameNameExists ? "Ya existe un rol con este nombre." : ""
+    }
+    return ""
+  }
+
+  const validateManagedForm = (
+    sec: string,
+    draft: Record<string, string>,
+    mode: ModalMode,
+  ) => {
+    const keys = getRequiredFormKeys(sec, draft, mode)
+
+    const duplicateErrors = (() => {
+      if (!["usuarios", "clientes"].includes(sec)) return {}
+
+      const email = String(draft["4"] ?? "").trim().toLowerCase()
+      const document = String(draft["2"] ?? "").trim().toLowerCase()
+      const phone =
+        sec === "clientes"
+          ? String(draft["3"] ?? "").trim().replace(/\s+/g, "")
+          : ""
+
+      const allRows = [
+        ...(rows.usuarios || []).map((row, idx) => ({ section: "usuarios", idx, row })),
+        ...(rows.clientes || []).map((row, idx) => ({ section: "clientes", idx, row })),
+      ]
+      const next: Record<string, string> = {}
+      allRows.forEach(({ section, idx, row }) => {
+        const isCurrentRecord = sec === section && modal.idx === idx
+        if (isCurrentRecord) return
+
+        const rowDocument = String(row[2] ?? "").trim().toLowerCase()
+        const rowEmail = String(row[4] ?? "").trim().toLowerCase()
+        const rowPhone =
+          section === "clientes"
+            ? String(row[3] ?? "").trim().replace(/\s+/g, "")
+            : ""
+
+        if (document && rowDocument && rowDocument === document) {
+          next["2"] = "Ya existe una persona registrada con este documento."
+        }
+        if (sec === "clientes" && phone && rowPhone && rowPhone === phone) {
+          next["3"] = "Ya existe una persona registrada con este teléfono."
+        }
+        if (email && rowEmail && rowEmail === email) {
+          next["4"] = "Ya existe una persona registrada con este correo electrónico."
+        }
+      })
+      return next
+    })()
+
+    return Object.fromEntries(
+      keys.flatMap((key) => {
+        const field = MOD_CFG[sec]?.fields.find((item) => item.key === key)
+        const value = String(draft[key] ?? "")
+        const error = !value.trim()
+          ? "Este campo es obligatorio."
+          : getManagedFieldError(sec, key, value, draft, mode) ||
+          (value.trim() && field?.type === "email" && !EMAIL_PATTERN.test(value.trim())
+            ? "Escribe un correo electrónico válido."
+            : value.trim() && field?.type === "tel"
+              ? validatePhoneNumber(value)
+              : value.trim() && field?.type === "number" &&
+                  (!Number.isFinite(Number(value)) || Number(value) < 0)
+                ? "Ingresa un número válido mayor o igual a cero."
+                : "")
+        const duplicateError = duplicateErrors[key] || ""
+        const finalError = duplicateError || error
+        return finalError ? [[key, finalError]] : []
+      }),
+    )
+  }
+
+  const updateAdminField = (
+    sec: string,
+    key: string,
+    value: string,
+  ) => {
+    const currentDraft = { ...formData, [key]: value }
+    const documentKey =
+      sec === "proveedores" && key === "8"
+        ? "9"
+        : (sec === "usuarios" || sec === "clientes") && key === "1"
+          ? "2"
+          : ""
+    if (documentKey) {
+      currentDraft[documentKey] = normalizeDocumentInput(
+        currentDraft[documentKey] ?? "",
+        value,
+      )
+    }
+    setFormData(currentDraft)
+    // Recompute while any error is shown: a change in one field (e.g. "Cliente de local")
+    // can clear the errors of other fields
+    if (formValidationAttempted || Object.keys(formFieldErrors).length) {
+      setFormFieldErrors(validateManagedForm(sec, currentDraft, modal.mode))
+    }
+  }
+
   const openAdd = (sec: string) => {
     const cfg = MOD_CFG[sec]
     if (!cfg) return
@@ -8490,6 +9713,10 @@ function AdminPanel({
       setTechnicalIngredients([])
       setTechnicalSheetError("")
     }
+    if (sec === "ventas") {
+      initialFields["8"] = "Sin pedido"
+      initialFields["0"] = sellerName
+    }
     if (sec === "insumos") {
       initialFields["7"] = "No"
       setSupplyFormError("")
@@ -8501,6 +9728,8 @@ function AdminPanel({
       initialFields["6"] = "No"
       setClientFormError("")
     }
+    setFormValidationAttempted(false)
+    setFormFieldErrors({})
     if (sec === "produccion" || sec === "producto-no-conforme") {
       const currentDateTime = getCurrentDateTimeParts()
       setProductionItems([])
@@ -8522,6 +9751,9 @@ function AdminPanel({
       resetPurchasePicker()
     }
     setFormData(initialFields)
+    setFormInitial(initialFields)
+    setFormTried(false)
+    setTouchedFields({})
     setPedidoProductoSelect("")
     if (sec === "pedidos") {
       setPedidoOrderLines([])
@@ -8548,6 +9780,13 @@ function AdminPanel({
         return [field.key, String(row[rowIndex] ?? "")]
       }),
     )
+    if (sec === "proveedores") {
+      const legacyContactName = String(row[4] ?? "").trim().split(/\s+/)
+      if (!nextForm["10"]) nextForm["10"] = legacyContactName.shift() ?? ""
+      if (!nextForm["11"]) nextForm["11"] = legacyContactName.join(" ")
+    }
+    setFormValidationAttempted(false)
+    setFormFieldErrors({})
     if (sec === "clientes") setClientFormError("")
     if (sec === "compras") resetPurchasePicker()
     if (sec === "insumos") setSupplyFormError("")
@@ -8580,6 +9819,9 @@ function AdminPanel({
       setPedidoParentSelect("")
     }
     setFormData(nextForm)
+    setFormInitial(nextForm)
+    setFormTried(false)
+    setTouchedFields({})
     setPedidoProductoSelect("")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
@@ -8597,25 +9839,168 @@ function AdminPanel({
     setModal({ mode: "view", section: sec, idx })
   }
 
+  // ── Field validation: Categ. Insumos, Categ. Producto, Insumos, Productos ──
+  const VALIDATED_SECTIONS = ["cat-insumos", "cat-producto", "insumos", "producto", "clientes", "pedidos"]
+  const REQUIRED_KEYS: Record<string, string[]> = {
+    "cat-insumos": ["0", "1"],
+    "cat-producto": ["0", "1"],
+    insumos: ["0", "1", "2", "3", "5"],
+    producto: ["0", "1", "3"],
+    clientes: ["0", "1", "2", "3"], // correo/dirección too unless "Cliente de local"
+    pedidos: ["0", "2", "3"],
+  }
+  const getFieldErrors = (): Record<string, string> => {
+    const sec = modal.section
+    const e: Record<string, string> = {}
+    const v = (key: string) => String(formData[key] ?? "").trim()
+    const n = (key: string) => Number(v(key))
+    // Another record (not the one being edited) with the same normalized name
+    const duplicateOf = (section: string, name: string) =>
+      (rows[section] || []).find(
+        (record, index) => index !== modal.idx && normalizeName(record[0]) === normalizeName(name),
+      )
+    const checkText = (key: string, label: string, min: number, max: number, emptyMsg: string) => {
+      const value = v(key)
+      if (!value) e[key] = emptyMsg
+      else if (value.length < min) e[key] = `${label} debe tener al menos ${min} caracteres.`
+      else if (value.length > max) e[key] = `${label} puede tener máximo ${max} caracteres.`
+    }
+
+    if (sec === "cat-insumos" || sec === "cat-producto") {
+      checkText("0", "El nombre", 3, 40, "Escribe el nombre de la categoría.")
+      if (!e["0"] && !/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 &-]+$/.test(v("0")))
+        e["0"] = "Usa solo letras, números y espacios."
+      const dup = !e["0"] && duplicateOf(sec, v("0"))
+      if (dup) e["0"] = `Ya existe la categoría «${String(dup[0])}».`
+      checkText("1", "La descripción", 5, 150, "Escribe una descripción.")
+    }
+
+    if (sec === "insumos") {
+      checkText("0", "El nombre", 2, 60, "Escribe el nombre del insumo.")
+      const dup = !e["0"] && duplicateOf("insumos", v("0"))
+      if (dup) e["0"] = `Ya existe el insumo «${String(dup[0])}».`
+      if (!v("1")) e["1"] = "Selecciona la categoría."
+      if (!v("2")) e["2"] = "Selecciona la unidad de medida."
+      if (!v("3")) e["3"] = "Escribe el costo unitario."
+      else if (!(n("3") > 0)) e["3"] = "El costo debe ser mayor que 0."
+      if (modal.mode !== "add" && v("4") && !(n("4") >= 0))
+        e["4"] = "El stock actual no puede ser negativo."
+      if (!v("5")) e["5"] = "Escribe el stock mínimo."
+      else if (!(n("5") >= 0)) e["5"] = "El stock mínimo no puede ser negativo."
+      if (v("7").toLowerCase() === "sí") {
+        if (!v("10")) e["10"] = "Ficha técnica: elige al menos un insumo principal."
+        if (!v("11")) e["11"] = "Ficha técnica: escribe cómo se prepara."
+      }
+    }
+
+    if (sec === "clientes") {
+      const isLocal = v("6").toLowerCase() === "sí"
+      if (!v("1")) e["1"] = "Selecciona el tipo de documento."
+      const doc = v("2")
+      if (!doc) e["2"] = "Escribe el número de documento."
+      else if (v("1") && DOC_RULES[v("1")] && !DOC_RULES[v("1")].re.test(doc))
+        e["2"] = DOC_RULES[v("1")].msg
+      else {
+        // Same document number already registered (ignores dots, dashes and spaces)
+        const docKey = normalizeDocument(doc)
+        const dup = (rows.clientes || []).find(
+          (client, index) => index !== modal.idx && normalizeDocument(client[2]) === docKey,
+        )
+        if (dup) e["2"] = `Ya existe un cliente con este número de documento: «${String(dup[0])}».`
+      }
+      checkText("0", "El nombre", 3, 80, "Escribe el nombre del cliente.")
+      if (!e["0"] && !NAME_RE.test(v("0"))) e["0"] = "El nombre solo puede tener letras y espacios."
+      const phone = v("3").replace(/[\s-]/g, "")
+      if (!phone) e["3"] = "Escribe el teléfono."
+      else if (!/^3\d{9}$/.test(phone)) e["3"] = "El celular debe tener 10 números y empezar por 3."
+      if (!v("4")) {
+        if (!isLocal) e["4"] = "Escribe el correo (o marca «Cliente de local»)."
+      } else if (!EMAIL_RE.test(v("4")))
+        e["4"] = "Escribe un correo válido, por ejemplo nombre@correo.com."
+      if (!v("5")) {
+        if (!isLocal) e["5"] = "Escribe la dirección (o marca «Cliente de local»)."
+      } else if (v("5").length < 5) e["5"] = "La dirección debe tener al menos 5 caracteres."
+    }
+
+    if (sec === "pedidos") {
+      if (!v("0")) e["0"] = "Selecciona el cliente."
+      if (!v("2")) e["2"] = "Selecciona el tipo de pedido."
+      if (!v("3")) e["3"] = "Selecciona el método de pago."
+    }
+
+    if (sec === "producto") {
+      checkText("0", "El nombre", 2, 60, "Escribe el nombre del producto.")
+      const dup = !e["0"] && duplicateOf("producto", v("0"))
+      if (dup) e["0"] = `Ya existe el producto «${String(dup[0])}».`
+      if (!v("1")) e["1"] = "Selecciona la categoría."
+      // Sauces and drink flavors are included free, so they may cost 0
+      const minPrice = ["Salsas", "Sabores de bebida"].includes(v("1")) ? 0 : 1
+      if (!v("2")) {
+        if (modal.mode !== "add") e["2"] = "Escribe el precio."
+      } else if (!(n("2") >= minPrice))
+        e["2"] = minPrice ? "El precio debe ser mayor que 0." : "El precio no puede ser negativo."
+      else if (!Number.isInteger(n("2"))) e["2"] = "El precio debe ser un valor entero, sin decimales."
+      checkText("3", "La descripción", 10, 200, "Escribe una descripción.")
+    }
+    return e
+  }
+  const fieldErrors =
+    VALIDATED_SECTIONS.includes(modal.section) && modal.mode !== "view" && modal.mode !== null
+      ? getFieldErrors()
+      : {}
+  const shownFieldError = (key: string) =>
+    formTried || touchedFields[key] ? fieldErrors[key] : undefined
+  const isRequiredField = (key: string) =>
+    modal.mode !== "view" && (REQUIRED_KEYS[modal.section] || []).includes(key)
+
+  // After a failed "Guardar", bring the first field with an error into view (it may be
+  // below the visible part of the form) and focus it
+  const revealFirstFormError = () =>
+    window.setTimeout(() => {
+      const target = document.querySelector<HTMLElement>(
+        '.fixed.inset-0 [aria-invalid="true"], .fixed.inset-0 [role="alert"]',
+      )
+      target?.scrollIntoView({ block: "center", behavior: "smooth" })
+      if (target?.matches("input, select, textarea")) target.focus({ preventScroll: true })
+    }, 60)
+
   const saveModal = () => {
     const sec = modal.section
     const config = MOD_CFG[sec]
     if (!config) return
+
+    if (VALIDATED_SECTIONS.includes(sec)) {
+      setFormTried(true)
+      if (Object.keys(getFieldErrors()).length) return revealFirstFormError()
+    }
+
+    setFormValidationAttempted(true)
+    const errors = validateManagedForm(sec, formData, modal.mode)
+    setFormFieldErrors(errors)
+    if (Object.keys(errors).length) return revealFirstFormError()
+
+    if (sec === "roles") {
+      const roleName = String(formData["0"] ?? "").trim()
+      const roleDescription = String(formData["1"] ?? "").trim()
+      if (!roleName || !roleDescription) {
+        setFormFieldErrors({
+          "0": roleName ? "" : "Este campo es obligatorio.",
+          "1": roleDescription ? "" : "Este campo es obligatorio.",
+        })
+        return
+      }
+    }
 
     if ((sec === "produccion" || sec === "producto-no-conforme") && !productionItems.length) {
       setProductionFormError("Agrega al menos un producto o producto de insumo.")
       return
     }
     if (sec === "pedidos" && pedidoOrderLines.length === 0) {
-      window.alert("Agrega al menos un producto al pedido.")
+      setFormFieldErrors((current) => ({
+        ...current,
+        "1": "Agrega al menos un producto al pedido.",
+      }))
       return
-    }
-    if (sec === "cat-producto") {
-      const categoryName = String(formData["0"] ?? "").trim()
-      if (!categoryName) {
-        window.alert("Escribe el nombre de la categoría.")
-        return
-      }
     }
     if (sec === "producto") {
       const invalidIngredient = technicalIngredients.find((ingredient) => {
@@ -8637,21 +10022,6 @@ function AdminPanel({
       sec === "producto-no-conforme" &&
       !getProductSupplyOptions().includes(String(formData["1"] ?? ""))
     ) return
-    if (sec === "clientes") {
-      const isLocalClient = String(formData["6"] ?? "").toLowerCase() === "sí"
-      const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
-      const missingField = requiredFields.find(
-        (key) => !String(formData[key] ?? "").trim(),
-      )
-      if (missingField) {
-        setClientFormError(
-          isLocalClient
-            ? "Completa nombre, tipo y número de documento y teléfono."
-            : "Completa todos los campos obligatorios del cliente.",
-        )
-        return
-      }
-    }
     if (sec === "insumos" && String(formData["7"] ?? "").toLowerCase() === "sí") {
       // A producto de insumo must be saved together with its technical sheet
       if (!String(formData["0"] ?? "").trim())
@@ -8681,6 +10051,9 @@ function AdminPanel({
       if (Number.isFinite(index)) newRow[index] = formData[field.key] ?? ""
       else newRow.push(formData[field.key] ?? "")
     })
+    if (sec === "proveedores") {
+      newRow[4] = `${String(formData["10"] ?? "").trim()} ${String(formData["11"] ?? "").trim()}`.trim()
+    }
     if (sec === "cat-producto") newRow[0] = String(newRow[0] ?? "").trim()
 
     if (sec === "producto") {
@@ -8698,15 +10071,10 @@ function AdminPanel({
     }
 
     if (sec === "insumos") {
-      if (String(newRow[7]).toLowerCase() === "sí") {
-        newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
-        newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"
-      } else {
-        newRow[8] = newRow[9] = newRow[10] = newRow[11] = ""
-      }
-    }
-
-    if (sec === "insumos") {
+      newRow[0] = String(newRow[0] ?? "").trim()
+      // New insumos start with no stock (the field isn't shown when creating)
+      newRow[4] = modal.mode === "add" ? 0 : Number(newRow[4] || 0)
+      newRow[6] = previousRow?.[6] ?? "" // unused slot (old "Stock máximo")
       if (String(newRow[7]).toLowerCase() === "sí") {
         newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
         newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"
@@ -8732,8 +10100,17 @@ function AdminPanel({
         .join(", ")
       newRow[5] = total
       newRow[6] = "Recibido"
-      newRow[7] = String(formData["7"] || "Pendiente").trim()
-      newRow[8] = total >= APPROVAL_MIN ? "Pendiente admin" : "No requerida"
+      // Modality and payment status follow the payment method (not chosen by hand)
+      const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
+      newRow[4] = payment.modalidad
+      newRow[7] = payment.estadoPago
+      // Big orders wait for the owner; the rest go straight to production on save
+      newRow[8] =
+        modal.mode === "edit" && previousRow
+          ? previousRow[9] // editing never re-sends an order
+          : total >= APPROVAL_MIN
+            ? "Pendiente admin"
+            : "Enviada a producción"
       newRow[9] = JSON.stringify(pedidoOrderLines)
     }
 
@@ -8808,12 +10185,34 @@ function AdminPanel({
           : "Activo"
       newRow[config.statusIndex] = previousRow?.[config.statusIndex] ?? defaultStatus
     }
+    // Keep the backend id so the edit updates the same record
+    const idIndex = syncIdIndex(sec)
+    if (idIndex !== undefined) newRow[idIndex] = previousRow?.[idIndex] ?? ""
 
     setRows((current) => {
       const updated = [...(current[sec] || [])]
       if (modal.mode === "add") updated.unshift(newRow)
       else if (modal.mode === "edit" && modal.idx !== null)
         updated[modal.idx] = newRow
+
+      if (sec === "pedidos" && modal.mode === "add" && newRow[9] === "Enviada a producción") {
+        // New order that needs no owner approval → its production orders are created now
+        return {
+          ...current,
+          pedidos: updated,
+          produccion: buildProductionRows(pedidoOrderLines, current.produccion || [], String(newRow[0])),
+        }
+      }
+
+      if (sec === "compras") {
+        // Stock: undo what the previous version of this purchase added, then add the new items
+        let insumoRows = current.insumos || []
+        if (modal.mode === "edit" && previousRow && String(previousRow[5]) !== "Anulado")
+          insumoRows = withStockChange(insumoRows, previousRow[6], -1)
+        if (String(newRow[5]) !== "Anulado")
+          insumoRows = withStockChange(insumoRows, newRow[6], 1)
+        return { ...current, compras: updated, insumos: insumoRows }
+      }
 
       if (sec === "insumos") {
         const previousName = String(previousRow?.[0] ?? "")
@@ -8839,6 +10238,17 @@ function AdminPanel({
 
       return { ...current, [sec]: updated }
     })
+    // The photo is sent only when it changed (new upload or new URL)
+    const previousImg = modal.idx !== null ? prodImgs[modal.idx] : ""
+    syncRow(
+      sec,
+      newRow,
+      modal.mode === "add",
+      false,
+      sec === "producto" && imgPreview && imgPreview !== previousImg
+        ? (id) => api(`/productos/${id}/imagen`, "PUT", { imagen: imgPreview })
+        : undefined,
+    )
     if (sec === "producto" && imgPreview) {
       const imageIndex = modal.mode === "add" ? 0 : modal.idx!
       setProdImgs((current) => ({ ...current, [imageIndex]: imgPreview }))
@@ -8863,7 +10273,7 @@ function AdminPanel({
         if (salesRows.some((sale) => sale[9] === newRow[0])) return current
         salesRows.unshift([
           `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
-          "Admin Parche",
+          sellerName,
           newRow[1],
           getCurrentDateTimeParts().date,
           newRow[2],
@@ -8879,8 +10289,18 @@ function AdminPanel({
         return { ...current, ventas: salesRows }
       })
     }
-    if (sec === "roles" && modal.mode === "add") {
-      setRolesPerms((current) => ({ ...current, [String(newRow[0])]: {} }))
+    if (sec === "roles" && modal.mode === "edit" && previousRow) {
+      const previousRoleName = String(previousRow[0] ?? "")
+      const nextRoleName = String(newRow[0] ?? "")
+      if (previousRoleName !== nextRoleName) {
+        setRolesPerms((current) => {
+          const previousPermissions = current[previousRoleName]
+          const next = { ...current }
+          delete next[previousRoleName]
+          if (previousPermissions) next[nextRoleName] = previousPermissions
+          return next
+        })
+      }
     }
     if (sec === "clientes") setClientFormError("")
     if (sec === "produccion") setProductionFormError("")
@@ -9116,11 +10536,36 @@ function AdminPanel({
       ? inactiveStatus
       : activeStatus
 
+    if (sec === "usuarios") {
+      const email = String(currentRow[4] ?? "").trim().toLowerCase()
+      if (email) {
+        const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
+        saveLS("adminUserStatuses", { ...statuses, [email]: nextValue })
+      }
+    }
+
+    if (DB_SYNC[sec]) {
+      // e.g. inactive products disappear from the customer menu
+      const syncedRow = [...currentRow]
+      syncedRow[statusIndex] = nextValue
+      syncRow(sec, syncedRow, false, true)
+    }
+
     setRows((current) => {
       const updated = [...(current[sec] || [])]
       const updatedRow = [...updated[rowIndex]]
       updatedRow[statusIndex] = nextValue
       updated[rowIndex] = updatedRow
+
+      if (sec === "compras") {
+        // Anular a purchase removes its items from stock; reactivating adds them back
+        const sign = isStatusActive(nextValue) ? 1 : -1
+        return {
+          ...current,
+          compras: updated,
+          insumos: withStockChange(current.insumos || [], updatedRow[6], sign),
+        }
+      }
 
       if (sec === "insumos" && String(updatedRow[7]).toLowerCase() === "sí") {
         const productRows = (current.producto || []).map((product) =>
@@ -9138,12 +10583,14 @@ function AdminPanel({
       return { ...current, [sec]: updated }
     })
 
-    setAnulled((current) => {
-      const next = new Set(current[sec] || [])
-      if (isStatusActive(nextValue)) next.delete(rowIndex)
-      else next.add(rowIndex)
-      return { ...current, [sec]: next }
-    })
+    if (sec !== "usuarios") {
+      setAnulled((current) => {
+        const next = new Set(current[sec] || [])
+        if (isStatusActive(nextValue)) next.delete(rowIndex)
+        else next.add(rowIndex)
+        return { ...current, [sec]: next }
+      })
+    }
   }
 
   const StatusSwitch = ({
@@ -9214,68 +10661,103 @@ function AdminPanel({
   const approveOrderForProduction = (orderIndex: number) => {
     const order = rows.pedidos?.[orderIndex]
     const proof = paymentProofs[orderIndex]
+    const paymentStatus = String(order?.[8] ?? "")
+    const transferPayment = isTransferPaymentMethod(String(order?.[4] ?? ""))
     const payOnDelivery = String(order?.[5]) === "Contraentrega"
     if (
       !order ||
-      (!payOnDelivery &&
-        (String(order[8]).toLowerCase() !== "pagado" || !proof)) ||
-      String(order[9]) === "Autorizada"
+      ["Autorizada", "Enviada a producción"].includes(String(order[9])) ||
+      (transferPayment &&
+        !["Pendiente de verificación", "Pagado"].includes(paymentStatus)) ||
+      (transferPayment && paymentStatus === "Pendiente de verificación" && !proof) ||
+      (!transferPayment && !payOnDelivery && paymentStatus !== "Pagado")
     ) return
 
-    // Let the client see the owner's confirmation
+    const requestedItems = getAdminOrderLines(order)
+    if (!requestedItems.length) {
+      window.alert("Este pedido no tiene productos para enviar a producción.")
+      return
+    }
+
+    const storedOrders = loadOrders()
+    const storedOrder = storedOrders.find((item) => item.id === order[0])
+    if (storedOrder?.productionAuthorized) return
+    const currentDateTime = getCurrentDateTimeParts()
+    const productionRecords: (string | number)[][] = []
+    const existingProductionRows = [...(rows.produccion || [])]
+    let priority = Math.max(
+      0,
+      ...existingProductionRows.map((row) => Number(row[3]) || 0),
+    )
+    requestedItems.slice().reverse().forEach((item) => {
+      priority += 1
+      const parent = requestedItems.find((candidate) => candidate.id === item.parentId)
+      const productionRecord: (string | number)[] = [
+        getNextProductionCode(existingProductionRows),
+        parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
+        item.quantity,
+        priority,
+        currentDateTime.date,
+        currentDateTime.time,
+        currentDateTime.date,
+        currentDateTime.time,
+        "Iniciada",
+        "",
+        0,
+        "Sí",
+        JSON.stringify([
+          {
+            status: "Iniciada",
+            date: currentDateTime.date,
+            time: currentDateTime.time,
+          },
+        ]),
+        JSON.stringify([{
+          name: item.product,
+          quantity: item.quantity,
+          category: item.category,
+          ...(item.parentId ? { parentId: item.parentId } : {}),
+        }]),
+        "No",
+      ]
+      existingProductionRows.unshift(productionRecord)
+      productionRecords.unshift(productionRecord)
+    })
     saveOrders(
-      loadOrders().map((o) =>
-        o.id === order[0] ? { ...o, status: "Confirmado" } : o,
+      storedOrders.map((item) =>
+        item.id === order[0]
+          ? {
+              ...item,
+              status: "Confirmado",
+              ...(transferPayment ? { paymentStatus: "Pagado" as const } : {}),
+              productionAuthorized: true,
+              productionRecords,
+            }
+          : item,
       ),
     )
-
-    const currentDateTime = getCurrentDateTimeParts()
-    const requestedItems = getAdminOrderLines(order)
+    pushOrder(String(order[0]))
 
     setRows((current) => {
+      const currentOrder = current.pedidos?.[orderIndex]
+      if (!currentOrder || String(currentOrder[9]) === "Autorizada") {
+        return current
+      }
       const orderRows = [...(current.pedidos || [])]
-      const updatedOrder = [...orderRows[orderIndex]]
+      const updatedOrder = [...currentOrder]
+      updatedOrder[8] = transferPayment ? "Pagado" : updatedOrder[8]
       updatedOrder[9] = "Autorizada"
-      if (updatedOrder[7] === "Por confirmar") updatedOrder[7] = "Confirmado"
+      if (
+        transferPayment ||
+        updatedOrder[7] === "Por confirmar" ||
+        updatedOrder[7] === "Pendiente de verificación"
+      ) {
+        updatedOrder[7] = "Confirmado"
+      }
+      updatedOrder[11] = ""
       orderRows[orderIndex] = updatedOrder
 
-      const productionRows = [...(current.produccion || [])]
-      let priority = Math.max(
-        0,
-        ...productionRows.map((row) => Number(row[3]) || 0),
-      )
-      requestedItems.slice().reverse().forEach((item) => {
-        priority += 1
-        const parent = requestedItems.find((candidate) => candidate.id === item.parentId)
-        productionRows.unshift([
-          getNextProductionCode(productionRows),
-          parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
-          item.quantity,
-          priority,
-          currentDateTime.date,
-          currentDateTime.time,
-          currentDateTime.date,
-          currentDateTime.time,
-          "Iniciada",
-          "",
-          0,
-          "Sí",
-          JSON.stringify([
-            {
-              status: "Iniciada",
-              date: currentDateTime.date,
-              time: currentDateTime.time,
-            },
-          ]),
-          JSON.stringify([{
-            name: item.product,
-            quantity: item.quantity,
-            category: item.category,
-            ...(item.parentId ? { parentId: item.parentId } : {}),
-          }]),
-          "No",
-        ])
-      })
+      const productionRows = [...productionRecords, ...(current.produccion || [])]
 
       let salesRows = [...(current.ventas || [])]
       const notShipped = !["En camino", "Entregado"].includes(
@@ -9287,7 +10769,7 @@ function AdminPanel({
       if (notShipped && !alreadyDuplicated) {
         salesRows.unshift([
           `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
-          "Admin Parche",
+          sellerName,
           updatedOrder[1],
           currentDateTime.date,
           updatedOrder[3],
@@ -9310,15 +10792,161 @@ function AdminPanel({
     })
   }
 
+  // Order status -> status its production orders move to (forward only)
+  const ORDER_TO_PRODUCTION: Record<string, (typeof PRODUCTION_STATUSES)[number]> = {
+    Confirmado: "Iniciada",
+    "En cocina": "En cocina",
+    "En camino": "Terminado",
+    Entregado: "Terminado",
+  }
+  // Choosing the current status again still catches up production that fell behind
+  const setClientOrderStatus = async (orderIndex: number, status: string) => {
+    const order = rows.pedidos?.[orderIndex]
+    if (!order) return
+    const orderId = String(order[0])
+    // Move the order's production first; "En cocina" takes the supplies out of the stock
+    const target = ORDER_TO_PRODUCTION[status]
+    if (target) {
+      const codes = new Set([
+        ...(loadOrders().find((o) => o.id === orderId)?.productionRecords ?? []).map((r) => String(r[0])),
+        ...(rows.produccion || []).filter((r) => String(r[15] ?? "") === orderId).map((r) => String(r[0])),
+      ])
+      const rank = (s: string) => PRODUCTION_STATUSES.indexOf(s as (typeof PRODUCTION_STATUSES)[number])
+      for (const [index, row] of (rows.produccion || []).entries()) {
+        if (!codes.has(String(row[0])) || rank(String(row[8])) >= rank(target) || row[8] === "Producto no conforme") continue
+        // changeProductionStatus already told the admin why (stock, ficha técnica...)
+        if (!(await changeProductionStatus(index, target))) return
+      }
+    }
+    if (String(order[7]) === status) return
+    saveOrders(loadOrders().map((item) => (item.id === orderId ? { ...item, status } : item)))
+    pushOrder(orderId)
+    setRows((current) => ({
+      ...current,
+      pedidos: (current.pedidos || []).map((row, index) => {
+        if (index !== orderIndex) return row
+        const updated = [...row]
+        updated[7] = status
+        return updated
+      }),
+    }))
+  }
+
+  const rejectTransferPayment = () => {
+    if (paymentRejectionTarget === null) return
+    const orderIndex = paymentRejectionTarget
+    const order = rows.pedidos?.[orderIndex]
+    const reason = paymentRejectionReason.trim()
+    if (!order || !reason) {
+      setPaymentRejectionError("Escribe el motivo por el que rechazas el comprobante.")
+      return
+    }
+    if (
+      !isTransferPaymentMethod(String(order[4] ?? "")) ||
+      String(order[8]) !== "Pendiente de verificación"
+    ) {
+      setPaymentRejectionError("Este comprobante ya no está pendiente de revisión.")
+      return
+    }
+
+    const orderId = String(order[0])
+    saveOrders(
+      loadOrders().map((item) =>
+        item.id === orderId
+          ? {
+              ...item,
+              paymentStatus: "Rechazado",
+              paymentRejectionReason: reason,
+              productionAuthorized: false,
+            }
+          : item,
+      ),
+    )
+    pushOrder(orderId)
+    setRows((current) => {
+      const currentOrder = current.pedidos?.[orderIndex]
+      if (!currentOrder || String(currentOrder[8]) !== "Pendiente de verificación") {
+        return current
+      }
+      const orderRows = [...(current.pedidos || [])]
+      const updatedOrder = [...currentOrder]
+      updatedOrder[8] = "Rechazado"
+      updatedOrder[11] = reason
+      orderRows[orderIndex] = updatedOrder
+      return { ...current, pedidos: orderRows }
+    })
+    setPaymentRejectionTarget(null)
+    setPaymentRejectionReason("")
+    setPaymentRejectionError("")
+  }
+
   const saveQuickClient = () => {
     const isLocalClient = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
     const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
-    if (requiredFields.some((key) => !String(quickClientForm[key] ?? "").trim())) {
+    const errors: Record<string, string> = {}
+    requiredFields.forEach((key) => {
+      const value = String(quickClientForm[key] ?? "").trim()
+      if (!value) {
+        errors[key] = "Este campo es obligatorio."
+      } else if (key === "2") {
+        const error = validateDocumentNumber(value, quickClientForm["1"] ?? "")
+        if (error) errors[key] = error
+      } else if (key === "3") {
+        const error = validatePhoneNumber(value)
+        if (error) errors[key] = error
+      } else if (key === "4" && !EMAIL_PATTERN.test(value)) {
+        errors[key] = "Escribe un correo electrónico válido."
+      }
+    })
+    const docNumber = String(quickClientForm["2"] ?? "").trim().toLowerCase()
+    const phone = String(quickClientForm["3"] ?? "").trim().replace(/\s+/g, "")
+    const email = String(quickClientForm["4"] ?? "").trim().toLowerCase()
+    ;(rows.usuarios || []).forEach((userRow) => {
+      if (
+        docNumber &&
+        String(userRow[2] ?? "").trim().toLowerCase() === docNumber
+      ) {
+        errors["2"] = "Ya existe una persona registrada con este documento."
+      }
+      if (
+        email &&
+        String(userRow[4] ?? "").trim().toLowerCase() === email
+      ) {
+        errors["4"] = "Ya existe una persona registrada con este correo electrónico."
+      }
+    })
+    ;(rows.clientes || []).forEach((clientRow) => {
+      if (
+        docNumber &&
+        String(clientRow[2] ?? "").trim().toLowerCase() === docNumber
+      ) {
+        errors["2"] = "Ya existe una persona registrada con este documento."
+      }
+      if (
+        phone &&
+        String(clientRow[3] ?? "").trim().replace(/\s+/g, "") === phone
+      ) {
+        errors["3"] = "Ya existe una persona registrada con este teléfono."
+      }
+      if (
+        email &&
+        String(clientRow[4] ?? "").trim().toLowerCase() === email
+      ) {
+        errors["4"] = "Ya existe una persona registrada con este correo electrónico."
+      }
+    })
+    setQuickClientErrors(errors)
+    if (Object.keys(errors).length) {
       setQuickClientError(
-        isLocalClient
-          ? "Completa nombre, tipo y número de documento y teléfono."
-          : "Completa todos los campos obligatorios del cliente.",
+        "Corrige los campos indicados antes de registrar el cliente.",
       )
+      return
+    }
+    // Same document number as an existing client is not allowed here either
+    const docKey = normalizeDocument(quickClientForm["2"])
+    const duplicate = (rows.clientes || []).find((client) => normalizeDocument(client[2]) === docKey)
+    if (duplicate) {
+      setQuickClientError(`Ya existe un cliente con este número de documento: «${String(duplicate[0])}».`)
       return
     }
     const name = String(quickClientForm["0"]).trim()
@@ -9327,9 +10955,9 @@ function AdminPanel({
       quickClientForm["1"],
       quickClientForm["2"],
       quickClientForm["3"],
-      isLocalClient ? "Sí" : "No",
       quickClientForm["4"] || "",
       quickClientForm["5"] || "",
+      isLocalClient ? "Sí" : "No",
       "Activo",
     ]
     setRows((current) => ({
@@ -9338,6 +10966,7 @@ function AdminPanel({
     }))
     setFormData((current) => ({ ...current, "1": name }))
     setQuickClientForm({})
+    setQuickClientErrors({})
     setQuickClientError("")
     setQuickClientOpen(false)
   }
@@ -9356,6 +10985,7 @@ function AdminPanel({
       "5": currentDateTime.date,
     })
     setPncError("")
+    setPncFieldErrors({})
     setPncTarget(rowIndex)
   }
 
@@ -9365,7 +10995,29 @@ function AdminPanel({
     if (!order) return
     const availableProducts = getNonconformingProductOptions()
     const affectedProduct = String(pncForm["1"] ?? "").trim()
+    const damagedDescription = String(pncForm["2"] ?? "").trim()
+    const quantity = Number(pncForm["3"])
+    const validationErrors: Record<string, string> = {}
+    if (!affectedProduct) validationErrors["1"] = "Selecciona un producto."
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      validationErrors["3"] = "Ingresa una cantidad mayor que cero."
+    }
+    if (!damagedDescription) {
+      validationErrors["2"] = "Describe el producto o los productos que se dañaron."
+    }
+    if (!String(pncForm["4"] ?? "").trim()) {
+      validationErrors["4"] = "Selecciona el motivo."
+    }
+    if (!String(pncForm["5"] ?? "").trim()) {
+      validationErrors["5"] = "Selecciona la fecha del registro."
+    }
+    setPncFieldErrors(validationErrors)
+    if (Object.keys(validationErrors).length) {
+      setPncError("Completa los campos indicados antes de registrar.")
+      return
+    }
     if (!availableProducts.includes(affectedProduct)) {
+      setPncFieldErrors({ "1": "Solo puedes registrar productos que estén en producción." })
       setPncError("Solo puedes registrar productos que estén en producción.")
       return
     }
@@ -9375,10 +11027,10 @@ function AdminPanel({
     const pncRecord: (string | number)[] = [
       pncForm["0"] || order[0],
       affectedProduct,
-      pncForm["2"] || affectedProduct,
-      Number(pncForm["3"] || order[2] || 1),
-      pncForm["4"] || "Producto perdido",
-      pncForm["5"] || currentDateTime.date,
+      damagedDescription,
+      quantity,
+      String(pncForm["4"]).trim(),
+      String(pncForm["5"]).trim(),
     ]
 
     setRows((current) => {
@@ -9439,14 +11091,16 @@ function AdminPanel({
     setPncTarget(null)
     setPncForm({})
     setPncError("")
+    setPncFieldErrors({})
   }
 
-  const changeProductionStatus = (
+  const changeProductionStatus = async (
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
-  ) => {
+  ): Promise<boolean> => {
     const sourceRow = rows.produccion?.[rowIndex]
-    if (!sourceRow || String(sourceRow[8]) === nextStatus) return
+    if (!sourceRow) return false
+    if (String(sourceRow[8]) === nextStatus) return true
     const consumeStock = nextStatus === "En cocina" && String(sourceRow[14]) !== "Sí"
     const requiredSupplies = new Map<string, { quantity: number; unit: string }>()
     if (consumeStock) {
@@ -9457,7 +11111,7 @@ function AdminPanel({
           const unit = String(supply?.[2] ?? "").trim()
           if (!supply || !unit || unit.toLowerCase() !== ingredient.unit.trim().toLowerCase()) {
             window.alert(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y use la misma unidad de la ficha técnica.`)
-            return
+            return false
           }
           const current = requiredSupplies.get(ingredient.name)
           requiredSupplies.set(ingredient.name, {
@@ -9471,7 +11125,20 @@ function AdminPanel({
         const stock = Number(supply?.[4])
         if (!Number.isFinite(stock) || stock < requirement.quantity) {
           window.alert(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
-          return
+          return false
+        }
+      }
+      // The backend takes the supplies out of the stock (all or nothing, once per order) before the status changes
+      if (requiredSupplies.size) {
+        try {
+          await api("/consumos-produccion", "POST", {
+            numero_orden: String(sourceRow[0]),
+            insumos: [...requiredSupplies].map(([insumo, r]) => ({ insumo, cantidad: r.quantity })),
+          })
+        } catch (err) {
+          window.alert(`No se pudo iniciar la producción: ${(err as Error).message}`)
+          loadModule("insumos")
+          return false
         }
       }
     }
@@ -9566,6 +11233,7 @@ function AdminPanel({
 
       return { ...current, produccion: productionRows, ...(supplies ? { insumos: supplies } : {}) }
     })
+    return true
   }
 
   const ProductionStatusSelect = ({ rowIndex }: { rowIndex: number }) => {
@@ -9674,6 +11342,7 @@ function AdminPanel({
     if (!target) return
     if (!getDeleteAssessment(target.section, rows[target.section]?.[target.idx]).allowed)
       return
+    deleteRowInDb(target.section, rows[target.section]?.[target.idx])
 
     setRows((current) => {
       const currentRow = current[target.section]?.[target.idx]
@@ -9686,11 +11355,9 @@ function AdminPanel({
     setDelTarget(null)
   }
   const handleFile = (file: File) => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      if (e.target?.result) setImgPreview(e.target.result as string)
-    }
-    reader.readAsDataURL(file)
+    readVoucher(file)
+      .then(setImgPreview)
+      .catch(() => window.alert("No se pudo leer la imagen. Prueba con otra (JPG o PNG)."))
   }
 
   const parsePurchaseItems = (value: string | number | undefined) =>
@@ -9709,6 +11376,28 @@ function AdminPanel({
           total: parsedQuantity * parsedUnitPrice,
         }
       })
+
+  // Adds (sign 1) or removes (sign -1) a purchase's quantities to each insumo's
+  // "Stock actual" (row[4]). Items are matched by name ignoring case/accents.
+  function withStockChange(
+    insumoRows: (string | number)[][],
+    purchaseItems: string | number | undefined,
+    sign: 1 | -1,
+  ) {
+    const totals = new Map<string, number>()
+    for (const item of parsePurchaseItems(purchaseItems)) {
+      const key = normalizeName(item.name)
+      totals.set(key, (totals.get(key) ?? 0) + (Number(item.quantity) || 0))
+    }
+    return insumoRows.map((supply) => {
+      const qty = totals.get(normalizeName(supply[0]))
+      if (!qty) return supply
+      const updated = [...supply]
+      const next = Number(updated[4] || 0) + sign * qty
+      updated[4] = Math.max(0, Math.round(next * 1000) / 1000)
+      return updated
+    })
+  }
 
   const parseProductionHistory = (
     value: string | number | undefined,
@@ -9794,9 +11483,9 @@ function AdminPanel({
   const TOP = [
     { name: "Mini", units: 284, pct: 100 },
     { name: "Salchipapa Sencilla", units: 241, pct: 85 },
-    { name: "Mediano (Perro)", units: 198, pct: 70 },
-    { name: "Super Gourmet", units: 167, pct: 59 },
-    { name: "Mega Gourmet", units: 143, pct: 50 },
+    { name: "Perro Mediano", units: 198, pct: 70 },
+    { name: "Salchipapa Super Gourmet", units: 167, pct: 59 },
+    { name: "Salchipapa Mega Gourmet", units: 143, pct: 50 },
   ]
   const KPI = [
     {
@@ -10335,7 +12024,10 @@ function AdminPanel({
         ? [0, 1, 2, 4]
         : row
             .map((_, index) => index)
-            .filter((index) => !cfg.hiddenCellIndexes?.includes(index))
+            .filter(
+              (index) =>
+                !cfg.hiddenCellIndexes?.includes(index) && index !== syncIdIndex(section),
+            )
     const getDisplayCells = (row: (string | number)[]) =>
       getDisplayCellIndexes(row).map((index) => row[index])
     const columnCount = Math.max(
@@ -10403,6 +12095,9 @@ function AdminPanel({
       cell: string | number,
       rowCellIndex: number,
     ): string | number => {
+      if (section === "producto" && rowCellIndex === 2 && !(Number(cell) > 0)) {
+        return "Sin precio"
+      }
       if (section !== "ventas") return cell
       if (rowCellIndex === 3) return formatSalesDate(cell)
       if (rowCellIndex === 7) {
@@ -10430,7 +12125,16 @@ function AdminPanel({
     }
 
     const renderActions = (rowIndex: number, isAnulled: boolean) => {
-      const detailActionLabel = section === "compras" ? "Ver compra" : "Ver detalle"
+      const orderRow = section === "pedidos" ? rows.pedidos?.[rowIndex] : undefined
+      const needsPaymentReview =
+        !!orderRow &&
+        isTransferPaymentMethod(String(orderRow[4] ?? "")) &&
+        String(orderRow[8]) === "Pendiente de verificación"
+      const detailActionLabel = needsPaymentReview
+        ? "Revisar transferencia"
+        : section === "compras"
+          ? "Ver compra"
+          : "Ver detalle"
       const deleteAssessment = getDeleteAssessment(
         section,
         rows[section]?.[rowIndex],
@@ -10483,7 +12187,36 @@ function AdminPanel({
             </button>
           )}
           {cfg.statusIndex !== undefined ? (
-            !noDelete && deleteButton
+            section === "producto" ? (
+              isAnulled ? (
+                <button
+                  type="button"
+                  title="Reactivar producto"
+                  aria-label="Reactivar producto"
+                  onClick={() =>
+                    toggleStatus(section, rowIndex, cfg.statusIndex!)
+                  }
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                  style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+                >
+                  {Ico.undo}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  title="Anular producto"
+                  aria-label="Anular producto"
+                  aria-haspopup="dialog"
+                  onClick={() => setAnulTarget({ section, idx: rowIndex })}
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                  style={{ color: C.red, background: `${C.red}12` }}
+                >
+                  {Ico.ban}
+                </button>
+              )
+            ) : (
+              !noDelete && deleteButton
+            )
           ) : noDelete ? (
             isAnulled ? (
               <button
@@ -10891,7 +12624,15 @@ function AdminPanel({
   }
 
   // Roles permissions matrix for create/edit
-  const RolesPermMatrix = ({ roleName, readOnly = false }: { roleName: string; readOnly?: boolean }) => {
+  const RolesPermMatrix = ({
+    roleName,
+    permissionKey = roleName,
+    readOnly = false,
+  }: {
+    roleName: string
+    permissionKey?: string
+    readOnly?: boolean
+  }) => {
     const isAdmin = roleName.toLowerCase() === "administrador"
     const perms = isAdmin
       ? Object.fromEntries(
@@ -10900,29 +12641,131 @@ function AdminPanel({
             ["Ver", "Crear", "Editar", "Anular", "Eliminar"],
           ]),
         )
-      : (rolesPerms[roleName] || {})
+      : (rolesPerms[permissionKey] || {})
     const commonActions = ["Ver", "Crear", "Editar"]
     const toggle = (mod: string, action: string) => {
       if (readOnly || isAdmin) return
       setRolesPerms((rp) => {
-        const cur = rp[roleName]?.[mod] || []
+        const cur = rp[permissionKey]?.[mod] || []
         const next = cur.includes(action)
           ? cur.filter((a) => a !== action)
           : [...cur, action]
-        return { ...rp, [roleName]: { ...(rp[roleName] || {}), [mod]: next } }
+        return { ...rp, [permissionKey]: { ...(rp[permissionKey] || {}), [mod]: next } }
       })
     }
+    const setAllPermissions = (select: boolean) => {
+      if (readOnly || isAdmin) return
+      setRolesPerms((rp) => {
+        const nextPerms = Object.fromEntries(
+          PERMISSION_MODULES.map(({ name, finalAction }) => {
+            const actions = [...commonActions, finalAction]
+            return [name, select ? actions : []]
+          }),
+        )
+        return { ...rp, [permissionKey]: nextPerms }
+      })
+    }
+    const setActionForAll = (action: string, select: boolean) => {
+      if (readOnly || isAdmin) return
+      setRolesPerms((rp) => {
+        const current = rp[permissionKey] || {}
+        const nextPerms = Object.fromEntries(
+          PERMISSION_MODULES.map(({ name, finalAction }) => {
+            const targetAction = action === "final" ? finalAction : action
+            const currentActions = current[name] || []
+            const nextActions = select
+              ? currentActions.includes(targetAction)
+                ? currentActions
+                : [...currentActions, targetAction]
+              : currentActions.filter((currentAction) => currentAction !== targetAction)
+            return [name, nextActions]
+          }),
+        )
+        return { ...rp, [permissionKey]: { ...current, ...nextPerms } }
+      })
+    }
+    const columnHeader = (label: string, action: string) => {
+      return (
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5">
+          <span className="text-center text-[10px] font-bold leading-tight break-words" style={{ color: t.muted }}>
+            {label}
+          </span>
+          {!readOnly && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setActionForAll(action, true)}
+                disabled={isAdmin}
+                aria-label={`Seleccionar todo: ${label} en todos los módulos`}
+                title={`Seleccionar todo: ${label} en todos los módulos`}
+                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ background: t.input, color: C.mustard }}
+              >
+                ✓
+              </button>
+              <button
+                type="button"
+                onClick={() => setActionForAll(action, false)}
+                disabled={isAdmin}
+                aria-label={`Quitar todo: ${label} en todos los módulos`}
+                title={`Quitar todo: ${label} en todos los módulos`}
+                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ background: t.input, color: t.muted }}
+              >
+                ×
+              </button>
+            </div>
+          )}
+        </div>
+      )
+    }
     return (
-      <div className="mt-3">
-        <div className="text-xs font-bold mb-2" style={{ color: t.muted }}>
-          Permisos por módulo
+      <div className="mt-2">
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <div className="text-xs font-bold" style={{ color: t.muted }}>
+            Permisos por módulo
+          </div>
+          {!readOnly && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAllPermissions(true)}
+                disabled={isAdmin}
+                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
+                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
+                style={{
+                  background: t.input,
+                  color: t.text,
+                  opacity: isAdmin ? 0.5 : 1,
+                  cursor: isAdmin ? "not-allowed" : "pointer",
+                }}
+              >
+                Seleccionar todo
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllPermissions(false)}
+                disabled={isAdmin}
+                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
+                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
+                style={{
+                  background: t.input,
+                  color: t.text,
+                  opacity: isAdmin ? 0.5 : 1,
+                  cursor: isAdmin ? "not-allowed" : "pointer",
+                }}
+              >
+                Quitar todos
+              </button>
+            </div>
+          )}
         </div>
         <div
-          className="min-w-0 overflow-hidden rounded-xl"
+          className="max-h-[46vh] min-w-0 overflow-auto rounded-xl"
           style={{ border: `1px solid ${t.border}` }}
         >
           <div
-            className="grid min-w-0 items-center px-2.5 py-2"
+            className="sticky top-0 z-10 grid min-w-0 items-center px-2.5 py-1.5"
             style={{
               gridTemplateColumns:
                 "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
@@ -10937,27 +12780,16 @@ function AdminPanel({
               Módulo
             </div>
             {commonActions.map((action) => (
-              <div
-                key={action}
-                className="min-w-0 text-center text-[10px] font-bold leading-tight break-words"
-                style={{ color: t.muted }}
-              >
-                {action}
-              </div>
+              <div key={action}>{columnHeader(action, action)}</div>
             ))}
-            <div
-              className="min-w-0 text-center text-[10px] font-bold leading-tight break-words"
-              style={{ color: t.muted }}
-            >
-              Anular / Eliminar
-            </div>
+            <div>{columnHeader("Anular / Eliminar", "final")}</div>
           </div>
           {PERMISSION_MODULES.map(({ name, finalAction }, index) => {
             const moduleActions = [...commonActions, finalAction]
             return (
               <div
                 key={name}
-                className="grid min-w-0 items-center px-2.5 py-2"
+                className="grid min-w-0 items-center px-2.5 py-1"
                 style={{
                   gridTemplateColumns:
                     "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
@@ -11017,6 +12849,8 @@ function AdminPanel({
     const isSales = modal.section === "ventas"
     const isReturns = modal.section === "devoluciones"
     const isClient = modal.section === "clientes"
+    const isSupplier = modal.section === "proveedores"
+    const isUser = modal.section === "usuarios"
     const row = modal.idx !== null ? rows[modal.section]?.[modal.idx] : null
     const orderDetails = isPedido ? getAdminOrderLines(row || undefined) : []
     const saleOrderLines = getSaleOrderLines(isSales ? row : null)
@@ -11024,22 +12858,41 @@ function AdminPanel({
       ? rows.pedidos?.findIndex((order) => order[0] === row?.[9]) ?? -1
       : -1
     // Purchase module (Compras) gets a compact 2-column form and a formatted detail view
+    // Modules with the compact form: narrow 2-column modal, titled by entity,
+    // formatted detail view ("isPurchaseModule" started with Compras, now shared)
     const PURCHASE_ENTITIES: Record<string, { name: string; fem: boolean }> = {
       "cat-insumos": { name: "categoría de insumo", fem: true },
       insumos: { name: "insumo", fem: false },
       proveedores: { name: "proveedor", fem: false },
       compras: { name: "compra", fem: true },
       perdidas: { name: "pérdida de insumo", fem: true },
+      "cat-producto": { name: "categoría de producto", fem: true },
+      produccion: { name: "orden de producción", fem: true },
+      "producto-no-conforme": { name: "producto no conforme", fem: false },
+      clientes: { name: "cliente", fem: false },
+      pedidos: { name: "pedido", fem: false },
+      ventas: { name: "venta", fem: true },
+      devoluciones: { name: "devolución", fem: true },
     }
     const purchaseEntity = PURCHASE_ENTITIES[modal.section]
     const isPurchaseModule = !!purchaseEntity
+    // Sellers: active staff users (from the backend) plus whoever is logged in
+    const sellerOptions = [
+      ...new Set([
+        sellerName,
+        ...(rows.usuarios || []).filter((r) => isActiveStatus(r[5])).map((r) => String(r[0])),
+      ]),
+    ].filter(Boolean)
     const namesOf = (sec: string) =>
       (rows[sec] || []).map((r) => String(r[0] ?? "")).filter(Boolean)
+    // Sections whose first field is a name/main choice that reads better full width
+    const WIDE_FIRST_FIELD = ["cat-insumos", "insumos", "proveedores", "compras", "perdidas", "cat-producto", "clientes", "pedidos"]
     const isWideField = (f: FieldType) =>
-      f.key === "0" ||
+      (f.key === "0" && (WIDE_FIRST_FIELD.includes(modal.section) || !isSupplier)) ||
       f.type === "textarea" ||
       f.type === "checkbox" ||
-      (modal.section === "proveedores" && (f.key === "5" || f.key === "7"))
+      (modal.section === "proveedores" && (f.key === "5" || f.key === "7")) ||
+      (modal.section === "clientes" && f.key === "5")
     const splitList = (value: string) =>
       value.split(",").map((item) => item.trim()).filter(Boolean)
     const supplyInfo = (name: string) =>
@@ -11075,12 +12928,17 @@ function AdminPanel({
       : isSupply
         ? dataFields.filter(
             (field) =>
-              !["8", "9", "10", "11"].includes(field.key) ||
-              showSupplyTechnicalSheet,
+              // "Stock actual" isn't entered when creating: it starts at 0
+              !(modal.mode === "add" && field.key === "4") &&
+              (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
           )
         : dataFields
     const productMainFields = isProduct
-      ? dataFields.filter((field) => ["0", "1", "2", "3", "10"].includes(field.key))
+      ? dataFields.filter(
+          (field) =>
+            ["0", "1", "2", "3", "10"].includes(field.key) &&
+            !(modal.mode === "add" && field.key === "2"),
+        )
       : dataFields
     const productTechFields = isProduct
       ? dataFields.filter((field) => ["5", "6", "7", "8"].includes(field.key))
@@ -11132,16 +12990,16 @@ function AdminPanel({
         onClick={() => setModal({ mode: null, section: "", idx: null })}
       >
         <div
-          className={`flex min-w-0 w-full ${isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+          className={`flex min-w-0 w-full ${isRoles || isProduct ? "max-w-3xl" : isUser ? "max-w-2xl" : isSupplier ? "max-w-4xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
-            maxHeight: "88vh",
+            maxHeight: isPurchaseModule || isProduct ? "94vh" : isRoles ? "82vh" : "88vh",
           }}
           onClick={(e) => e.stopPropagation()}
         >
           <div
-            className="flex items-center justify-between px-5 py-4"
+            className={`flex items-center justify-between px-5 ${isUser || isRoles ? "py-3" : "py-4"}`}
             style={{ borderBottom: `1px solid ${t.border}` }}
           >
             <h3 className="font-semibold text-base" style={{ color: t.text }}>
@@ -11166,11 +13024,26 @@ function AdminPanel({
             </button>
           </div>
           <div
-
-            className={`min-w-0 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-5 ${
-              isPurchaseModule ? "grid content-start gap-x-4 gap-y-3 sm:grid-cols-2" : "flex flex-col gap-3"
+            className={`min-w-0 overflow-x-hidden overflow-y-auto px-4 ${isUser ? "py-3 sm:px-5" : "py-4 sm:px-5"} ${
+              isUser
+                ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
+                : isRoles && !isView
+                ? "grid content-start gap-x-4 gap-y-2.5 sm:grid-cols-2"
+                : isPurchaseModule
+                  ? `grid min-h-0 flex-1 content-start gap-x-4 gap-y-3 ${
+                      // Supplier: 4 columns on large screens — supplier data spans the left two,
+                      // contact person goes two fields per row on the right (keeps "Cargo" in view)
+                      isSupplier ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4" : "sm:grid-cols-2"
+                    }`
+                  : isProduct
+                    ? "flex min-h-0 flex-1 flex-col gap-3"
+                    : "flex flex-col gap-3"
             }`}
-            style={{ maxHeight: "65vh", scrollbarWidth: "none" }}
+            style={{
+              maxHeight: isPurchaseModule || isProduct ? undefined : isUser ? "58vh" : "65vh",
+              // A visible (thin) scrollbar tells the user there are more fields below
+              scrollbarWidth: "thin",
+            }}
           >
             {/* Purchase module detail header: record name + status */}
             {isView && isPurchaseModule && !isPurchase && row && (
@@ -11273,8 +13146,10 @@ function AdminPanel({
                 )}
               </div>
             )}
-            {isPedido && (
-              <div className="flex min-w-0 flex-col gap-2">
+            {/* Proof only matters for transfers (cash / pay at the store = contraentrega) */}
+            {isPedido && (isView || formData["3"] === "Transferencia") && (
+              // Last in the form (order-last): client and products come first
+              <div className="order-last flex min-w-0 flex-col gap-2 sm:col-span-2">
                 <label className="text-xs font-semibold" style={{ color: t.muted }}>Comprobante de pago</label>
                 {isView ? (
                   paymentProofDraft ? (
@@ -11313,30 +13188,41 @@ function AdminPanel({
                   >
                     Producto
                   </div>
+                  {modal.mode === "add" && (
+                    <p className="text-xs" style={{ color: t.muted }}>
+                      Puedes agregar el precio después desde la opción Editar.
+                    </p>
+                  )}
                   {productMainFields.map((f) => {
                     const val = isView
                       ? String(row ? (row[Number(f.key)] ?? "—") : "—")
                       : formData[f.key] || ""
+                    // Categories come only from "Categ. Producto" (active), deduplicated
+                    // ignoring case/accents so the same category never appears twice
                     const productFieldOptions =
                       f.key === "1"
                         ? [
-                            ...new Set([
-                              ...(rows["cat-producto"] || [])
-                                .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
-                                .map((category) => String(category[0] ?? "").trim())
-                                .filter(Boolean),
-                              ...PRODUCTS.map((product) => product.cat.replace(/-/g, " ")),
-                              "Producto de insumo",
-                            ]),
-                          ].sort((a, b) => a.localeCompare(b))
+                            ...(rows["cat-producto"] || [])
+                              .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
+                              .map((category) => String(category[0] ?? "").trim())
+                              .filter(Boolean),
+                            "Producto de insumo",
+                          ]
+                            .filter(
+                              (name, index, all) =>
+                                all.findIndex((other) => normalizeName(other) === normalizeName(name)) === index,
+                            )
+                            .sort((a, b) => a.localeCompare(b))
                         : f.options
                     return (
                       <div key={f.key} className="flex flex-col gap-1.5">
                         <label
                           className="text-xs font-semibold"
-                          style={{ color: t.muted }}
+                          style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
                         >
                           {f.label}
+                          {(isRequiredField(f.key) ||
+                            getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)) && " *"}
                         </label>
                         {isView ? (
                           <div
@@ -11348,17 +13234,26 @@ function AdminPanel({
                         ) : f.type === "select" ? (
                           <select
                             value={val}
+                            disabled={isPedido && f.key === "7"}
                             onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
+                              updateAdminField(modal.section, f.key, e.target.value)
                             }
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                            title={
+                              isPedido && f.key === "7"
+                                ? "El pago solo cambia al aprobar o rechazar el comprobante en el detalle del pedido."
+                                : undefined
+                            }
                             style={{
                               background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
                               color: val ? t.text : t.muted,
+                              opacity: isPedido && f.key === "7" ? 0.7 : 1,
                             }}
                           >
                             <option value="">Selecciona...</option>
@@ -11372,16 +13267,18 @@ function AdminPanel({
                           <textarea
                             value={val}
                             onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
+                              updateAdminField(modal.section, f.key, e.target.value)
                             }
-                            rows={3}
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
+                            rows={isPurchaseModule || isProduct ? 2 : 3}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
                             style={{
                               background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
                               color: t.text,
                             }}
                           />
@@ -11390,19 +13287,22 @@ function AdminPanel({
                             type={f.type}
                             value={val}
                             onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
+                              updateAdminField(modal.section, f.key, e.target.value)
                             }
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
                             style={{
                               background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
                               color: t.text,
                             }}
                           />
                         )}
+                        <FieldError msg={shownFieldError(f.key) || formFieldErrors[f.key]} />
                       </div>
                     )
                   })}
@@ -11425,15 +13325,37 @@ function AdminPanel({
                         className="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
                         style={{ background: C.mustard, color: "#fff" }}
                       >
-                        Ficha técnica
+                        {technicalIngredients.length
+                          ? "Editar ficha técnica"
+                          : "Agregar ficha técnica"}
                       </button>
                     )}
                   </div>
                   {!isView && (
-                    <div className="rounded-xl px-3 py-2.5 text-xs" style={{ background: t.cardAlt, color: t.muted }}>
+                    <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                       {technicalIngredients.length
-                        ? `${technicalIngredients.length} insumo${technicalIngredients.length === 1 ? "" : "s"} en la receta`
-                        : "Ficha técnica opcional. Puedes agregar insumos, cantidades y unidades."}
+                        ? (
+                          <>
+                            <div className="mb-2 text-xs font-bold" style={{ color: t.text }}>
+                              Insumos y cantidades
+                            </div>
+                            {technicalIngredients.map((ingredient, index) => (
+                              <div
+                                key={`${ingredient.name}-${index}`}
+                                className="flex justify-between gap-3 border-t py-2 text-xs"
+                                style={{ borderColor: t.border, color: t.muted }}
+                              >
+                                <span className="min-w-0 truncate">{ingredient.name}</span>
+                                <strong className="shrink-0" style={{ color: t.text }}>
+                                  {ingredient.quantity} {ingredient.unit}
+                                </strong>
+                              </div>
+                            ))}
+                          </>
+                        )
+                        : <span className="text-xs" style={{ color: t.muted }}>
+                            Ficha técnica opcional. Puedes agregar insumos, cantidades y unidades.
+                          </span>}
                     </div>
                   )}
                   {isView && getProductRecipe(row ?? undefined).length > 0 && (
@@ -11646,8 +13568,9 @@ function AdminPanel({
               </div>
             ) : (
               <>
-                {(isProduction || isPnc) && (
-                  <section className="rounded-2xl p-4" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                {/* In the production detail the products are listed in its summary below */}
+                {(isPnc || (isProduction && !isView)) && (
+                  <section className="rounded-2xl p-4 sm:col-span-2" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                     <div className="mb-3 flex items-center gap-2">
                       <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
                       <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>{isPnc ? "Productos o insumos que se dañaron" : "Productos de la orden"}</h4>
@@ -11698,7 +13621,40 @@ function AdminPanel({
                 )}
                 {formDataFields.map((f) => {
                 if (isView && isPurchase) return null // the purchase ticket shows everything
-                if (isView && isPurchaseModule && f.key === "0") return null // shown in the header
+                // Shown in the detail header (with autoId, row[0] is the code, so field "0" stays)
+                if (isView && isPurchaseModule && f.key === "0" && !cfg.autoId) return null
+                // Order total is computed from its products ("Total del pedido"), not typed
+                if (isPedido && !isView && f.key === "5") return null
+                // Modality and payment status come from the payment method (read-only)
+                if (isPedido && !isView && (f.key === "4" || f.key === "7")) {
+                  const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
+                  const value = f.key === "4" ? payment.modalidad : payment.estadoPago
+                  return (
+                    <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
+                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                        {f.label}
+                      </span>
+                      <div
+                        className="rounded-xl px-3.5 py-2.5 text-sm font-semibold"
+                        style={{
+                          background: t.cardAlt,
+                          border: `1px dashed ${t.inputB}`,
+                          color: value ? (value === "Pagado" ? "#2E7D60" : t.text) : t.muted,
+                        }}
+                        title="Se asigna automáticamente según el método de pago"
+                      >
+                        {value || "Según el método de pago"}
+                      </div>
+                      {f.key === "7" && (
+                        <span className="text-[11px]" style={{ color: t.muted }}>
+                          Automático: transferencia con comprobante = pagado; efectivo o pago en el local = contraentrega y pendiente.
+                        </span>
+                      )}
+                    </div>
+                  )
+                }
+                // Production detail already shows "Creada" date/time in its summary
+                if (isView && isProduction && (f.key === "3" || f.key === "4")) return null
                 // Insumo technical sheet (fields 8-11) rendered as one card at field "8"
                 if (isSupply && ["9", "10", "11"].includes(f.key)) return null
                 if (isSupply && f.key === "8") {
@@ -11708,7 +13664,7 @@ function AdminPanel({
                   const mainSupplies = splitList(src("10"))
                   const setSheet = (key: string, value: string) => {
                     setSupplyFormError("")
-                    setFormData((current) => ({ ...current, [key]: value }))
+                    updateAdminField(modal.section, key, value)
                   }
                   const sheetControl = { background: t.card, border: `1.5px solid ${t.inputB}`, color: t.text }
                   return (
@@ -11791,8 +13747,13 @@ function AdminPanel({
                               onChange={(e) => {
                                 if (e.target.value) setSheet("10", [...mainSupplies, e.target.value].join(", "))
                               }}
+                              aria-invalid={!!formFieldErrors["10"]}
                               className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                              style={{ ...sheetControl, color: t.muted }}
+                              style={{
+                                ...sheetControl,
+                                border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
+                                color: t.muted,
+                              }}
                             >
                               <option value="">+ Agregar insumo a la ficha...</option>
                               {getAvailableInsumos()
@@ -11803,6 +13764,11 @@ function AdminPanel({
                                   </option>
                                 ))}
                             </select>
+                          )}
+                          {formFieldErrors["10"] && (
+                            <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
+                              {formFieldErrors["10"]}
+                            </span>
                           )}
                         </div>
                         <div className="flex flex-col gap-1.5">
@@ -11825,9 +13791,9 @@ function AdminPanel({
                           )}
                         </div>
                       </div>
-                      {!isView && supplyFormError && (
+                      {!isView && (shownFieldError("10") || shownFieldError("11")) && (
                         <p className="mt-3 text-xs font-medium" style={{ color: C.red }} role="alert">
-                          {supplyFormError}
+                          {shownFieldError("10") || shownFieldError("11")}
                         </p>
                       )}
                     </section>
@@ -12054,19 +14020,28 @@ function AdminPanel({
                     </section>
                   )
                 }
+                const isLocalClient =
+                  isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
+                const requiredFormField =
+                  !isView &&
+                  getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)
+                const fieldValidationError = formFieldErrors[f.key]
                 // Supplier form: pick which insumos this supplier sells
                 if (modal.section === "proveedores" && !isView && f.key === "7") {
                   const selected = splitList(String(formData["7"] ?? ""))
                   const toggleSupply = (name: string) =>
-                    setFormData((current) => {
-                      const now = splitList(String(current["7"] ?? ""))
-                      const next = now.includes(name) ? now.filter((n) => n !== name) : [...now, name]
-                      return { ...current, "7": next.join(", ") }
-                    })
+                    updateAdminField(
+                      "proveedores",
+                      "7",
+                      (selected.includes(name)
+                        ? selected.filter((item) => item !== name)
+                        : [...selected, name]
+                      ).join(", "),
+                    )
                   return (
-                    <div key="7" className="flex flex-col gap-1.5 sm:col-span-2">
+                    <div key="7" className="flex flex-col gap-1.5 lg:col-start-1 lg:col-span-2">
                       <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                        {f.label}
+                        {f.label}{requiredFormField && " *"}
                       </span>
                       <div className="flex flex-wrap gap-2">
                         {namesOf("insumos").map((name) => {
@@ -12094,6 +14069,11 @@ function AdminPanel({
                       <p className="text-[11px]" style={{ color: t.muted }}>
                         Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
                       </p>
+                      {fieldValidationError && (
+                        <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
+                          {fieldValidationError}
+                        </span>
+                      )}
                     </div>
                   )
                 }
@@ -12104,6 +14084,8 @@ function AdminPanel({
                 const fieldOptions =
                   isProduction && f.key === "0"
                     ? availableProductionProducts
+                    : isSales && f.key === "0"
+                      ? sellerOptions
                     : (isSales && f.key === "1") ||
                           (isPedido && f.key === "0") ||
                           (isReturns && f.key === "2")
@@ -12114,7 +14096,9 @@ function AdminPanel({
                             ? namesOf("insumos")
                             : isSupply && f.key === "1" && namesOf("cat-insumos").length
                               ? namesOf("cat-insumos")
-                              : f.options
+                              : isUser && f.key === "3" && namesOf("roles").length
+                                ? (rows.roles || []).filter((r) => isActiveStatus(r[2])).map((r) => String(r[0]))
+                                : f.options
                 const pedidoCategories = [
                   "Todas",
                   ...new Set(
@@ -12126,20 +14110,17 @@ function AdminPanel({
                 ]
                 const filteredOrderProducts = availableProductos.filter((productName) => {
                   const product = rows.producto?.find((item) => item[0] === productName)
-                  return pedidoProductCategory === "Todas" || String(product?.[1] ?? "") === pedidoProductCategory
+                  return (
+                    Number(product?.[2]) > 0 &&
+                    (pedidoProductCategory === "Todas" || String(product?.[1] ?? "") === pedidoProductCategory)
+                  )
                 })
                 const selectedOrderProduct = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
                 const isSelectedAddition = String(selectedOrderProduct?.[1] ?? "").toLowerCase() === "adiciones"
-                const isLocalClient =
-                  isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
-                const requiredClientField =
-                  isClient &&
-                  !isView &&
-                  (["0", "1", "2", "3"].includes(f.key) ||
-                    (!isLocalClient && ["4", "5"].includes(f.key)))
                 const updateFieldValue = (value: string) => {
                   if (isSales && f.key === "1" && value === "__new_client__") {
                     setQuickClientForm({})
+                    setQuickClientErrors({})
                     setQuickClientError("")
                     setQuickClientOpen(true)
                     return
@@ -12147,37 +14128,86 @@ function AdminPanel({
                   if (isPurchase && f.key === "0") {
                     // Changing supplier keeps only the items the new supplier sells
                     const allowed = supplierSupplies(value)
-                    setFormData((current) => ({
-                      ...current,
+                    const nextForm = {
+                      ...formData,
                       "0": value,
-                      "6": String(current["6"] ?? "")
+                      "6": String(formData["6"] ?? "")
                         .split("\n")
                         .filter((line) => allowed.includes(line.split("|")[0].trim()))
                         .join("\n"),
-                    }))
+                    }
+                    setFormData(nextForm)
+                    if (formValidationAttempted) {
+                      setFormFieldErrors(
+                        validateManagedForm(modal.section, nextForm, modal.mode),
+                      )
+                    }
                     setPurchaseItemSelect("")
                     setPurchaseItemPrice("")
                     setPurchaseFormError("")
                     return
                   }
-                  setFormData((current) => ({ ...current, [f.key]: value }))
+                  if (["usuarios", "clientes", "proveedores"].includes(modal.section)) {
+                    const normalized =
+                      (modal.section === "usuarios" && f.key === "2") ||
+                      (modal.section === "clientes" && f.key === "2") ||
+                      (isSupplier && f.key === "9")
+                        ? normalizeDocumentInput(
+                            value,
+                            String(formData[isSupplier ? "8" : "1"] ?? ""),
+                          )
+                        : ((modal.section === "clientes" && f.key === "3") ||
+                            (isSupplier && ["3", "12"].includes(f.key)))
+                          ? normalizePhoneInput(value)
+                          : isSupplier && f.key === "1"
+                            ? value.replace(/[^0-9.-]/g, "").slice(0, 20)
+                            : value
+                    updateAdminField(modal.section, f.key, normalized)
+                    return
+                  }
+                  updateAdminField(modal.section, f.key, value)
                 }
                 return (
                   <Fragment key={f.key}>
+                  {isSupplier && (f.key === "1" || f.key === "8") && (
+                    <div
+                      className={`pt-1 sm:col-span-2 ${
+                        f.key === "1" ? "lg:col-span-2 lg:col-start-1" : "lg:col-span-2 lg:col-start-3"
+                      }`}
+                    >
+                      <div className="mb-1 h-px" style={{ background: t.border }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                        {f.key === "1" ? "Datos del proveedor" : "Persona de contacto"}
+                      </h4>
+                    </div>
+                  )}
                   <div
-                    className={`flex min-w-0 flex-col gap-1.5 ${isPurchaseModule && isWideField(f) ? "sm:col-span-2" : ""}`}
+                    className={`flex min-w-0 flex-col gap-1 ${
+                      isSupplier
+                      ? Number(f.key) < 8
+                        ? "lg:col-span-2 lg:col-start-1"
+                        : f.key === "14"
+                          ? "lg:col-span-2 lg:col-start-3" // Cargo
+                          : Number(f.key) % 2 === 0
+                            ? "lg:col-start-3" // tipo doc, nombre, teléfono
+                            : "lg:col-start-4" // nº doc, apellido, correo
+                        : isPurchaseModule && isWideField(f)
+                          ? "sm:col-span-2"
+                          : ""
+                    }`}
                   >
                     <label
                       className="text-xs font-semibold"
-                      style={{ color: t.muted }}
+                      style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
                     >
                       {f.label}
-                      {requiredClientField && " *"}
+                      {(isRequiredField(f.key) || requiredFormField) && " *"}
                     </label>
                     {isPedido && f.key === "1" && !isView ? (
                       <div className="flex flex-col gap-3">
                         <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                          <div className="grid gap-2 sm:grid-cols-[minmax(0,130px)_minmax(0,1fr)_90px_auto]">
+                          {/* Wide enough so category and product names show complete */}
+                          <div className="grid gap-2 sm:grid-cols-[minmax(150px,1fr)_minmax(0,1.7fr)_64px_auto]">
                             <select
                               value={pedidoProductCategory}
                               onChange={(event) => {
@@ -12312,11 +14342,13 @@ function AdminPanel({
                         aria-checked={String(val).toLowerCase() === "sí"}
                         onClick={() => {
                           if (isClient) {
-                            setFormData((current) => {
-                              const enabled =
-                                String(current[f.key] ?? "No").toLowerCase() === "sí"
-                              return { ...current, [f.key]: enabled ? "No" : "Sí" }
-                            })
+                            const enabled =
+                              String(formData[f.key] ?? "No").toLowerCase() === "sí"
+                            updateAdminField(
+                              modal.section,
+                              f.key,
+                              enabled ? "No" : "Sí",
+                            )
                           } else {
                             handleSupplyCheckboxToggle()
                           }
@@ -12349,10 +14381,18 @@ function AdminPanel({
                       <select
                         value={val}
                         onChange={(e) => updateFieldValue(e.target.value)}
-                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                        onBlur={() => {
+                          if (requiredFormField) {
+                            setFormFieldErrors(
+                              validateManagedForm(modal.section, formData, modal.mode),
+                            )
+                          }
+                        }}
+                        aria-invalid={!!fieldValidationError}
+                        className={`w-full min-w-0 rounded-xl text-sm outline-none cursor-pointer ${isUser || isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: val ? t.text : t.muted,
                         }}
                       >
@@ -12370,16 +14410,20 @@ function AdminPanel({
                       <textarea
                         value={val}
                         onChange={(e) =>
-                          setFormData((d) => ({
-                            ...d,
-                            [f.key]: e.target.value,
-                          }))
+                          updateAdminField(modal.section, f.key, e.target.value)
                         }
-                        rows={3}
-                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
+                        onBlur={() =>
+                          requiredFormField &&
+                          setFormFieldErrors(
+                            validateManagedForm(modal.section, formData, modal.mode),
+                          )
+                        }
+                        aria-invalid={!!fieldValidationError}
+                        rows={isPurchaseModule ? 2 : isRoles ? 2 : 3}
+                        className={`w-full min-w-0 rounded-xl text-sm outline-none resize-none ${isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: t.text,
                         }}
                       />
@@ -12387,20 +14431,35 @@ function AdminPanel({
                       <input
                         type={f.type}
                         value={val}
-                        onChange={(e) =>
-                          setFormData((d) => ({
-                            ...d,
-                            [f.key]: e.target.value,
-                          }))
+                        inputMode={
+                          (modal.section === "usuarios" && f.key === "2") ||
+                          (isClient && ["2", "3"].includes(f.key)) ||
+                          (isSupplier &&
+                            ["1", "12"].includes(f.key)) ||
+                          (isSupplier &&
+                            f.key === "9" &&
+                            formData["8"] !== "Pasaporte")
+                            ? "numeric"
+                            : undefined
                         }
-                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
+                        onChange={(e) => updateFieldValue(e.target.value)}
+                        onBlur={() => {
+                          if (requiredFormField) {
+                            setFormFieldErrors(
+                              validateManagedForm(modal.section, formData, modal.mode),
+                            )
+                          }
+                        }}
+                        aria-invalid={!!fieldValidationError}
+                        className={`w-full min-w-0 rounded-xl text-sm outline-none ${isUser || isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: t.text,
                         }}
                       />
                     )}
+                    <FieldError msg={shownFieldError(f.key) || fieldValidationError} />
                   </div>
                   </Fragment>
                 )
@@ -12408,7 +14467,7 @@ function AdminPanel({
               </>
             )}
             {isClient && !isView && clientFormError && (
-              <div className="rounded-xl px-3 py-2.5 text-xs font-medium" style={{ background: `${C.red}10`, color: C.red }}>
+              <div className="rounded-xl px-3 py-2.5 text-xs font-medium sm:col-span-2" style={{ background: `${C.red}10`, color: C.red }}>
                 {clientFormError}
               </div>
             )}
@@ -12428,22 +14487,61 @@ function AdminPanel({
               )
             })()}
             {isView && modal.section === "insumos" && row && (() => {
-              const name = String(row[0]).toLowerCase()
-              const suppliers = [
-                ...new Set(
-                  (rows.compras || [])
-                    .filter((p) => parsePurchaseItems(p[6]).some((item) => item.name.toLowerCase() === name))
-                    .map((p) => String(p[0])),
-                ),
-              ]
+              // Every purchase line of this insumo: what was bought, how much and for how much
+              const name = normalizeName(row[0])
+              const unit = String(row[2] ?? "und")
+              const lines = (rows.compras || []).flatMap((purchase) =>
+                parsePurchaseItems(purchase[6])
+                  .filter((item) => normalizeName(item.name) === name)
+                  .map((item) => ({
+                    supplier: String(purchase[0] ?? ""),
+                    date: String(purchase[1] ?? ""),
+                    annulled: String(purchase[5]) === "Anulado",
+                    quantity: Number(item.quantity) || 0,
+                    unitPrice: Number(item.unitPrice) || 0,
+                    total: item.total,
+                  })),
+              )
+              const active = lines.filter((l) => !l.annulled)
+              const boughtQty = active.reduce((s, l) => s + l.quantity, 0)
+              const boughtValue = active.reduce((s, l) => s + l.total, 0)
+              const dateField = MOD_CFG.compras.fields.find((field) => field.key === "1")!
               return (
                 <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                  <div className="text-xs font-semibold mb-1.5" style={{ color: t.muted }}>
-                    Proveedores que lo han vendido
+                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                      Compras de este insumo
+                    </span>
+                    {active.length > 0 && (
+                      <span className="text-xs" style={{ color: t.muted }}>
+                        Total comprado:{" "}
+                        <strong style={{ color: t.text }}>
+                          {boughtQty.toLocaleString("es-CO")} {unit}
+                        </strong>{" "}
+                        · <strong style={{ color: C.mustard }}>{fmt(boughtValue)}</strong>
+                      </span>
+                    )}
                   </div>
-                  <div style={{ color: t.text }}>
-                    {suppliers.length ? suppliers.join(", ") : "Aún no hay compras registradas de este insumo."}
-                  </div>
+                  {lines.length === 0 ? (
+                    <div style={{ color: t.text }}>Aún no hay compras registradas de este insumo.</div>
+                  ) : (
+                    lines.map((l, i) => (
+                      <div
+                        key={i}
+                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
+                        style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
+                      >
+                        <span className="min-w-0" style={{ color: t.text }}>
+                          <strong>{formatViewValue(dateField, l.date)}</strong> · {l.supplier}
+                          {l.annulled && <span style={{ color: C.red }}> · Anulada</span>}
+                        </span>
+                        <span style={{ color: t.muted }}>
+                          {l.quantity.toLocaleString("es-CO")} {unit} × {fmt(l.unitPrice)} ={" "}
+                          <strong style={{ color: C.mustard }}>{fmt(l.total)}</strong>
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
               )
             })()}
@@ -12510,19 +14608,25 @@ function AdminPanel({
                 </div>
               </div>
             )}
-            {isView && modal.section === "cat-producto" && (
-              <div
-                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
-                style={{ background: t.input }}
-              >
-                Productos en esta categoría:{" "}
-                <strong style={{ color: t.text }}>
-                  {[9, 7, 3, 3, 2, 2, 4, 2][modal.idx! % 8] ?? 4}
-                </strong>
-              </div>
-            )}
+            {isView && modal.section === "cat-producto" && row && (() => {
+              const products = (rows.producto || []).filter(
+                (product) => normalizeName(product[1]) === normalizeName(row[0]),
+              )
+              return (
+                <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
+                  <div className="text-xs font-semibold mb-1.5" style={{ color: t.muted }}>
+                    Productos en esta categoría ({products.length})
+                  </div>
+                  <div style={{ color: t.text }}>
+                    {products.length
+                      ? products.map((product) => String(product[0])).join(", ")
+                      : "Ningún producto usa esta categoría todavía."}
+                  </div>
+                </div>
+              )
+            })()}
             {isView && isProduction && (
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
                 <div className="rounded-xl px-3.5 py-3 sm:col-span-2" style={{ background: t.input }}>
                   <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Productos de la orden</span>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -12570,7 +14674,7 @@ function AdminPanel({
               </div>
             )}
             {isView && isPedido && (
-              <div className="rounded-xl p-4" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+              <div className="rounded-xl p-4 sm:col-span-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
                 <div className="grid gap-2 sm:grid-cols-3">
                   <span className="text-xs" style={{ color: t.muted }}>Estado: <strong style={{ color: t.text }}>{String(row?.[7] ?? "Recibido")}</strong></span>
                   <span className="text-xs" style={{ color: t.muted }}>Pago: <strong style={{ color: String(row?.[8]) === "Pagado" ? "#2E7D60" : C.red }}>{String(row?.[8] ?? "Pendiente")}</strong></span>
@@ -12593,19 +14697,105 @@ function AdminPanel({
                     {!orderDetails.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  disabled={(String(row?.[5]) !== "Contraentrega" && (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) || String(row?.[9]) === "Autorizada"}
-                  onClick={() => approveOrderForProduction(modal.idx!)}
-                  className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ background: C.mustard, color: "#fff" }}
-                >
-                  {String(row?.[9]) === "Autorizada" ? "Producción ya autorizada" : "Confirmar pedido y enviar a producción"}
-                </button>
+                {paymentProofs[modal.idx!] && (
+                  <div className="mt-4">
+                    <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
+                      Comprobante de transferencia
+                    </h4>
+                    <img
+                      src={paymentProofs[modal.idx!]}
+                      alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
+                      className="max-h-64 w-full rounded-xl object-contain"
+                      style={{ background: t.card, border: `1px solid ${t.border}` }}
+                    />
+                  </div>
+                )}
+                {loadOrders().some((order) => order.id === row?.[0]) && (
+                  <label className="mt-4 flex items-center justify-between gap-3 text-xs font-semibold" style={{ color: t.text }}>
+                    Estado del pedido (lo ve el cliente)
+                    <select
+                      value={String(row?.[7] ?? "")}
+                      onChange={(e) => setClientOrderStatus(modal.idx!, e.target.value)}
+                      className="rounded-lg px-3 py-2 text-sm"
+                      style={{ background: t.card, color: t.text, border: `1px solid ${t.border}` }}
+                    >
+                      {[...new Set([String(row?.[7] ?? ""), "Por confirmar", ...ORDER_STEPS, "Cancelado"])]
+                        .filter(Boolean)
+                        .map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+                {loadOrders().some((order) => order.id === row?.[0]) && ORDER_TO_PRODUCTION[String(row?.[7])] && (
+                  <button
+                    type="button"
+                    onClick={() => setClientOrderStatus(modal.idx!, String(row?.[7]))}
+                    className="mt-2 w-full cursor-pointer rounded-xl py-2 text-xs font-bold"
+                    style={{ background: `${C.mustard}14`, color: C.mustard }}
+                  >
+                    Sincronizar producción con «{String(row?.[7])}»
+                  </button>
+                )}
+                {String(row?.[8]) === "Rechazado" && (
+                  <p className="mt-4 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
+                    Transferencia rechazada: {String(row?.[11] || "Sin motivo registrado.")}
+                  </p>
+                )}
+                {isTransferPaymentMethod(String(row?.[4] ?? "")) &&
+                String(row?.[8]) === "Pendiente de verificación" ? (
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentRejectionTarget(modal.idx!)
+                        setPaymentRejectionReason("")
+                        setPaymentRejectionError("")
+                      }}
+                      className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
+                      style={{ background: `${C.red}12`, color: C.red }}
+                    >
+                      Rechazar transferencia
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!paymentProofs[modal.idx!]}
+                      onClick={() => approveOrderForProduction(modal.idx!)}
+                      className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      Aprobar transferencia y enviar a producción
+                    </button>
+                  </div>
+                ) : String(row?.[9]) === "Autorizada" ? (
+                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
+                    Pago aprobado y producción autorizada.
+                  </p>
+                ) : String(row?.[9]) === "Enviada a producción" ? (
+                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
+                    Ya se envió a producción.
+                  </p>
+                ) : String(row?.[8]) !== "Rechazado" && (
+                  <button
+                    type="button"
+                    disabled={
+                      (String(row?.[5]) !== "Contraentrega" &&
+                        (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) ||
+                      ["Autorizada", "Enviada a producción"].includes(String(row?.[9]))
+                    }
+                    onClick={() => approveOrderForProduction(modal.idx!)}
+                    className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ background: C.mustard, color: "#fff" }}
+                  >
+                    Confirmar pedido y enviar a producción
+                  </button>
+                )}
               </div>
             )}
             {isView && isSales && (
-              <div className="rounded-xl p-4" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+              <div className="rounded-xl p-4 sm:col-span-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
                 <h4 className="mb-3 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle de la venta</h4>
                 <div className="flex flex-col gap-2">
                   {saleOrderLines.map((line) => {
@@ -12631,14 +14821,23 @@ function AdminPanel({
             )}
             {/* Roles permissions matrix */}
             {isRoles && !isView && (
-              <RolesPermMatrix roleName={formData["0"] || ""} />
+              <div className="sm:col-span-2">
+                <RolesPermMatrix
+                  roleName={formData["0"] || ""}
+                  permissionKey={
+                    modal.mode === "edit" && row
+                      ? String(row[0] ?? "")
+                      : formData["0"] || ""
+                  }
+                />
+              </div>
             )}
             {isRoles && isView && row && (
               <RolesPermMatrix roleName={String(row[0])} readOnly={true} />
             )}
           </div>
           <div
-            className="px-5 py-4 flex gap-3"
+            className={`px-5 flex gap-3 ${isUser || isRoles ? "py-3" : "py-4"}`}
             style={{ borderTop: `1px solid ${t.border}` }}
           >
             <button
@@ -12810,20 +15009,16 @@ function AdminPanel({
             if (!lossDraft.motivo) return setLossError("Selecciona el motivo de la pérdida.")
             if (!lossDraft.responsable.trim()) return setLossError("Escribe quién es el responsable.")
             if (!lossDraft.fecha) return setLossError("Selecciona la fecha.")
-            setRows((current) => ({
-              ...current,
-              perdidas: [
-                [
-                  lossDraft.insumo,
-                  `${qty} ${lossDraft.unit}`,
-                  lossDraft.motivo,
-                  lossDraft.responsable.trim(),
-                  lossDraft.fecha,
-                  lossDraft.origin,
-                ],
-                ...(current.perdidas || []),
-              ],
-            }))
+            const lossRow: Row = [
+              lossDraft.insumo,
+              `${qty} ${lossDraft.unit}`,
+              lossDraft.motivo,
+              lossDraft.responsable.trim(),
+              lossDraft.fecha,
+              lossDraft.origin,
+            ]
+            setRows((current) => ({ ...current, perdidas: [lossRow, ...(current.perdidas || [])] }))
+            syncRow("perdidas", lossRow, true)
             setPurchaseNotice(
               `Se envió a Pérdida de insumos: ${qty.toLocaleString("es-CO")} ${lossDraft.unit} de «${lossDraft.insumo}» (${lossDraft.motivo}).`,
             )
@@ -12949,6 +15144,19 @@ function AdminPanel({
       color: t.text,
       fontFamily: "Poppins, sans-serif",
     }
+    const updatePncField = (key: string, value: string) => {
+      setPncForm((current) => ({ ...current, [key]: value }))
+      setPncFieldErrors((current) => {
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+      setPncError("")
+    }
+    const pncStyle = (key: string) => ({
+      ...controlStyle,
+      border: `1px solid ${pncFieldErrors[key] ? C.red : t.inputB}`,
+    })
     return (
       <div
         className="fixed inset-0 z-[70] flex items-end justify-center px-3 pb-3 pt-8 sm:items-center sm:px-4 sm:pb-4"
@@ -13001,7 +15209,7 @@ function AdminPanel({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Producto o producto de insumo
+                  Producto o producto de insumo *
                   <select value={pncForm["1"] || ""} onChange={(event) => {
                     const selectedProduct = event.target.value
                     const selectedItem = orderItems.find((item) => item.name === selectedProduct)
@@ -13011,18 +15219,29 @@ function AdminPanel({
                       "2": selectedProduct,
                       "3": String(selectedItem?.quantity ?? current["3"] ?? 1),
                     }))
-                  }} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle}>
+                    setPncFieldErrors((current) => {
+                      const next = { ...current }
+                      delete next["1"]
+                      delete next["2"]
+                      delete next["3"]
+                      return next
+                    })
+                    setPncError("")
+                  }} aria-invalid={!!pncFieldErrors["1"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("1")}>
                     <option value="">Selecciona...</option>
                     {productOptions.map((product) => <option key={product} value={product}>{product}</option>)}
                   </select>
+                  {pncFieldErrors["1"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["1"]}</span>}
                 </label>
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Cantidad
-                  <input type="number" min="1" value={pncForm["3"] || "1"} onChange={(event) => setPncForm((current) => ({ ...current, "3": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                  Cantidad *
+                  <input type="number" min="1" value={pncForm["3"] || "1"} onChange={(event) => updatePncField("3", event.target.value)} aria-invalid={!!pncFieldErrors["3"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("3")} />
+                  {pncFieldErrors["3"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["3"]}</span>}
                 </label>
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold sm:col-span-2" style={{ color: t.muted }}>
-                  Productos que se dañaron
-                  <textarea rows={2} value={pncForm["2"] || ""} onChange={(event) => setPncForm((current) => ({ ...current, "2": event.target.value }))} className="w-full min-w-0 resize-none rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                  Productos que se dañaron *
+                  <textarea rows={2} value={pncForm["2"] || ""} onChange={(event) => updatePncField("2", event.target.value)} aria-invalid={!!pncFieldErrors["2"]} className="w-full min-w-0 resize-none rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("2")} />
+                  {pncFieldErrors["2"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["2"]}</span>}
                 </label>
               </div>
             </section>
@@ -13034,14 +15253,16 @@ function AdminPanel({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Motivo
-                  <select value={pncForm["4"] || "Producto perdido"} onChange={(event) => setPncForm((current) => ({ ...current, "4": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle}>
+                  Motivo *
+                  <select value={pncForm["4"] || "Producto perdido"} onChange={(event) => updatePncField("4", event.target.value)} aria-invalid={!!pncFieldErrors["4"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("4")}>
                     {["Tiempo superado", "Error en preparación", "Ingrediente incorrecto", "Daño físico", "Producto perdido", "Otro"].map((reason) => <option key={reason}>{reason}</option>)}
                   </select>
+                  {pncFieldErrors["4"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["4"]}</span>}
                 </label>
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Fecha del registro
-                  <input type="date" value={pncForm["5"] || ""} onChange={(event) => setPncForm((current) => ({ ...current, "5": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                  Fecha del registro *
+                  <input type="date" value={pncForm["5"] || ""} onChange={(event) => updatePncField("5", event.target.value)} aria-invalid={!!pncFieldErrors["5"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("5")} />
+                  {pncFieldErrors["5"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["5"]}</span>}
                 </label>
               </div>
             </section>
@@ -13069,17 +15290,60 @@ function AdminPanel({
   const QuickClientModal = () => {
     if (!quickClientOpen) return null
     const quickIsLocal = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
+    const updateQuickClientField = (
+      key: string,
+      rawValue: string,
+      validateImmediately = false,
+    ) => {
+      const value =
+        key === "2"
+          ? normalizeDocumentInput(rawValue, quickClientForm["1"] ?? "")
+          : key === "3"
+            ? normalizePhoneInput(rawValue)
+            : rawValue
+      const nextForm = { ...quickClientForm, [key]: value }
+      if (key === "1") {
+        nextForm["2"] = normalizeDocumentInput(
+          nextForm["2"] ?? "",
+          value,
+        )
+      }
+      setQuickClientForm(nextForm)
+      if (validateImmediately || quickClientErrors[key] || quickClientError) {
+        const isLocal = String(nextForm["6"] ?? "").toLowerCase() === "sí"
+        const required =
+          key === "0" || key === "1" || key === "2" || key === "3" ||
+          (!isLocal && (key === "4" || key === "5"))
+        let error = required && !value.trim() ? "Este campo es obligatorio." : ""
+        if (!error && key === "2" && value.trim()) {
+          error = validateDocumentNumber(value, nextForm["1"] ?? "")
+        }
+        if (!error && key === "3" && value.trim()) error = validatePhoneNumber(value)
+        if (!error && key === "4" && value.trim() && !EMAIL_PATTERN.test(value.trim())) {
+          error = "Escribe un correo electrónico válido."
+        }
+        setQuickClientErrors((current) => {
+          const updated = { ...current }
+          if (error) updated[key] = error
+          else delete updated[key]
+          return updated
+        })
+        if (!error) setQuickClientError("")
+      }
+    }
     const field = (key: string, label: string, type = "text", options?: string[]) => (
       <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-        {label}
+        {label}{(key === "0" || key === "1" || key === "2" || key === "3" ||
+          (!quickIsLocal && (key === "4" || key === "5"))) && " *"}
         {options ? (
-          <select value={quickClientForm[key] || ""} onChange={(event) => setQuickClientForm((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}>
+          <select value={quickClientForm[key] || ""} onBlur={() => updateQuickClientField(key, quickClientForm[key] || "", true)} onChange={(event) => updateQuickClientField(key, event.target.value)} aria-invalid={!!quickClientErrors[key]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${quickClientErrors[key] ? C.red : t.inputB}`, color: t.text }}>
             <option value="">Selecciona...</option>
             {options.map((option) => <option key={option}>{option}</option>)}
           </select>
         ) : (
-          <input type={type} value={quickClientForm[key] || ""} onChange={(event) => setQuickClientForm((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
+          <input type={type} inputMode={key === "2" || key === "3" ? "numeric" : undefined} value={quickClientForm[key] || ""} onBlur={() => updateQuickClientField(key, quickClientForm[key] || "", true)} onChange={(event) => updateQuickClientField(key, event.target.value)} aria-invalid={!!quickClientErrors[key]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${quickClientErrors[key] ? C.red : t.inputB}`, color: t.text }} />
         )}
+        {quickClientErrors[key] && <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>{quickClientErrors[key]}</span>}
       </label>
     )
     return (
@@ -13100,7 +15364,16 @@ function AdminPanel({
               type="button"
               role="checkbox"
               aria-checked={quickIsLocal}
-              onClick={() => setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))}
+              onClick={() => {
+                setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))
+                setQuickClientErrors((current) => {
+                  const next = { ...current }
+                  if (quickIsLocal) return next
+                  delete next["4"]
+                  delete next["5"]
+                  return next
+                })
+              }}
               className="flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 text-left sm:col-span-2"
               style={{ background: t.input, border: `1px solid ${t.inputB}` }}
             >
@@ -13188,6 +15461,76 @@ function AdminPanel({
                 Anular
               </button>
             )}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const PaymentRejectionModal = () => {
+    if (paymentRejectionTarget === null) return null
+    const order = rows.pedidos?.[paymentRejectionTarget]
+    if (!order) return null
+
+    return (
+      <div
+        className="fixed inset-0 z-[70] flex items-center justify-center px-4"
+        style={{ background: "rgba(0,0,0,0.65)" }}
+        onClick={() => setPaymentRejectionTarget(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="payment-rejection-title"
+          className="w-full max-w-md rounded-2xl p-5"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h3 id="payment-rejection-title" className="text-base font-bold" style={{ color: t.text }}>
+            Rechazar transferencia
+          </h3>
+          <p className="mt-2 text-sm" style={{ color: t.muted }}>
+            El pedido {String(order[0])} no se enviará a producción. Escribe el motivo para que quede guardado en el pedido.
+          </p>
+          <textarea
+            autoFocus
+            rows={3}
+            value={paymentRejectionReason}
+            onChange={(event) => {
+              setPaymentRejectionReason(event.target.value)
+              setPaymentRejectionError("")
+            }}
+            placeholder="Ej.: comprobante no válido o pago no recibido"
+            aria-label="Motivo del rechazo"
+            className="mt-4 w-full resize-none rounded-xl px-3 py-2.5 text-sm outline-none"
+            style={{
+              background: t.input,
+              border: `1px solid ${paymentRejectionError ? C.red : t.inputB}`,
+              color: t.text,
+            }}
+          />
+          {paymentRejectionError && (
+            <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
+              {paymentRejectionError}
+            </p>
+          )}
+          <div className="mt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={() => setPaymentRejectionTarget(null)}
+              className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
+              style={{ background: t.input, color: t.muted }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={rejectTransferPayment}
+              className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
+              style={{ background: C.red, color: "#fff" }}
+            >
+              Confirmar rechazo
+            </button>
           </div>
         </div>
       </div>
@@ -13303,7 +15646,7 @@ function AdminPanel({
         className="flex-1 overflow-y-auto py-3 px-2"
         style={{ scrollbarWidth: "none" }}
       >
-        {SIDEBAR_MENU.map((g) => {
+        {visibleMenu.map((g) => {
           const leaf = g.children.length === 0
           const active = leaf && section === g.key
           const anyChild = g.children.some((c) => c.key === section)
@@ -13708,6 +16051,7 @@ function AdminPanel({
       <ProductionPncModal />
       <QuickClientModal />
       <AnulModal />
+      <PaymentRejectionModal />
       <DelModal />
       {showAdminProfile && user && (
         <AdminProfilePage
@@ -13739,6 +16083,14 @@ export default function App() {
 
   useEffect(() => saveLS("cart", cart), [cart])
 
+  // Menu comes from the backend; if it can't be reached, the built-in PRODUCTS stay
+  const [, setMenuVersion] = useState(0)
+  useEffect(() => {
+    loadMenu()
+      .then(() => setMenuVersion((v) => v + 1))
+      .catch((err) => console.warn("No se pudo cargar el menú del backend:", err))
+  }, [])
+
   // Listen for admin user updates from the AdminProfilePage
   useEffect(() => {
     const handler = (e: Event) => {
@@ -13750,6 +16102,18 @@ export default function App() {
     return () => window.removeEventListener("admin-user-updated", handler)
   }, [])
 
+  // Orders come from the backend; the panel opens once they're loaded
+  const [ordersLoadedFor, setOrdersLoadedFor] = useState("")
+  useEffect(() => {
+    if (!user) return
+    refreshOrders(user.role)
+      .catch((err) => console.warn("No se pudieron cargar los pedidos del backend:", err))
+      .finally(() => {
+        setOrdersLoadedFor(user.email)
+        setOrdersVersion((v) => v + 1)
+      })
+  }, [user?.email, user?.role])
+
   // Re-read on every render so status changes made in the admin panel show up
   const orders = user
     ? loadOrders().filter((o) => o.email === user.email)
@@ -13759,14 +16123,30 @@ export default function App() {
   const updateUser = (u: User) => {
     setUser(u)
     saveLS(`profile:${u.email.toLowerCase()}`, u)
+    saveRegisteredClient(u)
+    // Name, document, phone and addresses live in the backend (the photo stays in this browser)
+    if (loadLS("token", ""))
+      api("/auth/me", "PATCH", {
+        nombre: u.name,
+        tipo_documento: u.docType,
+        documento: u.cedula,
+        telefono: u.phone,
+        direcciones: u.addresses,
+      }).catch((err) => console.warn("No se pudo guardar el perfil en el backend:", err))
   }
   const login = (u: User, next: Page = "app") => {
     const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
-    updateUser(saved ? { ...u, ...saved, role: u.role } : u)
+    // What the backend has wins; the browser copy only fills the gaps (e.g. the photo)
+    const fromBackend = Object.fromEntries(Object.entries(u).filter(([, v]) => v !== undefined)) as User
+    const authenticatedUser = saved ? { ...saved, ...fromBackend, password: undefined } : u
+    updateUser(authenticatedUser)
     setClientView("menu")
     setPage(next)
   }
   const logout = () => {
+    localStorage.removeItem("token")
+    localStorage.removeItem("orders") // may hold every customer's orders (admin)
+    setOrdersLoadedFor("")
     setUser(null)
     setPage("landing")
   }
@@ -13774,8 +16154,11 @@ export default function App() {
     saveOrders(fn(loadOrders()))
     setOrdersVersion((v) => v + 1)
   }
+  // The backend puts a rejected payment back to "Pendiente de verificación"
   const setVoucher = (id: string, voucher: string) =>
-    updateOrders((os) => os.map((o) => (o.id === id ? { ...o, voucher } : o)))
+    api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobante`, "PATCH", { comprobante: voucher })
+      .then((p) => updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o))))
+      .catch((err) => window.alert(`No se pudo subir el comprobante: ${(err as Error).message}`))
   const goCheckout = () => {
     setPage("checkout")
   }
@@ -13786,7 +16169,7 @@ export default function App() {
   if (page === "login")
     return (
       <LoginPage
-        onLogin={login}
+        onLogin={(u) => login(u, u.role === "admin" ? "admin" : "app")}
         onRegister={() => setPage("register")}
         onForgot={() => setPage("forgot")}
         onBack={() => setPage("landing")}
@@ -13797,6 +16180,7 @@ export default function App() {
       <RegisterPage
         onVerify={(u) => {
           saveLS(`profile:${u.email}`, u)
+          saveRegisteredClient(u)
           setPage("login")
         }}
         onLoginLink={() => setPage("login")}
@@ -13831,9 +16215,12 @@ export default function App() {
         setCart={setCart}
         user={user}
         onLogin={(u) => login(u, "checkout")}
-        onRegisterVerified={(u) => login(u, "checkout")}
+        onRegisterVerified={(u) => {
+          saveRegisteredClient(u)
+          login(u, "checkout")
+        }}
         onBack={() => setPage(user ? "app" : "landing")}
-        onPlaceOrder={(info, shouldSaveAddress) => {
+        onPlaceOrder={async (info, shouldSaveAddress) => {
           if (!user) return
           if (shouldSaveAddress) {
             const normalizedAddress = info.direccion.trim()
@@ -13847,22 +16234,24 @@ export default function App() {
               ],
             })
           }
-          updateOrders((os) => [
-            {
-              ...info,
-              email: user.email,
-              cliente: user.name,
-              id: `PED-${Date.now().toString().slice(-6)}`,
-              date: new Date().toLocaleString("es-CO", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              }),
-              items: cart.filter((item) => item.qty > 0),
-              total: cartTotal(cart),
-              status: cartTotal(cart) >= APPROVAL_MIN ? "Por confirmar" : "Recibido",
-            },
-            ...os,
-          ])
+          // The backend prices the order with the menu in the database and sets its status
+          const created = await api<DbRecord>("/pedidos", "POST", {
+            nombre: info.nombre,
+            telefono: info.telefono,
+            direccion: info.direccion,
+            notas: info.notas,
+            pago: info.pago,
+            comprobante: info.voucher,
+            items: cart
+              .filter((item) => item.qty > 0)
+              .map((item) => ({
+                producto: item.name,
+                cantidad: item.qty,
+                salsas: item.sauces || [],
+                adiciones: (item.additions || []).map((a) => ({ nombre: a.name, cantidad: a.qty })),
+              })),
+          })
+          updateOrders((os) => [orderFromDb(created), ...os])
           setCart([])
         }}
         onComplete={() => {
@@ -13897,7 +16286,13 @@ export default function App() {
         onVoucher={setVoucher}
       />
     )
-  if (page === "admin")
+  if (page === "admin" && user?.role === "admin" && ordersLoadedFor !== user.email)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.mustard }}>
+        Cargando pedidos…
+      </div>
+    )
+  if (page === "admin" && user?.role === "admin")
     return (
       <AdminPanel
         onSwitchToClient={() => setPage(user ? "app" : "landing")}
@@ -13908,18 +16303,8 @@ export default function App() {
   return (
     <LandingPage
       onLogin={() => setPage("login")}
-      onAdmin={() => {
-        // Create a default admin user if none exists
-        if (!user) {
-          const adminUser: User = {
-            name: "Admin Parche",
-            email: "admin@parche.co",
-            role: "admin",
-          }
-          updateUser(adminUser)
-        }
-        setPage("admin")
-      }}
+      // The admin panel needs a real admin login (the backend checks its token)
+      onAdmin={() => setPage(user?.role === "admin" ? "admin" : "login")}
       onGuestMenu={goGuestMenu}
       onCheckout={goCheckout}
       cart={cart}
