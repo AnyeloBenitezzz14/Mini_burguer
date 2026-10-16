@@ -34,6 +34,8 @@
 
 html {
   scroll-behavior: smooth;
+  /* keep anchors / scrollIntoView below the sticky headers */
+  scroll-padding-top: 80px;
   max-width: 100%;
   overflow-x: hidden;
 }
