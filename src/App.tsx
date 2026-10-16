@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react"
+import { Fragment, useState, useRef, useEffect, useCallback } from "react"
 import logoImg from "@/imports/Gemini_Generated_Image_ei2okyei2okyei2o-Photoroom.png"
 import qrImg from "@/imports/image-4.png"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "app" | "admin"
+type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "first-password" | "app" | "admin"
 type AdminSection = "dashboard" | "roles" | "usuarios" | "cat-insumos" | "insumos" | "proveedores" | "compras" | "perdidas" | "cat-producto" | "producto" | "produccion" | "producto-no-conforme" | "clientes" | "ventas" | "pedidos" | "devoluciones"
 type Theme = "light" | "dark"
 type User = {
@@ -11,13 +11,20 @@ type User = {
   email: string
   role: "admin" | "user"
   cedula?: string
+  docType?: string
   phone?: string
   addresses?: string[]
   photo?: string
+  password?: string
+  // Backend modules this user may see (VER), from the login. Undefined = everything.
+  permissions?: string[]
+  requiresPasswordChange?: boolean
 }
+type RegisteredClient = Pick<User, "name" | "email" | "cedula" | "docType" | "phone">
 type CartItem = {
   id: number
   name: string
+  description?: string
   price: number
   qty: number
   img: string
@@ -40,12 +47,18 @@ type Order = DeliveryInfo & {
   items: CartItem[]
   total: number
   status: string
+  paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Pagado" | "Rechazado"
+  paymentRejectionReason?: string
+  productionAuthorized?: boolean
+  productionRecords?: (string | number)[][]
 }
+const isTransferPaymentMethod = (method: string) =>
+  ["transferencia", "nequi", "daviplata"].includes(method.trim().toLowerCase())
 type ModalMode = "add" | "edit" | "view" | null
 type FieldType = {
   key: string
   label: string
-  type: "text" | "email" | "tel" | "number" | "select" | "textarea" | "date" | "time" | "image" | "checkbox"
+  type: "text" | "email" | "tel" | "number" | "select" | "textarea" | "date" | "time" | "image" | "checkbox" | "password"
   options?: string[]
 }
 type Product = {
@@ -57,6 +70,26 @@ type Product = {
   img: string
   cat: string
   badge: string
+}
+type TechnicalIngredient = {
+  name: string
+  quantity: number
+  unit: string
+}
+type AdminOrderLine = {
+  id: string
+  product: string
+  category: string
+  quantity: number
+  unitPrice: number
+  parentId?: string
+}
+type ProductionItem = {
+  name: string
+  quantity: number
+  unit?: string
+  category?: string
+  parentId?: string
 }
 
 // ── Brand ──────────────────────────────────────────────────────────────────────
@@ -78,6 +111,45 @@ const DOC_TYPES = [
   "Pasaporte",
   "Tarjeta de Identidad",
 ]
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+const digitsOnly = (value: string) => value.replace(/\D/g, "")
+const normalizeDocumentInput = (value: string, docType: string) => {
+  if (docType === "Pasaporte") return value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)
+  if (docType === "NIT") return value.replace(/[^0-9.-]/g, "").slice(0, 20)
+  return digitsOnly(value).slice(0, 15)
+}
+const normalizeAccountDocumentInput = (value: string, docType: string) =>
+  docType === "NIT"
+    ? value.replace(/[^0-9-]/g, "").slice(0, 10)
+    : docType
+      ? normalizeDocumentInput(value, docType).slice(0, 10)
+      : value.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 10)
+const normalizePhoneInput = (value: string) =>
+  value.replace(/[^0-9+()\s-]/g, "").slice(0, 20)
+const validateDocumentNumber = (value: string, docType: string) => {
+  const document = value.trim()
+  if (!document) return "Este campo es obligatorio."
+  if (docType === "Pasaporte") {
+    return /^[A-Za-z0-9]{5,20}$/.test(document)
+      ? ""
+      : "Escribe un número de pasaporte válido."
+  }
+  if (docType === "NIT") {
+    const digits = digitsOnly(document)
+    return /^[\d.-]+$/.test(document) && digits.length >= 8 && digits.length <= 15
+      ? ""
+      : "Escribe un NIT válido."
+  }
+  return /^\d{5,15}$/.test(document)
+    ? ""
+    : "Usa solo números (de 5 a 15 dígitos)."
+}
+const validatePhoneNumber = (value: string) => {
+  const digits = digitsOnly(value)
+  return digits.length >= 7 && digits.length <= 15
+    ? ""
+    : "Escribe un teléfono válido (de 7 a 15 dígitos)."
+}
 const SAUCES = [
   "Salsa de la casa",
   "Tártara",
@@ -100,6 +172,20 @@ const ADDITIONS = [
   { name: "Cebolla", price: 8000 },
   { name: "1 Huevo", price: 900 },
   { name: "5 Huevos", price: 4000 },
+]
+const BEVERAGES = [
+  "Coca-Cola",
+  "Manzana",
+  "Colombiana",
+  "Uva",
+  "Pepsi",
+  "Naranja",
+]
+const BEVERAGE_SIZES = [
+  { id: "personal", label: "Personal", price: 3000 },
+  { id: "1.5L", label: "1.5 L", price: 7000 },
+  { id: "2.25L", label: "2.25 L", price: 9000 },
+  { id: "3L", label: "3 L", price: 12000 },
 ]
 
 // ── Products ───────────────────────────────────────────────────────────────────
@@ -140,7 +226,7 @@ const PRODUCTS: Product[] = [
     desc: "Porción mediana especial con carne y vegetales.",
     price: 15500,
     priceStr: "$15.500",
-    img: "https://images.unsplash.com/photo-1603073163308-9654c3fb70b5?w=500&h=400&fit=crop",
+    img: "https://images.unsplash.com/photo-1550547660-d9450f859349?w=500&h=400&fit=crop",
     cat: "hamburguesas",
     badge: "",
   },
@@ -185,18 +271,8 @@ const PRODUCTS: Product[] = [
     badge: "Nueva",
   },
   {
-    id: 9,
-    name: "Atún",
-    desc: "Atún premium con queso cheddar y tocineta crujiente.",
-    price: 17500,
-    priceStr: "$17.500",
-    img: "https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=500&h=400&fit=crop",
-    cat: "hamburguesas",
-    badge: "",
-  },
-  {
     id: 10,
-    name: "Mediano",
+    name: "Perro Mediano",
     desc: "Salchicha mediana, papitas fosforito y salsas.",
     price: 14500,
     priceStr: "$14.500",
@@ -210,7 +286,7 @@ const PRODUCTS: Product[] = [
     desc: "Salchicha grande, papitas y salsas variadas.",
     price: 15500,
     priceStr: "$15.500",
-    img: "https://images.unsplash.com/photo-1612392062631-94f04cbc4aa3?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/45/Hot_dog_XXL.jpg/500px-Hot_dog_XXL.jpg",
     cat: "perros",
     badge: "",
   },
@@ -220,17 +296,17 @@ const PRODUCTS: Product[] = [
     desc: "Salchicha especial, tocineta, queso y salsas.",
     price: 17500,
     priceStr: "$17.500",
-    img: "https://images.unsplash.com/photo-1559729887-3e8a3eea4a37?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b6/Hot_dog_gourmet.jpg/500px-Hot_dog_gourmet.jpg",
     cat: "perros",
     badge: "Favorito",
   },
   {
     id: 13,
-    name: "Pequeña",
+    name: "Perra Pequeña",
     desc: "Tocino/tocineta, queso y salsas.",
     price: 14500,
     priceStr: "$14.500",
-    img: "https://images.unsplash.com/photo-1526374870839-e155464bb9b2?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cb/Hot_dog_with_bacon_and_cheese_and_dressed_with_ketchup_and_mustard_from_Five_Guys_1.jpg/500px-Hot_dog_with_bacon_and_cheese_and_dressed_with_ketchup_and_mustard_from_Five_Guys_1.jpg",
     cat: "perras",
     badge: "",
   },
@@ -240,7 +316,7 @@ const PRODUCTS: Product[] = [
     desc: "Porción grande de tocineta, queso y salsas.",
     price: 15500,
     priceStr: "$15.500",
-    img: "https://images.unsplash.com/photo-1565299507177-b0ac66763828?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/70/Texas_Tommy_from_Ishkabibble%27s%2C_Philadelphia.jpg/500px-Texas_Tommy_from_Ishkabibble%27s%2C_Philadelphia.jpg",
     cat: "perras",
     badge: "",
   },
@@ -250,77 +326,77 @@ const PRODUCTS: Product[] = [
     desc: "Tocineta extra, queso gratinado y salsas de la casa.",
     price: 17600,
     priceStr: "$17.600",
-    img: "https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/49/Chili_dog_topped_with_bacon.jpg/500px-Chili_dog_topped_with_bacon.jpg",
     cat: "perras",
     badge: "Especial",
   },
   {
     id: 16,
-    name: "Sencilla",
+    name: "Salchipapa Sencilla",
     desc: "Papas a la francesa doradas y salchicha premium.",
     price: 13000,
     priceStr: "$13.000",
-    img: "https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9e/Salchipapas_20220704_121159.jpg/500px-Salchipapas_20220704_121159.jpg",
     cat: "salchipapas",
     badge: "",
   },
   {
     id: 17,
-    name: "Especial",
+    name: "Salchipapa Especial",
     desc: "Papas, salchicha, queso fundido y tocineta crujiente.",
     price: 16000,
     priceStr: "$16.000",
-    img: "https://images.unsplash.com/photo-1585325701956-60dd9c8399f0?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0c/Salchipapa_Jaime.jpg/500px-Salchipapa_Jaime.jpg",
     cat: "salchipapas",
     badge: "",
   },
   {
     id: 18,
-    name: "Mega",
+    name: "Salchipapa Mega",
     desc: "Papas, salchicha, 3 huevos, 1 nugget, queso, carne y tocineta.",
     price: 20000,
     priceStr: "$20.000",
-    img: "https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=500&h=400&fit=crop",
+    img: "https://upload.wikimedia.org/wikipedia/commons/8/81/Salchipapa_especial.jpg",
     cat: "salchipapas",
     badge: "Mega",
   },
   {
     id: 19,
-    name: "Mega Gourmet",
+    name: "Salchipapa Mega Gourmet",
     desc: "Papas, salchicha, 3 huevos, pollo, cerdo, jamón, maicitos y queso.",
     price: 23000,
     priceStr: "$23.000",
-    img: "https://images.unsplash.com/photo-1596560548464-f010549b84d7?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ea/Salchipapa_Coste%C3%B1o.jpg/500px-Salchipapa_Coste%C3%B1o.jpg",
     cat: "salchipapas",
     badge: "Gourmet",
   },
   {
     id: 20,
-    name: "Mega Gourmet Q+T",
+    name: "Salchipapa Mega Gourmet Q+T",
     desc: "Mega Gourmet con extra de queso y tocineta gratinada.",
     price: 27000,
     priceStr: "$27.000",
-    img: "https://images.unsplash.com/photo-1542574271-7f3b92e6c821?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2e/Salchipapa_Coste%C3%B1a.jpg/500px-Salchipapa_Coste%C3%B1a.jpg",
     cat: "salchipapas",
     badge: "",
   },
   {
     id: 21,
-    name: "Esp. Gourmet Pers.",
+    name: "Salchipapa Gourmet Personal",
     desc: "Porción personal gourmet con carnes mixtas y maicitos.",
     price: 20500,
     priceStr: "$20.500",
-    img: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=500&h=400&fit=crop",
+    img: "https://upload.wikimedia.org/wikipedia/commons/5/5c/Salchipapas_Plaza_de_Armas.jpg",
     cat: "salchipapas",
     badge: "",
   },
   {
     id: 22,
-    name: "Super Gourmet",
+    name: "Salchipapa Super Gourmet",
     desc: "Papas, salchicha, pollo, jamón, maicitos, queso, tocineta y carne.",
     price: 33000,
     priceStr: "$33.000",
-    img: "https://images.unsplash.com/photo-1629108773466-2e8028bbb5f1?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/65/Salchipapa_Coste%C3%B1o_4.jpg/500px-Salchipapa_Coste%C3%B1o_4.jpg",
     cat: "salchipapas",
     badge: "Super",
   },
@@ -330,7 +406,7 @@ const PRODUCTS: Product[] = [
     desc: "Pollo, arepa artesanal, ensalada fresca y papas.",
     price: 19000,
     priceStr: "$19.000",
-    img: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c2/Skewered_Chicken_Thighs.jpg/500px-Skewered_Chicken_Thighs.jpg",
     cat: "chuzos",
     badge: "",
   },
@@ -340,7 +416,7 @@ const PRODUCTS: Product[] = [
     desc: "Cerdo a la parrilla, arepa, ensalada y papas.",
     price: 19000,
     priceStr: "$19.000",
-    img: "https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/61/DFC_4715_Sizzling_skewers_of_grilled_pork_served_with_crispy_fries_and_a_cool_tzatziki_dip_-_comfort_food_done_right.jpg/500px-DFC_4715_Sizzling_skewers_of_grilled_pork_served_with_crispy_fries_and_a_cool_tzatziki_dip_-_comfort_food_done_right.jpg",
     cat: "chuzos",
     badge: "",
   },
@@ -350,7 +426,7 @@ const PRODUCTS: Product[] = [
     desc: "Res, pollo, cerdo, queso, tocineta o salchicha.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1601924638867-3a6de6b7a500?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Tostones_con_salami.jpg/500px-Tostones_con_salami.jpg",
     cat: "patacones",
     badge: "",
   },
@@ -360,7 +436,7 @@ const PRODUCTS: Product[] = [
     desc: "Estilo ranchero con todos los toppings de la casa.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1739488078567-064495f2af9e?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/Tostones_rellenos_con_camarones.jpg/500px-Tostones_rellenos_con_camarones.jpg",
     cat: "patacones",
     badge: "",
   },
@@ -370,7 +446,7 @@ const PRODUCTS: Product[] = [
     desc: "Arepa artesanal con carne y salsas de la casa.",
     price: 14000,
     priceStr: "$14.000",
-    img: "https://images.unsplash.com/photo-1512058564366-18510be2db19?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/48/Chorizo_Arepa.jpg/500px-Chorizo_Arepa.jpg",
     cat: "arepa-burger",
     badge: "",
   },
@@ -380,7 +456,7 @@ const PRODUCTS: Product[] = [
     desc: "Arepa con carne, queso y adiciones seleccionadas.",
     price: 15000,
     priceStr: "$15.000",
-    img: "https://images.unsplash.com/photo-1547584370-2cc98b8b8dc8?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a7/Bacon_%26_Fried_Onion_Arepa.jpg/500px-Bacon_%26_Fried_Onion_Arepa.jpg",
     cat: "arepa-burger",
     badge: "",
   },
@@ -390,7 +466,7 @@ const PRODUCTS: Product[] = [
     desc: "Arepa con carne gourmet, queso especial y tocineta.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1529193591184-b1d58069ecdd?w=500&h=400&fit=crop",
+    img: "https://upload.wikimedia.org/wikipedia/commons/d/d9/Colombian_Food%2C_Arepas.jpg",
     cat: "arepa-burger",
     badge: "Gourmet",
   },
@@ -400,7 +476,7 @@ const PRODUCTS: Product[] = [
     desc: "Arepa con carne desmechada especial de la casa.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1601924638867-3a6de6b7a500?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d8/Arepa_de_carne_mechada.jpg/500px-Arepa_de_carne_mechada.jpg",
     cat: "arepa-burger",
     badge: "",
   },
@@ -410,7 +486,7 @@ const PRODUCTS: Product[] = [
     desc: "Rellena de pollo, cerdo o res a elección.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=500&h=400&fit=crop",
+    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/45/El_Humero_-_arepa_rellena.jpg/500px-El_Humero_-_arepa_rellena.jpg",
     cat: "arepa-rellena",
     badge: "",
   },
@@ -420,22 +496,22 @@ const PRODUCTS: Product[] = [
     desc: "Rellena de queso fundido y tocineta crujiente.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://images.unsplash.com/photo-1629108773466-2e8028bbb5f1?w=500&h=400&fit=crop",
+    img: "https://upload.wikimedia.org/wikipedia/commons/f/fb/Tri-rellena.jpg",
     cat: "arepa-rellena",
     badge: "",
   },
 ]
 
 const MENU_CATS = [
-  { id: "todos", label: "Todos", emoji: "🍽️" },
-  { id: "hamburguesas", label: "Hamburguesas", emoji: "🍔" },
-  { id: "perros", label: "Perros Cal.", emoji: "🌭" },
-  { id: "perras", label: "Perras", emoji: "🌭" },
-  { id: "salchipapas", label: "Salchipapas", emoji: "🍟" },
-  { id: "chuzos", label: "Chuzos", emoji: "🍢" },
-  { id: "patacones", label: "Patacones", emoji: "🫓" },
-  { id: "arepa-burger", label: "Arepa Burger", emoji: "🫔" },
-  { id: "arepa-rellena", label: "Arepa Rellena", emoji: "🫔" },
+  { id: "todos", label: "Todos", icon: "dashboard" },
+  { id: "hamburguesas", label: "Hamburguesas", icon: "burger" },
+  { id: "perros", label: "Perros Cal.", icon: "chef" },
+  { id: "perras", label: "Perras", icon: "chef" },
+  { id: "salchipapas", label: "Salchipapas", icon: "shopping" },
+  { id: "chuzos", label: "Chuzos", icon: "chef" },
+  { id: "patacones", label: "Patacones", icon: "star" },
+  { id: "arepa-burger", label: "Arepa Burger", icon: "burger" },
+  { id: "arepa-rellena", label: "Arepa Rellena", icon: "shopping" },
 ]
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
@@ -543,6 +619,20 @@ const Ico = {
     >
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
       <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+  eyeOff: (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+    >
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
+      <line x1="1" y1="1" x2="23" y2="23" />
     </svg>
   ),
   edit: (
@@ -943,6 +1033,55 @@ const Ico = {
       <polyline points="20 6 9 17 4 12" />
     </svg>
   ),
+  burger: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 10a9 7 0 0118 0" />
+      <path d="M3 11h18M4 14h16M5 17h14" />
+      <path d="M4 19h16a2 2 0 002-2v-1H2v1a2 2 0 002 2z" />
+    </svg>
+  ),
+  phone: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.8 19.8 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.8 19.8 0 012.12 4.2 2 2 0 014.11 2h3a2 2 0 012 1.72l.45 3.02a2 2 0 01-.57 1.7L7.1 10.33a16 16 0 006 6l1.89-1.89a2 2 0 011.7-.57l3.02.45a2 2 0 011.72 2z" />
+    </svg>
+  ),
+  mail: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m22 7-10 6L2 7" />
+    </svg>
+  ),
+  target: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1" />
+      <path d="m16 8 5-5M17 3h4v4" />
+    </svg>
+  ),
+  delivery: (
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="7" cy="18" r="2.5" />
+      <circle cx="18" cy="18" r="2.5" />
+      <path d="M4.5 18H3V6h11v12M14 10h4l3 4v4h-.5M14 14h7M7 15.5V10h7" />
+    </svg>
+  ),
+  leaf: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 4c-8 0-14 2.5-14 9a7 7 0 007 7c6.5 0 7-8 7-16z" />
+      <path d="M4 21c2.5-5 6-8 12-11" />
+    </svg>
+  ),
+}
+
+const getMenuCategoryIcon = (name: string) => {
+  switch (name) {
+    case "burger": return Ico.burger
+    case "chef": return Ico.chef
+    case "shopping": return Ico.shopping
+    case "star": return Ico.star
+    default: return Ico.dashboard
+  }
 }
 
 // ── Theme tokens ───────────────────────────────────────────────────────────────
@@ -1027,6 +1166,33 @@ function fmt(n: number) {
   return `$${n.toLocaleString("es-CO")}`
 }
 
+// Document numbers compared without dots, dashes, spaces or case ("1.012.345" === "1012345")
+function normalizeDocument(value: string | number | undefined) {
+  return String(value ?? "").replace(/[^0-9a-z]/gi, "").toLowerCase()
+}
+
+// Compare names ignoring case, accents and extra spaces ("Cárnes " === "carnes")
+function normalizeName(value: string | number | undefined) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+// Menu category ids (PRODUCTS[].cat) → product category names used in the admin
+const PRODUCT_CAT_LABEL: Record<string, string> = {
+  hamburguesas: "Hamburguesas",
+  perros: "Perros Calientes",
+  perras: "Perras",
+  salchipapas: "Salchipapas",
+  chuzos: "Chuzos",
+  patacones: "Patacones",
+  "arepa-burger": "Arepa Burger",
+  "arepa-rellena": "Arepa Rellena",
+}
+
 // ── Admin config ───────────────────────────────────────────────────────────────
 type ModConfig = {
   columns: string[]
@@ -1073,12 +1239,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "0", label: "Nombre del rol", type: "text" },
       { key: "1", label: "Descripción", type: "textarea" },
     ],
-    seed: [
-      ["Administrador", "Acceso total al sistema", "Activo"],
-      ["Empleado", "Gestión interna del restaurante", "Activo"],
-      ["Domiciliario", "Gestión de entregas a domicilio", "Activo"],
-      ["Cliente", "Acceso a pedidos y seguimiento de compras", "Activo"],
-    ],
+    seed: [],
     noExport: true,
     noDelete: true,
     statusIndex: 2,
@@ -1086,7 +1247,6 @@ const MOD_CFG: Record<string, ModConfig> = {
   usuarios: {
     columns: ["Nombre", "Tipo Doc.", "Documento", "Rol", "Correo", "Estado"],
     fields: [
-      { key: "0", label: "Nombre completo", type: "text" },
       {
         key: "1",
         label: "Tipo de documento",
@@ -1100,6 +1260,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         ],
       },
       { key: "2", label: "Número de documento", type: "text" },
+      { key: "0", label: "Nombre completo", type: "text" },
       {
         key: "3",
         label: "Rol",
@@ -1107,41 +1268,12 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Empleado", "Domiciliario", "Cliente", "Administrador"],
       },
       { key: "4", label: "Correo electrónico", type: "email" },
-      { key: "6", label: "Contraseña", type: "text" },
+      { key: "6", label: "Contraseña", type: "password" },
     ],
-    seed: [
-      [
-        "Admin Parche",
-        "Cédula de Ciudadanía",
-        "12345678",
-        "Administrador",
-        "admin@parche.co",
-        "Activo",
-        "Demo123*",
-      ],
-      [
-        "Juan Rúa",
-        "Cédula de Ciudadanía",
-        "98765432",
-        "Empleado",
-        "juan@parche.co",
-        "Activo",
-        "Demo123*",
-      ],
-      [
-        "María Gómez",
-        "Cédula de Ciudadanía",
-        "45678901",
-        "Domiciliario",
-        "maria@parche.co",
-        "Activo",
-        "Demo123*",
-      ],
-    ],
+    seed: [],
     noExport: true,
-    noDelete: true,
     statusIndex: 5,
-    hiddenCellIndexes: [6],
+    hiddenCellIndexes: [6, 8],
   },
   "cat-insumos": {
     columns: ["Nombre Categoría", "Descripción", "Estado"],
@@ -1149,15 +1281,8 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "0", label: "Nombre categoría", type: "text" },
       { key: "1", label: "Descripción", type: "textarea" },
     ],
-    seed: [
-      ["Carnes", "Carnes y proteínas cárnicas", "Activa"],
-      ["Lácteos", "Quesos y derivados lácteos", "Activa"],
-      ["Verduras", "Vegetales y hortalizas", "Activa"],
-      ["Panes", "Panes y masas artesanales", "Activa"],
-      ["Salsas", "Salsas y aderezos", "Activa"],
-    ],
+    seed: [],
     noExport: true,
-    noDelete: true,
     statusIndex: 2,
   },
   insumos: {
@@ -1186,20 +1311,14 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "3", label: "Costo unitario", type: "number" },
       { key: "4", label: "Stock actual", type: "number" },
       { key: "5", label: "Stock mínimo", type: "number" },
-      { key: "6", label: "Stock máximo", type: "number" },
+      // row[6] (old "Stock máximo") is no longer used; kept so later indexes don't shift
       { key: "7", label: "Producto de insumo", type: "checkbox" },
       { key: "8", label: "Nombre de la ficha técnica", type: "text" },
       { key: "9", label: "Versión de la ficha", type: "text" },
       { key: "10", label: "Insumos principales", type: "textarea" },
       { key: "11", label: "Cómo se prepara", type: "textarea" },
     ],
-    seed: [
-      ["Carne de res 100g", "Carnes", "g", 1800, 450, 200, 1000, "No", "", "", "", "", "Activo"],
-      ["Queso cheddar", "Lácteos", "kg", 28000, 12, 15, 50, "No", "", "", "", "", "Activo"],
-      ["Pan brioche", "Panes", "und", 900, 80, 30, 200, "Sí", "Ficha técnica - Pan brioche", "v1.0", "Pan brioche", "1. Seleccionar el pan. 2. Preparar según laFicha. 3. Armar y servir.", "Activo"],
-      ["Lechuga", "Verduras", "kg", 4000, 5, 10, 30, "No", "", "", "", "", "Activo"],
-      ["Salchicha", "Carnes", "und", 2500, 60, 25, 150, "No", "", "", "", "", "Activo"],
-    ],
+    seed: [],
     noDelete: true,
     statusIndex: 12,
     hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11],
@@ -1214,35 +1333,25 @@ const MOD_CFG: Record<string, ModConfig> = {
       "Estado",
     ],
     fields: [
-      { key: "0", label: "Nombre empresa", type: "text" },
       { key: "1", label: "NIT", type: "text" },
+      { key: "0", label: "Nombre empresa", type: "text" },
       { key: "2", label: "Correo", type: "email" },
       { key: "3", label: "Teléfono", type: "tel" },
-      { key: "4", label: "Persona de contacto", type: "text" },
       { key: "5", label: "Dirección", type: "text" },
+      // Comma-separated insumo names; limits what can be bought from this supplier
+      { key: "7", label: "Insumos que suministra", type: "text" },
+      { key: "8", label: "Tipo de documento", type: "select", options: DOC_TYPES },
+      { key: "9", label: "Número de documento", type: "text" },
+      { key: "10", label: "Nombre", type: "text" },
+      { key: "11", label: "Apellido", type: "text" },
+      { key: "12", label: "Teléfono", type: "tel" },
+      { key: "13", label: "Correo electrónico", type: "email" },
+      { key: "14", label: "Cargo", type: "text" },
     ],
-    seed: [
-      [
-        "Carnes Premium SAS",
-        "900.123.456-1",
-        "ventas@carnes.co",
-        "310-456-7890",
-        "Pedro Álvarez",
-        "Cll 50 #32-10, Medellín",
-        "Activo",
-      ],
-      [
-        "Lácteos del Valle",
-        "800.234.567-2",
-        "info@lacteos.co",
-        "320-987-6543",
-        "Sandra Ríos",
-        "Cra 45 #20-05, Bello",
-        "Activo",
-      ],
-    ],
+    seed: [],
+    // Deletable only while the supplier has no purchases (see getDeleteAssessment)
     statusIndex: 6,
-    hiddenCellIndexes: [5],
+    hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14],
   },
   compras: {
     columns: ["Proveedor", "Fecha", "Subtotal", "Total", "Estado"],
@@ -1251,12 +1360,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Proveedor",
         type: "select",
-        options: [
-          "Carnes Premium SAS",
-          "Lácteos del Valle",
-          "AgroVerde",
-          "Panes Artesanales",
-        ],
+        options: [],
       },
       { key: "1", label: "Fecha de compra", type: "date" },
       { key: "2", label: "Fecha de registro", type: "date" },
@@ -1268,35 +1372,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         type: "textarea",
       },
     ],
-    seed: [
-      [
-        "Carnes Premium SAS",
-        "2024-01-20",
-        "2024-01-20",
-        42500,
-        42500,
-        "Activo",
-        "Carne de res 100g | 20 | 1800\nPan brioche | 5 | 900\nSalsa de la casa | 1 | 2000",
-      ],
-      [
-        "Lácteos del Valle",
-        "2024-01-18",
-        "2024-01-18",
-        28000,
-        28000,
-        "Activo",
-        "Queso cheddar | 1 | 28000",
-      ],
-      [
-        "Panes Artesanales",
-        "2024-01-17",
-        "2024-01-18",
-        22500,
-        22500,
-        "Activo",
-        "Pan brioche | 25 | 900",
-      ],
-    ],
+    seed: [],
     noDelete: true,
     statusIndex: 5,
     inactiveStatus: "Anulado",
@@ -1309,13 +1385,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Insumo",
         type: "select",
-        options: [
-          "Carne de res 100g",
-          "Queso cheddar",
-          "Pan brioche",
-          "Lechuga",
-          "Salchicha",
-        ],
+        options: [],
       },
       { key: "1", label: "Cantidad", type: "text" },
       {
@@ -1326,14 +1396,13 @@ const MOD_CFG: Record<string, ModConfig> = {
       },
       { key: "3", label: "Responsable", type: "text" },
       { key: "4", label: "Fecha", type: "date" },
+      // Filled when the loss is sent from a purchase ("Compra a X del <fecha>")
+      { key: "5", label: "Origen", type: "text" },
     ],
-    seed: [
-      ["Lechuga", "0.5 kg", "Deterioro", "María G.", "2024-01-20"],
-      ["Pan brioche", "4 und", "Horno", "María G.", "2024-01-19"],
-      ["Queso cheddar", "0.3 kg", "Vencimiento", "Juan R.", "2024-01-15"],
-    ],
+    seed: [],
     noExport: true,
     noDelete: true,
+    hiddenCellIndexes: [5],
   },
   "cat-producto": {
     columns: ["Nombre Categoría", "Descripción", "Estado"],
@@ -1343,6 +1412,8 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     seed: [
       ["Hamburguesas", "Burgers artesanales de la casa", "Activa"],
+      ["Adiciones", "Extras para agregar a los productos", "Activa"],
+      ["Bebidas", "Bebidas y presentaciones disponibles para la venta", "Activa"],
       ["Salchipapas", "Papas fritas con salchicha", "Activa"],
       ["Perros Calientes", "Hot dogs", "Activa"],
       ["Perras", "Versiones especiales", "Activa"],
@@ -1352,7 +1423,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       ["Arepa Rellena", "Arepa rellena", "Activa"],
     ],
     noExport: true,
-    noDelete: true,
     statusIndex: 2,
   },
   producto: {
@@ -1366,6 +1436,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         type: "select",
         options: [
           "Hamburguesas",
+          "Adiciones",
           "Salchipapas",
           "Perros Calientes",
           "Perras",
@@ -1373,6 +1444,9 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Patacones",
           "Arepa Burger",
           "Arepa Rellena",
+          "Salsas",
+          "Bebidas",
+          "Sabores de bebida",
           "Producto de insumo",
         ],
       },
@@ -1383,17 +1457,31 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "7", label: "Insumos principales", type: "textarea" },
       { key: "8", label: "Cómo se prepara", type: "textarea" },
     ],
-    seed: PRODUCTS.slice(0, 10).map((p) => [
-      p.name,
-      p.cat.replace(/-/g, " "),
-      p.price,
-      p.desc,
-      "Activo",
-      "Ficha Mini Burger",
-      "v2.1",
-      `Carne 100g, pan brioche, queso, lechuga, salsa de la casa`,
-      "1. Asar la carne. 2. Tostar el pan. 3. Armar y servir.",
-    ]),
+    // Every menu product (so each category has its products in the order picker) + additions
+    seed: [
+      ...PRODUCTS.map((p) => [
+        p.name,
+        PRODUCT_CAT_LABEL[p.cat] ?? p.cat,
+        p.price,
+        p.desc,
+        "Activo",
+        `Ficha ${p.name}`,
+        "v1.0",
+        "",
+        "",
+      ]),
+      ...ADDITIONS.map((a) => [
+        a.name,
+        "Adiciones",
+        a.price,
+        "Adición para agregar a los productos.",
+        "Activo",
+        "",
+        "",
+        "",
+        "",
+      ]),
+    ],
     noExport: true,
     noDelete: true,
     statusIndex: 4,
@@ -1416,32 +1504,24 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: [],
       },
       { key: "1", label: "Cantidad", type: "number" },
-      {
-        key: "2",
-        label: "Prioridad / número de llegada",
-        type: "number",
-      },
       { key: "3", label: "Fecha de creación", type: "date" },
       { key: "4", label: "Hora de creación", type: "time" },
+      { key: "15", label: "Comentario (opcional)", type: "textarea" },
     ],
-    seed: [
-      ["OP-0089", "Doble", 2, 1, "2024-01-21", "08:00", "2024-01-21", "10:15", "En cocina", "", 0, "Sí", JSON.stringify([{ status: "Recibida", date: "2024-01-21", time: "08:00" }, { status: "Iniciada", date: "2024-01-21", time: "09:10" }, { status: "En cocina", date: "2024-01-21", time: "10:15" }]), JSON.stringify([{ name: "Doble", quantity: 2 }])],
-      ["OP-0088", "Mini", 4, 2, "2024-01-21", "07:30", "2024-01-21", "11:30", "Terminado", "2024-01-21 11:30", 1, "Sí", JSON.stringify([{ status: "Recibida", date: "2024-01-21", time: "07:30" }, { status: "Iniciada", date: "2024-01-21", time: "08:00" }, { status: "En cocina", date: "2024-01-21", time: "09:00" }, { status: "Terminado", date: "2024-01-21", time: "11:30" }]), JSON.stringify([{ name: "Mini", quantity: 4 }])],
-      ["OP-0087", "Salchipapa Mega", 2, 3, "2024-01-20", "16:45", "2024-01-20", "16:45", "Recibida", "", 0, "No", JSON.stringify([{ status: "Recibida", date: "2024-01-20", time: "16:45" }]), JSON.stringify([{ name: "Salchipapa Mega", quantity: 2 }])],
-    ],
+    seed: [],
     autoId: true,
     statusIndex: 8,
-    hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13],
+    // 14 = stock already consumed, 15 = source order code, 16 = comment
+    hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13, 14, 15, 16],
   },
   "producto-no-conforme": {
-    columns: ["Orden", "Producto", "Cantidad", "Motivo", "Fecha", "Estado"],
+    columns: ["Orden", "Productos o insumos dañados", "Cantidad", "Motivo", "Fecha", "Estado"],
     fields: [
-      { key: "0", label: "ID Orden producción", type: "text" },
-      { key: "1", label: "Producto o producto de insumo", type: "select", options: [] },
-      { key: "2", label: "Productos que se dañaron", type: "textarea" },
-      { key: "3", label: "Cantidad no conforme", type: "number" },
+      { key: "0", label: "Productos o insumos dañados", type: "textarea" },
+      { key: "1", label: "Productos o insumos que se dañaron", type: "textarea" },
+      { key: "2", label: "Cantidad no conforme", type: "number" },
       {
-        key: "4",
+        key: "3",
         label: "Motivo",
         type: "select",
         options: [
@@ -1453,21 +1533,25 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Otro",
         ],
       },
-      { key: "5", label: "Fecha", type: "date" },
+      { key: "4", label: "Fecha", type: "date" },
+      { key: "5", label: "Observación", type: "textarea" },
+      {
+        key: "6",
+        label: "Unidad de medida (para adiciones o insumos)",
+        type: "select",
+        options: ["und", "kg", "g", "L", "ml", "paq"],
+      },
     ],
-    seed: [
-      ["OP-0085", "Mini", "Mini", 1, "Tiempo superado", "2024-01-20", "Activo"],
-      ["OP-0088", "Doble", "Doble", 2, "Error en preparación", "2024-01-21", "Activo"],
-    ],
+    seed: [],
+    autoId: true,
     noDelete: true,
-    statusIndex: 6,
-    inactiveStatus: "Anulado",
-    hiddenCellIndexes: [2],
+    statusIndex: 8,
+    hiddenCellIndexes: [2, 6, 7],
   },
   clientes: {
     columns: ["Nombre", "Número de documento", "Teléfono", "Correo", "Estado"],
+    // Form order: document type + number on one line, then the name (keys keep row positions)
     fields: [
-      { key: "0", label: "Nombre completo", type: "text" },
       {
         key: "1",
         label: "Tipo de documento",
@@ -1481,16 +1565,13 @@ const MOD_CFG: Record<string, ModConfig> = {
         ],
       },
       { key: "2", label: "Número de documento", type: "text" },
+      { key: "0", label: "Nombre completo", type: "text" },
       { key: "3", label: "Teléfono", type: "tel" },
       { key: "4", label: "Correo electrónico", type: "email" },
       { key: "5", label: "Dirección", type: "text" },
       { key: "6", label: "Cliente de local", type: "checkbox" },
     ],
-    seed: [
-      ["Valentina Ríos", "Cédula de Ciudadanía", "1012345678", "310-456-7890", "No", "vale@mail.co", "Cra 58 #42-10, Bello", "Activo"],
-      ["Carlos Mejía", "Cédula de Ciudadanía", "1023456789", "320-987-6543", "No", "carlos@mail.co", "Cll 50 #30-05, Bello", "Activo"],
-      ["Luisa Fernández", "Cédula de Ciudadanía", "1034567890", "315-678-9012", "Sí", "", "Cra 60 #44-20, Bello", "Activo"],
-    ],
+    seed: [],
     statusIndex: 7,
     hiddenCellIndexes: [1, 5, 6],
   },
@@ -1498,6 +1579,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     columns: [
       "Venta",
       "Cliente",
+      "Fecha",
       "Total",
       "Estado de venta",
       "Estado del pedido",
@@ -1507,18 +1589,13 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Usuario (vendedor)",
         type: "select",
-        options: ["Admin Parche", "Juan Rúa", "María Gómez"],
+        options: [],
       },
       {
         key: "1",
         label: "Cliente",
         type: "select",
-        options: [
-          "Valentina Ríos",
-          "Carlos Mejía",
-          "Luisa Fernández",
-          "Diego Pérez",
-        ],
+        options: [],
       },
       { key: "2", label: "Fecha", type: "date" },
       {
@@ -1549,37 +1626,10 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Recibido", "En preparación", "En camino", "Entregado", "Cancelado"],
       },
     ],
-    seed: [
-      [
-        "VTA-0306",
-        "Juan Rúa",
-        "Diego Pérez",
-        "2024-01-21",
-        "Local",
-        "Efectivo",
-        13000,
-        13000,
-        "Completada",
-        "Sin pedido",
-        "Completada",
-      ],
-      [
-        "VTA-0305",
-        "Juan Rúa",
-        "Luisa Fernández",
-        "2024-01-21",
-        "Domicilio",
-        "Nequi",
-        22000,
-        22000,
-        "Completada",
-        "Sin pedido",
-        "Completada",
-      ],
-    ],
+    seed: [],
     noDelete: true,
     autoId: true,
-    hiddenCellIndexes: [1, 3, 4, 5, 6, 9],
+    hiddenCellIndexes: [1, 4, 5, 6, 9, 11, 12],
   },
   pedidos: {
     columns: [
@@ -1595,12 +1645,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "0",
         label: "Cliente",
         type: "select",
-        options: [
-          "Valentina Ríos",
-          "Carlos Mejía",
-          "Luisa Fernández",
-          "Diego Pérez",
-        ],
+        options: [],
       },
       { key: "1", label: "Productos solicitados", type: "textarea" },
       {
@@ -1626,90 +1671,24 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "7",
         label: "Estado de pago",
         type: "select",
-        options: ["Pendiente", "Pagado"],
+        options: [
+          "Pendiente",
+          "Pendiente de verificación",
+          "Pagado",
+          "Rechazado",
+        ],
       },
       { key: "9", label: "Comprobante de pago", type: "image" },
     ],
-    seed: [
-      [
-        "PED-0195",
-        "Valentina Ríos",
-        "2 Mini, 1 Salchipapa Sencilla",
-        "Online",
-        "Transferencia",
-        "Anticipado",
-        85000,
-        "En preparación",
-        "Pagado",
-        "No requerida",
-      ],
-      [
-        "PED-0194",
-        "Carlos Mejía",
-        "4 Mini, 2 Sencilla",
-        "Local",
-        "Efectivo",
-        "Contraentrega",
-        168000,
-        "Recibido",
-        "Pendiente",
-        "Pendiente admin",
-      ],
-      [
-        "PED-0193",
-        "Luisa Fernández",
-        "1 Mega Gourmet",
-        "Online",
-        "Pago en el local",
-        "Contraentrega",
-        23000,
-        "Entregado",
-        "Pagado",
-        "No requerida",
-      ],
-      [
-        "PED-0192",
-        "Diego Pérez",
-        "1 Doble, 1 Chuzo de Pollo, 2 gaseosas",
-        "Local",
-        "Efectivo",
-        "Contraentrega",
-        57000,
-        "En camino",
-        "Pendiente",
-        "No requerida",
-      ],
-      [
-        "PED-0191",
-        "Valentina Ríos",
-        "3 Super Gourmet, 1 Mega Gourmet Q+T",
-        "Online",
-        "Transferencia",
-        "Anticipado",
-        122000,
-        "Entregado",
-        "Pagado",
-        "No requerida",
-      ],
-      [
-        "PED-0190",
-        "Carlos Mejía",
-        "5 Mini, 3 Tradicional, 2 porciones de papas",
-        "Online",
-        "Transferencia",
-        "Anticipado",
-        192000,
-        "En preparación",
-        "Pagado",
-        "Autorizada",
-      ],
-    ],
+    seed: [],
     noDelete: true,
     autoId: true,
-    hiddenCellIndexes: [2, 3, 4, 5],
+    // 10 = order lines JSON saved by admin-created orders (was showing as "Dato 7")
+    // 11 = payment rejection reason
+    hiddenCellIndexes: [2, 3, 4, 5, 10, 11],
   },
   devoluciones: {
-    columns: ["Código", "Cliente", "Acción tomada", "Descripción", "Fecha"],
+    columns: ["Código", "Cliente", "Motivo", "Fecha"],
     fields: [
       { key: "0", label: "Código devolución", type: "text" },
       { key: "1", label: "ID Venta asociada", type: "text" },
@@ -1717,30 +1696,20 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "2",
         label: "Cliente",
         type: "select",
-        options: [
-          "Valentina Ríos",
-          "Carlos Mejía",
-          "Luisa Fernández",
-          "Diego Pérez",
-        ],
+        options: [],
       },
       { key: "3", label: "Nombre cliente (texto libre)", type: "text" },
       {
         key: "4",
-        label: "Acción tomada",
+        label: "Motivo de devolución",
         type: "select",
-        options: ["Reembolso", "Reposición", "Nota de crédito", "Reparación"],
+        options: ["Reembolso", "Reposición"],
       },
-      { key: "5", label: "Descripción de la acción", type: "textarea" },
-      { key: "6", label: "Fecha", type: "date" },
+      { key: "5", label: "Fecha", type: "date" },
     ],
-    seed: [
-      ["DEV-001", "VTA-0305", "Ana López", "Ana López", "Reposición", "Se repuso el producto por uno nuevo en buen estado.", "2024-01-19", "Activo"],
-    ],
-    noExport: true,
+    seed: [],
     noDelete: true,
-    statusIndex: 7,
-    inactiveStatus: "Inactivo",
+    noExport: true,
     hiddenCellIndexes: [1, 3],
   },
 }
@@ -1756,6 +1725,62 @@ const supplyAsProduct = (row: (string | number)[]): (string | number)[] => [
   String(row[10] || row[0] || "Insumo"),
   String(row[11] || "Insumo producto con ficha técnica y control de inventario."),
 ]
+
+// ── Orders → production ───────────────────────────────────────────────────────
+// Pedido payment rules: the method decides the modality and whether it's paid,
+// so the admin doesn't pick them by hand (e.g. Online + Efectivo = contraentrega, pendiente)
+function derivePedidoPayment(method: string, hasProof: boolean) {
+  if (method === "Transferencia")
+    return { modalidad: "Anticipado", estadoPago: hasProof ? "Pagado" : "Pendiente" }
+  if (method === "Efectivo" || method === "Pago en el local")
+    return { modalidad: "Contraentrega", estadoPago: "Pendiente" }
+  return { modalidad: "", estadoPago: "" }
+}
+
+// One production order per order line (same format "Confirmar pedido y enviar a
+// producción" always used). Returns the production rows with the new ones on top.
+function buildProductionRows(
+  lines: AdminOrderLine[],
+  productionRows: (string | number)[][],
+  orderCode: string,
+) {
+  const now = new Date()
+  const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-")
+  const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
+  const result = [...productionRows]
+  let priority = Math.max(0, ...result.map((row) => Number(row[3]) || 0))
+  let lastCode = Math.max(0, ...result.map((row) => Number(/^OP-(\d+)$/i.exec(String(row[0] ?? ""))?.[1] ?? 0)))
+  lines.slice().reverse().forEach((item) => {
+    priority += 1
+    lastCode += 1
+    const parent = lines.find((candidate) => candidate.id === item.parentId)
+    result.unshift([
+      `OP-${String(lastCode).padStart(4, "0")}`,
+      parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
+      item.quantity,
+      priority,
+      date,
+      time,
+      date,
+      time,
+      "Iniciada",
+      "",
+      0,
+      "Sí",
+      JSON.stringify([{ status: "Iniciada", date, time }]),
+      JSON.stringify([{
+        name: item.product,
+        quantity: item.quantity,
+        category: item.category,
+        ...(item.parentId ? { parentId: item.parentId } : {}),
+      }]),
+      "No",
+      orderCode,
+      "",
+    ])
+  })
+  return result
+}
 
 const SIDEBAR_MENU = [
   {
@@ -1818,6 +1843,138 @@ const SIDEBAR_MENU = [
   },
 ]
 
+// ── Auth validation ────────────────────────────────────────────────────────────
+type FieldErrors = Record<string, string>
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/
+const NAME_RE = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' ]+$/
+const DEMO_CODE = "841736"
+const DOC_RULES: Record<string, { re: RegExp; msg: string }> = {
+  "Cédula de Ciudadanía": {
+    re: /^\d{6,10}$/,
+    msg: "El documento debe tener entre 6 y 10 caracteres, sin espacios.",
+  },
+  "Cédula Extranjería": {
+    re: /^\d{6,10}$/,
+    msg: "El documento debe tener entre 6 y 10 caracteres, sin espacios.",
+  },
+  NIT: {
+    re: /^\d{6,9}(-\d)?$/,
+    msg: "El documento debe tener entre 6 y 10 caracteres, sin espacios.",
+  },
+  Pasaporte: {
+    re: /^[A-Za-z0-9]{6,10}$/,
+    msg: "El documento debe tener entre 6 y 10 caracteres, sin espacios.",
+  },
+  "Tarjeta de Identidad": {
+    re: /^\d{6,10}$/,
+    msg: "El documento debe tener entre 6 y 10 caracteres, sin espacios.",
+  },
+}
+const validateAccountDocumentNumber = (value: string, docType: string) => {
+  if (value.length < 6 || value.length > 10) {
+    return "El documento debe tener entre 6 y 10 caracteres."
+  }
+  return docType && DOC_RULES[docType] && !DOC_RULES[docType].re.test(value)
+    ? DOC_RULES[docType].msg
+    : ""
+}
+
+const getPasswordError = (password: string) => {
+  if (!password) return "Crea una contraseña."
+  const missing = [
+    password.length < 8 && "mínimo 8 caracteres",
+    !/[A-Z]/.test(password) && "una mayúscula",
+    !/[a-z]/.test(password) && "una minúscula",
+    !/\d/.test(password) && "un número",
+  ].filter(Boolean)
+  return missing.length ? `La contraseña necesita ${missing.join(", ")}.` : ""
+}
+
+function emailError(email: string) {
+  if (!email.trim()) return "Ingresa tu correo electrónico."
+  if (!EMAIL_RE.test(email.trim()))
+    return "Escribe un correo válido, por ejemplo nombre@correo.com."
+  return ""
+}
+
+function validateLogin(
+  email: string,
+  pass: string,
+  savedPass?: string,
+  accountStatus?: string,
+  requireRegisteredAccount = false,
+  accountExists = !!savedPass,
+): FieldErrors {
+  const e: FieldErrors = {}
+  const em = emailError(email)
+  if (em) e.email = em
+  else if (
+    accountStatus &&
+    ["inactivo", "inactiva", "anulado", "anulada"].includes(
+      accountStatus.trim().toLowerCase(),
+    )
+  ) {
+    e.email = "Esta cuenta está inactiva. Contacta al administrador."
+  } else if (requireRegisteredAccount && !accountExists) {
+    e.email = "No encontramos una cuenta con ese correo. Regístrate para continuar."
+  }
+  if (!pass) e.pass = "Ingresa tu contraseña."
+  else if (pass.length < 8) e.pass = "La contraseña tiene mínimo 8 caracteres."
+  else if (savedPass && pass !== savedPass) e.pass = "La contraseña es incorrecta."
+  return e
+}
+
+function validateRegister(f: {
+  name: string
+  lastname?: string
+  docType: string
+  docNum: string
+  email: string
+  phone: string
+  pass: string
+  pass2: string
+}): FieldErrors {
+  const e: FieldErrors = {}
+  const name = f.name.trim()
+  if (!name) e.name = "Ingresa tu nombre."
+  else if (!NAME_RE.test(name)) e.name = "El nombre solo puede tener letras y espacios."
+  else if (name.length < 2) e.name = "El nombre debe tener al menos 2 letras."
+  if (f.lastname?.trim() && !NAME_RE.test(f.lastname.trim()))
+    e.lastname = "El apellido solo puede tener letras y espacios."
+  if (!f.docType) e.docType = "Selecciona el tipo de documento."
+  const doc = f.docNum.trim()
+  if (!doc) e.docNum = "Ingresa tu número de documento."
+  else if (f.docType && !DOC_RULES[f.docType]?.re.test(doc))
+    e.docNum = DOC_RULES[f.docType].msg
+  const phone = f.phone.replace(/\s/g, "")
+  if (phone && !/^3\d{9}$/.test(phone))
+    e.phone = "El celular debe tener 10 números y empezar por 3."
+  const em = emailError(f.email)
+  if (em) e.email = em
+  else if (loadLS(`profile:${f.email.trim().toLowerCase()}`, null))
+    e.email = "Ya existe una cuenta con este correo. Inicia sesión."
+  const passError = getPasswordError(f.pass)
+  if (passError) e.pass = passError
+  if (!f.pass2) e.pass2 = "Confirma tu contraseña."
+  else if (f.pass2 !== f.pass) e.pass2 = "Las contraseñas no coinciden."
+  return e
+}
+
+function codeError(code: string) {
+  if (code.length < 6) return "El código tiene 6 números."
+  if (code !== DEMO_CODE) return "El código no es correcto. Revisa el que te enviamos."
+  return ""
+}
+
+function FieldError({ msg }: { msg?: string }) {
+  if (!msg) return null
+  return (
+    <p className="text-[11px] leading-snug" style={{ color: C.red }} role="alert">
+      {msg}
+    </p>
+  )
+}
+
 // ── Shared UI ──────────────────────────────────────────────────────────────────
 function InputField({
   label,
@@ -1826,6 +1983,7 @@ function InputField({
   value,
   onChange,
   required,
+  error,
 }: {
   label: string
   type?: string
@@ -1833,7 +1991,12 @@ function InputField({
   value: string
   onChange: (v: string) => void
   required?: boolean
+  error?: string
 }) {
+  const baseBorder = error ? C.red : "rgba(30,30,30,0.12)"
+  // Password fields get an eye button to show/hide what was typed
+  const isPassword = type === "password"
+  const [showPass, setShowPass] = useState(false)
   return (
     <div className="flex flex-col gap-1">
       <label
@@ -1843,23 +2006,37 @@ function InputField({
         {label}
         {required && !label.trim().endsWith("*") && " *"}
       </label>
-      <input
-        type={type}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        required={required}
-        className="w-full px-3 py-2 rounded-xl text-sm outline-none transition-all"
-        style={{
-          background: "rgba(30,30,30,0.05)",
-          border: "1.5px solid rgba(30,30,30,0.12)",
-          color: "#1A1714",
-        }}
-        onFocus={(e) => (e.currentTarget.style.borderColor = C.mustard)}
-        onBlur={(e) =>
-          (e.currentTarget.style.borderColor = "rgba(30,30,30,0.12)")
-        }
-      />
+      <div className="relative">
+        <input
+          type={isPassword && showPass ? "text" : type}
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          required={required}
+          aria-invalid={!!error}
+          className={`w-full px-3 py-2 rounded-xl text-sm outline-none transition-all ${isPassword ? "pr-10" : ""}`}
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: `1.5px solid ${baseBorder}`,
+            color: "#1A1714",
+          }}
+          onFocus={(e) => (e.currentTarget.style.borderColor = error ? C.red : C.mustard)}
+          onBlur={(e) => (e.currentTarget.style.borderColor = baseBorder)}
+        />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setShowPass((s) => !s)}
+            aria-label={showPass ? "Ocultar contraseña" : "Mostrar contraseña"}
+            aria-pressed={showPass}
+            className="absolute inset-y-0 right-0 px-3 flex items-center cursor-pointer hover:opacity-70 [&_svg]:w-4 [&_svg]:h-4"
+            style={{ color: "rgba(30,30,30,0.45)" }}
+          >
+            {showPass ? Ico.eyeOff : Ico.eye}
+          </button>
+        )}
+      </div>
+      <FieldError msg={error} />
     </div>
   )
 }
@@ -1925,6 +2102,91 @@ function AuthLayout({
   )
 }
 
+function FirstPasswordPage({
+  onComplete,
+}: {
+  onComplete: (password: string) => Promise<void>
+}) {
+  const [password, setPassword] = useState("")
+  const [confirmation, setConfirmation] = useState("")
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    const passwordError = getPasswordError(password)
+    if (passwordError) {
+      setError(passwordError)
+      return
+    }
+    if (password !== confirmation) {
+      setError("Las contraseñas no coinciden.")
+      return
+    }
+    setBusy(true)
+    setError("")
+    try {
+      await onComplete(password)
+    } catch (err) {
+      setError((err as Error).message)
+      setBusy(false)
+    }
+  }
+
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-[#f7f4ee] px-4 py-10">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl sm:p-10"
+      >
+        <h1 className="text-2xl font-bold text-[#26231f] sm:text-3xl">
+          Cambia tu contraseña
+        </h1>
+        <p className="mt-3 text-sm leading-relaxed text-[#6f6a62]">
+          Por seguridad, crea una contraseña personal para continuar.
+        </p>
+        <label className="mt-7 block text-sm font-semibold text-[#39352f]">
+          Nueva contraseña
+          <input
+            autoComplete="new-password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            className="mt-2 w-full rounded-xl border border-[#ddd7cd] px-4 py-3 outline-none focus:border-[#b68c1c]"
+            required
+          />
+        </label>
+        <label className="mt-4 block text-sm font-semibold text-[#39352f]">
+          Confirmar contraseña
+          <input
+            autoComplete="new-password"
+            type="password"
+            value={confirmation}
+            onChange={(event) => setConfirmation(event.target.value)}
+            className="mt-2 w-full rounded-xl border border-[#ddd7cd] px-4 py-3 outline-none focus:border-[#b68c1c]"
+            required
+          />
+        </label>
+        <p className="mt-3 text-xs leading-relaxed text-[#777168]">
+          Debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número.
+        </p>
+        {error && (
+          <p role="alert" className="mt-3 text-sm font-medium text-red-700">
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={busy}
+          className="mt-6 w-full rounded-xl bg-[#a54131] px-4 py-3 font-bold text-white hover:opacity-90 disabled:opacity-60"
+        >
+          {busy ? "Guardando..." : "Guardar contraseña"}
+        </button>
+      </form>
+    </main>
+  )
+}
+
 function LoginPage({
   onLogin,
   onRegister,
@@ -1938,19 +2200,25 @@ function LoginPage({
 }) {
   const [email, setEmail] = useState("")
   const [pass, setPass] = useState("")
-  const [err, setErr] = useState("")
-  const submit = (e: React.FormEvent) => {
+  // Errors show after the first submit and update live while typing
+  const [tried, setTried] = useState(false)
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  // Password and account status are checked by the backend
+  const errors = tried ? validateLogin(email, pass) : {}
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!email || !pass) {
-      setErr("Completa todos los campos.")
-      return
+    setTried(true)
+    setServerErr("")
+    if (busy || Object.keys(validateLogin(email, pass)).length) return
+    setBusy(true)
+    try {
+      onLogin(await apiLogin(email, pass))
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
     }
-    const role = email.toLowerCase().includes("admin") ? "admin" : "user"
-    const name = email
-      .split("@")[0]
-      .replace(/\./g, " ")
-      .replace(/\b\w/g, (ch) => ch.toUpperCase())
-    onLogin({ name, email, role })
   }
   return (
     <div
@@ -2024,7 +2292,7 @@ function LoginPage({
           >
             Accede a tu cuenta para continuar
           </div>
-          <form onSubmit={submit} className="flex flex-col gap-4">
+          <form onSubmit={submit} noValidate className="flex flex-col gap-4">
             <InputField
               label="Correo electrónico"
               type="email"
@@ -2032,6 +2300,7 @@ function LoginPage({
               value={email}
               onChange={setEmail}
               required
+              error={errors.email}
             />
             <InputField
               label="Contraseña"
@@ -2040,12 +2309,8 @@ function LoginPage({
               value={pass}
               onChange={setPass}
               required
+              error={errors.pass}
             />
-            {err && (
-              <p className="text-xs" style={{ color: C.red }}>
-                {err}
-              </p>
-            )}
             <button
               type="button"
               onClick={onForgot}
@@ -2054,12 +2319,14 @@ function LoginPage({
             >
               ¿Olvidaste tu contraseña?
             </button>
+            <FieldError msg={serverErr} />
             <button
               type="submit"
+              disabled={busy}
               className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
               style={{ background: C.mustard, color: "#fff" }}
             >
-              Iniciar sesión
+              {busy ? "Ingresando..." : "Iniciar sesión"}
             </button>
             <div
               className="flex items-center gap-3 text-xs"
@@ -2075,31 +2342,6 @@ function LoginPage({
                 style={{ background: "rgba(30,30,30,0.1)" }}
               />
             </div>
-            <button
-              type="button"
-              onClick={onRegister}
-              className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer flex items-center justify-center gap-2"
-              style={{ background: "#fff", color: "#1A1714", border: "1.5px solid rgba(30,30,30,0.12)" }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-              </svg>
-              Continuar con Google
-            </button>
-            <button
-              type="button"
-              onClick={onRegister}
-              className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer flex items-center justify-center gap-2"
-              style={{ background: "#000", color: "#fff" }}
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M17.05 20.28c-.98.95-2.05.8-3.08.35-1.09-.46-2.09-.48-3.24 0-1.44.62-2.2.44-3.06-.35C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.8 1.18-.24 2.31-.93 3.57-.84 1.51.12 2.65.72 3.4 1.8-3.12 1.87-2.38 5.98.48 7.13-.57 1.5-1.31 2.99-2.53 4.08zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"/>
-              </svg>
-              Continuar con Apple
-            </button>
             <button
               type="button"
               onClick={onRegister}
@@ -2131,11 +2373,13 @@ function RegisterPage({
   onLoginLink,
   onBack,
 }: {
-  onVerify: (email: string, name: string) => void
+  onVerify: (u: User) => void
   onLoginLink: () => void
   onBack: () => void
 }) {
   const [step, setStep] = useState<"form" | "verifying">("form")
+  const [tried, setTried] = useState(false)
+  const [codeTried, setCodeTried] = useState(false)
   const [form, setForm] = useState({
     name: "",
     lastname: "",
@@ -2147,36 +2391,48 @@ function RegisterPage({
     pass2: "",
   })
   const [code, setCode] = useState("")
-  const [err, setErr] = useState("")
-  const [sentCode] = useState("841736")
+  const errors = tried ? validateRegister(form) : {}
+  const err = codeTried ? codeError(code) : ""
   const upd = (k: keyof typeof form) => (v: string) =>
-    setForm((f) => ({ ...f, [k]: v }))
+    setForm((current) => ({
+      ...current,
+      [k]:
+        k === "docNum"
+          ? normalizeAccountDocumentInput(v, current.docType)
+          : k === "phone"
+            ? digitsOnly(v).slice(0, 10)
+            : v,
+    }))
   const submitForm = (e: React.FormEvent) => {
     e.preventDefault()
-    if (
-      !form.name ||
-      !form.email ||
-      !form.pass ||
-      !form.docType ||
-      !form.docNum
-    ) {
-      setErr("Completa los campos obligatorios.")
-      return
-    }
-    if (form.pass !== form.pass2) {
-      setErr("Las contraseñas no coinciden.")
-      return
-    }
-    setErr("")
+    setTried(true)
+    if (Object.keys(validateRegister(form)).length) return
     setStep("verifying")
   }
-  const submitCode = (e: React.FormEvent) => {
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  const submitCode = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (code.length < 6) {
-      setErr("Ingresa el código de 6 dígitos.")
-      return
+    setCodeTried(true)
+    setServerErr("")
+    if (busy || codeError(code)) return
+    const u: User = {
+      name: `${form.name.trim()} ${form.lastname.trim()}`.trim(),
+      email: form.email.trim().toLowerCase(),
+      role: "user",
+      docType: form.docType,
+      phone: form.phone.replace(/\s/g, ""),
+      cedula: form.docNum.trim(),
     }
-    onVerify(form.email, `${form.name} ${form.lastname}`.trim())
+    setBusy(true)
+    try {
+      await apiRegister({ ...u, password: form.pass })
+      onVerify(u)
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
   if (step === "verifying")
     return (
@@ -2195,32 +2451,31 @@ function RegisterPage({
             style={{ color: "rgba(30,30,30,0.5)" }}
           >
             Ingresa el código de 6 dígitos que enviamos a tu correo. (Demo:{" "}
-            <strong>{sentCode}</strong>)
+            <strong>{DEMO_CODE}</strong>)
           </p>
           <input
             maxLength={6}
             placeholder="000000"
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+            inputMode="numeric"
+            aria-invalid={!!err}
             className="w-full px-4 py-4 rounded-xl text-center text-2xl font-bold tracking-widest outline-none"
             style={{
               background: "rgba(30,30,30,0.05)",
-              border: "1.5px solid rgba(30,30,30,0.12)",
+              border: `1.5px solid ${err ? C.red : "rgba(30,30,30,0.12)"}`,
               color: "#1A1714",
               letterSpacing: "0.3em",
             }}
           />
-          {err && (
-            <p className="text-xs text-center" style={{ color: C.red }}>
-              {err}
-            </p>
-          )}
+          <FieldError msg={err || serverErr} />
           <button
             type="submit"
+            disabled={busy}
             className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
             style={{ background: C.mustard, color: "#fff" }}
           >
-            Verificar y continuar
+            {busy ? "Creando cuenta..." : "Verificar y continuar"}
           </button>
           <button
             type="button"
@@ -2246,10 +2501,10 @@ function RegisterPage({
     )
   return (
     <div
-      className="min-h-screen flex items-center justify-center px-3 py-4"
+      className="min-h-screen flex items-center justify-center px-4 py-8"
       style={{ background: "#F7F2E8", fontFamily: "Poppins, sans-serif" }}
     >
-      <div className="w-full max-w-5xl grid lg:grid-cols-2 gap-5 items-center">
+      <div className="w-full max-w-6xl grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-8 lg:gap-12 items-center">
         <div className="hidden lg:block px-6">
           <img
             src={logoImg}
@@ -2277,7 +2532,7 @@ function RegisterPage({
           </p>
         </div>
         <div
-          className="w-full max-w-md mx-auto p-5 rounded-3xl"
+          className="w-full max-w-2xl mx-auto p-6 sm:p-9 rounded-3xl"
           style={{
             background: "#fff",
             boxShadow: "0 12px 35px rgba(30,30,30,0.10)",
@@ -2314,7 +2569,7 @@ function RegisterPage({
             Crear cuenta
           </h2>
           <div
-            className="text-xs mb-4"
+            className="text-sm mb-6"
             style={{ color: "rgba(30,30,30,0.45)" }}
           >
             ¿Ya tienes cuenta?{" "}
@@ -2326,73 +2581,89 @@ function RegisterPage({
               Inicia sesión
             </button>
           </div>
-          <form onSubmit={submitForm} className="flex flex-col gap-2">
-            <div className="grid grid-cols-2 gap-2">
-              <InputField
-                label="Nombre *"
-                placeholder="Tu nombre"
-                value={form.name}
-                onChange={upd("name")}
-                required
-              />
-              <InputField
-                label="Apellido"
-                placeholder="Tu apellido"
-                value={form.lastname}
-                onChange={upd("lastname")}
-              />
-            </div>
-            <div className="flex flex-col gap-1">
-              <label
-                className="text-[11px] font-semibold"
-                style={{ color: "rgba(30,30,30,0.5)" }}
-              >
-                Tipo de documento *
-              </label>
-              <select
-                value={form.docType}
-                onChange={(e) => upd("docType")(e.target.value)}
-                required
-                className="w-full px-3 py-2 rounded-xl text-sm outline-none"
-                style={{
-                  background: "rgba(30,30,30,0.05)",
-                  border: "1.5px solid rgba(30,30,30,0.12)",
-                  color: form.docType ? "#1A1714" : "rgba(30,30,30,0.35)",
-                }}
-              >
-                <option value="">Selecciona tipo...</option>
-                {DOC_TYPES.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
+          <form onSubmit={submitForm} noValidate className="flex flex-col gap-4 [&_input]:px-4 [&_input]:py-3 [&_select]:px-4 [&_select]:py-3">
+            {/* Document type first, its number right next to it */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+              <div className="flex flex-col gap-1 min-w-0">
+                <label
+                  className="text-xs font-semibold"
+                  style={{ color: "rgba(30,30,30,0.5)" }}
+                >
+                  Tipo de documento *
+                </label>
+                <select
+                  value={form.docType}
+                  onChange={(e) => {
+                    const docType = e.target.value
+                    setForm((current) => ({
+                      ...current,
+                      docType,
+                      docNum: normalizeAccountDocumentInput(current.docNum, docType),
+                    }))
+                  }}
+                  aria-invalid={!!errors.docType}
+                  className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+                  style={{
+                    background: "rgba(30,30,30,0.05)",
+                    border: `1.5px solid ${errors.docType ? C.red : "rgba(30,30,30,0.12)"}`,
+                    color: form.docType ? "#1A1714" : "rgba(30,30,30,0.35)",
+                  }}
+                >
+                  <option value="">Selecciona tipo...</option>
+                  {DOC_TYPES.map((d) => (
+                    <option key={d} value={d}>
+                      {d}
+                    </option>
+                  ))}
+                </select>
+                <FieldError msg={errors.docType} />
+              </div>
               <InputField
                 label="Nº Documento *"
                 placeholder="123456789"
                 value={form.docNum}
                 onChange={upd("docNum")}
                 required
+                error={errors.docNum}
               />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
+              <InputField
+                label="Nombre *"
+                placeholder="Tu nombre"
+                value={form.name}
+                onChange={upd("name")}
+                required
+                error={errors.name}
+              />
+              <InputField
+                label="Apellido"
+                placeholder="Tu apellido"
+                value={form.lastname}
+                onChange={upd("lastname")}
+                error={errors.lastname}
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <InputField
                 label="Teléfono"
                 type="tel"
                 placeholder="3XX XXX XXXX"
                 value={form.phone}
                 onChange={upd("phone")}
+                error={errors.phone}
+              />
+              <InputField
+                label="Correo *"
+                type="email"
+                placeholder="tu@correo.com"
+                value={form.email}
+                onChange={upd("email")}
+                required
+                error={errors.email}
               />
             </div>
-            <InputField
-              label="Correo *"
-              type="email"
-              placeholder="tu@correo.com"
-              value={form.email}
-              onChange={upd("email")}
-              required
-            />
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <InputField
                 label="Contraseña *"
                 type="password"
@@ -2400,6 +2671,7 @@ function RegisterPage({
                 value={form.pass}
                 onChange={upd("pass")}
                 required
+                error={errors.pass}
               />
               <InputField
                 label="Confirmar *"
@@ -2408,11 +2680,12 @@ function RegisterPage({
                 value={form.pass2}
                 onChange={upd("pass2")}
                 required
+                error={errors.pass2}
               />
             </div>
-            {err && (
-              <p className="text-[11px]" style={{ color: C.red }}>
-                {err}
+            {!errors.pass && (
+              <p className="text-[11px]" style={{ color: "rgba(30,30,30,0.45)" }}>
+                Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
               </p>
             )}
             <button
@@ -2449,6 +2722,7 @@ function ForgotPage({
 }) {
   const [email, setEmail] = useState("")
   const [sent, setSent] = useState(false)
+  const [emailErr, setEmailErr] = useState("")
   if (sent)
     return (
       <AuthLayout title="Correo enviado" sub="Revisa tu bandeja de entrada">
@@ -2485,7 +2759,9 @@ function ForgotPage({
       <form
         onSubmit={(e) => {
           e.preventDefault()
-          if (email) setSent(true)
+          const error = emailError(email)
+          setEmailErr(error)
+          if (!error) setSent(true)
         }}
         className="flex flex-col gap-3"
       >
@@ -2494,8 +2770,12 @@ function ForgotPage({
           type="email"
           placeholder="tu@correo.com"
           value={email}
-          onChange={setEmail}
+          onChange={(value) => {
+            setEmail(value)
+            if (emailErr) setEmailErr(emailError(value))
+          }}
           required
+          error={emailErr}
         />
         <button
           type="submit"
@@ -2556,8 +2836,9 @@ function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
             setErr("No coinciden.")
             return
           }
-          if (pass.length < 6) {
-            setErr("Mínimo 6 caracteres.")
+          const passwordError = getPasswordError(pass)
+          if (passwordError) {
+            setErr(passwordError)
             return
           }
           setOk(true)
@@ -2658,7 +2939,8 @@ function ProductInfoModal({
               className="absolute bottom-3 left-3 text-xs px-2 py-0.5 rounded-full"
               style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
             >
-              {cat.emoji} {cat.label}
+              <span className="mr-1 inline-flex align-middle">{getMenuCategoryIcon(cat.icon)}</span>
+              {cat.label}
             </span>
           )}
         </div>
@@ -2704,6 +2986,7 @@ function AddToCartModal({
   product,
   onClose,
   onAdd,
+  onCheckout,
   dark,
 }: {
   product: Product
@@ -2714,31 +2997,73 @@ function AddToCartModal({
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
   ) => void
+  onCheckout?: () => void
   dark: boolean
 }) {
   const [qty, setQty] = useState(1)
   const [selSauces, setSelSauces] = useState<string[]>([])
   const [addQtys, setAddQtys] = useState<Record<string, number>>({})
+  const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0].id)
+  const [customizationTab, setCustomizationTab] = useState<"sauces" | "additions" | "beverages">("sauces")
   const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
   const toggleSauce = (s: string) =>
-    setSelSauces((p) => (p.includes(s) ? p.filter((x) => x !== s) : [...p, s]))
+    setSelSauces((p) => {
+      if (p.includes(s)) return p.filter((x) => x !== s)
+      return p.length < 4 ? [...p, s] : p
+    })
   const changeAdd = (name: string, d: number) =>
     setAddQtys((p) => ({ ...p, [name]: Math.max(0, (p[name] || 0) + d) }))
   const addTotal = ADDITIONS.reduce(
     (s, a) => s + (addQtys[a.name] || 0) * a.price,
     0,
   )
-  const unitPrice = product.price + addTotal
+  const beverageTotal = BEVERAGES.reduce(
+    (total, flavor) =>
+      total +
+      BEVERAGE_SIZES.reduce(
+        (sizeTotal, size) =>
+          sizeTotal +
+          (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0) * size.price,
+        0,
+      ),
+    0,
+  )
+  const selectedBeverageSize =
+    BEVERAGE_SIZES.find((size) => size.id === beverageSize) ?? BEVERAGE_SIZES[0]
+  const selectedBeverageCount = BEVERAGES.reduce(
+    (total, flavor) =>
+      total +
+      BEVERAGE_SIZES.reduce(
+        (sizeTotal, size) =>
+          sizeTotal + (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0),
+        0,
+      ),
+    0,
+  )
+  const unitPrice = product.price + addTotal + beverageTotal
   const total = unitPrice * qty
   const handleAdd = () => {
     const adds = ADDITIONS.filter((a) => (addQtys[a.name] || 0) > 0).map(
       (a) => ({ name: a.name, qty: addQtys[a.name], price: a.price }),
     )
-    onAdd(product, qty, selSauces, adds)
+    const beverages = BEVERAGES.flatMap((flavor) =>
+      BEVERAGE_SIZES.filter(
+        (size) => (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0) > 0,
+      ).map((size) => ({
+        name: `Gaseosa ${flavor} (${size.label})`,
+        qty: addQtys[`Gaseosa ${flavor} ${size.id}`],
+        price: size.price,
+      })),
+    )
+    onAdd(product, qty, selSauces, [...adds, ...beverages])
     onClose()
+  }
+  const handleCheckout = () => {
+    handleAdd()
+    onCheckout?.()
   }
 
   return (
@@ -2751,23 +3076,25 @@ function AddToCartModal({
         className="w-full max-w-md rounded-3xl overflow-hidden flex flex-col"
         style={{
           background: CARD,
-          maxHeight: "90vh",
+          maxHeight: "98dvh",
           boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="relative flex-shrink-0" style={{ height: "180px" }}>
+        <div
+          className="relative flex-shrink-0 overflow-hidden"
+          style={{ height: "clamp(120px, 26vh, 230px)", background: dark ? "#111" : "#1E1C18" }}
+        >
+          <img
+            src={product.img}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
+          />
           <img
             src={product.img}
             alt={product.name}
-            className="w-full h-full object-cover"
-          />
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                "linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 55%)",
-            }}
+            className="relative z-10 h-full w-full object-contain"
           />
           <button
             onClick={onClose}
@@ -2776,10 +3103,15 @@ function AddToCartModal({
           >
             {Ico.x}
           </button>
-          <div className="absolute bottom-3 left-4">
+        </div>
+        <div
+          className="flex items-center justify-between gap-3 px-5 py-2 flex-shrink-0"
+          style={{ background: dark ? "#1E1C18" : "#fff" }}
+        >
+          <div>
             <div
-              className="font-black text-lg text-white leading-tight"
-              style={{ fontFamily: "Montserrat, sans-serif" }}
+              className="font-black text-lg leading-tight"
+              style={{ color: TEXT }}
             >
               {product.name}
             </div>
@@ -2787,24 +3119,61 @@ function AddToCartModal({
               {product.priceStr}
             </div>
           </div>
+          {product.badge && (
+            <span
+              className="text-xs font-bold px-2.5 py-1 rounded-full"
+              style={{ background: `${C.mustard}18`, color: C.mustard }}
+            >
+              {product.badge}
+            </span>
+          )}
         </div>
         <div
-          className="overflow-y-auto flex-1 px-5 py-4"
-          style={{ scrollbarWidth: "none" }}
+          className="min-h-0 flex-1 overflow-hidden px-4 py-1.5 sm:px-5"
         >
-          <div className="mb-4">
-            <div className="font-bold text-sm mb-2" style={{ color: TEXT }}>
-              Salsas{" "}
-              <span className="font-normal text-xs" style={{ color: MUTED }}>
-                (gratis)
+          <p className="mb-1 line-clamp-1 text-xs leading-snug sm:text-sm" style={{ color: MUTED }}>
+            {product.desc}
+          </p>
+          <div className="mb-1.5 grid grid-cols-3 gap-1 rounded-xl p-1" style={{ background: dark ? "rgba(244,238,220,0.06)" : "rgba(30,30,30,0.05)" }}>
+            {([
+              ["sauces", `Salsas ${selSauces.length}/4`],
+              ["additions", `Adiciones ${ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)}`],
+              ["beverages", `Bebidas ${selectedBeverageCount}`],
+            ] as const).map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setCustomizationTab(tab)}
+                className="rounded-lg px-2 py-1.5 text-sm font-bold transition-colors"
+                style={{
+                  background: customizationTab === tab ? C.mustard : "transparent",
+                  color: customizationTab === tab ? "#fff" : MUTED,
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {customizationTab === "sauces" && (
+          <div>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div className="font-bold text-sm" style={{ color: TEXT }}>Elige hasta 4 salsas gratis</div>
+              <span className="text-[11px] font-semibold" style={{ color: selSauces.length === 4 ? C.amber : MUTED }}>
+                {selSauces.length}/4
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div
+              role="group"
+              aria-label="Salsas"
+              className="flex flex-wrap gap-1.5"
+            >
               {SAUCES.map((s) => (
                 <button
                   key={s}
                   onClick={() => toggleSauce(s)}
-                  className="px-3 py-1.5 rounded-full text-xs font-semibold cursor-pointer"
+                  disabled={!selSauces.includes(s) && selSauces.length >= 4}
+                  aria-pressed={selSauces.includes(s)}
+                  className="rounded-full px-2.5 py-1.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:px-3 sm:text-xs"
                   style={{
                     background: selSauces.includes(s)
                       ? C.mustard
@@ -2822,134 +3191,194 @@ function AddToCartModal({
               ))}
             </div>
           </div>
-          <div className="mb-2">
-            <div className="font-bold text-sm mb-2" style={{ color: TEXT }}>
-              Adiciones
-            </div>
-            <div
-              className="rounded-2xl overflow-hidden"
-              style={{ border: `1px solid ${BORDER}` }}
-            >
-              {ADDITIONS.map((a, i) => {
+          )}
+          {customizationTab === "additions" && (
+          <div>
+            <div className="grid grid-cols-2 gap-1">
+              {ADDITIONS.map((a) => {
                 const q = addQtys[a.name] || 0
                 return (
                   <div
                     key={a.name}
-                    className="flex items-center px-4 py-3"
-                    style={{
-                      borderBottom:
-                        i < ADDITIONS.length - 1
-                          ? `1px solid ${BORDER}`
-                          : "none",
-                    }}
+                    className="flex min-w-0 items-center justify-between gap-1 rounded-xl px-2 py-1"
+                    style={{ border: `1px solid ${BORDER}`, background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
                   >
-                    <div className="flex-1">
-                      <span className="text-sm" style={{ color: TEXT }}>
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-xs leading-tight" style={{ color: TEXT }}>
                         {a.name}
                       </span>
-                      {q > 0 && (
-                        <span
-                          className="ml-2 text-xs font-bold"
-                          style={{ color: C.mustard }}
-                        >
-                          +{fmt(a.price * q)}
-                        </span>
-                      )}
+                      <span className="text-[11px] font-semibold leading-tight" style={{ color: q > 0 ? C.mustard : MUTED }}>
+                        {q > 0 ? `+${fmt(a.price * q)}` : fmt(a.price)}
+                      </span>
                     </div>
-                    <span
-                      className="text-sm font-bold mr-3"
-                      style={{ color: C.amber }}
-                    >
-                      +{fmt(a.price)}
-                    </span>
-                    {q > 0 ? (
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => changeAdd(a.name, -1)}
-                          className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
-                          style={{
-                            background: dark
-                              ? "rgba(244,238,220,0.1)"
-                              : "rgba(30,30,30,0.08)",
-                            color: TEXT,
-                          }}
-                        >
-                          −
-                        </button>
-                        <span
-                          className="w-4 text-center font-bold text-sm"
-                          style={{ color: TEXT }}
-                        >
-                          {q}
-                        </span>
-                        <button
-                          onClick={() => changeAdd(a.name, 1)}
-                          className="w-7 h-7 rounded-full flex items-center justify-center font-bold cursor-pointer"
-                          style={{ background: C.mustard, color: "#fff" }}
-                        >
-                          +
-                        </button>
-                      </div>
-                    ) : (
+                    <div className="flex flex-shrink-0 items-center gap-1">
+                      <button
+                        onClick={() => changeAdd(a.name, -1)}
+                        disabled={q === 0}
+                        aria-label={`Quitar ${a.name}`}
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
+                        style={{
+                          background: dark
+                            ? "rgba(244,238,220,0.1)"
+                            : "rgba(30,30,30,0.08)",
+                          color: TEXT,
+                        }}
+                      >
+                        −
+                      </button>
+                      <span
+                        className="w-5 text-center text-sm font-bold"
+                        style={{ color: TEXT }}
+                      >
+                        {q}
+                      </span>
                       <button
                         onClick={() => changeAdd(a.name, 1)}
-                        className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-lg cursor-pointer"
-                        style={{
-                          background: `${C.mustard}22`,
-                          border: `1.5px solid ${C.mustard}`,
-                          color: C.mustard,
-                        }}
+                        aria-label={`Agregar ${a.name}`}
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
+                        style={{ background: C.mustard, color: "#fff" }}
                       >
                         +
                       </button>
-                    )}
+                    </div>
                   </div>
                 )
               })}
             </div>
           </div>
+          )}
+          {customizationTab === "beverages" && (
+          <div>
+            <div className="mb-1 flex items-center justify-end gap-3">
+              <select
+                aria-label="Tamaño de gaseosa"
+                value={beverageSize}
+                onChange={(event) => setBeverageSize(event.target.value)}
+                className="rounded-lg px-2.5 py-1.5 text-xs font-semibold outline-none"
+                style={{
+                  background: dark ? "#292720" : "#fff",
+                  border: `1px solid ${BORDER}`,
+                  color: TEXT,
+                }}
+              >
+                {BEVERAGE_SIZES.map((size) => (
+                  <option key={size.id} value={size.id}>
+                    {size.label} · {fmt(size.price)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-1">
+              {BEVERAGES.map((flavor) => {
+                const size = selectedBeverageSize
+                const key = `Gaseosa ${flavor} ${size.id}`
+                const quantity = addQtys[key] || 0
+                return (
+                  <div
+                    key={flavor}
+                    className="flex min-w-0 items-center justify-between gap-1 rounded-xl px-2 py-1"
+                    style={{ border: `1px solid ${BORDER}`, background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
+                  >
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="text-xs leading-tight" style={{ color: TEXT }}>
+                        {flavor}
+                      </span>
+                      <span className="text-[11px] font-semibold leading-tight" style={{ color: quantity > 0 ? C.mustard : MUTED }}>
+                        {quantity > 0 ? `+${fmt(size.price * quantity)}` : fmt(size.price)}
+                      </span>
+                    </div>
+                    <div className="flex flex-shrink-0 items-center gap-1">
+                      <button
+                        onClick={() => changeAdd(key, -1)}
+                        disabled={quantity === 0}
+                        aria-label={`Quitar gaseosa ${flavor} ${size.label}`}
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
+                        style={{
+                          background: dark
+                            ? "rgba(244,238,220,0.1)"
+                            : "rgba(30,30,30,0.08)",
+                          color: TEXT,
+                        }}
+                      >
+                        −
+                      </button>
+                      <span
+                        className="w-5 text-center text-sm font-bold"
+                        style={{ color: TEXT }}
+                      >
+                        {quantity}
+                      </span>
+                      <button
+                        onClick={() => changeAdd(key, 1)}
+                        aria-label={`Agregar gaseosa ${flavor} ${size.label}`}
+                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
+                        style={{ background: C.mustard, color: "#fff" }}
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          )}
         </div>
         <div
-          className="px-4 py-4 flex items-center gap-3 flex-shrink-0"
+          className="flex w-full flex-shrink-0 flex-col gap-1.5 px-4 py-2"
           style={{ borderTop: `1px solid ${BORDER}`, background: CARD }}
         >
-          <div
-            className="flex items-center gap-1 flex-shrink-0 rounded-2xl px-1 py-1"
-            style={{
-              background: dark
-                ? "rgba(244,238,220,0.07)"
-                : "rgba(30,30,30,0.06)",
-            }}
-          >
+          <div className="mx-auto flex w-full max-w-[400px] flex-col gap-1.5">
+          <div className="flex items-center gap-2.5">
+            <div
+              className="flex flex-shrink-0 items-center gap-0.5 rounded-xl px-1 py-1"
+              style={{
+                background: dark
+                  ? "rgba(244,238,220,0.07)"
+                  : "rgba(30,30,30,0.06)",
+              }}
+            >
+              <button
+                onClick={() => setQty((q) => Math.max(1, q - 1))}
+                className="h-9 w-8 rounded-lg flex items-center justify-center font-bold cursor-pointer"
+                style={{ color: TEXT }}
+              >
+                −
+              </button>
+              <span
+                className="w-5 text-center font-black"
+                style={{ color: TEXT }}
+              >
+                {qty}
+              </span>
+              <button
+                onClick={() => setQty((q) => q + 1)}
+                className="h-9 w-8 rounded-lg flex items-center justify-center font-bold cursor-pointer"
+                style={{ color: TEXT }}
+              >
+                +
+              </button>
+            </div>
             <button
-              onClick={() => setQty((q) => Math.max(1, q - 1))}
-              className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
-              style={{ color: TEXT }}
+              onClick={handleAdd}
+              className="flex flex-1 cursor-pointer items-center justify-between rounded-xl px-4 py-2.5 text-sm font-bold hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
             >
-              −
-            </button>
-            <span
-              className="w-5 text-center font-black"
-              style={{ color: TEXT }}
-            >
-              {qty}
-            </span>
-            <button
-              onClick={() => setQty((q) => q + 1)}
-              className="w-8 h-8 rounded-xl flex items-center justify-center font-bold cursor-pointer"
-              style={{ color: TEXT }}
-            >
-              +
+              <span>Agregar al carrito</span>
+              <span className="font-extrabold">{fmt(total)}</span>
             </button>
           </div>
-          <button
-            onClick={handleAdd}
-            className="flex-1 py-3.5 rounded-2xl font-bold text-sm cursor-pointer flex items-center justify-between px-5 hover:opacity-90"
-            style={{ background: C.mustard, color: "#fff" }}
-          >
-            <span>Agregar al carrito</span>
-            <span className="font-extrabold">{fmt(total)}</span>
-          </button>
+          {onCheckout && (
+            <button
+              type="button"
+              onClick={handleCheckout}
+              className="w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Finalizar compra
+            </button>
+          )}
+          </div>
         </div>
       </div>
     </div>
@@ -2969,6 +3398,12 @@ function ProductCatalog({
   const [activeCat, setActiveCat] = useState("todos")
   const [search, setSearch] = useState("")
   const [pg, setPg] = useState(0)
+  const topRef = useRef<HTMLDivElement>(null)
+  // Changing page brings the menu back into view
+  const goPage = (i: number) => {
+    setPg(i)
+    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
   const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
@@ -2991,7 +3426,7 @@ function ProductCatalog({
     setPg(0)
   }
   return (
-    <div>
+    <div ref={topRef}>
       {/* Category tabs */}
       <div
         className="flex gap-2 overflow-x-auto pb-2 mb-4"
@@ -3012,7 +3447,7 @@ function ProductCatalog({
               minWidth: "72px",
             }}
           >
-            <span className="text-lg leading-none">{cat.emoji}</span>
+            <span className="flex h-5 items-center justify-center">{getMenuCategoryIcon(cat.icon)}</span>
             <span
               className="text-xs font-semibold whitespace-nowrap"
               style={{ color: activeCat === cat.id ? "#fff" : MUTED }}
@@ -3024,7 +3459,7 @@ function ProductCatalog({
       </div>
       {/* Search in catalog */}
       <div
-        className="flex items-center gap-2 px-3 py-2.5 rounded-xl mb-5"
+        className="mb-5 flex w-full max-w-sm items-center gap-2 rounded-xl px-3 py-2"
         style={{
           background: dark ? "rgba(255,255,255,0.07)" : "rgba(30,30,30,0.06)",
           border: `1px solid ${BORDER}`,
@@ -3140,7 +3575,7 @@ function ProductCatalog({
         <div className="flex items-center justify-center gap-2">
           <button
             disabled={pg === 0}
-            onClick={() => setPg(pg - 1)}
+            onClick={() => goPage(pg - 1)}
             className="px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
             style={{
               background: dark
@@ -3154,7 +3589,7 @@ function ProductCatalog({
           {Array.from({ length: totalPages }, (_, i) => (
             <button
               key={i}
-              onClick={() => setPg(i)}
+              onClick={() => goPage(i)}
               className="w-8 h-8 rounded-lg text-sm font-bold cursor-pointer"
               style={{
                 background:
@@ -3171,7 +3606,7 @@ function ProductCatalog({
           ))}
           <button
             disabled={pg >= totalPages - 1}
-            onClick={() => setPg(pg + 1)}
+            onClick={() => goPage(pg + 1)}
             className="px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
             style={{
               background: dark
@@ -3213,6 +3648,7 @@ function GuestMenuPage({
       {
         id: Date.now(),
         name: product.name,
+        description: product.desc,
         price: product.price,
         qty,
         img: product.img,
@@ -3304,15 +3740,6 @@ function GuestMenuPage({
           onInfoClick={setInfoProduct}
           onAddClick={setAddProduct}
         />
-        {cartCount > 0 && (
-          <button
-            onClick={onCheckout}
-            className="fixed bottom-5 left-4 right-4 sm:left-auto sm:right-6 sm:w-auto px-6 py-3.5 rounded-2xl font-bold text-sm cursor-pointer shadow-lg"
-            style={{ background: C.mustard, color: "#fff" }}
-          >
-            Ver carrito ({cartCount}) →
-          </button>
-        )}
       </main>
       {infoProduct && (
         <ProductInfoModal
@@ -3330,6 +3757,7 @@ function GuestMenuPage({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={addToCart}
+          onCheckout={onCheckout}
           dark={false}
         />
       )}
@@ -3347,6 +3775,10 @@ const itemTotal = (i: CartItem) =>
   i.qty
 const cartTotal = (items: CartItem[]) =>
   items.reduce((s, i) => s + itemTotal(i), 0)
+const activeCartItemsFirst = (items: CartItem[]) => [
+  ...items.filter((item) => item.qty > 0),
+  ...items.filter((item) => item.qty === 0),
+]
 
 function loadLS<T>(key: string, fallback: T): T {
   try {
@@ -3364,10 +3796,615 @@ function saveLS(key: string, value: unknown) {
   }
 }
 
+// ── Backend (parche-backend) ───────────────────────────────────────────────────
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api"
+// Uploaded photos come as "/imagenes/<id>" (served by the API); other images are full URLs
+const imageUrl = (u: string | undefined) => (u?.startsWith("/imagenes/") ? API_URL + u : u || "")
+
+// Calls the backend (with the login token) and returns `data`; throws with the server's message so forms can show it
+async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+  const token = loadLS<string>("token", "")
+  let res: Response
+  try {
+    res = await fetch(API_URL + path, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch {
+    throw new Error("No se pudo conectar con el servidor. Intenta de nuevo.")
+  }
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.detalles?.[0]?.mensaje || json.mensaje || "Ocurrió un error. Intenta de nuevo.")
+  return json.data
+}
+
+type AuthData = {
+  token: string
+  requiere_cambio_contrasena?: boolean
+  usuario: {
+    correo: string
+    nombre: string | null
+    tipo_documento: string | null
+    documento: string | null
+    telefono: string | null
+    direcciones: string[] | null
+    roles: string[]
+    requiere_cambio_contrasena?: boolean
+  }
+  permisos: { modulo: string; privilegios: string[] }[]
+}
+
+const toUser = ({
+  token,
+  usuario: u,
+  permisos,
+  requiere_cambio_contrasena,
+}: AuthData): User => {
+  saveLS("token", token)
+  return {
+    permissions: permisos.filter((p) => p.privilegios.includes("VER")).map((p) => p.modulo),
+    name: u.nombre || u.correo,
+    email: u.correo.toLowerCase(),
+    role: u.roles.includes("CLIENTE") ? "user" : "admin",
+    requiresPasswordChange: Boolean(
+      requiere_cambio_contrasena ?? u.requiere_cambio_contrasena,
+    ),
+    docType: u.tipo_documento || undefined,
+    cedula: u.documento || undefined,
+    phone: u.telefono || undefined,
+    addresses: u.direcciones?.length ? u.direcciones : undefined,
+  }
+}
+
+const apiLogin = async (email: string, pass: string) =>
+  toUser(await api<AuthData>("/auth/login", "POST", { correo: email.trim(), contrasena: pass }))
+
+type CatalogItem = {
+  id: number
+  nombre: string
+  descripcion: string | null
+  etiqueta: string | null
+  precio: number
+  categoria: string
+  imagenes: string[]
+}
+
+// Backend category name → menu category id (inverse of PRODUCT_CAT_LABEL)
+const MENU_CAT_ID = Object.fromEntries(
+  Object.entries(PRODUCT_CAT_LABEL).map(([id, label]) => [label, id]),
+)
+
+// ── Admin tables ↔ backend ─────────────────────────────────────────────────────
+// Each synced admin module maps a backend record to its table row and back. The row
+// keeps the record id at `idIndex` (never shown) so edits update the same record.
+type Row = (string | number)[]
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DbRecord = Record<string, any>
+type SyncSpec = {
+  path: string
+  update: "PATCH" | "PUT"
+  idIndex: number
+  idOf: (r: DbRecord) => number
+  toRow: (r: DbRecord) => Row
+  toBody: (row: Row) => Promise<DbRecord> | DbRecord
+  // Rows that live only in the browser (not sent to the backend)
+  localOnly?: (row: Row) => boolean
+  // Backend records this module shows (default: all)
+  shows?: (r: DbRecord) => boolean
+  // Status changes that use their own route instead of a full update
+  setStatus?: (id: string | number, row: Row) => Promise<unknown>
+  // Modules to reload after a save (e.g. stock changes in Insumos)
+  reloads?: string[]
+  // Saves what lives in other tables once the record has its id (e.g. the ficha técnica)
+  afterSave?: (id: number, row: Row) => Promise<unknown>
+}
+
+const isActiveStatus = (v: string | number | undefined) =>
+  !["Inactivo", "Inactiva", "Anulado", "Anulada"].includes(String(v ?? ""))
+const estadoOf = (v: string | number | undefined) => (isActiveStatus(v) ? "ACTIVO" : "INACTIVO")
+const text = (v: string | number | undefined) => String(v ?? "").trim()
+// Optional e-mails must be omitted (not "") or the backend rejects them
+const optionalEmail = (v: string | number | undefined) => text(v) || undefined
+const withId = (row: Row, idIndex: number, id: number) => {
+  row[idIndex] = id
+  return row
+}
+
+// Finds a backend record id by its name (same name matching as the admin: no accents/case)
+async function idByName(path: string, nameKey: string, idKey: string, name: string | number, what: string) {
+  const record = (await api<DbRecord[]>(path)).find((r) => normalizeName(r[nameKey]) === normalizeName(name))
+  if (!record) throw new Error(`${what} «${name}» no existe en la base de datos.`)
+  return record[idKey] as number
+}
+const categoryIdByName = (path: string, name: string | number) =>
+  idByName(path, "nombre_categoria", "id_categoria", name, "La categoría")
+
+// Purchase items text: one "insumo | cantidad | costo unitario" per line
+const parsePurchaseLines = (value: string | number | undefined) =>
+  String(value ?? "")
+    .split(/\n|;/)
+    .map((line) => line.split("|").map((part) => part.trim()))
+    .filter(([name]) => name)
+    .map(([name, quantity, unitPrice]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0 }))
+
+const categorySpec = (path: string): SyncSpec => ({
+  path,
+  update: "PUT",
+  idIndex: 3,
+  idOf: (c) => c.id_categoria,
+  toRow: (c) =>
+    withId([c.nombre_categoria, c.descripcion || "", c.estado === "ACTIVO" ? "Activa" : "Inactiva"], 3, c.id_categoria),
+  toBody: (row) => ({ nombre_categoria: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
+})
+
+// Backend role names are uppercase (ADMINISTRADOR); the admin shows them as "Administrador"
+const roleLabel = (name: string) => name.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
+
+const DB_SYNC: Record<string, SyncSpec> = {
+  // [0 nombre, 1 descripción, 2 estado]. The permissions matrix is still kept in the browser.
+  roles: {
+    path: "/roles",
+    update: "PUT",
+    idIndex: 3,
+    idOf: (r) => r.id_rol,
+    toRow: (r) =>
+      withId([roleLabel(r.nombre_rol), r.descripcion || "", r.estado === "ACTIVO" ? "Activo" : "Inactivo"], 3, r.id_rol),
+    toBody: (row) => ({ nombre_rol: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
+  },
+  // [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, 6 contraseña, 7 id, 8 admin principal]
+  usuarios: {
+    path: "/usuarios",
+    update: "PATCH",
+    idIndex: 7,
+    // Customers are managed in Clientes
+    shows: (u) => !u.roles?.includes("CLIENTE"),
+    idOf: (u) => u.id_usuario,
+    toRow: (u) => {
+      const row = withId(
+        [u.nombre || "", u.tipo_documento || "", u.documento || "", roleLabel(u.roles?.[0] || ""), u.correo,
+          u.estado === "ACTIVO" ? "Activo" : "Inactivo", ""],
+        7,
+        u.id_usuario,
+      )
+      row[8] = u.es_administrador_principal ? "Principal" : ""
+      return row
+    },
+    toBody: (row) => {
+      const rol = text(row[3]).toUpperCase()
+      return {
+        nombre: text(row[0]),
+        tipo_documento: text(row[1]),
+        documento: text(row[2]),
+        roles: [rol],
+        tipo: rol === "CLIENTE" ? "CLIENTE" : "EMPLEADO",
+        correo: text(row[4]),
+        estado: estadoOf(row[5]),
+        contrasena: text(row[6]) || undefined,
+      }
+    },
+  },
+  // [0 nombre, 1 categoría, 2 precio, 3 descripción, 4 estado, 5-9 ficha técnica, 10 disponibilidad]
+  // Ficha técnica and disponibilidad are not in the backend yet.
+  producto: {
+    path: "/productos",
+    update: "PATCH",
+    idIndex: 11,
+    idOf: (p) => p.id_insumo_producto,
+    toRow: (p) =>
+      withId(
+        [p.nombre, p.nombre_categoria, p.precio, p.descripcion || "", p.estado === "ACTIVO" ? "Activo" : "Inactivo",
+          p.ficha?.nombre || `Ficha ${p.nombre}`, p.ficha?.version || "v1.0", p.ficha?.insumos_principales || "",
+          p.ficha?.preparacion || "",
+          JSON.stringify((p.ficha?.ingredientes || []).map((i: DbRecord) => ({ name: i.insumo, quantity: i.cantidad, unit: i.medida || "" }))),
+          "Disponible"],
+        11,
+        p.id_insumo_producto,
+      ),
+    toBody: async (row) => ({
+      nombre: text(row[0]),
+      id_categoria: await categoryIdByName("/categorias-productos", row[1]),
+      precio: Number(row[2]),
+      descripcion: text(row[3]),
+      estado: estadoOf(row[4]),
+    }),
+    localOnly: (row) => row[1] === "Producto de insumo",
+    afterSave: (id, row) => {
+      let recipe: TechnicalIngredient[] = []
+      try {
+        recipe = JSON.parse(String(row[9] || "[]"))
+      } catch {
+        // unreadable recipe: saved without ingredients
+      }
+      return api(`/productos/${id}/ficha`, "PUT", {
+        nombre: text(row[5]),
+        version: text(row[6]),
+        insumos_principales: text(row[7]),
+        preparacion: text(row[8]),
+        ingredientes: recipe
+          .filter((i) => Number(i.quantity) > 0)
+          .map((i) => ({ insumo: i.name, cantidad: Number(i.quantity), medida: i.unit || undefined })),
+      })
+    },
+  },
+  "cat-producto": categorySpec("/categorias-productos"),
+  // [0 nombre, 1 tipo doc, 2 documento, 3 teléfono, 4 correo, 5 dirección, 6 de local (Sí/No), 7 estado]
+  // Customers who registered in the app also show up here (their e-mail is their login).
+  clientes: {
+    path: "/clientes",
+    update: "PATCH",
+    idIndex: 8,
+    idOf: (c) => c.id_persona,
+    toRow: (c) =>
+      withId(
+        [c.nombre, c.tipo_documento || "", c.documento || "", c.telefono || "", c.correo || "", c.direccion || "",
+          c.de_local ? "Sí" : "No", c.estado === "ACTIVO" ? "Activo" : "Inactivo"],
+        8,
+        c.id_persona,
+      ),
+    toBody: (row) => ({
+      nombre: text(row[0]),
+      tipo_documento: text(row[1]),
+      documento: text(row[2]),
+      telefono: text(row[3]),
+      correo: optionalEmail(row[4]),
+      direccion: text(row[5]),
+      de_local: text(row[6]).toLowerCase() === "sí",
+      estado: estadoOf(row[7]),
+    }),
+  },
+  "cat-insumos": categorySpec("/categorias-insumos"),
+  // [0 nombre, 1 categoría, 2 unidad, 3 costo, 4 stock, 5 mínimo, 6 (sin uso), 7 producto de insumo,
+  //  8-11 ficha técnica, 12 estado]. The ficha técnica texts are not in the backend yet.
+  insumos: {
+    path: "/insumos",
+    update: "PATCH",
+    idIndex: 13,
+    idOf: (i) => i.id_insumo_producto,
+    toRow: (i) =>
+      withId(
+        [i.nombre, i.nombre_categoria, i.medida || "und", i.costo, i.stock, i.minimo, "",
+          i.tiene_ficha_tecnica ? "Sí" : "No",
+          i.tiene_ficha_tecnica ? i.ficha?.nombre || `Ficha técnica - ${i.nombre}` : "",
+          i.tiene_ficha_tecnica ? i.ficha?.version || "v1.0" : "",
+          i.ficha?.insumos_principales || "", i.ficha?.preparacion || "", i.estado === "ACTIVO" ? "Activo" : "Inactivo"],
+        13,
+        i.id_insumo_producto,
+      ),
+    toBody: async (row) => ({
+      nombre: text(row[0]),
+      id_categoria: await categoryIdByName("/categorias-insumos", row[1]),
+      medida: text(row[2]),
+      costo: Number(row[3]) || 0,
+      stock: Number(row[4]) || 0,
+      minimo: Number(row[5]) || 0,
+      tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
+      estado: estadoOf(row[12]),
+    }),
+    afterSave: (id, row) =>
+      text(row[7]).toLowerCase() === "sí"
+        ? api(`/insumos/${id}/ficha`, "PUT", {
+            nombre: text(row[8]),
+            version: text(row[9]),
+            insumos_principales: text(row[10]),
+            preparacion: text(row[11]),
+            // no recipe lines in the insumo form: the backend keeps the saved ones
+          })
+        : Promise.resolve(),
+  },
+  // [0 proveedor, 1 fecha compra, 2 fecha registro, 3 subtotal, 4 total, 5 estado (Activo/Anulado), 6 insumos]
+  // The backend adds the insumos to stock (and takes them back when the purchase is anulada).
+  compras: {
+    path: "/compras",
+    update: "PUT",
+    idIndex: 7,
+    idOf: (c) => c.id_compra,
+    toRow: (c) =>
+      withId(
+        [c.proveedor, c.fecha, c.fecha_registro, c.subtotal, c.total, c.estado === "REGISTRADA" ? "Activo" : "Anulado",
+          c.detalles.map((d: DbRecord) => `${d.insumo} | ${d.cantidad} | ${d.costo_unitario}`).join("\n")],
+        7,
+        c.id_compra,
+      ),
+    toBody: async (row) => {
+      const insumos = await api<DbRecord[]>("/insumos")
+      const items = parsePurchaseLines(row[6]).map((line) => {
+        const insumo = insumos.find((i) => normalizeName(i.nombre) === normalizeName(line.name))
+        if (!insumo) throw new Error(`El insumo «${line.name}» no existe en la base de datos.`)
+        return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice }
+      })
+      return {
+        id_proveedor: await idByName("/proveedores", "nombre", "id_proveedor", row[0], "El proveedor"),
+        fecha: text(row[1]),
+        iva: Math.max(0, Number(row[4]) - Number(row[3]) || 0),
+        items,
+      }
+    },
+    setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", { estado: isActiveStatus(row[5]) ? "REGISTRADA" : "ANULADA" }),
+    reloads: ["insumos"],
+  },
+  // [0 insumo, 1 cantidad con unidad ("0.5 kg"), 2 motivo, 3 responsable, 4 fecha, 5 origen]
+  // The backend takes the quantity out of the insumo's stock.
+  perdidas: {
+    path: "/perdidas-insumos",
+    update: "PUT",
+    idIndex: 6,
+    idOf: (p) => p.id_perdida,
+    toRow: (p) =>
+      withId(
+        [p.insumo, `${p.cantidad} ${p.medida || ""}`.trim(), p.motivo || "", p.responsable || "", p.fecha, p.observacion || ""],
+        6,
+        p.id_perdida,
+      ),
+    toBody: async (row) => {
+      const cantidad = parseFloat(String(row[1]).replace(",", "."))
+      if (!(cantidad > 0)) throw new Error(`La cantidad «${row[1]}» no es válida.`)
+      return {
+        id_insumo_producto: await idByName("/insumos", "nombre", "id_insumo_producto", row[0], "El insumo"),
+        cantidad,
+        motivo: text(row[2]),
+        responsable: text(row[3]),
+        fecha: text(row[4]) || undefined,
+        observacion: text(row[5]),
+      }
+    },
+    reloads: ["insumos"],
+  },
+  // [0 nombre, 1 NIT, 2 correo, 3 teléfono, 4 contacto, 5 dirección, 6 estado, 7 insumos,
+  //  8-14 contacto: tipo doc, nº doc, nombre, apellido, teléfono, correo, cargo]
+  proveedores: {
+    path: "/proveedores",
+    update: "PATCH",
+    idIndex: 15,
+    idOf: (p) => p.id_proveedor,
+    // Nombre/apellido (10, 11) stay empty: the edit form splits them from "contacto"
+    toRow: (p) =>
+      withId(
+        [p.nombre, p.nit || "", p.correo || "", p.telefono || "", p.contacto || "", p.direccion || "",
+          p.estado === "ACTIVO" ? "Activo" : "Inactivo", p.insumos || "", p.contacto_tipo_documento || "",
+          p.contacto_documento || "", "", "", p.contacto_telefono || "", p.contacto_correo || "", p.contacto_cargo || ""],
+        15,
+        p.id_proveedor,
+      ),
+    toBody: (row) => ({
+      nombre: text(row[0]),
+      nit: text(row[1]),
+      correo: optionalEmail(row[2]),
+      telefono: text(row[3]),
+      contacto: text(row[4]),
+      direccion: text(row[5]),
+      estado: estadoOf(row[6]),
+      insumos: text(row[7]),
+      contacto_tipo_documento: text(row[8]),
+      contacto_documento: text(row[9]),
+      contacto_telefono: text(row[12]),
+      contacto_correo: optionalEmail(row[13]),
+      contacto_cargo: text(row[14]),
+    }),
+  },
+}
+
+// Creates (no id yet) or updates the row's record in the backend; returns its id
+async function saveRowToDb(spec: SyncSpec, row: Row) {
+  const body = await spec.toBody(row)
+  const id = row[spec.idIndex]
+  const saved = id
+    ? await api<DbRecord>(`${spec.path}/${id}`, spec.update, body)
+    : await api<DbRecord>(spec.path, "POST", body)
+  return { id: spec.idOf(saved), saved }
+}
+
+// ── Permissions ↔ backend ──────────────────────────────────────────────────────
+// Panel section -> backend module (also the names of the permissions matrix)
+const SECTION_MODULE: Record<string, string> = {
+  roles: "ROLES_PERMISOS",
+  usuarios: "USUARIOS",
+  "cat-insumos": "CATEGORIAS_INSUMOS",
+  insumos: "INSUMOS",
+  proveedores: "PROVEEDORES",
+  compras: "COMPRAS",
+  perdidas: "PERDIDA_INSUMOS",
+  "cat-producto": "CATEGORIAS_PRODUCTO",
+  producto: "PRODUCTOS",
+  produccion: "ORDENES_PRODUCCION",
+  "producto-no-conforme": "PRODUCTO_NO_CONFORME",
+  clientes: "CLIENTES",
+  pedidos: "PEDIDOS",
+  ventas: "VENTAS",
+  devoluciones: "DEVOLUCIONES",
+}
+const PERM_MODULE: Record<string, string> = {
+  "Roles y permisos": "ROLES_PERMISOS",
+  Usuarios: "USUARIOS",
+  "Categoría Insumos": "CATEGORIAS_INSUMOS",
+  Insumos: "INSUMOS",
+  Proveedores: "PROVEEDORES",
+  Compras: "COMPRAS",
+  "Pérdida Insumos": "PERDIDA_INSUMOS",
+  "Categoría Producto": "CATEGORIAS_PRODUCTO",
+  Productos: "PRODUCTOS",
+  Producción: "ORDENES_PRODUCCION",
+  "Producto No Conforme": "PRODUCTO_NO_CONFORME",
+  Clientes: "CLIENTES",
+  Pedidos: "PEDIDOS",
+  Ventas: "VENTAS",
+  Devoluciones: "DEVOLUCIONES",
+}
+// The backend has one privilege for both "Anular" and "Eliminar" (each module shows one of them)
+const PERM_ACTION: Record<string, string> = { Ver: "VER", Crear: "CREAR", Editar: "EDITAR", Anular: "ELIMINAR", Eliminar: "ELIMINAR" }
+type RolePerms = Record<string, string[]>
+const permsToDb = (perms: RolePerms) =>
+  PERMISSION_MODULES.map(({ name }) => ({
+    modulo: PERM_MODULE[name],
+    privilegios: [...new Set((perms[name] || []).map((a) => PERM_ACTION[a]).filter(Boolean))].sort(),
+  })).filter((p) => p.privilegios.length)
+const permsFromDb = (permisos: { modulo: string; privilegios: string[] }[]): RolePerms =>
+  Object.fromEntries(
+    PERMISSION_MODULES.map(({ name, finalAction }) => [
+      name,
+      (permisos.find((p) => p.modulo === PERM_MODULE[name])?.privilegios || []).map((p) =>
+        p === "ELIMINAR" ? finalAction : p[0] + p.slice(1).toLowerCase(),
+      ),
+    ]),
+  )
+
+// ── Panel modules stored as whole rows ─────────────────────────────────────────
+// Their logic lives in the panel (status history, order lines, stock already used...), so the
+// backend stores each row as-is (plus its main columns). AdminPanel saves any change automatically.
+type PanelSyncSpec = {
+  path: string
+  // Position of the backend id in the row (right after the panel's own cells; never shown)
+  idIndex: number
+  // Rows built in the browser before loading that must still be saved (default: none)
+  keepLocal?: (row: Row, dbRows: Row[]) => boolean
+  // Rows this module saves (default: all); the others are kept as they are and never sent
+  owns?: (row: Row) => boolean
+}
+const PANEL_SYNC: Record<string, PanelSyncSpec> = {
+  // Production orders rebuilt from client orders (not the demo seed) are saved if the backend doesn't have them
+  produccion: {
+    path: "/ordenes-produccion",
+    idIndex: 17,
+    keepLocal: (row, dbRows) =>
+      !dbRows.some((r) => r[0] === row[0]) && !MOD_CFG.produccion.seed.some((r) => r[0] === row[0]),
+  },
+  "producto-no-conforme": { path: "/productos-no-conformes", idIndex: 9 },
+  ventas: { path: "/ventas", idIndex: 13 },
+  devoluciones: { path: "/devoluciones", idIndex: 6 },
+  // Orders created by hand in the panel; web store orders are saved through /pedidos
+  pedidos: {
+    path: "/pedidos-panel",
+    idIndex: 12,
+    owns: (row) => !loadOrders().some((order) => order.id === row[0]),
+  },
+}
+const syncIdIndex = (sec: string) => (DB_SYNC[sec] ?? PANEL_SYNC[sec])?.idIndex
+// Pads the row so the id never leaves empty gaps before it
+const withPanelId = (row: Row, idIndex: number, id: string | number) => {
+  const padded = Array.from({ length: Math.max(row.length, idIndex) }, (_, i) => row[i] ?? "")
+  padded[idIndex] = id
+  return padded
+}
+
+// Backend categories that feed the customization options instead of the menu
+const EXTRA_CATS = ["Adiciones", "Salsas", "Bebidas", "Sabores de bebida"]
+
+// shortcut: replaces the menu arrays in place so every screen reading them shows the backend data;
+// move them into state/context when the admin panel edits them live.
+async function loadMenu() {
+  const items = await api<CatalogItem[]>("/catalogo")
+  const inCat = (cat: string) => items.filter((p) => p.categoria === cat)
+  ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio })))
+  SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
+  BEVERAGES.splice(0, BEVERAGES.length, ...inCat("Sabores de bebida").map((p) => p.nombre))
+  // The customizer always needs at least one size, so keep the built-in ones if none are active
+  const sizes = inCat("Bebidas").map((p) => ({ id: p.nombre, label: p.nombre, price: p.precio }))
+  if (sizes.length) BEVERAGE_SIZES.splice(0, BEVERAGE_SIZES.length, ...sizes)
+  PRODUCTS.splice(
+    0,
+    PRODUCTS.length,
+    ...items.filter((p) => !EXTRA_CATS.includes(p.categoria)).map((p) => ({
+      id: p.id,
+      name: p.nombre,
+      desc: p.descripcion || "",
+      price: p.precio,
+      priceStr: fmt(p.precio),
+      img: imageUrl(p.imagenes[0]),
+      cat: MENU_CAT_ID[p.categoria] || p.categoria.toLowerCase(),
+      badge: p.etiqueta || "",
+    })),
+  )
+}
+
+const apiRegister = async (u: User) =>
+  toUser(
+    await api<AuthData>("/auth/registro", "POST", {
+      correo: u.email,
+      contrasena: u.password,
+      nombre: u.name,
+      tipo_documento: u.docType || undefined,
+      documento: u.cedula || undefined,
+    }),
+  )
+
+function getAdminAccountStatus(email: string): string | undefined {
+  const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
+  return statuses[email.trim().toLowerCase()]
+}
+
 // ponytail: all orders live in this browser's localStorage (client + admin
 // share it); move to a backend when the shop needs multiple devices.
 const loadOrders = () => loadLS<Order[]>("orders", [])
 const saveOrders = (orders: Order[]) => saveLS("orders", orders)
+
+// ── Pedidos ↔ backend: the "orders" cache above is refreshed from the backend on login,
+// so client and admin see the same orders from any device.
+const orderDbId = (id: string) => Number(id.replace("PED-", ""))
+const orderFromDb = (p: DbRecord): Order => ({
+  id: `PED-${p.id_pedido}`,
+  email: p.correo,
+  cliente: p.cliente,
+  date: new Date(p.creado_en).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }),
+  nombre: p.nombre_contacto || p.cliente,
+  telefono: p.telefono_contacto || "",
+  direccion: p.direccion_entrega || "",
+  notas: p.observacion || "",
+  pago: p.metodo_pago || "Efectivo",
+  voucher: p.comprobante || undefined,
+  items: p.items.map((it: DbRecord, i: number) => {
+    const product = PRODUCTS.find((x) => x.name === it.producto)
+    return {
+      id: i + 1,
+      name: it.producto,
+      description: product?.desc,
+      price: it.precio_unitario,
+      qty: it.cantidad,
+      img: product?.img || "",
+      sauces: it.detalle?.salsas || [],
+      additions: (it.detalle?.adiciones || []).map((a: DbRecord) => ({ name: a.nombre, qty: a.cantidad, price: a.precio })),
+    }
+  }),
+  total: p.total,
+  status: p.estado,
+  paymentStatus: p.estado_pago,
+  paymentRejectionReason: p.motivo_rechazo_pago || undefined,
+  productionAuthorized: p.produccion_autorizada,
+  productionRecords: p.registros_produccion,
+})
+// Staff get every order; clients only their own
+const refreshOrders = async (role: User["role"]) =>
+  saveOrders((await api<DbRecord[]>(role === "admin" ? "/pedidos" : "/pedidos/mios")).map(orderFromDb))
+// Saves the panel's changes to a client order (status, payment, production)
+const pushOrder = (id: string) => {
+  const o = loadOrders().find((order) => order.id === id)
+  if (!o) return
+  api(`/pedidos/${orderDbId(o.id)}`, "PATCH", {
+    estado: o.status,
+    estado_pago: o.paymentStatus,
+    motivo_rechazo_pago: o.paymentRejectionReason ?? null,
+    produccion_autorizada: !!o.productionAuthorized,
+    registros_produccion: o.productionRecords ?? [],
+  }).catch((err) => window.alert(`El pedido ${o.id} no se guardó en la base de datos: ${(err as Error).message}`))
+}
+const loadRegisteredClients = () =>
+  loadLS<RegisteredClient[]>("registeredClients", [])
+const saveRegisteredClient = (user: User) => {
+  if (user.role !== "user" || !user.email.trim()) return
+  const registeredClient: RegisteredClient = {
+    name: user.name.trim(),
+    email: user.email.trim().toLowerCase(),
+    cedula: user.cedula?.trim(),
+    docType: user.docType?.trim(),
+    phone: user.phone?.trim(),
+  }
+  const clients = loadRegisteredClients().filter(
+    (client) => client.email.toLowerCase() !== registeredClient.email,
+  )
+  saveLS("registeredClients", [registeredClient, ...clients])
+}
 
 // Downscale to keep vouchers small enough for localStorage
 function readVoucher(file: File) {
@@ -3438,15 +4475,33 @@ function OrderList({
         Aún no has hecho pedidos.
       </div>
     )
+  const formatOrderDescription = (order: Order) => {
+    const days = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
+    const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+    // Generate a consistent imaginary date based on the order ID
+    const idMatch = order.id.match(/\d+/)
+    const seed = idMatch ? parseInt(idMatch[0], 10) : Math.floor(Math.random() * 1000)
+    const dayIndex = seed % 7
+    const day = (seed % 28) + 1
+    const month = seed % 12
+    return `Pedido del ${days[dayIndex]} ${day} de ${months[month]}`
+  }
+
   return (
     <div className="space-y-3">
       {orders.map((o) => {
         const badge = badgeSt(o.status)
+        const paymentStatus =
+          o.paymentStatus ??
+          (o.voucher
+            ? "Pendiente de verificación"
+            : isTransferPaymentMethod(o.pago)
+              ? "Pendiente de verificación"
+              : "Pendiente")
         return (
-          <button
+          <div
             key={o.id}
-            onClick={() => onSelect(o)}
-            className="w-full text-left p-4 rounded-2xl cursor-pointer hover:opacity-90"
+            className="w-full text-left p-4 rounded-2xl"
             style={{
               background: dark ? "#1E1C18" : "#fff",
               border: `1px solid ${BORDER}`,
@@ -3455,11 +4510,16 @@ function OrderList({
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="font-bold text-sm" style={{ color: TEXT }}>
-                  {o.id}
+                  {formatOrderDescription(o)}
                 </div>
                 <div className="text-xs truncate" style={{ color: MUTED }}>
-                  {o.date} · {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
+                  {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
                 </div>
+                {(o.items.some((i) => i.sauces?.length || i.additions?.length)) && (
+                  <div className="text-[11px] mt-1" style={{ color: C.mustard }}>
+                    Incluye personalizaciones
+                  </div>
+                )}
               </div>
               <div className="text-right flex-shrink-0">
                 <div className="font-bold" style={{ color: C.mustard }}>
@@ -3471,9 +4531,31 @@ function OrderList({
                 >
                   {o.status}
                 </span>
+                {paymentStatus !== "Pendiente" && (
+                  <div
+                    className="mt-1 text-[10px] font-semibold"
+                    style={{
+                      color:
+                        paymentStatus === "Pagado"
+                          ? C.forest
+                          : paymentStatus === "Rechazado"
+                            ? C.red
+                            : C.mustard,
+                    }}
+                  >
+                    Pago: {paymentStatus}
+                  </div>
+                )}
               </div>
             </div>
-          </button>
+            <button
+              onClick={() => onSelect(o)}
+              className="mt-3 w-full py-2 rounded-xl text-xs font-bold cursor-pointer hover:opacity-90"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              Ver detalle
+            </button>
+          </div>
         )
       })}
     </div>
@@ -3559,33 +4641,38 @@ function OrderDetailModal({
           ))}
         </div>
 
-        <div className="space-y-2 mb-4">
+        <div className="space-y-3 mb-4">
           {order.items.map((i) => (
             <div
               key={i.id}
-              className="flex justify-between gap-3 text-sm pb-2"
-              style={{ borderBottom: `1px solid ${BORDER}` }}
+              className="p-3 rounded-xl"
+              style={{ background: dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)" }}
             >
-              <div>
+              <div className="flex justify-between gap-3 text-sm">
                 <div className="font-semibold">
-                  {i.name} x{i.qty}
+                  {i.name} <span style={{ color: MUTED }}>x{i.qty}</span>
                 </div>
-                {!!i.sauces?.length && (
-                  <div className="text-xs" style={{ color: MUTED }}>
-                    Salsas: {i.sauces.join(", ")}
-                  </div>
-                )}
-                {!!i.additions?.length && (
-                  <div className="text-xs" style={{ color: MUTED }}>
-                    Adiciones:{" "}
-                    {i.additions.map((a) => `${a.name} x${a.qty}`).join(", ")}
-                  </div>
-                )}
+                <span className="font-semibold">{fmt(itemTotal(i))}</span>
               </div>
-              <span className="font-semibold">{fmt(itemTotal(i))}</span>
+              <div className="mt-2 space-y-1 text-xs" style={{ color: MUTED }}>
+                <div className="flex justify-between gap-3">
+                  <span>Precio ({i.qty} x {fmt(i.price)})</span>
+                  <span>{fmt(i.price * i.qty)}</span>
+                </div>
+                <div>
+                  <span className="font-semibold" style={{ color: TEXT }}>Salsas:</span>{" "}
+                  {i.sauces?.length ? i.sauces.join(", ") : "Sin salsas adicionales"}
+                </div>
+                <div>
+                  <span className="font-semibold" style={{ color: TEXT }}>Adiciones:</span>{" "}
+                  {i.additions?.length
+                    ? i.additions.map((a) => `${a.name} x${a.qty} (+${fmt(a.price * a.qty * i.qty)})`).join(", ")
+                    : "Sin adiciones"}
+                </div>
+              </div>
             </div>
           ))}
-          <div className="flex justify-between font-black">
+          <div className="flex justify-between font-black pt-2" style={{ borderTop: `2px solid ${BORDER}` }}>
             <span>Total</span>
             <span style={{ color: C.mustard }}>{fmt(order.total)}</span>
           </div>
@@ -3609,6 +4696,17 @@ function OrderDetailModal({
           <div>
             <strong style={{ color: TEXT }}>Pago:</strong> {order.pago}
           </div>
+          {order.paymentStatus && (
+            <div>
+              <strong style={{ color: TEXT }}>Estado del pago:</strong>{" "}
+              {order.paymentStatus}
+            </div>
+          )}
+          {order.paymentStatus === "Rechazado" && order.paymentRejectionReason && (
+            <div style={{ color: C.red }}>
+              <strong>Motivo de rechazo:</strong> {order.paymentRejectionReason}
+            </div>
+          )}
         </div>
 
         {order.pago !== "Efectivo" && (
@@ -3639,12 +4737,22 @@ function CartSummary({
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
   const CARD = dark ? "#1E1C18" : "#fff"
   const subtotal = cartTotal(cart)
+  const [expandedItemId, setExpandedItemId] = useState<number | null>(null)
+  const descriptionFor = (item: CartItem) =>
+    item.description ??
+    PRODUCTS.find((product) => product.name === item.name)?.desc ??
+    "Hamburguesa preparada al momento con ingredientes frescos."
   const updateQty = (id: number, d: number) =>
     setCart((c) =>
-      c.map((i) =>
-        i.id === id ? { ...i, qty: Math.max(0, i.qty + d) } : i,
-      ).filter((i) => i.qty > 0),
+      activeCartItemsFirst(
+        c.map((i) =>
+          i.id === id ? { ...i, qty: Math.max(0, i.qty + d) } : i,
+        ),
+      ),
     )
+  const removeItem = (id: number) =>
+    setCart((c) => c.filter((item) => item.id !== id))
+  const orderedCart = activeCartItemsFirst(cart)
   if (cart.length === 0)
     return (
       <div className="text-center py-8">
@@ -3656,43 +4764,57 @@ function CartSummary({
     )
   return (
     <div>
-      <div className="space-y-3 mb-4">
-        {cart.map((item) => (
+      <div className="space-y-3 mb-4 max-h-[55vh] overflow-y-auto pr-1">
+        {orderedCart.map((item) => (
           <div
             key={item.id}
-            className="flex items-center gap-3 p-3 rounded-xl"
+            className="p-3 rounded-xl"
             style={{ background: CARD, border: `1px solid ${BORDER}` }}
           >
-            <img
-              src={item.img}
-              alt={item.name}
-              className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
-            />
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-sm" style={{ color: TEXT }}>
-                {item.name}
-              </div>
-              {item.additions && item.additions.length > 0 && (
-                <div className="text-xs" style={{ color: MUTED }}>
-                  +{item.additions.map((a) => a.name).join(", ")}
-                </div>
-              )}
-              <div className="flex items-center justify-between mt-1">
-                <span
-                  className="font-bold text-sm"
-                  style={{ color: C.mustard }}
-                >
-                  {fmt(itemTotal(item))}
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setExpandedItemId((id) => (id === item.id ? null : item.id))
+                }
+                className="flex flex-1 min-w-0 items-center gap-3 text-left cursor-pointer"
+                aria-expanded={expandedItemId === item.id}
+                aria-label={`${expandedItemId === item.id ? "Ocultar" : "Ver"} detalles de ${item.name}`}
+              >
+                <img
+                  src={item.img}
+                  alt=""
+                  className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
+                />
+                <span className="flex-1 min-w-0">
+                  <span className="block font-semibold text-sm" style={{ color: TEXT }}>
+                    {item.name}
+                  </span>
+                  {item.additions && item.additions.length > 0 && (
+                    <span className="block text-xs truncate" style={{ color: MUTED }}>
+                      +{item.additions.map((a) => a.name).join(", ")}
+                    </span>
+                  )}
+                  <span className="block font-bold text-sm mt-1" style={{ color: C.mustard }}>
+                    {fmt(itemTotal(item))}
+                  </span>
                 </span>
-                <div className="flex items-center gap-1">
+                <span className="text-xs font-semibold flex-shrink-0" style={{ color: MUTED }}>
+                  {expandedItemId === item.id ? "Menos −" : "Detalles +"}
+                </span>
+              </button>
+              <div className="flex items-center gap-1">
                   <button
                     onClick={() => updateQty(item.id, -1)}
+                    type="button"
+                    disabled={item.qty === 0}
                     className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-sm font-bold"
                     style={{
                       background: dark
                         ? "rgba(244,238,220,0.1)"
                         : "rgba(30,30,30,0.08)",
                       color: TEXT,
+                      opacity: item.qty === 0 ? 0.45 : 1,
                     }}
                   >
                     −
@@ -3705,14 +4827,51 @@ function CartSummary({
                   </span>
                   <button
                     onClick={() => updateQty(item.id, 1)}
+                    type="button"
                     className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-sm font-bold"
                     style={{ background: C.mustard, color: "#fff" }}
                   >
                     +
                   </button>
-                </div>
+                  <button
+                    onClick={() => removeItem(item.id)}
+                    type="button"
+                    className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer"
+                    style={{ color: C.red }}
+                    aria-label={`Eliminar ${item.name} del carrito`}
+                    title="Eliminar del carrito"
+                  >
+                    {Ico.trash}
+                  </button>
               </div>
             </div>
+            {expandedItemId === item.id && (
+              <div
+                className="mt-3 pt-3 text-xs space-y-2"
+                style={{ borderTop: `1px solid ${BORDER}`, color: MUTED }}
+              >
+                <p className="leading-relaxed">{descriptionFor(item)}</p>
+                {item.sauces?.length ? (
+                  <p><strong style={{ color: TEXT }}>Salsas:</strong> {item.sauces.join(", ")}</p>
+                ) : (
+                  <p><strong style={{ color: TEXT }}>Salsas:</strong> Sin salsas seleccionadas</p>
+                )}
+                {item.additions?.length ? (
+                  <div>
+                    <strong style={{ color: TEXT }}>Adiciones:</strong>
+                    <ul className="mt-1 space-y-0.5">
+                      {item.additions.map((addition) => (
+                        <li key={addition.name}>
+                          {addition.name} × {addition.qty} · {fmt(addition.price * addition.qty)}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p><strong style={{ color: TEXT }}>Adiciones:</strong> Sin adiciones</p>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -3732,8 +4891,8 @@ function CartSummary({
           className="flex justify-between text-sm mb-2"
           style={{ color: MUTED }}
         >
-          <span>Domicilio (Comuna 3)</span>
-          <span style={{ color: C.forest }}>Gratis</span>
+          <span>Domicilio</span>
+          <span style={{ color: MUTED }}>Costo según zona</span>
         </div>
         <div
           className="flex justify-between font-black text-base pt-2"
@@ -3769,7 +4928,7 @@ function CheckoutPage({
   onLogin: (u: User) => void
   onRegisterVerified: (u: User) => void
   onBack: () => void
-  onPlaceOrder: (info: DeliveryInfo) => void
+  onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<void>
   onComplete: () => void
 }) {
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
@@ -3791,15 +4950,36 @@ function CheckoutPage({
     notas: "",
     pago: "Efectivo",
   })
+  const [editingAddress, setEditingAddress] = useState(
+    () => !(user?.addresses?.length),
+  )
+  const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(false)
+  const [saveAddress, setSaveAddress] = useState(
+    () => !(user?.addresses?.length),
+  )
+  const [deliveryTried, setDeliveryTried] = useState(false)
+  const toggleDeliveryRecipient = () => {
+    const nextIsOtherPerson = !deliverToOtherPerson
+    setDeliverToOtherPerson(nextIsOtherPerson)
+    setDeliveryTried(false)
+    setDelivForm((current) => ({
+      ...current,
+      nombre: nextIsOtherPerson ? "" : user?.name ?? "",
+      telefono: nextIsOtherPerson ? "" : user?.phone ?? "",
+    }))
+  }
   // Prefill delivery data from the account as soon as there is one
   useEffect(() => {
     if (!user) return
+    const hasSavedAddress = !!user.addresses?.length
     setDelivForm((f) => ({
       ...f,
       nombre: f.nombre || user.name,
       telefono: f.telefono || user.phone || "",
       direccion: f.direccion || user.addresses?.[0] || "",
     }))
+    setEditingAddress(!hasSavedAddress)
+    setSaveAddress(!hasSavedAddress)
   }, [user])
   const [code, setCode] = useState("")
   const [voucher, setVoucher] = useState("")
@@ -3811,48 +4991,97 @@ function CheckoutPage({
   const [pickerOpen, setPickerOpen] = useState(false)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
   const subtotal = cartTotal(cart)
-  const placeOrder = () => {
-    onPlaceOrder({ ...delivForm, voucher: needsVoucher ? voucher : undefined })
-    setPlacedTotal(subtotal)
-    setOrdered(true)
+  const hasActiveItems = cart.some((item) => item.qty > 0)
+  const activeCart = cart.filter((item) => item.qty > 0)
+  const [orderError, setOrderError] = useState("")
+  const [placing, setPlacing] = useState(false)
+  const placeOrder = async () => {
+    setDeliveryTried(true)
+    if (placing || !user || !delivFilled || !payReady || cart.length === 0) return
+    setOrderError("")
+    setPlacing(true)
+    try {
+      await onPlaceOrder(
+        { ...delivForm, voucher: needsVoucher ? voucher : undefined },
+        saveAddress || !(user.addresses?.length),
+      )
+      setPlacedTotal(subtotal)
+      setOrdered(true)
+    } catch (err) {
+      setOrderError((err as Error).message)
+    } finally {
+      setPlacing(false)
+    }
+  }
+  const continueToReview = () => {
+    setDeliveryTried(true)
+    if (!delivFilled || !payReady) return
+    setCheckoutStep(3)
   }
   // Nequi / Daviplata must attach the payment receipt before continuing
   const needsVoucher = delivForm.pago !== "Efectivo"
   const payReady = !needsVoucher || !!voucher
   const delivFilled =
-    delivForm.nombre && delivForm.telefono && delivForm.direccion
+    !!delivForm.nombre.trim() &&
+    !validatePhoneNumber(delivForm.telefono) &&
+    !!delivForm.direccion.trim()
   const canOrder = user && delivFilled
 
-  const handleLogin = (e: React.FormEvent) => {
+  // Errors show after the first submit of each form and update while typing
+  const [loginTried, setLoginTried] = useState(false)
+  const [regTried, setRegTried] = useState(false)
+  const [codeTried, setCodeTried] = useState(false)
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  // Password, account existence and status are checked by the backend
+  const loginErrors = loginTried ? validateLogin(loginForm.email, loginForm.pass) : {}
+  const regErrors = regTried ? validateRegister(regForm) : {}
+  const codeErr = codeTried ? codeError(code) : ""
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
-    const role = loginForm.email.toLowerCase().includes("admin")
-      ? "admin"
-      : "user"
-    const name = loginForm.email
-      .split("@")[0]
-      .replace(/\./g, " ")
-      .replace(/\b\w/g, (ch) => ch.toUpperCase())
-    onLogin({ name, email: loginForm.email, role })
-    setCheckoutStep(2)
+    setLoginTried(true)
+    setServerErr("")
+    if (busy || Object.keys(validateLogin(loginForm.email, loginForm.pass)).length) return
+    setBusy(true)
+    try {
+      onLogin(await apiLogin(loginForm.email, loginForm.pass))
+      setCheckoutStep(2)
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
   const handleRegisterForm = (e: React.FormEvent) => {
     e.preventDefault()
-    if (!regForm.name || !regForm.email || !regForm.pass || !regForm.docType)
-      return
-    if (regForm.pass !== regForm.pass2) return
+    setRegTried(true)
+    if (Object.keys(validateRegister(regForm)).length) return
     setRegStep("verifying")
   }
-  const handleVerify = (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (code.length < 6) return
-    onRegisterVerified({
-      name: regForm.name,
-      email: regForm.email,
+    setCodeTried(true)
+    setServerErr("")
+    if (busy || codeError(code)) return
+    const u: User = {
+      name: regForm.name.trim(),
+      email: regForm.email.trim().toLowerCase(),
       role: "user",
-      phone: regForm.phone,
-      cedula: regForm.docNum,
-    })
-    setCheckoutStep(2)
+      docType: regForm.docType,
+      phone: regForm.phone.replace(/\s/g, ""),
+      cedula: regForm.docNum.trim(),
+    }
+    setBusy(true)
+    try {
+      // Registering returns a token, so the client is logged in right away
+      await apiRegister({ ...u, password: regForm.pass })
+      onRegisterVerified(u)
+      setCheckoutStep(2)
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const MUTED = "rgba(30,30,30,0.55)"
@@ -3873,18 +5102,18 @@ function CheckoutPage({
       : {
           label: "Hacer pedido",
           onClick: () => setShowAuth(true),
-          disabled: cart.length === 0,
+          disabled: !hasActiveItems,
         }
     : checkoutStep === 2
       ? {
-          label: "Continuar a revisión",
-          onClick: () => setCheckoutStep(3),
-          disabled: !delivFilled || !payReady,
+          label: "Confirma tus datos",
+          onClick: continueToReview,
+          disabled: cart.length === 0,
         }
       : {
-          label: "Confirmar pedido",
+          label: placing ? "Enviando pedido..." : "Confirmar pedido",
           onClick: placeOrder,
-          disabled: cart.length === 0 || !canOrder || !payReady,
+          disabled: placing || !hasActiveItems || !canOrder || !payReady,
         }
 
   if (ordered)
@@ -3915,12 +5144,14 @@ function CheckoutPage({
             className="font-black text-2xl mb-2"
             style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
           >
-            ¡Pedido enviado!
+            ¡Pedido confirmado!
           </h2>
           <p className="text-sm mb-6" style={{ color: MUTED }}>
-            {placedTotal >= APPROVAL_MIN
-              ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
-              : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
+            {delivForm.pago !== "Efectivo"
+              ? "Recibimos tu comprobante. El pedido queda pendiente de verificación; cuando se apruebe, se enviará a producción."
+              : placedTotal >= APPROVAL_MIN
+                ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
+                : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
             Puedes seguir su estado en &quot;Mis pedidos&quot;.
           </p>
           <div
@@ -3957,7 +5188,7 @@ function CheckoutPage({
       style={{ background: "#FAF5E8", fontFamily: "Poppins, sans-serif" }}
     >
       <header
-        className="sticky top-0 z-30"
+        className="fixed inset-x-0 top-0 z-50"
         style={{
           background: "rgba(250,245,232,0.95)",
           borderBottom: `1px solid ${LINE}`,
@@ -3990,13 +5221,14 @@ function CheckoutPage({
           </span>
         </div>
       </header>
+      <div className="h-16" aria-hidden="true" />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <h1
           className="font-black text-2xl sm:text-3xl text-center mb-6"
           style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
         >
-          Finalizar pedido
+          Finalizar mi pedido
         </h1>
 
         {/* Stepper */}
@@ -4053,20 +5285,26 @@ function CheckoutPage({
           <div className="flex flex-col gap-6 min-w-0">
             {!user && !showAuth && (
               <section className="p-6 rounded-2xl" style={CARD_ST}>
-                <h2 className="font-bold text-lg mb-1" style={{ color: C.dark }}>
-                  Tu carrito
-                </h2>
+                <div className="flex items-center justify-between gap-3 mb-1">
+                  <h2 className="font-bold text-lg" style={{ color: C.dark }}>
+                    Tu carrito
+                  </h2>
+                  <button
+                    onClick={() => setPickerOpen(true)}
+                    className="flex-shrink-0 mt-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold cursor-pointer hover:opacity-80"
+                    style={{
+                      border: `1.5px dashed ${C.mustard}`,
+                      color: C.mustard,
+                      background: "#fff",
+                    }}
+                  >
+                    + Agregar más productos
+                  </button>
+                </div>
                 <p className="text-sm mb-5" style={{ color: MUTED }}>
                   Revisa tus productos antes de hacer el pedido.
                 </p>
                 <CartSummary cart={cart} setCart={setCart} dark={false} showTotals={false} />
-                <button
-                  onClick={() => setPickerOpen(true)}
-                  className="w-full py-3 rounded-xl text-sm font-semibold cursor-pointer hover:opacity-80"
-                  style={{ border: `1.5px dashed ${C.mustard}`, color: C.mustard }}
-                >
-                  + Agregar más productos
-                </button>
               </section>
             )}
 
@@ -4112,7 +5350,7 @@ function CheckoutPage({
                   ))}
                 </div>
                 {authTab === "login" && (
-                  <form onSubmit={handleLogin} className="flex flex-col gap-3">
+                  <form onSubmit={handleLogin} noValidate className="flex flex-col gap-3">
                     <InputField
                       label="Correo"
                       type="email"
@@ -4122,6 +5360,7 @@ function CheckoutPage({
                         setLoginForm((f) => ({ ...f, email: v }))
                       }
                       required
+                      error={loginErrors.email}
                     />
                     <InputField
                       label="Contraseña"
@@ -4130,29 +5369,27 @@ function CheckoutPage({
                       value={loginForm.pass}
                       onChange={(v) => setLoginForm((f) => ({ ...f, pass: v }))}
                       required
+                      error={loginErrors.pass}
                     />
+                    <FieldError msg={serverErr} />
                     <button
                       type="submit"
+                      disabled={busy}
                       className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
                       style={{ background: C.mustard, color: "#fff" }}
                     >
-                      Iniciar sesión
+                      {busy ? "Ingresando..." : "Iniciar sesión"}
                     </button>
                   </form>
                 )}
                 {authTab === "register" && regStep === "form" && (
                   <form
                     onSubmit={handleRegisterForm}
+                    noValidate
                     className="flex flex-col gap-2.5"
                   >
-                    <InputField
-                      label="Nombre *"
-                      placeholder="Tu nombre"
-                      value={regForm.name}
-                      onChange={(v) => setRegForm((f) => ({ ...f, name: v }))}
-                      required
-                    />
-                    <div className="flex flex-col gap-1">
+                    <div className="grid sm:grid-cols-2 gap-2.5 items-start">
+                    <div className="flex flex-col gap-1 min-w-0">
                       <label
                         className="text-xs font-semibold"
                         style={{ color: "rgba(30,30,30,0.5)" }}
@@ -4161,13 +5398,19 @@ function CheckoutPage({
                       </label>
                       <select
                         value={regForm.docType}
-                        onChange={(e) =>
-                          setRegForm((f) => ({ ...f, docType: e.target.value }))
-                        }
+                        onChange={(e) => {
+                          const docType = e.target.value
+                          setRegForm((current) => ({
+                            ...current,
+                            docType,
+                            docNum: normalizeAccountDocumentInput(current.docNum, docType),
+                          }))
+                        }}
+                        aria-invalid={!!regErrors.docType}
                         className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none"
                         style={{
                           background: "rgba(30,30,30,0.05)",
-                          border: "1.5px solid rgba(30,30,30,0.12)",
+                          border: `1.5px solid ${regErrors.docType ? C.red : "rgba(30,30,30,0.12)"}`,
                           color: regForm.docType
                             ? "#1A1714"
                             : "rgba(30,30,30,0.35)",
@@ -4180,20 +5423,35 @@ function CheckoutPage({
                           </option>
                         ))}
                       </select>
+                      <FieldError msg={regErrors.docType} />
                     </div>
                     <InputField
                       label="Nº Documento *"
                       placeholder="123456789"
                       value={regForm.docNum}
-                      onChange={(v) => setRegForm((f) => ({ ...f, docNum: v }))}
+                      onChange={(v) => setRegForm((current) => ({
+                        ...current,
+                        docNum: normalizeAccountDocumentInput(v, current.docType),
+                      }))}
                       required
+                      error={regErrors.docNum}
+                    />
+                    </div>
+                    <InputField
+                      label="Nombre *"
+                      placeholder="Tu nombre"
+                      value={regForm.name}
+                      onChange={(v) => setRegForm((f) => ({ ...f, name: v }))}
+                      required
+                      error={regErrors.name}
                     />
                     <InputField
                       label="Teléfono"
                       type="tel"
                       placeholder="3XX XXX XXXX"
                       value={regForm.phone}
-                      onChange={(v) => setRegForm((f) => ({ ...f, phone: v }))}
+                      onChange={(v) => setRegForm((f) => ({ ...f, phone: digitsOnly(v).slice(0, 10) }))}
+                      error={regErrors.phone}
                     />
                     <InputField
                       label="Correo *"
@@ -4202,6 +5460,7 @@ function CheckoutPage({
                       value={regForm.email}
                       onChange={(v) => setRegForm((f) => ({ ...f, email: v }))}
                       required
+                      error={regErrors.email}
                     />
                     <InputField
                       label="Contraseña *"
@@ -4210,7 +5469,13 @@ function CheckoutPage({
                       value={regForm.pass}
                       onChange={(v) => setRegForm((f) => ({ ...f, pass: v }))}
                       required
+                      error={regErrors.pass}
                     />
+                    {!regErrors.pass && (
+                      <p className="text-[11px] -mt-1" style={{ color: "rgba(30,30,30,0.45)" }}>
+                        Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
+                      </p>
+                    )}
                     <InputField
                       label="Confirmar *"
                       type="password"
@@ -4218,6 +5483,7 @@ function CheckoutPage({
                       value={regForm.pass2}
                       onChange={(v) => setRegForm((f) => ({ ...f, pass2: v }))}
                       required
+                      error={regErrors.pass2}
                     />
                     <button
                       type="submit"
@@ -4229,34 +5495,46 @@ function CheckoutPage({
                   </form>
                 )}
                 {authTab === "register" && regStep === "verifying" && (
-                  <form onSubmit={handleVerify} className="flex flex-col gap-4">
+                  <form onSubmit={handleVerify} noValidate className="flex flex-col gap-4">
                     <p
                       className="text-xs text-center"
                       style={{ color: "rgba(30,30,30,0.5)" }}
                     >
-                      Código enviado a <strong>{regForm.email}</strong>. (Demo:
-                      841736)
+                      Código enviado a <strong>{regForm.email}</strong>. (Demo:{" "}
+                      {DEMO_CODE})
                     </p>
                     <input
                       maxLength={6}
                       placeholder="000000"
+                      inputMode="numeric"
                       value={code}
                       onChange={(e) =>
                         setCode(e.target.value.replace(/\D/g, ""))
                       }
+                      aria-invalid={!!codeErr}
                       className="w-full px-4 py-4 rounded-xl text-center text-2xl font-bold tracking-widest outline-none"
                       style={{
                         background: "rgba(30,30,30,0.05)",
-                        border: "1.5px solid rgba(30,30,30,0.12)",
+                        border: `1.5px solid ${codeErr ? C.red : "rgba(30,30,30,0.12)"}`,
                         color: "#1A1714",
                       }}
                     />
+                    <FieldError msg={codeErr || serverErr} />
                     <button
                       type="submit"
+                      disabled={busy}
                       className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
                       style={{ background: C.mustard, color: "#fff" }}
                     >
-                      Verificar
+                      {busy ? "Creando cuenta..." : "Verificar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRegStep("form")}
+                      className="text-xs text-center cursor-pointer"
+                      style={{ color: "rgba(30,30,30,0.45)" }}
+                    >
+                      ← Corregir mis datos
                     </button>
                   </form>
                 )}
@@ -4272,16 +5550,47 @@ function CheckoutPage({
                   <p className="text-sm mb-5" style={{ color: MUTED }}>
                     ¿A dónde llevamos tu pedido?
                   </p>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={deliverToOtherPerson}
+                    onClick={toggleDeliveryRecipient}
+                    className="mb-4 flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors"
+                    style={{
+                      background: deliverToOtherPerson ? `${C.mustard}12` : "rgba(30,30,30,0.03)",
+                      border: `1px solid ${deliverToOtherPerson ? `${C.mustard}70` : LINE}`,
+                    }}
+                  >
+                    <span className="min-w-0">
+                      <strong className="block text-sm" style={{ color: C.dark }}>
+                        El pedido lo recibe otra persona
+                      </strong>
+                      <span className="mt-0.5 block text-xs" style={{ color: MUTED }}>
+                        {deliverToOtherPerson
+                          ? "Ingresa los datos de quien recibirá el pedido."
+                          : "Activa esta opción para indicar otro destinatario."}
+                      </span>
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className="flex h-5 w-9 flex-shrink-0 items-center rounded-full p-0.5 transition-colors"
+                      style={{ background: deliverToOtherPerson ? C.mustard : "rgba(30,30,30,0.18)" }}
+                    >
+                      <span
+                        className="h-4 w-4 rounded-full bg-white transition-transform"
+                        style={{ transform: deliverToOtherPerson ? "translateX(16px)" : "translateX(0)" }}
+                      />
+                    </span>
+                  </button>
                   <div className="grid sm:grid-cols-2 gap-4">
                     {[
-                      ["nombre", "Nombre completo *", "text", "Quién recibe"],
-                      ["telefono", "Teléfono *", "tel", "3XX XXX XXXX"],
-                      ["direccion", "Dirección de entrega *", "text", "Calle, número, barrio"],
+                      ["nombre", deliverToOtherPerson ? "Nombre de quien recibe *" : "Nombre completo *", "text", "Quién recibe"],
+                      ["telefono", deliverToOtherPerson ? "Teléfono de quien recibe *" : "Teléfono *", "tel", "3XX XXX XXXX"],
                       ["notas", "Notas para el pedido", "text", "Ej: sin cebolla, timbre dañado"],
                     ].map(([k, lbl, t, ph]) => (
                       <div
                         key={k}
-                        className={k === "direccion" || k === "notas" ? "sm:col-span-2" : ""}
+                        className={k === "notas" ? "sm:col-span-2" : ""}
                       >
                         <InputField
                           label={lbl}
@@ -4289,28 +5598,93 @@ function CheckoutPage({
                           placeholder={ph}
                           value={delivForm[k as keyof typeof delivForm]}
                           onChange={(v) => setDelivForm((f) => ({ ...f, [k]: v }))}
+                          required={k === "nombre" || k === "telefono"}
+                          error={
+                            deliveryTried &&
+                            k === "nombre" &&
+                            !delivForm.nombre.trim()
+                              ? "El nombre es obligatorio."
+                              : deliveryTried && k === "telefono"
+                                ? delivForm.telefono.trim()
+                                  ? validatePhoneNumber(delivForm.telefono)
+                                  : "El teléfono es obligatorio."
+                                : undefined
+                          }
                         />
-                        {k === "direccion" && (user.addresses?.length ?? 0) > 1 && (
-                          <div className="flex flex-wrap gap-2 mt-2">
-                            {user.addresses!.map((a) => (
-                              <button
-                                key={a}
-                                type="button"
-                                onClick={() => setDelivForm((f) => ({ ...f, direccion: a }))}
-                                className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer"
-                                style={{
-                                  border: `1px solid ${delivForm.direccion === a ? C.mustard : LINE}`,
-                                  background: delivForm.direccion === a ? `${C.mustard}12` : "#fff",
-                                  color: delivForm.direccion === a ? C.mustard : MUTED,
-                                }}
-                              >
-                                {Ico.mapPin} {a}
-                              </button>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     ))}
+                  </div>
+                  <div className="mt-4">
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => setEditingAddress((editing) => !editing)}
+                        className="text-xs font-bold cursor-pointer"
+                        style={{ color: C.mustard }}
+                      >
+                        {editingAddress ? "Usar dirección seleccionada" : "Cambiar dirección"}
+                      </button>
+                    </div>
+                    {editingAddress ? (
+                      <InputField
+                        label="Dirección de entrega *"
+                        placeholder="Calle, número, barrio y ciudad"
+                        value={delivForm.direccion}
+                        onChange={(direccion) =>
+                          setDelivForm((form) => ({ ...form, direccion }))
+                        }
+                        required
+                        error={
+                          deliveryTried && !delivForm.direccion.trim()
+                            ? "La dirección de entrega es obligatoria."
+                            : undefined
+                        }
+                      />
+                    ) : (
+                      <div
+                        className="px-4 py-3 rounded-xl text-sm"
+                        style={{ background: "rgba(30,30,30,0.04)", color: C.dark }}
+                      >
+                        {delivForm.direccion}
+                      </div>
+                    )}
+                    {editingAddress && (user.addresses?.length ?? 0) > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-3">
+                        {user.addresses!.map((address) => (
+                          <button
+                            key={address}
+                            type="button"
+                            onClick={() => {
+                              setDelivForm((form) => ({ ...form, direccion: address }))
+                              setEditingAddress(false)
+                              setSaveAddress(false)
+                            }}
+                            className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer"
+                            style={{
+                              border: `1px solid ${delivForm.direccion === address ? C.mustard : LINE}`,
+                              background: delivForm.direccion === address ? `${C.mustard}12` : "#fff",
+                              color: delivForm.direccion === address ? C.mustard : MUTED,
+                            }}
+                          >
+                            {Ico.mapPin} {address}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <label className="flex items-start gap-2 mt-3 text-xs cursor-pointer" style={{ color: MUTED }}>
+                      <input
+                        type="checkbox"
+                        checked={saveAddress}
+                        onChange={(event) => setSaveAddress(event.target.checked)}
+                        disabled={!user.addresses?.length}
+                        className="mt-0.5 accent-amber-700"
+                      />
+                      <span>
+                        {user.addresses?.length
+                          ? "Guardar esta dirección en mi perfil para futuras compras"
+                          : "Esta primera dirección se guardará en tu perfil para futuras compras"}
+                      </span>
+                    </label>
                   </div>
                 </section>
                 <section className="p-6 rounded-2xl" style={CARD_ST}>
@@ -4443,13 +5817,7 @@ function CheckoutPage({
                     ))}
                   </div>
                 ))}
-                <p className="text-xs" style={{ color: MUTED }}>
-                  {delivForm.pago === "Efectivo"
-                    ? "Pagarás en efectivo al recibir tu pedido."
-                    : `Enviaremos tu comprobante de ${delivForm.pago} junto con el pedido.`}
-                  {subtotal >= APPROVAL_MIN &&
-                    ` Como tu pedido supera ${fmt(APPROVAL_MIN)}, El Parche debe confirmarlo antes de prepararlo.`}
-                </p>
+
               </section>
             )}
           </div>
@@ -4459,19 +5827,23 @@ function CheckoutPage({
             <h2 className="font-bold text-lg mb-4" style={{ color: C.dark }}>
               Resumen del pedido
             </h2>
-            {cart.length === 0 ? (
+            {activeCart.length === 0 ? (
               <p className="text-sm py-4 text-center" style={{ color: MUTED }}>
                 Tu carrito está vacío.
               </p>
             ) : (
               <div className="space-y-3 mb-4 max-h-72 overflow-y-auto pr-1">
-                {cart.map((i) => (
+                {activeCart.map((i) => (
                   <div key={i.id} className="flex items-center gap-3">
                     <div className="relative flex-shrink-0">
                       <img src={i.img} alt={i.name} className="w-12 h-12 rounded-lg object-cover" />
                       <span
-                        className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold"
-                        style={{ background: C.dark, color: "#fff" }}
+                        className="absolute top-1 right-1 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold"
+                        style={{
+                          background: C.dark,
+                          color: "#fff",
+                          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+                        }}
                       >
                         {i.qty}
                       </span>
@@ -4495,9 +5867,10 @@ function CheckoutPage({
             )}
             {user && (
               <button
-                onClick={() => setPickerOpen(true)}
-                className="text-xs font-semibold cursor-pointer hover:opacity-70 mb-4"
+                onClick={() => !voucher && setPickerOpen(true)}
+                className={`text-xs font-semibold mb-4 ${voucher ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:opacity-70"}`}
                 style={{ color: C.mustard }}
+                title={voucher ? "No puedes agregar productos después de subir el comprobante" : "Agregar productos"}
               >
                 + Agregar productos
               </button>
@@ -4508,8 +5881,8 @@ function CheckoutPage({
                 <span>{fmt(subtotal)}</span>
               </div>
               <div className="flex justify-between" style={{ color: MUTED }}>
-                <span>Domicilio (Comuna 3)</span>
-                <span style={{ color: C.forest }}>Gratis</span>
+                <span>Domicilio</span>
+                <span style={{ color: MUTED }}>Costo según zona</span>
               </div>
             </div>
             <div
@@ -4523,6 +5896,7 @@ function CheckoutPage({
               <span>Total</span>
               <span style={{ color: C.mustard }}>{fmt(subtotal)}</span>
             </div>
+            <FieldError msg={orderError} />
             {cta ? (
               <button
                 onClick={cta.onClick}
@@ -4559,7 +5933,7 @@ function CheckoutPage({
           <div
             className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl p-5"
             style={{ background: "#FAF5E8" }}
-            onClick={(e) => e.stopPropagation()}
+            onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-4">
               <h2
@@ -4572,14 +5946,15 @@ function CheckoutPage({
                 onClick={() => setPickerOpen(false)}
                 className="w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
                 style={{ background: "rgba(30,30,30,0.08)", color: C.dark }}
+                aria-label="Cerrar selección de productos"
               >
                 {Ico.x}
               </button>
             </div>
             <ProductCatalog
               dark={false}
-              onInfoClick={(p) => setAddProduct(p)}
-              onAddClick={(p) => setAddProduct(p)}
+              onInfoClick={setAddProduct}
+              onAddClick={setAddProduct}
             />
           </div>
         </div>
@@ -4588,15 +5963,16 @@ function CheckoutPage({
         <AddToCartModal
           product={addProduct}
           onClose={() => setAddProduct(null)}
-          onAdd={(p, qty, sauces, additions) => {
-            setCart((c) => [
-              ...c,
+          onAdd={(product, qty, sauces, additions) => {
+            setCart((items) => [
+              ...items,
               {
                 id: Date.now(),
-                name: p.name,
-                price: p.price,
+                name: product.name,
+                description: product.desc,
+                price: product.price,
                 qty,
-                img: p.img,
+                img: product.img,
                 sauces,
                 additions,
               },
@@ -4608,6 +5984,138 @@ function CheckoutPage({
         />
       )}
     </div>
+  )
+}
+
+// ── Change Password Form ─────────────────────────────────────────────────────────
+function ChangePasswordForm({
+  user,
+  onUpdateUser,
+}: {
+  user: User
+  onUpdateUser: (u: User) => void
+}) {
+  const [currentPass, setCurrentPass] = useState("")
+  const [newPass, setNewPass] = useState("")
+  const [confirmPass, setConfirmPass] = useState("")
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState(false)
+
+  const MUSTARD = "#B68C1C"
+  const RED = "#A54131"
+  const TEXT = "#1A1714"
+  const MUTED = "rgba(30,30,30,0.5)"
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError("")
+    setSuccess(false)
+
+    if (!currentPass) {
+      setError("Escribe tu contraseña actual.")
+      return
+    }
+
+    // Validate new password
+    const passwordError = getPasswordError(newPass)
+    if (passwordError) {
+      setError(passwordError.replace("Crea una contraseña.", "Escribe una nueva contraseña."))
+      return
+    }
+    if (newPass !== confirmPass) {
+      setError("Las contraseñas no coinciden.")
+      return
+    }
+    if (newPass === currentPass) {
+      setError("La nueva contraseña debe ser diferente a la actual.")
+      return
+    }
+
+    // The backend checks the current password and saves the new one
+    try {
+      await api("/auth/me/contrasena", "PATCH", { actual: currentPass, nueva: newPass })
+    } catch (err) {
+      setError((err as Error).message)
+      return
+    }
+    setCurrentPass("")
+    setNewPass("")
+    setConfirmPass("")
+    setSuccess(true)
+    setTimeout(() => setSuccess(false), 3000)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} className="flex flex-col gap-3">
+      <div>
+        <label className="text-xs font-semibold mb-1 block" style={{ color: MUTED }}>
+          Contraseña actual
+        </label>
+        <input
+          type="password"
+          value={currentPass}
+          onChange={(e) => setCurrentPass(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: "1.5px solid rgba(30,30,30,0.12)",
+            color: TEXT,
+          }}
+          placeholder="••••••••"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold mb-1 block" style={{ color: MUTED }}>
+          Nueva contraseña
+        </label>
+        <input
+          type="password"
+          value={newPass}
+          onChange={(e) => setNewPass(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: "1.5px solid rgba(30,30,30,0.12)",
+            color: TEXT,
+          }}
+          placeholder="••••••••"
+        />
+      </div>
+      <div>
+        <label className="text-xs font-semibold mb-1 block" style={{ color: MUTED }}>
+          Confirmar nueva contraseña
+        </label>
+        <input
+          type="password"
+          value={confirmPass}
+          onChange={(e) => setConfirmPass(e.target.value)}
+          className="w-full px-3 py-2 rounded-xl text-sm outline-none"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: "1.5px solid rgba(30,30,30,0.12)",
+            color: TEXT,
+          }}
+          placeholder="••••••••"
+        />
+      </div>
+      {error && (
+        <p className="text-xs" style={{ color: RED }}>
+          {error}
+        </p>
+      )}
+      {success && (
+        <p className="text-xs" style={{ color: "#2E7D60" }}>
+          ¡Contraseña actualizada exitosamente!
+        </p>
+      )}
+      <button
+        type="submit"
+        className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+        style={{ background: MUSTARD, color: "#fff" }}
+      >
+        Actualizar contraseña
+      </button>
+    </form>
   )
 }
 
@@ -4640,7 +6148,7 @@ function ProfilePage({
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [addresses, setAddresses] = useState<string[]>(
-    user.addresses || ["Cra 58 #42-10, Bello, Antioquia"],
+    user.addresses || [],
   )
   const [newAddr, setNewAddr] = useState("")
   const [addingAddr, setAddingAddr] = useState(false)
@@ -4648,6 +6156,7 @@ function ProfilePage({
   const [editingAddrValue, setEditingAddrValue] = useState("")
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [showLogoutModal, setShowLogoutModal] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
   const [profilePhoto, setProfilePhoto] = useState<string | undefined>(user.photo)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const BG = "#FAF5E8"
@@ -4686,6 +6195,17 @@ function ProfilePage({
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
       newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
     }
+    if (form.phone.trim()) {
+      const phoneError = validatePhoneNumber(form.phone)
+      if (phoneError) newErrors.phone = phoneError
+    }
+    if (form.cedula.trim()) {
+      const documentError = validateDocumentNumber(
+        form.cedula,
+        user.docType || "Cédula de Ciudadanía",
+      )
+      if (documentError) newErrors.cedula = documentError
+    }
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
@@ -4715,17 +6235,30 @@ function ProfilePage({
 
   const saveEditAddress = () => {
     if (editingAddrIdx !== null && editingAddrValue.trim()) {
-      setAddresses((arr) =>
-        arr.map((a, i) => (i === editingAddrIdx ? editingAddrValue.trim() : a)),
+      const updatedAddresses = addresses.map((address, index) =>
+        index === editingAddrIdx ? editingAddrValue.trim() : address,
       )
+      setAddresses(updatedAddresses)
+      onUpdateUser({ ...user, addresses: updatedAddresses })
     }
     setEditingAddrIdx(null)
     setEditingAddrValue("")
   }
 
   const deleteAddress = (idx: number) => {
-    if (addresses.length <= 1) return
-    setAddresses((arr) => arr.filter((_, i) => i !== idx))
+    const updatedAddresses = addresses.filter((_, i) => i !== idx)
+    setAddresses(updatedAddresses)
+    onUpdateUser({ ...user, addresses: updatedAddresses })
+  }
+
+  const addAddress = () => {
+    const address = newAddr.trim()
+    if (!address) return
+    const updatedAddresses = [...addresses, address]
+    setAddresses(updatedAddresses)
+    onUpdateUser({ ...user, addresses: updatedAddresses })
+    setNewAddr("")
+    setAddingAddr(false)
   }
 
   return (
@@ -4854,13 +6387,45 @@ function ProfilePage({
                   label="Teléfono"
                   type="tel"
                   value={form.phone}
-                  onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+                  onChange={(v) => {
+                    const phone = normalizePhoneInput(v)
+                    setForm((f) => ({ ...f, phone }))
+                    setErrors((current) => ({
+                      ...current,
+                      phone: phone.trim() ? validatePhoneNumber(phone) : "",
+                    }))
+                  }}
                 />
+                {errors.phone && (
+                  <p className="text-xs mt-1" style={{ color: C.red }}>
+                    {errors.phone}
+                  </p>
+                )}
                 <InputField
                   label="Cédula"
                   value={form.cedula}
-                  onChange={(v) => setForm((f) => ({ ...f, cedula: v }))}
+                  onChange={(v) => {
+                    const cedula = normalizeDocumentInput(
+                      v,
+                      user.docType || "Cédula de Ciudadanía",
+                    )
+                    setForm((f) => ({ ...f, cedula }))
+                    setErrors((current) => ({
+                      ...current,
+                      cedula: cedula.trim()
+                        ? validateDocumentNumber(
+                            cedula,
+                            user.docType || "Cédula de Ciudadanía",
+                          )
+                        : "",
+                    }))
+                  }}
                 />
+                {errors.cedula && (
+                  <p className="text-xs mt-1" style={{ color: C.red }}>
+                    {errors.cedula}
+                  </p>
+                )}
               </>
             ) : (
               [
@@ -4901,6 +6466,11 @@ function ProfilePage({
               {Ico.plus} Agregar
             </button>
           </div>
+          {addresses.length === 0 && !addingAddr && (
+            <p className="text-sm" style={{ color: MUTED }}>
+              Aún no tienes direcciones guardadas. Se guardará la primera al confirmar tu pedido.
+            </p>
+          )}
           {addresses.map((a, i) => (
             <div
               key={i}
@@ -4964,15 +6534,8 @@ function ProfilePage({
                   <button
                     onClick={() => deleteAddress(i)}
                     className="text-xs cursor-pointer"
-                    style={{
-                      color: addresses.length <= 1 ? "rgba(30,30,30,0.2)" : C.red,
-                      cursor: addresses.length <= 1 ? "not-allowed" : "pointer",
-                    }}
-                    title={
-                      addresses.length <= 1
-                        ? "Debes tener al menos una dirección registrada"
-                        : "Eliminar dirección"
-                    }
+                    style={{ color: C.red }}
+                    title="Eliminar dirección"
                   >
                     Eliminar
                   </button>
@@ -4994,21 +6557,11 @@ function ProfilePage({
                 }}
                 autoFocus
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && newAddr.trim()) {
-                    setAddresses((a) => [...a, newAddr.trim()])
-                    setNewAddr("")
-                    setAddingAddr(false)
-                  }
+                  if (e.key === "Enter") addAddress()
                 }}
               />
               <button
-                onClick={() => {
-                  if (newAddr.trim()) {
-                    setAddresses((a) => [...a, newAddr.trim()])
-                    setNewAddr("")
-                    setAddingAddr(false)
-                  }
-                }}
+                onClick={addAddress}
                 className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer"
                 style={{ background: C.mustard, color: "#fff" }}
               >
@@ -5016,6 +6569,22 @@ function ProfilePage({
               </button>
             </div>
           )}
+        </div>
+        {/* Change password */}
+        <div
+          className="p-5 rounded-2xl mb-4"
+          style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+        >
+          <h2 className="font-bold text-base mb-4" style={{ color: TEXT }}>
+            Seguridad
+          </h2>
+          <button
+            onClick={() => setShowChangePassword(true)}
+            className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+            style={{ background: `${C.mustard}15`, color: C.mustard }}
+          >
+            Cambiar contraseña
+          </button>
         </div>
         {/* Purchase history */}
         <div
@@ -5041,17 +6610,17 @@ function ProfilePage({
         <div className="flex flex-col gap-2">
           <button
             onClick={() => setShowLogoutModal(true)}
-            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
-            style={{ background: `${C.red}12`, color: C.red }}
+            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer hover:opacity-90"
+            style={{ background: `${C.mustard}15`, color: C.mustard }}
           >
             Cerrar sesión
           </button>
           <button
             onClick={() => setShowDeleteModal(true)}
-            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+            className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer hover:opacity-90"
             style={{
-              background: "rgba(30,30,30,0.05)",
-              color: "rgba(30,30,30,0.4)",
+              background: C.red,
+              color: "#fff",
             }}
           >
             Eliminar cuenta
@@ -5132,12 +6701,10 @@ function ProfilePage({
               className="font-black text-lg mb-2"
               style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
             >
-              ¿Deseas confirmar la eliminación de la cuenta?
+              ¿Eliminar cuenta?
             </h3>
             <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.5)" }}>
-              Puedes eliminar la cuenta porque no hay bloqueos activos. Esta
-              acción es permanente y no se puede deshacer; perderás tus datos y
-              pedidos.
+              Esta acción es permanente y no se puede deshacer. Perderás todos tus datos, pedidos y acceso a la cuenta.
             </p>
             <div className="flex gap-3">
               <button
@@ -5161,6 +6728,43 @@ function ProfilePage({
                 Eliminar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Change password modal */}
+      {showChangePassword && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => setShowChangePassword(false)}
+        >
+          <div
+            className="w-full max-w-sm p-6 rounded-2xl"
+            style={{
+              background: "#fff",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3
+                className="font-black text-lg"
+                style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+              >
+                Cambiar contraseña
+              </h3>
+              <button
+                onClick={() => setShowChangePassword(false)}
+                className="text-lg cursor-pointer"
+                style={{ color: "rgba(30,30,30,0.4)" }}
+              >
+                ✕
+              </button>
+            </div>
+            <ChangePasswordForm
+              user={user}
+              onUpdateUser={onUpdateUser}
+            />
           </div>
         </div>
       )}
@@ -5199,7 +6803,6 @@ function ClientApp({
   const [profileOpen, setProfileOpen] = useState(false)
   const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
-  const [showLogoutModal, setShowLogoutModal] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
   const dark = theme === "dark"
   const BG = dark ? "#131210" : "#FAF5E8"
@@ -5222,12 +6825,13 @@ function ClientApp({
     qty: number,
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
-  ) =>
+  ) => {
     setCart((c) => [
       ...c,
       {
         id: Date.now(),
         name: p.name,
+        description: p.desc,
         price: p.price,
         qty,
         img: p.img,
@@ -5235,6 +6839,8 @@ function ClientApp({
         additions,
       },
     ])
+    setAddProduct(null)
+  }
   const quickAdd = (p: Product) =>
     setCart((c) => {
       const ex = c.find(
@@ -5244,7 +6850,7 @@ function ClientApp({
         return c.map((x) => (x.id === ex.id ? { ...x, qty: x.qty + 1 } : x))
       return [
         ...c,
-        { id: Date.now(), name: p.name, price: p.price, qty: 1, img: p.img },
+        { id: Date.now(), name: p.name, description: p.desc, price: p.price, qty: 1, img: p.img },
       ]
     })
 
@@ -5290,7 +6896,10 @@ function ClientApp({
             {(["menu", "orders"] as const).map((v) => (
               <button
                 key={v}
-                onClick={() => setView(v)}
+                onClick={() => {
+                  setView(v)
+                  window.scrollTo({ top: 0, behavior: "smooth" })
+                }}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer"
                 style={{
                   background: view === v ? `${C.mustard}15` : "transparent",
@@ -5407,7 +7016,7 @@ function ClientApp({
                   <button
                     onClick={() => {
                       setProfileOpen(false)
-                      setShowLogoutModal(true)
+                      onLogout()
                     }}
                     className="w-full text-left px-4 py-2.5 text-sm cursor-pointer"
                     style={{ color: C.red }}
@@ -5447,7 +7056,7 @@ function ClientApp({
                 border: `1px solid ${C.forest}22`,
               }}
             >
-              <span className="text-2xl">🧅</span>
+              <span className="inline-flex text-2xl" style={{ color: C.forest }}>{Ico.leaf}</span>
               <span className="text-sm font-medium" style={{ color: C.forest }}>
                 Especialidad: <strong>cebolla marinada</strong> — 100% gratis
                 con tu pedido.
@@ -5524,59 +7133,10 @@ function ClientApp({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={addToCart}
+          onCheckout={onCheckout}
           dark={dark}
         />
       )}
-
-      {/* Logout confirmation modal */}
-      {showLogoutModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center px-4"
-          style={{ background: "rgba(0,0,0,0.6)" }}
-        >
-          <div
-            className="w-full max-w-xs p-6 rounded-2xl text-center"
-            style={{
-              background: dark ? "#1E1C18" : "#fff",
-              boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
-            }}
-          >
-            <div className="text-4xl mb-3">🚪</div>
-            <h3
-              className="font-black text-lg mb-2"
-              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
-            >
-              ¿Cerrar sesión?
-            </h3>
-            <p className="text-sm mb-5" style={{ color: MUTED }}>
-              ¿Estás seguro de que deseas cerrar sesión? Tendrás que iniciar sesión nuevamente para acceder a tu cuenta.
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowLogoutModal(false)}
-                className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
-                style={{
-                  background: dark ? "rgba(255,255,255,0.08)" : "rgba(30,30,30,0.06)",
-                  color: MUTED,
-                }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => {
-                  setShowLogoutModal(false)
-                  onLogout()
-                }}
-                className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer"
-                style={{ background: C.red, color: "#fff" }}
-              >
-                Cerrar sesión
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Quick-add feedback suppressed — quickAdd used from ProductCatalog + button */}
       <div style={{ display: "none" }} onClick={() => quickAdd(PRODUCTS[0])} />
     </div>
@@ -5586,14 +7146,12 @@ function ClientApp({
 // ── Landing Page ───────────────────────────────────────────────────────────────
 function LandingPage({
   onLogin,
-  onAdmin,
   onGuestMenu,
   onCheckout,
   cart,
   setCart,
 }: {
   onLogin: () => void
-  onAdmin: () => void
   onGuestMenu: () => void
   onCheckout: () => void
   cart: CartItem[]
@@ -5626,12 +7184,13 @@ function LandingPage({
     qty: number,
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
-  ) =>
+  ) => {
     setCart((c) => [
       ...c,
       {
         id: Date.now(),
         name: p.name,
+        description: p.desc,
         price: p.price,
         qty,
         img: p.img,
@@ -5639,11 +7198,13 @@ function LandingPage({
         additions,
       },
     ])
+    setAddProduct(null)
+  }
   const NAVLINKS = [
     { label: "Inicio", href: "#inicio" },
     { label: "Menú", href: "#menu" },
-    { label: "Nosotros", href: "#nosotros" },
     { label: "Pedidos", href: "#pedidos" },
+    { label: "Nosotros", href: "#nosotros" },
     { label: "Contacto", href: "#contacto" },
   ]
   const goToMenu = onGuestMenu
@@ -5727,16 +7288,6 @@ function LandingPage({
                   {cartCount}
                 </span>
               )}
-            </button>
-            <button
-              onClick={onAdmin}
-              className="hidden sm:inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-full font-semibold border cursor-pointer hover:opacity-70"
-              style={{
-                color: scrolled ? TEXT : "#fff",
-                borderColor: scrolled ? BORDER : "rgba(255,255,255,0.3)",
-              }}
-            >
-              {Ico.settings} Admin
             </button>
             <button
               onClick={onLogin}
@@ -5843,7 +7394,8 @@ function LandingPage({
                 color: C.amber,
               }}
             >
-              🔥 Desde 2013 en Bello, Antioquia
+              <span className="mr-1 inline-flex align-middle">{Ico.fire}</span>
+              Desde 2013 en Bello, Antioquia
             </div>
             <h1
               style={{
@@ -5929,20 +7481,19 @@ function LandingPage({
             className="rounded-2xl px-6 py-5 flex items-center gap-5"
             style={{ background: C.forest }}
           >
-            <div className="text-4xl flex-shrink-0">🛵</div>
+            <div className="flex-shrink-0 text-white">{Ico.delivery}</div>
             <div>
               <div
                 className="font-black text-lg text-white"
                 style={{ fontFamily: "Montserrat, sans-serif" }}
               >
-                Domicilio 100% Gratis
+                Domicilios por toda la zona
               </div>
               <div
                 className="text-sm mt-0.5"
                 style={{ color: "rgba(255,255,255,0.75)" }}
               >
-                En la <strong style={{ color: "#fff" }}>Comuna 3</strong> — sin
-                monto mínimo.
+                Consulta la cobertura y el costo del envío al realizar tu pedido.
               </div>
             </div>
           </div>
@@ -5950,7 +7501,7 @@ function LandingPage({
             className="rounded-2xl px-6 py-5 flex items-center gap-5"
             style={{ background: C.red }}
           >
-            <div className="text-4xl flex-shrink-0">🧅</div>
+            <div className="flex-shrink-0 text-white">{Ico.leaf}</div>
             <div>
               <div
                 className="font-black text-lg text-white"
@@ -6003,7 +7554,7 @@ function LandingPage({
               style={{ background: C.mustard }}
             >
               <div className="flex items-center gap-3">
-                <span className="text-2xl">🛒</span>
+                <span className="inline-flex text-white">{Ico.shopping}</span>
                 <div>
                   <div className="font-bold text-sm text-white">
                     {cartCount} producto{cartCount > 1 ? "s" : ""} en tu carrito
@@ -6173,17 +7724,17 @@ function LandingPage({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-10">
             {[
               {
-                icon: "🎯",
+                icon: Ico.target,
                 title: "Misión",
                 text: "Preparar mini burgers artesanales de alta calidad con ingredientes frescos, llevando sabor y alegría a cada cliente de Bello y sus alrededores.",
               },
               {
-                icon: "🚀",
+                icon: Ico.trending,
                 title: "Visión",
                 text: "Ser el restaurante de fast food artesanal más querido del norte del Valle de Aburrá para 2026, expandiendo nuestras sedes sin perder la esencia familiar.",
               },
               {
-                icon: "💛",
+                icon: Ico.star,
                 title: "Valores",
                 text: "Calidad sin compromisos, honestidad con nuestros clientes, pasión en cada preparación, puntualidad en entregas y servicio cálido y cercano.",
               },
@@ -6198,7 +7749,7 @@ function LandingPage({
                   border: `1px solid ${BORDER}`,
                 }}
               >
-                <div className="text-3xl mb-3">{v.icon}</div>
+                <div className="mb-3 flex h-9 items-center [&_svg]:h-8 [&_svg]:w-8" style={{ color: C.mustard }}>{v.icon}</div>
                 <h3
                   className="font-black text-lg mb-2"
                   style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
@@ -6226,19 +7777,19 @@ function LandingPage({
               {
                 name: "La Familia Fundadora",
                 role: "Dirección General",
-                emoji: "👨‍👩‍👧",
+                icon: Ico.users,
               },
               {
                 name: "Equipo de Cocina",
                 role: "Preparación & Calidad",
-                emoji: "👨‍🍳",
+                icon: Ico.chef,
               },
               {
                 name: "Equipo de Servicio",
                 role: "Atención al cliente",
-                emoji: "🤝",
+                icon: Ico.user,
               },
-              { name: "Repartidores", role: "Domicilios Express", emoji: "🛵" },
+              { name: "Repartidores", role: "Domicilios Express", icon: Ico.mapPin },
             ].map((m) => (
               <div
                 key={m.name}
@@ -6249,7 +7800,7 @@ function LandingPage({
                     : "rgba(30,30,30,0.04)",
                 }}
               >
-                <div className="text-4xl mb-2">{m.emoji}</div>
+                <div className="mb-2 flex h-10 items-center justify-center [&_svg]:h-8 [&_svg]:w-8" style={{ color: C.mustard }}>{m.icon}</div>
                 <div className="font-bold text-sm" style={{ color: TEXT }}>
                   {m.name}
                 </div>
@@ -6403,19 +7954,19 @@ function LandingPage({
               </h4>
               <ul className="flex flex-col gap-3 text-sm">
                 <li className="flex gap-2.5 items-start">
-                  <span style={{ color: C.amber, marginTop: "2px" }}>📍</span>
+                  <span className="mt-0.5" style={{ color: C.amber }}>{Ico.mapPin}</span>
                   <span style={{ color: "rgba(250,243,224,0.45)" }}>
                     051053, Cra. 58A #42c-28, Bello, Antioquia
                   </span>
                 </li>
                 <li className="flex gap-2.5 items-center">
-                  <span style={{ color: C.amber }}>📞</span>
+                  <span style={{ color: C.amber }}>{Ico.phone}</span>
                   <a href="tel:+573206332670" style={{ color: C.amber }}>
                     320 633 2670
                   </a>
                 </li>
                 <li className="flex gap-2.5 items-center">
-                  <span style={{ color: C.amber }}>✉️</span>
+                  <span style={{ color: C.amber }}>{Ico.mail}</span>
                   <a
                     href="mailto:Elparchedelasminiburguers@gmail.com"
                     style={{ color: C.amber, fontSize: "0.72rem" }}
@@ -6454,7 +8005,7 @@ function LandingPage({
                     className="text-sm font-semibold"
                     style={{ color: C.amber }}
                   >
-                    6:00 – 11:30 pm
+                    6:00pm a 11:30pm
                   </span>
                 </div>
                 <div
@@ -6464,8 +8015,8 @@ function LandingPage({
                     borderTop: "1px solid rgba(250,243,224,0.06)",
                   }}
                 >
-                  🚀 Domicilio gratis en{" "}
-                  <span style={{ color: C.amber }}>Comuna 3</span>
+                  <span className="mr-1 inline-flex align-middle">{Ico.mapPin}</span>
+                  Domicilios disponibles en toda la zona
                 </div>
               </div>
             </div>
@@ -6515,17 +8066,6 @@ function LandingPage({
             style={{ color: "rgba(250,243,224,0.2)" }}
           >
             <span>© 2024 El Parche de las Mini Burguer · Bello, Antioquia</span>
-            <button
-              onClick={onAdmin}
-              style={{
-                color: "rgba(250,243,224,0.18)",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              Admin
-            </button>
           </div>
         </div>
       </footer>
@@ -6547,7 +8087,7 @@ function LandingPage({
               className="text-sm font-medium flex-1"
               style={{ color: "#1A1714" }}
             >
-              ¿Cómo podemos ayudarte? 👋
+              ¿Cómo podemos ayudarte?
             </span>
             <button
               onClick={() => setWaBubble(false)}
@@ -6600,6 +8140,14 @@ function LandingPage({
           </svg>
         </a>
       )}
+      <button
+        type="button"
+        onClick={goToMenu}
+        className="fixed bottom-28 left-4 right-20 z-40 rounded-full py-3 text-sm font-bold text-white shadow-lg sm:hidden"
+        style={{ background: C.mustard }}
+      >
+        Pide Ahora
+      </button>
 
       {infoProduct && (
         <ProductInfoModal
@@ -6617,10 +8165,10 @@ function LandingPage({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={addToCart}
+          onCheckout={onCheckout}
           dark={dark}
         />
       )}
-
       {legalModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center px-4"
@@ -6658,9 +8206,9 @@ function LandingPage({
               {legalModal === "envios" ? (
                 <div className="flex flex-col gap-3">
                   <p>
-                    Envío gratis en <strong>Comuna 3</strong>. Para otras zonas
-                    se informa el costo antes de confirmar. Tiempo estimado
-                    30–60 minutos en la Comuna 3.
+                    Realizamos domicilios en toda la zona. El costo y el tiempo
+                    estimado de entrega se confirman según la dirección antes de
+                    completar el pedido.
                   </p>
                 </div>
               ) : (
@@ -6730,15 +8278,573 @@ const ADMIN_NOTIFICATIONS: AdminNotification[] = [
   },
 ]
 
+function AdminProfilePage({
+  user,
+  onClose,
+  onUpdateUser,
+}: {
+  user: User
+  onClose: () => void
+  onUpdateUser: (u: User) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [form, setForm] = useState({
+    name: user.name,
+    email: user.email,
+    phone: user.phone || "",
+    cedula: user.cedula || "",
+  })
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [addresses, setAddresses] = useState<string[]>(
+    user.addresses || ["Cra 58 #42-10, Bello, Antioquia"],
+  )
+  const [newAddr, setNewAddr] = useState("")
+  const [addingAddr, setAddingAddr] = useState(false)
+  const [editingAddrIdx, setEditingAddrIdx] = useState<number | null>(null)
+  const [editingAddrValue, setEditingAddrValue] = useState("")
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [profilePhoto, setProfilePhoto] = useState<string | undefined>(user.photo)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const BG = "#FAF5E8"
+  const CARD = "#fff"
+  const TEXT = "#1A1714"
+  const MUTED = "rgba(30,30,30,0.5)"
+  const BORDER = "rgba(30,30,30,0.08)"
+
+  const validateForm = (): boolean => {
+    const newErrors: Record<string, string> = {}
+    if (!form.name.trim()) {
+      newErrors.name = "El nombre completo es obligatorio para identificar tu cuenta."
+    }
+    if (!form.email.trim()) {
+      newErrors.email = "El correo electrónico es obligatorio para iniciar sesión y recibir notificaciones."
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      newErrors.email = "Ingresa un correo electrónico válido (ejemplo: nombre@correo.com)."
+    }
+    if (form.phone.trim()) {
+      const phoneError = validatePhoneNumber(form.phone)
+      if (phoneError) newErrors.phone = phoneError
+    }
+    if (form.cedula.trim()) {
+      const documentError = validateDocumentNumber(
+        form.cedula,
+        user.docType || "Cédula de Ciudadanía",
+      )
+      if (documentError) newErrors.cedula = documentError
+    }
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
+
+  const save = () => {
+    if (!validateForm()) return
+    onUpdateUser({ ...user, ...form, addresses, photo: profilePhoto })
+    setEditing(false)
+  }
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onloadend = () => {
+        setProfilePhoto(reader.result as string)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const startEditAddress = (idx: number) => {
+    setEditingAddrIdx(idx)
+    setEditingAddrValue(addresses[idx])
+  }
+
+  const saveEditAddress = () => {
+    if (editingAddrIdx !== null && editingAddrValue.trim()) {
+      setAddresses((arr) =>
+        arr.map((a, i) => (i === editingAddrIdx ? editingAddrValue.trim() : a)),
+      )
+    }
+    setEditingAddrIdx(null)
+    setEditingAddrValue("")
+  }
+
+  const deleteAddress = (idx: number) => {
+    if (addresses.length <= 1) return
+    setAddresses((arr) => arr.filter((_, i) => i !== idx))
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-center justify-center px-4"
+      style={{ background: "rgba(0,0,0,0.6)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl"
+        style={{ background: BG, fontFamily: "Poppins, sans-serif" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-6">
+            <h1
+              className="font-black text-2xl"
+              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            >
+              Mi perfil
+            </h1>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
+              style={{ background: "rgba(30,30,30,0.06)", color: MUTED }}
+            >
+              {Ico.x}
+            </button>
+          </div>
+          {/* Avatar */}
+          <div
+            className="flex flex-col items-center mb-6 p-6 rounded-3xl"
+            style={{ background: CARD, boxShadow: "0 2px 16px rgba(0,0,0,0.07)" }}
+          >
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-20 h-20 rounded-full flex items-center justify-center text-4xl mb-1 cursor-pointer hover:opacity-80 overflow-hidden"
+              style={{
+                background: `${C.mustard}18`,
+                border: `2px solid ${C.mustard}`,
+              }}
+            >
+              {profilePhoto ? (
+                <img
+                  src={profilePhoto}
+                  alt="Foto de perfil"
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span>{user.name.charAt(0).toUpperCase()}</span>
+              )}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handlePhotoChange}
+            />
+            <div
+              className="text-xs mb-3 cursor-pointer"
+              style={{ color: C.mustard }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Cambiar foto
+            </div>
+            <div
+              className="font-black text-xl"
+              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            >
+              {user.name}
+            </div>
+            <div className="text-sm mt-0.5" style={{ color: MUTED }}>
+              {user.email}
+            </div>
+            <div
+              className="text-xs mt-1 px-3 py-1 rounded-full font-semibold"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              Administrador
+            </div>
+          </div>
+          {/* Profile data */}
+          <div
+            className="p-5 rounded-2xl mb-4"
+            style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-base" style={{ color: TEXT }}>
+                Datos personales
+              </h2>
+              <button
+                onClick={() => (editing ? save() : setEditing(true))}
+                className="px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                style={{
+                  background: editing ? C.mustard : "rgba(30,30,30,0.07)",
+                  color: editing ? "#fff" : MUTED,
+                }}
+              >
+                {editing ? "Guardar" : "Editar"}
+              </button>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {editing ? (
+                <>
+                  <div>
+                    <InputField
+                      label="Nombre completo *"
+                      value={form.name}
+                      onChange={(v) => {
+                        setForm((f) => ({ ...f, name: v }))
+                        if (errors.name) setErrors((e) => ({ ...e, name: "" }))
+                      }}
+                    />
+                    {errors.name && (
+                      <p className="text-xs mt-1" style={{ color: C.red }}>
+                        {errors.name}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <InputField
+                      label="Correo *"
+                      type="email"
+                      value={form.email}
+                      onChange={(v) => {
+                        setForm((f) => ({ ...f, email: v }))
+                        if (errors.email) setErrors((e) => ({ ...e, email: "" }))
+                      }}
+                    />
+                    {errors.email && (
+                      <p className="text-xs mt-1" style={{ color: C.red }}>
+                        {errors.email}
+                      </p>
+                    )}
+                  </div>
+                  <InputField
+                    label="Teléfono"
+                    type="tel"
+                    value={form.phone}
+                    onChange={(v) => {
+                      const phone = normalizePhoneInput(v)
+                      setForm((f) => ({ ...f, phone }))
+                      setErrors((current) => ({
+                        ...current,
+                        phone: phone.trim() ? validatePhoneNumber(phone) : "",
+                      }))
+                    }}
+                  />
+                  {errors.phone && (
+                    <p className="text-xs mt-1" style={{ color: C.red }}>
+                      {errors.phone}
+                    </p>
+                  )}
+                  <InputField
+                    label="Cédula"
+                    value={form.cedula}
+                    onChange={(v) => {
+                      const cedula = normalizeDocumentInput(
+                        v,
+                        user.docType || "Cédula de Ciudadanía",
+                      )
+                      setForm((f) => ({ ...f, cedula }))
+                      setErrors((current) => ({
+                        ...current,
+                        cedula: cedula.trim()
+                          ? validateDocumentNumber(
+                              cedula,
+                              user.docType || "Cédula de Ciudadanía",
+                            )
+                          : "",
+                      }))
+                    }}
+                  />
+                  {errors.cedula && (
+                    <p className="text-xs mt-1" style={{ color: C.red }}>
+                      {errors.cedula}
+                    </p>
+                  )}
+                </>
+              ) : (
+                [
+                  ["Nombre", user.name],
+                  ["Correo", user.email],
+                  ["Teléfono", user.phone || "—"],
+                  ["Cédula", user.cedula || "—"],
+                ].map(([l, v]) => (
+                  <div key={l}>
+                    <div
+                      className="text-xs font-semibold mb-0.5"
+                      style={{ color: MUTED }}
+                    >
+                      {l}
+                    </div>
+                    <div className="text-sm font-medium" style={{ color: TEXT }}>
+                      {v}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+          {/* Addresses */}
+          <div
+            className="p-5 rounded-2xl mb-4"
+            style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-bold text-base" style={{ color: TEXT }}>
+                Mis direcciones
+              </h2>
+              <button
+                onClick={() => setAddingAddr(true)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                style={{ background: `${C.mustard}15`, color: C.mustard }}
+              >
+                {Ico.plus} Agregar
+              </button>
+            </div>
+            {addresses.map((a, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 py-2.5"
+                style={{
+                  borderBottom:
+                    i < addresses.length - 1 ? `1px solid ${BORDER}` : "none",
+                }}
+              >
+                <span style={{ color: C.mustard }}>{Ico.mapPin}</span>
+                {editingAddrIdx === i ? (
+                  <div className="flex-1 flex items-center gap-2">
+                    <input
+                      value={editingAddrValue}
+                      onChange={(e) => setEditingAddrValue(e.target.value)}
+                      className="flex-1 px-2 py-1 rounded-lg text-sm outline-none"
+                      style={{
+                        background: "rgba(30,30,30,0.05)",
+                        border: `1.5px solid ${C.mustard}`,
+                        color: TEXT,
+                      }}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveEditAddress()
+                        if (e.key === "Escape") {
+                          setEditingAddrIdx(null)
+                          setEditingAddrValue("")
+                        }
+                      }}
+                    />
+                    <button
+                      onClick={saveEditAddress}
+                      className="text-xs font-bold cursor-pointer"
+                      style={{ color: C.mustard }}
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingAddrIdx(null)
+                        setEditingAddrValue("")
+                      }}
+                      className="text-xs cursor-pointer"
+                      style={{ color: MUTED }}
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="flex-1 text-sm" style={{ color: TEXT }}>
+                      {a}
+                    </span>
+                    <button
+                      onClick={() => startEditAddress(i)}
+                      className="text-xs cursor-pointer mr-1"
+                      style={{ color: C.mustard }}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      onClick={() => deleteAddress(i)}
+                      className="text-xs cursor-pointer"
+                      style={{
+                        color: addresses.length <= 1 ? "rgba(30,30,30,0.2)" : C.red,
+                        cursor: addresses.length <= 1 ? "not-allowed" : "pointer",
+                      }}
+                      title={
+                        addresses.length <= 1
+                          ? "Debes tener al menos una dirección registrada"
+                          : "Eliminar dirección"
+                      }
+                    >
+                      Eliminar
+                    </button>
+                  </>
+                )}
+              </div>
+            ))}
+            {addingAddr && (
+              <div className="flex gap-2 mt-3">
+                <input
+                  placeholder="Nueva dirección..."
+                  value={newAddr}
+                  onChange={(e) => setNewAddr(e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-xl text-sm outline-none"
+                  style={{
+                    background: "rgba(30,30,30,0.05)",
+                    border: "1.5px solid rgba(30,30,30,0.12)",
+                    color: TEXT,
+                  }}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newAddr.trim()) {
+                      setAddresses((a) => [...a, newAddr.trim()])
+                      setNewAddr("")
+                      setAddingAddr(false)
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    if (newAddr.trim()) {
+                      setAddresses((a) => [...a, newAddr.trim()])
+                      setNewAddr("")
+                      setAddingAddr(false)
+                    }
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  +
+                </button>
+              </div>
+            )}
+          </div>
+          {/* Change password */}
+          <div
+            className="p-5 rounded-2xl mb-4"
+            style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          >
+            <h2 className="font-bold text-base mb-4" style={{ color: TEXT }}>
+              Seguridad
+            </h2>
+            <button
+              onClick={() => setShowChangePassword(true)}
+              className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+              style={{ background: `${C.mustard}15`, color: C.mustard }}
+            >
+              Cambiar contraseña
+            </button>
+          </div>
+          {/* Actions */}
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={() => setShowDeleteModal(true)}
+              className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+              style={{
+                background: "rgba(30,30,30,0.05)",
+                color: "rgba(30,30,30,0.4)",
+              }}
+            >
+              Eliminar cuenta
+            </button>
+          </div>
+        </div>
+        {/* Delete account modal - Different alert for admin */}
+        {showDeleteModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center px-4"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+          >
+            <div
+              className="w-full max-w-xs p-6 rounded-2xl text-center"
+              style={{
+                background: "#fff",
+                boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+              }}
+            >
+              <div className="text-4xl mb-3">⚠️</div>
+              <h3
+                className="font-black text-lg mb-2"
+                style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+              >
+                ¿Eliminar cuenta de administrador?
+              </h3>
+              <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.5)" }}>
+                Esta acción es permanente y no se puede deshacer. Perderás acceso al panel de administración y todos los datos asociados a tu cuenta.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowDeleteModal(false)}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+                  style={{
+                    background: "rgba(30,30,30,0.06)",
+                    color: "rgba(30,30,30,0.5)",
+                  }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false)
+                    onClose()
+                  }}
+                  className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer"
+                  style={{ background: C.red, color: "#fff" }}
+                >
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {/* Change password modal */}
+        {showChangePassword && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center px-4"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+            onClick={() => setShowChangePassword(false)}
+          >
+            <div
+              className="w-full max-w-sm p-6 rounded-2xl"
+              style={{
+                background: "#fff",
+                boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3
+                  className="font-black text-lg"
+                  style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+                >
+                  Cambiar contraseña
+                </h3>
+                <button
+                  onClick={() => setShowChangePassword(false)}
+                  className="text-lg cursor-pointer"
+                  style={{ color: "rgba(30,30,30,0.4)" }}
+                >
+                  ✕
+                </button>
+              </div>
+              <ChangePasswordForm
+                user={user}
+                onUpdateUser={onUpdateUser}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function AdminPanel({
   onSwitchToClient,
+  onLogout,
   user,
 }: {
   onSwitchToClient: () => void
+  onLogout: () => void
   user: User | null
 }) {
   const [theme, setTheme] = useState<Theme>("light")
   const [section, setSection] = useState<AdminSection>("dashboard")
+  // Sales are registered in the name of whoever is logged in (default seller)
+  const sellerName = user?.name || "Administrador"
+  // Only the modules this user's role may see (the backend enforces it too)
+  const canSee = (key: string) => key === "dashboard" || !user?.permissions || user.permissions.includes(SECTION_MODULE[key])
+  const visibleMenu = SIDEBAR_MENU.map((g) => ({ ...g, children: g.children.filter((c) => canSee(c.key)) })).filter(
+    (g) => (g.key.endsWith("-g") ? g.children.length > 0 : canSee(g.key)),
+  )
   const [open, setOpen] = useState<string[]>(["ventas-g"])
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -6746,21 +8852,32 @@ function AdminPanel({
   const [readNotifications, setReadNotifications] = useState<Set<number>>(
     () => new Set(),
   )
-  const [showLogoutModal, setShowLogoutModal] = useState(false)
+  const [showAdminProfile, setShowAdminProfile] = useState(false)
   const dropRef = useRef<HTMLDivElement>(null)
   const notificationsRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const sidebarScrollTop = useRef(0)
+  const preserveSidebarScroll = useCallback((node: HTMLElement | null) => {
+    if (node) node.scrollTop = sidebarScrollTop.current
+  }, [])
   const dark = theme === "dark"
   const t = tk(dark)
   // Orders placed by clients in the web store
-  const [clientOrders] = useState(loadOrders)
+  const clientOrders = loadOrders()
   const notifications: AdminNotification[] = [
     ...clientOrders
-      .filter((o) => o.status === "Por confirmar")
+      .filter(
+        (o) =>
+          o.paymentStatus === "Pendiente de verificación" ||
+          (o.status === "Por confirmar" && o.paymentStatus !== "Rechazado"),
+      )
       .map((o, i) => ({
         id: 1000 + i,
         type: "warn" as const,
-        title: "Pedido por confirmar",
+        title:
+          o.paymentStatus === "Pendiente de verificación"
+            ? "Transferencia por verificar"
+            : "Pedido por confirmar",
         message: `${o.cliente} hizo el pedido ${o.id} por ${fmt(o.total)}${
           o.voucher ? " y subió el comprobante de pago" : ""
         }.`,
@@ -6779,53 +8896,323 @@ function AdminPanel({
         config.seed.map((row) => [...row] as (string | number)[]),
       ]),
     ) as Record<string, (string | number)[][]>
+    const savedUserStatuses = loadLS<Record<string, string>>(
+      "adminUserStatuses",
+      {},
+    )
+    initialRows.usuarios = (initialRows.usuarios || []).map((row) => {
+      const email = String(row[4] ?? "").trim().toLowerCase()
+      const savedStatus = savedUserStatuses[email]
+      if (!savedStatus) return row
+      const updatedRow = [...row]
+      updatedRow[5] = savedStatus
+      return updatedRow
+    })
     initialRows.pedidos = [
-      ...clientOrders.map((o) => [
-        o.id,
-        o.cliente,
-        o.items.map((i) => `${i.qty} ${i.name}`).join(", "),
-        "Online",
-        o.pago === "Efectivo" ? "Efectivo" : "Transferencia",
-        o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
-        o.total,
-        o.status,
-        o.voucher ? "Pagado" : "Pendiente",
-        o.status === "Por confirmar"
-          ? "Pendiente admin"
-          : o.total >= APPROVAL_MIN
+      ...clientOrders.map((o) => {
+        const orderLines: AdminOrderLine[] = o.items.flatMap((item, index) => {
+          const parentId = `${o.id}-line-${index}`
+          const mainLine: AdminOrderLine = {
+            id: parentId,
+            product: item.name,
+            category: String(initialRows.producto?.find((product) => product[0] === item.name)?.[1] ?? ""),
+            quantity: item.qty,
+            unitPrice: item.price,
+          }
+          const additions: AdminOrderLine[] = (item.additions || []).map((addition, additionIndex) => ({
+            id: `${parentId}-addition-${additionIndex}`,
+            product: addition.name,
+            category: "Adiciones",
+            quantity: addition.qty * item.qty,
+            unitPrice: addition.price,
+            parentId,
+          }))
+          return [mainLine, ...additions]
+        })
+        const paymentStatus =
+          o.paymentStatus ??
+          (o.voucher
+            ? ["Confirmado", "En cocina", "En camino", "Entregado"].includes(o.status)
+              ? "Pagado"
+              : "Pendiente de verificación"
+            : isTransferPaymentMethod(o.pago)
+              ? "Pendiente de verificación"
+              : "Pendiente")
+        return [
+          o.id,
+          o.cliente,
+          orderLines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${orderLines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
+          "Online",
+          o.pago === "Efectivo" ? "Efectivo" : "Transferencia",
+          o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
+          o.total,
+          o.status,
+          paymentStatus,
+          o.productionAuthorized
             ? "Autorizada"
-            : "No requerida",
-      ]),
+            : paymentStatus === "Pendiente de verificación" || paymentStatus === "Rechazado"
+              ? "Pendiente de pago"
+              : o.status === "Por confirmar"
+                ? "Pendiente admin"
+                : o.total >= APPROVAL_MIN
+              ? "Autorizada"
+              : "Enviada a producción",
+          JSON.stringify(orderLines),
+          o.paymentRejectionReason ?? "",
+        ]
+      }),
       ...(initialRows.pedidos || []),
+    ]
+    // Client orders that don't wait for the owner (or were already confirmed) get their
+    // production orders; oldest first so the newest ends up on top
+    initialRows.pedidos
+      .slice(0, clientOrders.length)
+      .reverse()
+      .filter((order) => ["Enviada a producción", "Autorizada"].includes(String(order[9])))
+      .filter((order) => {
+        const stored = clientOrders.find((clientOrder) => clientOrder.id === order[0])
+        return !stored?.productionRecords?.length
+      })
+      .forEach((order) => {
+        const lines = JSON.parse(String(order[10] ?? "[]")) as AdminOrderLine[]
+        const before = initialRows.produccion || []
+        initialRows.produccion = buildProductionRows(lines, before, String(order[0]))
+        // Saved on the order (and in the backend) so opening the panel again doesn't create them again
+        const created = initialRows.produccion.filter((row) => !before.includes(row))
+        saveOrders(loadOrders().map((o) => (o.id === order[0] ? { ...o, productionRecords: created } : o)))
+        pushOrder(String(order[0]))
+      })
+    initialRows.produccion = [
+      ...clientOrders.flatMap((order) => order.productionRecords ?? []),
+      ...(initialRows.produccion || []),
     ]
     const supplyProducts = (initialRows.insumos || [])
       .filter((row) => String(row[7]).toLowerCase() === "sí")
       .map(supplyAsProduct)
     initialRows.producto = [...supplyProducts, ...(initialRows.producto || [])]
+    const existingClientEmails = new Set(
+      (initialRows.clientes || []).flatMap((row) =>
+        row.slice(4, 6).map((value) => String(value ?? "").trim().toLowerCase())
+          .filter((value) => value.includes("@")),
+      ),
+    )
+    const registeredClientRows = loadRegisteredClients()
+      .filter((client) => !existingClientEmails.has(client.email.toLowerCase()))
+      .map((client) => [
+        client.name,
+        client.docType ?? "",
+        client.cedula ?? "",
+        client.phone ?? "",
+        client.email,
+        "",
+        "No",
+        "Activo",
+      ])
+    initialRows.clientes = [...registeredClientRows, ...(initialRows.clientes || [])]
     const duplicatedSales = (initialRows.pedidos || [])
       .filter(
         (order) =>
           String(order[8]).toLowerCase() === "pagado" &&
-          !["En camino", "Entregado"].includes(String(order[6])),
+          !["En camino", "Entregado"].includes(String(order[7])),
       )
       .map((order, index) => [
         `VTA-AUTO-${String(index + 1).padStart(2, "0")}`,
-        "Admin Parche",
+        sellerName,
         order[1],
-        order[2],
+        clientOrders.find((clientOrder) => clientOrder.id === order[0])?.date ?? "",
         order[3],
         order[4],
         order[6],
         order[6],
         "Pendiente",
         order[0],
-        order[6],
+        order[7],
+        order[10] ?? "[]",
       ])
     initialRows.ventas = [...duplicatedSales, ...(initialRows.ventas || [])]
     return initialRows
   })
   const [anulled, setAnulled] = useState<Record<string, Set<number>>>({})
   const [prodImgs, setProdImgs] = useState<Record<number, string>>({})
+  // Modules in DB_SYNC are loaded from the backend; their localOnly rows stay in the browser
+  const loadModule = (sec: string) => {
+    const spec = DB_SYNC[sec]
+    return api<DbRecord[]>(spec.path)
+      .then((records) => {
+        setRows((current) => {
+          const next = {
+            ...current,
+            [sec]: [
+              ...records.filter((r) => spec.shows?.(r) ?? true).map(spec.toRow),
+              ...(current[sec] || []).filter((row) => spec.localOnly?.(row)),
+            ],
+          }
+          // Insumos marked "Producto de insumo" also show up in Productos
+          if (sec === "insumos")
+            next.producto = [
+              ...(current.producto || []).filter((row) => row[1] !== "Producto de insumo"),
+              ...next.insumos.filter((row) => text(row[7]).toLowerCase() === "sí").map(supplyAsProduct),
+            ]
+          return next
+        })
+        // Backend products come first in the table, so their row index matches the record order
+        if (sec === "producto")
+          setProdImgs(
+            Object.fromEntries(
+              records.flatMap((p, i) => (p.imagenes?.[0] ? [[i, imageUrl(p.imagenes[0])]] : [])),
+            ),
+          )
+      })
+      .catch((err) => console.warn(`No se pudo cargar «${sec}» del backend:`, err))
+  }
+  useEffect(() => {
+    Object.keys(DB_SYNC).forEach(loadModule)
+  }, [])
+  // Saves a row in the backend (statusOnly: just its Activo/Inactivo change); on failure tells the admin
+  // and reloads that table from the backend
+  const syncRow = (
+    sec: string,
+    row: Row,
+    isNew: boolean,
+    statusOnly = false,
+    // Extra save once the record has its id (e.g. the product photo)
+    alsoSave?: (id: number) => Promise<unknown>,
+  ) => {
+    const spec = DB_SYNC[sec]
+    if (!spec || spec.localOnly?.(row)) return
+    if (!isNew && !row[spec.idIndex]) {
+      window.alert("Este registro no está vinculado a la base de datos. Recarga la página e inténtalo de nuevo.")
+      return
+    }
+    const saved =
+      statusOnly && spec.setStatus
+        ? spec.setStatus(row[spec.idIndex], row).then(() => ({
+            id: Number(row[spec.idIndex]),
+            saved: undefined,
+          }))
+        : saveRowToDb(spec, row)
+    saved
+      .then(({ id, saved: savedRecord }) => {
+        setRows((current) => ({
+          ...current,
+          [sec]: (current[sec] || []).map((r) => {
+            if (r !== row) return r
+            const updated = withId([...r], spec.idIndex, id)
+            if (sec === "usuarios" && savedRecord?.es_administrador_principal) {
+              updated[8] = "Principal"
+            }
+            return updated
+          }),
+        }))
+        if (
+          sec === "usuarios" &&
+          isNew &&
+          savedRecord?.contrasena_temporal
+        ) {
+          window.alert(
+            `Usuario creado. Entrega esta contraseña temporal al usuario; deberá cambiarla al iniciar sesión:\n\n${savedRecord.contrasena_temporal}`,
+          )
+        }
+        spec.reloads?.forEach(loadModule)
+        if (statusOnly) return
+        return Promise.all([spec.afterSave?.(id, row), alsoSave?.(id)])
+      })
+      .catch((err) => {
+        window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
+        loadModule(sec)
+      })
+  }
+  const deleteRowInDb = (sec: string, row: Row | undefined) => {
+    const spec = DB_SYNC[sec]
+    const id = spec && row?.[spec.idIndex]
+    if (!id) return
+    api(`${spec.path}/${id}`, "DELETE").catch((err) => {
+      window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`)
+      loadModule(sec)
+    })
+  }
+  // PANEL_SYNC modules: loaded once, then every created/changed/removed row is saved automatically
+  const panelLoaded = useRef<Record<string, boolean>>({})
+  // Last saved version of each row, by backend id (to only send real changes)
+  const panelSaved = useRef<Record<string, Map<string | number, string>>>({})
+  useEffect(() => {
+    Object.entries(PANEL_SYNC).forEach(([sec, spec]) =>
+      api<DbRecord[]>(spec.path)
+        .then((records) => {
+          const dbRows = records.map((r) => withPanelId(r.datos_panel, spec.idIndex, r.id))
+          panelSaved.current[sec] = new Map(dbRows.map((r) => [r[spec.idIndex], JSON.stringify(r)]))
+          setRows((current) => ({
+            ...current,
+            [sec]: [
+              ...dbRows,
+              ...(current[sec] || []).filter(
+                (r) => !r[spec.idIndex] && (spec.keepLocal?.(r, dbRows) || spec.owns?.(r) === false),
+              ),
+            ],
+          }))
+          panelLoaded.current[sec] = true
+        })
+        .catch((err) => console.warn(`No se pudo cargar «${sec}» del backend:`, err)),
+    )
+  }, [])
+  useEffect(() => {
+    Object.entries(PANEL_SYNC).forEach(([sec, spec]) => {
+      if (!panelLoaded.current[sec]) return
+      const saved = panelSaved.current[sec]
+      const present = new Set<string | number>()
+      const created: Row[] = []
+      for (const row of rows[sec] || []) {
+        if (spec.owns?.(row) === false) continue
+        const id = row[spec.idIndex]
+        if (!id) created.push(row)
+        else if (String(id).startsWith("guardando-")) continue
+        else {
+          present.add(id)
+          const json = JSON.stringify(row)
+          if (saved.get(id) === json) continue
+          saved.set(id, json)
+          api(`${spec.path}/${id}`, "PUT", { datos_panel: row.slice(0, spec.idIndex) }).catch((err) => {
+            saved.delete(id)
+            window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
+          })
+        }
+      }
+      // Rows removed in the panel
+      for (const id of [...saved.keys()]) {
+        if (present.has(id)) continue
+        saved.delete(id)
+        api(`${spec.path}/${id}`, "DELETE").catch((err) =>
+          window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`),
+        )
+      }
+      // New rows: mark them while they are created so they're sent only once
+      created.forEach((row) => {
+        const tempId = `guardando-${Math.random().toString(36).slice(2)}`
+        const data = row.slice(0, spec.idIndex)
+        setRows((current) => ({
+          ...current,
+          [sec]: (current[sec] || []).map((r) => (r === row ? withPanelId(r, spec.idIndex, tempId) : r)),
+        }))
+        api<DbRecord>(spec.path, "POST", { datos_panel: data })
+          .then(({ id }) => {
+            // If the row changed while it was being created, the next pass sends the change
+            saved.set(id, JSON.stringify(withPanelId(data, spec.idIndex, id)))
+            setRows((current) => ({
+              ...current,
+              [sec]: (current[sec] || []).map((r) => (r[spec.idIndex] === tempId ? withPanelId(r, spec.idIndex, id) : r)),
+            }))
+          })
+          .catch((err) => {
+            window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
+            // Back to "new" so it is retried on the next change
+            setRows((current) => ({
+              ...current,
+              [sec]: (current[sec] || []).map((r) => (r[spec.idIndex] === tempId ? withPanelId(r, spec.idIndex, "") : r)),
+            }))
+          })
+      })
+    })
+  }, [rows])
   const [paymentProofs, setPaymentProofs] = useState<Record<number, string>>(
     () =>
       Object.fromEntries(
@@ -6841,23 +9228,85 @@ function AdminPanel({
     idx: number | null
   }>({ mode: null, section: "", idx: null })
   const [formData, setFormData] = useState<Record<string, string>>({})
+  const [formValidationAttempted, setFormValidationAttempted] = useState(false)
+  const [formFieldErrors, setFormFieldErrors] = useState<Record<string, string>>({})
   const [imgPreview, setImgPreview] = useState("")
+  const [technicalSheetOpen, setTechnicalSheetOpen] = useState(false)
+  const [technicalIngredients, setTechnicalIngredients] = useState<TechnicalIngredient[]>([])
+  const [technicalSteps, setTechnicalSteps] = useState<string[]>([])
+  const [technicalStepDraft, setTechnicalStepDraft] = useState("")
+  const [technicalIngredientSelect, setTechnicalIngredientSelect] = useState("")
+  const [technicalIngredientQuantity, setTechnicalIngredientQuantity] = useState("1")
+  const [technicalSheetError, setTechnicalSheetError] = useState("")
   const [pedidoProductoSelect, setPedidoProductoSelect] = useState("")
-  const [productionItems, setProductionItems] = useState<{ name: string; quantity: number }[]>([])
+  const [pedidoProductCategory, setPedidoProductCategory] = useState("Todas")
+  const [pedidoProductQuantity, setPedidoProductQuantity] = useState("1")
+  const [pedidoParentSelect, setPedidoParentSelect] = useState("")
+  const [pedidoOrderLines, setPedidoOrderLines] = useState<AdminOrderLine[]>([])
+  const [productionItems, setProductionItems] = useState<ProductionItem[]>([])
   const [productionProductSelect, setProductionProductSelect] = useState("")
   const [productionItemQuantity, setProductionItemQuantity] = useState("1")
   const [productionFormError, setProductionFormError] = useState("")
+  // "Nueva compra" item picker (limited to the selected supplier's insumos)
+  const [purchaseItemSelect, setPurchaseItemSelect] = useState("")
+  const [purchaseItemQty, setPurchaseItemQty] = useState("1")
+  const [purchaseItemPrice, setPurchaseItemPrice] = useState("")
+  const [purchaseFormError, setPurchaseFormError] = useState("")
+  // "Enviar a pérdida" from a purchase line (edit mode)
+  const [lossDraft, setLossDraft] = useState<{
+    insumo: string
+    unit: string
+    max: number
+    qty: string
+    motivo: string
+    responsable: string
+    fecha: string
+    origin: string
+  } | null>(null)
+  const [lossError, setLossError] = useState("")
+  const [purchaseNotice, setPurchaseNotice] = useState("")
+  const resetPurchasePicker = () => {
+    setPurchaseItemSelect("")
+    setPurchaseItemQty("1")
+    setPurchaseItemPrice("")
+    setPurchaseFormError("")
+    setPurchaseNotice("")
+    setLossDraft(null)
+  }
   const [pncTarget, setPncTarget] = useState<number | null>(null)
   const [pncForm, setPncForm] = useState<Record<string, string>>({})
   const [pncError, setPncError] = useState("")
+  const [pncFieldErrors, setPncFieldErrors] = useState<Record<string, string>>({})
   const [quickClientOpen, setQuickClientOpen] = useState(false)
   const [quickClientForm, setQuickClientForm] = useState<Record<string, string>>({})
+  const [quickClientErrors, setQuickClientErrors] = useState<Record<string, string>>({})
   const [clientFormError, setClientFormError] = useState("")
+  // Validation message for the insumo's technical sheet (producto de insumo)
+  const [supplyFormError, setSupplyFormError] = useState("")
+  // Live validation (categories, insumos, productos): a field shows its error once it
+  // has been changed or after the first "Guardar"
+  const [formInitial, setFormInitial] = useState<Record<string, string>>({})
+  const [formTried, setFormTried] = useState(false)
+  const [touchedFields, setTouchedFields] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    const changed = Object.keys(formData).filter(
+      (key) => (formData[key] ?? "") !== (formInitial[key] ?? ""),
+    )
+    if (changed.some((key) => !touchedFields[key]))
+      setTouchedFields((current) => ({
+        ...current,
+        ...Object.fromEntries(changed.map((key) => [key, true])),
+      }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData])
   const [quickClientError, setQuickClientError] = useState("")
   const [delTarget, setDelTarget] = useState<{
     section: string
     idx: number
   } | null>(null)
+  const [paymentRejectionTarget, setPaymentRejectionTarget] = useState<number | null>(null)
+  const [paymentRejectionReason, setPaymentRejectionReason] = useState("")
+  const [paymentRejectionError, setPaymentRejectionError] = useState("")
   const [anulTarget, setAnulTarget] = useState<{
     section: string
     idx: number
@@ -6865,7 +9314,44 @@ function AdminPanel({
   const [chartFilter, setChartFilter] =
     useState<"hoy" | "semana" | "mes" | "año">("semana")
   const [rolesPerms, setRolesPerms] =
-    useState<Record<string, Record<string, string[]>>>({})
+    useState<Record<string, Record<string, string[]>>>(() =>
+      loadLS("adminRolePermissions", {}),
+    )
+
+  useEffect(() => {
+    saveLS("adminRolePermissions", rolesPerms)
+  }, [rolesPerms])
+  // Permissions matrix: loaded from the backend, then each role's changes are saved (Administrador always has all)
+  const permsLoaded = useRef(false)
+  const permsSaved = useRef(new Map<string | number, string>())
+  useEffect(() => {
+    api<DbRecord[]>("/roles")
+      .then((roles) => Promise.all(roles.map((r) => api<DbRecord>(`/roles/${r.id_rol}`))))
+      .then((roles) => {
+        const next = Object.fromEntries(roles.map((r) => [roleLabel(r.nombre_rol), permsFromDb(r.permisos)]))
+        roles.forEach((r) => permsSaved.current.set(r.id_rol, JSON.stringify(permsToDb(next[roleLabel(r.nombre_rol)]))))
+        setRolesPerms(next)
+        permsLoaded.current = true
+      })
+      .catch((err) => console.warn("No se pudieron cargar los permisos del backend:", err))
+  }, [])
+  useEffect(() => {
+    if (!permsLoaded.current) return
+    for (const role of rows.roles || []) {
+      const id = role[DB_SYNC.roles.idIndex]
+      const name = String(role[0] ?? "")
+      if (!id || name.toLowerCase() === "administrador") continue
+      const permisos = permsToDb(rolesPerms[name] || {})
+      const json = JSON.stringify(permisos)
+      if (permsSaved.current.get(id) === json) continue
+      permsSaved.current.set(id, json)
+      api(`/roles/${id}/permisos`, "PUT", { permisos }).catch((err) => {
+        permsSaved.current.delete(id)
+        window.alert(`Los permisos de «${name}» no se guardaron en la base de datos: ${(err as Error).message}`)
+      })
+    }
+  }, [rolesPerms, rows.roles])
+
 
   useEffect(() => {
     const fn = (e: MouseEvent) => {
@@ -6879,19 +9365,6 @@ function AdminPanel({
     }
     document.addEventListener("mousedown", fn)
     return () => document.removeEventListener("mousedown", fn)
-  }, [])
-
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const customEvent = e as CustomEvent
-      const newUser = customEvent.detail as (string | number)[]
-      setRows((current) => ({
-        ...current,
-        usuarios: [newUser, ...(current.usuarios || [])],
-      }))
-    }
-    window.addEventListener("user-registered", handler)
-    return () => window.removeEventListener("user-registered", handler)
   }, [])
 
   const toggleGrp = (k: string) =>
@@ -6940,33 +9413,149 @@ function AdminPanel({
     return `v${maxMajor + 1}.${maxMinor}`
   }
 
-  const getAvailableInsumos = () => {
-    const sourceRows = rows.insumos || []
-    const options = sourceRows
-      .map((row) => String(row[0] ?? "").trim())
-      .filter(Boolean)
+  const getTechVersions = (productName: string) => {
+    const versions = (rows.producto || [])
+      .filter((r) => String(r[0] ?? "") === productName)
+      .map((r) => ({
+        version: String(r[6] ?? ""),
+        name: String(r[5] ?? ""),
+        insumos: String(r[7] ?? ""),
+        preparacion: String(r[8] ?? ""),
+      }))
+    return versions
+  }
 
-    return [
-      ...new Set(
-        options.length
-          ? options
-          : [
-              "Carne de res 100g",
-              "Queso cheddar",
-              "Pan brioche",
-              "Lechuga",
-              "Salchicha",
-              "Tomate",
-              "Cebolla",
-              "Papas",
-              "Salsa de la casa",
-            ],
-      ),
-    ].sort((a, b) => a.localeCompare(b))
+  const nextTechVersion = (version: string) => {
+    const match = /^v?(\d+)(?:\.(\d+))?$/i.exec(version.trim())
+    return match
+      ? `v${Number(match[1])}.${Number(match[2] || "0") + 1}`
+      : getAutoTechVersion(rows.producto || [])
+  }
+
+  // Only real insumos (from the backend) can go in a ficha técnica
+  const getAvailableInsumos = () =>
+    [...new Set((rows.insumos || []).map((row) => String(row[0] ?? "").trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b),
+    )
+
+  const getPreparationSteps = (preparation: string | number | undefined): string[] => {
+    const value = String(preparation ?? "").trim()
+    if (!value) return []
+    try {
+      const parsed: unknown = JSON.parse(value)
+      if (Array.isArray(parsed)) {
+        return parsed.map((step) => String(step ?? "").trim()).filter(Boolean)
+      }
+    } catch {
+      // Existing preparation text is displayed as one or more legacy steps.
+    }
+    return value.split(/\r?\n/).map((step) => step.trim()).filter(Boolean)
+  }
+
+  const getProductRecipe = (product: (string | number)[] | undefined) => {
+    if (!product) return []
+    try {
+      const recipe = JSON.parse(String(product[9] ?? "[]"))
+      if (Array.isArray(recipe)) {
+        return recipe
+          .map((item) => ({
+            name: String(item.name ?? "").trim(),
+            quantity: Number(item.quantity),
+            unit: String(item.unit ?? "").trim(),
+          }))
+          .filter(
+            (item) => item.name && Number.isFinite(item.quantity) && item.quantity > 0 && item.unit,
+          )
+      }
+
+    } catch {
+      // Older product rows have only a comma-separated list of ingredient names.
+    }
+    return String(product[7] ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => ({
+        name,
+        quantity: 1,
+        unit: String(rows.insumos?.find((supply) => supply[0] === name)?.[2] ?? "und"),
+      }))
+  }
+
+  const getAdminOrderLines = (order: (string | number)[] | undefined): AdminOrderLine[] => {
+    if (!order) return []
+    try {
+      const storedLines = JSON.parse(String(order[10] ?? "[]"))
+      if (Array.isArray(storedLines)) {
+        return storedLines
+          .map((line, index) => ({
+            id: String(line.id ?? `line-${index}`),
+            product: String(line.product ?? "").trim(),
+            category: String(line.category ?? ""),
+            quantity: Number(line.quantity),
+            unitPrice: Number(line.unitPrice),
+            ...(line.parentId ? { parentId: String(line.parentId) } : {}),
+          }))
+          .filter((line) => line.product && line.quantity > 0 && line.unitPrice >= 0)
+      }
+    } catch {
+      // Legacy orders have a human-readable product list in column 2.
+    }
+    const availableProducts = (rows.producto || [])
+      .map((product) => String(product[0] ?? ""))
+      .filter(Boolean)
+      .sort((a, b) => b.length - a.length)
+    return String(order[2] ?? "")
+      .split(",")
+      .map((entry, index) => {
+        const text = entry.trim()
+        const productName = availableProducts.find((name) =>
+          text.toLowerCase().includes(name.toLowerCase()),
+        )
+        if (!productName) return null
+        const quantity = Number(text.match(/^\s*(\d+)/)?.[1] ?? 1)
+        const product = rows.producto?.find((item) => item[0] === productName)
+        return {
+          id: `legacy-${index}`,
+          product: productName,
+          category: String(product?.[1] ?? ""),
+          quantity: Math.max(1, quantity),
+          unitPrice: Number(product?.[2] ?? 0),
+        }
+      })
+      .filter((line): line is AdminOrderLine => line !== null)
+  }
+
+  const getSaleOrderLines = (sale: (string | number)[] | null) => {
+    if (!sale) return []
+    try {
+      const storedLines = JSON.parse(String(sale[11] ?? "[]"))
+      if (Array.isArray(storedLines) && storedLines.length) {
+        return storedLines
+          .map((line, index) => ({
+            id: String(line.id ?? `sale-line-${index}`),
+            product: String(line.product ?? "").trim(),
+            category: String(line.category ?? ""),
+            quantity: Number(line.quantity),
+            unitPrice: Number(line.unitPrice),
+            ...(line.parentId ? { parentId: String(line.parentId) } : {}),
+          }))
+          .filter((line) => line.product && line.quantity > 0 && line.unitPrice >= 0)
+      }
+    } catch {
+      // Sales created before line snapshots use the associated order as their source.
+    }
+    const order = rows.pedidos?.find((candidate) => candidate[0] === sale[9])
+    return getAdminOrderLines(order)
   }
 
   const getAvailableProductos = () => {
     const options = (rows.producto || [])
+      .filter(
+        (row) =>
+          !["inactivo", "inactiva"].includes(String(row[4] ?? "").toLowerCase()) &&
+          String(row[10] ?? "Disponible").toLowerCase() !== "no disponible",
+      )
       .map((row) => String(row[0] ?? "").trim())
       .filter(Boolean)
     return [
@@ -6983,8 +9572,10 @@ function AdminPanel({
       if (Array.isArray(items) && items.length) {
         return items
           .map((item) => ({
-            name: String(item.name ?? "").trim(),
+            name: String(item.name ?? item.product ?? "").trim(),
             quantity: Math.max(1, Number(item.quantity) || 1),
+            ...(item.category ? { category: String(item.category) } : {}),
+            ...(item.parentId ? { parentId: String(item.parentId) } : {}),
           }))
           .filter((item) => item.name)
       }
@@ -6996,10 +9587,46 @@ function AdminPanel({
   }
 
   const getNonconformingProductOptions = () => {
-    const options = (rows.produccion || [])
-      .map((row) => String(row[1] ?? "").trim())
+    const products = (rows.producto || [])
+      .map((row) => String(row[0] ?? "").trim())
       .filter(Boolean)
-    return [...new Set(options)].sort((a, b) => a.localeCompare(b))
+    const supplies = (rows.insumos || [])
+      .map((row) => String(row[0] ?? "").trim())
+      .filter(Boolean)
+    return [...new Set([...products, ...supplies])].sort((a, b) => a.localeCompare(b))
+  }
+
+  const getNonconformingItemUnit = (name: string) => {
+    const supply = (rows.insumos || []).find((item) => String(item[0] ?? "").trim() === name)
+    if (supply) return String(supply[2] ?? "").trim() || "Sin unidad"
+    return "und"
+  }
+
+  const getNonconformingItems = (row: (string | number)[] | undefined) => {
+    if (!row) return []
+    try {
+      const items = JSON.parse(String(row[2] ?? "[]"))
+      if (Array.isArray(items) && items.length) {
+        return items
+          .map((item) => ({
+            name: String(item.name ?? "").trim(),
+            quantity: Math.max(1, Number(item.quantity) || 1),
+            unit: String(item.unit ?? "").trim() || getNonconformingItemUnit(String(item.name ?? "").trim()),
+          }))
+          .filter((item) => item.name)
+      }
+    } catch {
+      // Use the legacy product field below.
+    }
+    return String(row[1] ?? "")
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .map((name) => ({
+        name,
+        quantity: Math.max(1, Number(row[3]) || 1),
+        unit: getNonconformingItemUnit(name),
+      }))
   }
 
   const getProductSupplyOptions = () =>
@@ -7058,6 +9685,226 @@ function AdminPanel({
     return `PED-${String(lastNumber + 1).padStart(4, "0")}`
   }
 
+  const getRequiredFormKeys = (
+    sec: string,
+    draft: Record<string, string>,
+    mode: ModalMode,
+  ) => {
+    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
+    const excludedKeys: Record<string, string[]> = {
+      insumos: [
+        // "Stock actual" isn't shown when creating (a new insumo starts at 0)
+        ...(mode === "add" ? ["4"] : []),
+        ...(String(draft["7"] ?? "").toLowerCase() === "sí"
+          ? ["8", "9"]
+          : ["8", "9", "10", "11"]),
+      ],
+      producto: ["5", "6", "7", "8", "10", ...(mode === "add" ? ["2"] : [])],
+      produccion: ["0", "1", "15"],
+      "producto-no-conforme": ["0", "1", "2", "5", "6"],
+      compras: ["2", "3", "4"],
+      // "Origen" is only filled when the loss is sent from a purchase
+      perdidas: ["5"],
+      // 4 (modalidad) and 7 (estado de pago) are derived from the payment method
+      pedidos: ["1", "4", "5", "7", "9"],
+    }
+    const managedRequiredKeys: Record<string, string[]> = {
+      usuarios: [
+        "0", "1", "2", "3", "4",
+        ...(mode === "add" && String(draft["3"] ?? "") === "Cliente" ? ["6"] : []),
+      ],
+      clientes: [
+        "0",
+        "1",
+        "2",
+        "3",
+        ...(clientIsLocal ? [] : ["4", "5"]),
+      ],
+      // "7" (insumos que suministra) is optional: they can be assigned later, and
+      // Compras already warns when a supplier has none
+      proveedores: [
+        "0", "1", "2", "3", "5", "8", "9", "10", "11", "12", "13", "14",
+      ],
+      roles: ["0", "1"],
+    }
+
+    if (managedRequiredKeys[sec]) return managedRequiredKeys[sec]
+    return (MOD_CFG[sec]?.fields || [])
+      .filter(
+        (field) =>
+          field.type !== "image" &&
+          !(excludedKeys[sec] || []).includes(field.key),
+      )
+      .map((field) => field.key)
+  }
+
+  const getManagedFieldError = (
+    sec: string,
+    key: string,
+    value: string,
+    draft: Record<string, string>,
+    mode: ModalMode = modal.mode,
+  ) => {
+    const trimmed = value.trim()
+    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
+    const required =
+      sec === "usuarios"
+        ? [
+            "0", "1", "2", "3", "4",
+            ...(mode === "add" && String(draft["3"] ?? "") === "Cliente" ? ["6"] : []),
+          ].includes(key)
+        : sec === "clientes"
+          ? ["0", "1", "2", "3", ...(clientIsLocal ? [] : ["4", "5"])].includes(key)
+          : sec === "proveedores"
+            ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14"].includes(key)
+            : sec === "roles"
+              ? ["0", "1"].includes(key)
+              : false
+
+    if (required && !trimmed) return "Este campo es obligatorio."
+    if (!trimmed) return ""
+
+    if (sec === "usuarios" && key === "2") {
+      return validateAccountDocumentNumber(trimmed, String(draft["1"] ?? ""))
+    }
+    if (sec === "clientes" && key === "2") {
+      return validateDocumentNumber(trimmed, String(draft["1"] ?? ""))
+    }
+    if (sec === "usuarios" && key === "6" && mode === "add") {
+      return getPasswordError(trimmed)
+    }
+    if (sec === "proveedores" && key === "1") {
+      const digits = digitsOnly(trimmed)
+      return /^[\d.-]+$/.test(trimmed) && digits.length >= 8 && digits.length <= 15
+        ? ""
+        : "Escribe un NIT válido (de 8 a 15 dígitos)."
+    }
+    if (sec === "proveedores" && key === "9") {
+      return validateDocumentNumber(trimmed, String(draft["8"] ?? ""))
+    }
+    if ((sec === "usuarios" && key === "4") ||
+        (sec === "clientes" && key === "4") ||
+        (sec === "proveedores" && ["2", "13"].includes(key))) {
+      return EMAIL_PATTERN.test(trimmed) ? "" : "Escribe un correo electrónico válido."
+    }
+    if ((sec === "clientes" && key === "3") ||
+        (sec === "proveedores" && ["3", "12"].includes(key))) {
+      return validatePhoneNumber(trimmed)
+    }
+    if (sec === "roles" && key === "0") {
+      const name = trimmed.toLowerCase()
+      const sameNameExists = (rows.roles || []).some((row, index) => {
+        if (mode === "edit" && modal.idx === index) return false
+        return String(row[0] ?? "").trim().toLowerCase() === name
+      })
+      return sameNameExists ? "Ya existe un rol con este nombre." : ""
+    }
+    if (sec === "compras" && key === "1" && trimmed > getCurrentDateTimeParts().date) {
+      return "La fecha de compra no puede ser posterior a hoy."
+    }
+    return ""
+  }
+
+  const validateManagedForm = (
+    sec: string,
+    draft: Record<string, string>,
+    mode: ModalMode,
+  ) => {
+    const keys = getRequiredFormKeys(sec, draft, mode)
+
+    const duplicateErrors = (() => {
+      if (!["usuarios", "clientes"].includes(sec)) return {}
+
+      const email = String(draft["4"] ?? "").trim().toLowerCase()
+      const document = String(draft["2"] ?? "").trim().toLowerCase()
+      const phone =
+        sec === "clientes"
+          ? String(draft["3"] ?? "").trim().replace(/\s+/g, "")
+          : ""
+
+      const allRows = [
+        ...(rows.usuarios || []).map((row, idx) => ({ section: "usuarios", idx, row })),
+        ...(rows.clientes || []).map((row, idx) => ({ section: "clientes", idx, row })),
+      ]
+      const next: Record<string, string> = {}
+      allRows.forEach(({ section, idx, row }) => {
+        const isCurrentRecord = sec === section && modal.idx === idx
+        if (isCurrentRecord) return
+
+        const rowDocument = String(row[2] ?? "").trim().toLowerCase()
+        const rowEmail = String(row[4] ?? "").trim().toLowerCase()
+        const rowPhone =
+          section === "clientes"
+            ? String(row[3] ?? "").trim().replace(/\s+/g, "")
+            : ""
+
+        if (document && rowDocument && rowDocument === document) {
+          next["2"] = "Ya existe una persona registrada con este documento."
+        }
+        if (sec === "clientes" && phone && rowPhone && rowPhone === phone) {
+          next["3"] = "Ya existe una persona registrada con este teléfono."
+        }
+        if (email && rowEmail && rowEmail === email) {
+          next["4"] = "Ya existe una persona registrada con este correo electrónico."
+        }
+      })
+      return next
+    })()
+
+    return Object.fromEntries(
+      keys.flatMap((key) => {
+        const field = MOD_CFG[sec]?.fields.find((item) => item.key === key)
+        const value = String(draft[key] ?? "")
+        const error = !value.trim()
+          ? "Este campo es obligatorio."
+          : getManagedFieldError(sec, key, value, draft, mode) ||
+          (value.trim() && field?.type === "email" && !EMAIL_PATTERN.test(value.trim())
+            ? "Escribe un correo electrónico válido."
+            : value.trim() && field?.type === "tel"
+              ? validatePhoneNumber(value)
+              : value.trim() && field?.type === "number" &&
+                  (!Number.isFinite(Number(value)) || Number(value) < 0)
+                ? "Ingresa un número válido mayor o igual a cero."
+                : "")
+        const duplicateError = duplicateErrors[key] || ""
+        const finalError = duplicateError || error
+        return finalError ? [[key, finalError]] : []
+      }),
+    )
+  }
+
+  const updateAdminField = (
+    sec: string,
+    key: string,
+    value: string,
+  ) => {
+    const currentDraft = { ...formData, [key]: value }
+    const documentKey =
+      sec === "proveedores" && key === "8"
+        ? "9"
+        : (sec === "usuarios" || sec === "clientes") && key === "1"
+          ? "2"
+          : ""
+    if (documentKey) {
+      currentDraft[documentKey] =
+        sec === "usuarios"
+          ? normalizeAccountDocumentInput(currentDraft[documentKey] ?? "", value)
+          : normalizeDocumentInput(currentDraft[documentKey] ?? "", value)
+    }
+    if (sec === "usuarios" && key === "2") {
+      currentDraft[key] = normalizeAccountDocumentInput(value, currentDraft["1"] ?? "")
+    }
+    if (sec === "usuarios" && key === "3" && value !== "Cliente" && currentDraft["1"] === "Tarjeta de Identidad") {
+      currentDraft["1"] = ""
+    }
+    setFormData(currentDraft)
+    // Recompute while any error is shown: a change in one field (e.g. "Cliente de local")
+    // can clear the errors of other fields
+    if (formValidationAttempted || Object.keys(formFieldErrors).length) {
+      setFormFieldErrors(validateManagedForm(sec, currentDraft, modal.mode))
+    }
+  }
+
   const openAdd = (sec: string) => {
     const cfg = MOD_CFG[sec]
     if (!cfg) return
@@ -7066,36 +9913,53 @@ function AdminPanel({
     )
     if (sec === "producto") {
       initialFields["6"] = getAutoTechVersion(rows.producto || [])
+      initialFields["10"] = "Disponible"
+      setTechnicalIngredients([])
+      setTechnicalSteps([])
+      setTechnicalStepDraft("")
+      setTechnicalSheetError("")
+    }
+    if (sec === "ventas") {
+      initialFields["8"] = "Sin pedido"
+      initialFields["0"] = sellerName
     }
     if (sec === "insumos") {
       initialFields["7"] = "No"
+      setSupplyFormError("")
+    }
+    if (sec === "producto-no-conforme") {
+      initialFields["6"] = "und"
     }
     if (sec === "clientes") {
       initialFields["6"] = "No"
       setClientFormError("")
     }
-    if (sec === "produccion") {
+    setFormValidationAttempted(false)
+    setFormFieldErrors({})
+    if (sec === "produccion" || sec === "producto-no-conforme") {
       const currentDateTime = getCurrentDateTimeParts()
       setProductionItems([])
       setProductionProductSelect("")
       setProductionItemQuantity("1")
       setProductionFormError("")
-      initialFields["2"] = String(getNextProductionPriority())
       initialFields["3"] = currentDateTime.date
       initialFields["4"] = currentDateTime.time
     }
     if (sec === "compras") {
-      const today = new Date()
-      const registrationDate = [
-        today.getFullYear(),
-        String(today.getMonth() + 1).padStart(2, "0"),
-        String(today.getDate()).padStart(2, "0"),
-      ].join("-")
-      initialFields["1"] = registrationDate
-      initialFields["2"] = registrationDate
+      initialFields["1"] = getCurrentDateTimeParts().date
+      resetPurchasePicker()
     }
     setFormData(initialFields)
+    setFormInitial(initialFields)
+    setFormTried(false)
+    setTouchedFields({})
     setPedidoProductoSelect("")
+    if (sec === "pedidos") {
+      setPedidoOrderLines([])
+      setPedidoProductCategory("Todas")
+      setPedidoProductQuantity("1")
+      setPedidoParentSelect("")
+    }
     setPaymentProofDraft("")
     setImgPreview("")
     setModal({ mode: "add", section: sec, idx: null })
@@ -7115,9 +9979,24 @@ function AdminPanel({
         return [field.key, String(row[rowIndex] ?? "")]
       }),
     )
+    if (sec === "proveedores") {
+      const legacyContactName = String(row[4] ?? "").trim().split(/\s+/)
+      if (!nextForm["10"]) nextForm["10"] = legacyContactName.shift() ?? ""
+      if (!nextForm["11"]) nextForm["11"] = legacyContactName.join(" ")
+    }
+    setFormValidationAttempted(false)
+    setFormFieldErrors({})
     if (sec === "clientes") setClientFormError("")
+    if (sec === "compras") resetPurchasePicker()
+    if (sec === "insumos") setSupplyFormError("")
     if (sec === "produccion") {
       setProductionItems(getProductionOrderItems(row))
+      setProductionProductSelect("")
+      setProductionItemQuantity("1")
+      setProductionFormError("")
+    }
+    if (sec === "producto-no-conforme") {
+      setProductionItems(getNonconformingItems(row))
       setProductionProductSelect("")
       setProductionItemQuantity("1")
       setProductionFormError("")
@@ -7125,7 +10004,25 @@ function AdminPanel({
     if (sec === "producto" && !nextForm["6"]) {
       nextForm["6"] = getAutoTechVersion(rows.producto || [])
     }
+    if (sec === "producto") {
+      setTechnicalIngredients(getProductRecipe(row))
+      setTechnicalSteps(getPreparationSteps(row[8]))
+      setTechnicalStepDraft("")
+      nextForm["9"] = String(row[9] ?? "[]")
+      nextForm["10"] = String(row[10] ?? "Disponible")
+      setTechnicalSheetError("")
+    }
+    if (sec === "pedidos") {
+      const orderLines = getAdminOrderLines(row)
+      setPedidoOrderLines(orderLines)
+      setPedidoProductCategory("Todas")
+      setPedidoProductQuantity("1")
+      setPedidoParentSelect("")
+    }
     setFormData(nextForm)
+    setFormInitial(nextForm)
+    setFormTried(false)
+    setTouchedFields({})
     setPedidoProductoSelect("")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
@@ -7134,38 +10031,217 @@ function AdminPanel({
   const openView = (sec: string, idx: number) => {
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
+    if (sec === "producto") {
+      setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
+      setTechnicalSteps(getPreparationSteps(rows.producto?.[idx]?.[8]))
+    }
     if (sec === "produccion") {
       setProductionItems(getProductionOrderItems(rows.produccion?.[idx]))
       setProductionFormError("")
     }
+    if (sec === "pedidos") setPedidoOrderLines(getAdminOrderLines(rows.pedidos?.[idx]))
     setModal({ mode: "view", section: sec, idx })
   }
+
+  // ── Field validation: Categ. Insumos, Categ. Producto, Insumos, Productos ──
+  const VALIDATED_SECTIONS = ["cat-insumos", "cat-producto", "insumos", "producto", "clientes", "pedidos"]
+  const REQUIRED_KEYS: Record<string, string[]> = {
+    "cat-insumos": ["0", "1"],
+    "cat-producto": ["0", "1"],
+    insumos: ["0", "1", "2", "3", "5"],
+    producto: ["0", "1", "3"],
+    clientes: ["0", "1", "2", "3"], // correo/dirección too unless "Cliente de local"
+    pedidos: ["0", "2", "3"],
+  }
+  const getFieldErrors = (): Record<string, string> => {
+    const sec = modal.section
+    const e: Record<string, string> = {}
+    const v = (key: string) => String(formData[key] ?? "").trim()
+    const n = (key: string) => Number(v(key))
+    // Another record (not the one being edited) with the same normalized name
+    const duplicateOf = (section: string, name: string) =>
+      (rows[section] || []).find(
+        (record, index) => index !== modal.idx && normalizeName(record[0]) === normalizeName(name),
+      )
+    const checkText = (key: string, label: string, min: number, max: number, emptyMsg: string) => {
+      const value = v(key)
+      if (!value) e[key] = emptyMsg
+      else if (value.length < min) e[key] = `${label} debe tener al menos ${min} caracteres.`
+      else if (value.length > max) e[key] = `${label} puede tener máximo ${max} caracteres.`
+    }
+
+    if (sec === "cat-insumos" || sec === "cat-producto") {
+      checkText("0", "El nombre", 3, 40, "Escribe el nombre de la categoría.")
+      if (!e["0"] && !/^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9 &-]+$/.test(v("0")))
+        e["0"] = "Usa solo letras, números y espacios."
+      const dup = !e["0"] && duplicateOf(sec, v("0"))
+      if (dup) e["0"] = `Ya existe la categoría «${String(dup[0])}».`
+      checkText("1", "La descripción", 5, 150, "Escribe una descripción.")
+    }
+
+    if (sec === "insumos") {
+      checkText("0", "El nombre", 2, 60, "Escribe el nombre del insumo.")
+      const dup = !e["0"] && duplicateOf("insumos", v("0"))
+      if (dup) e["0"] = `Ya existe el insumo «${String(dup[0])}».`
+      if (!v("1")) e["1"] = "Selecciona la categoría."
+      if (!v("2")) e["2"] = "Selecciona la unidad de medida."
+      if (!v("3")) e["3"] = "Escribe el costo unitario."
+      else if (!(n("3") > 0)) e["3"] = "El costo debe ser mayor que 0."
+      if (modal.mode !== "add" && v("4") && !(n("4") >= 0))
+        e["4"] = "El stock actual no puede ser negativo."
+      if (!v("5")) e["5"] = "Escribe el stock mínimo."
+      else if (!(n("5") >= 0)) e["5"] = "El stock mínimo no puede ser negativo."
+      if (v("7").toLowerCase() === "sí") {
+        if (!v("10")) e["10"] = "Ficha técnica: elige al menos un insumo principal."
+        if (!v("11")) e["11"] = "Ficha técnica: escribe cómo se prepara."
+      }
+    }
+
+    if (sec === "clientes") {
+      const isLocal = v("6").toLowerCase() === "sí"
+      if (!v("1")) e["1"] = "Selecciona el tipo de documento."
+      const doc = v("2")
+      if (!doc) e["2"] = "Escribe el número de documento."
+      else if (v("1") && DOC_RULES[v("1")] && !DOC_RULES[v("1")].re.test(doc))
+        e["2"] = DOC_RULES[v("1")].msg
+      else {
+        // Same document number already registered (ignores dots, dashes and spaces)
+        const docKey = normalizeDocument(doc)
+        const dup = (rows.clientes || []).find(
+          (client, index) => index !== modal.idx && normalizeDocument(client[2]) === docKey,
+        )
+        if (dup) e["2"] = `Ya existe un cliente con este número de documento: «${String(dup[0])}».`
+      }
+      checkText("0", "El nombre", 3, 80, "Escribe el nombre del cliente.")
+      if (!e["0"] && !NAME_RE.test(v("0"))) e["0"] = "El nombre solo puede tener letras y espacios."
+      const phone = v("3").replace(/[\s-]/g, "")
+      if (!phone) e["3"] = "Escribe el teléfono."
+      else if (!/^3\d{9}$/.test(phone)) e["3"] = "El celular debe tener 10 números y empezar por 3."
+      if (!v("4")) {
+        if (!isLocal) e["4"] = "Escribe el correo (o marca «Cliente de local»)."
+      } else if (!EMAIL_RE.test(v("4")))
+        e["4"] = "Escribe un correo válido, por ejemplo nombre@correo.com."
+      if (!v("5")) {
+        if (!isLocal) e["5"] = "Escribe la dirección (o marca «Cliente de local»)."
+      } else if (v("5").length < 5) e["5"] = "La dirección debe tener al menos 5 caracteres."
+    }
+
+    if (sec === "pedidos") {
+      if (!v("0")) e["0"] = "Selecciona el cliente."
+      if (!v("2")) e["2"] = "Selecciona el tipo de pedido."
+      if (!v("3")) e["3"] = "Selecciona el método de pago."
+    }
+
+    if (sec === "producto") {
+      checkText("0", "El nombre", 2, 60, "Escribe el nombre del producto.")
+      const dup = !e["0"] && duplicateOf("producto", v("0"))
+      if (dup) e["0"] = `Ya existe el producto «${String(dup[0])}».`
+      if (!v("1")) e["1"] = "Selecciona la categoría."
+      // Sauces and drink flavors are included free, so they may cost 0
+      const minPrice = ["Salsas", "Sabores de bebida"].includes(v("1")) ? 0 : 1
+      if (!v("2")) {
+        if (modal.mode !== "add") e["2"] = "Escribe el precio."
+      } else if (!(n("2") >= minPrice))
+        e["2"] = minPrice ? "El precio debe ser mayor que 0." : "El precio no puede ser negativo."
+      else if (!Number.isInteger(n("2"))) e["2"] = "El precio debe ser un valor entero, sin decimales."
+      checkText("3", "La descripción", 10, 200, "Escribe una descripción.")
+    }
+    return e
+  }
+  const fieldErrors =
+    VALIDATED_SECTIONS.includes(modal.section) && modal.mode !== "view" && modal.mode !== null
+      ? getFieldErrors()
+      : {}
+  const shownFieldError = (key: string) =>
+    formTried || touchedFields[key] ? fieldErrors[key] : undefined
+  const isRequiredField = (key: string) =>
+    modal.mode !== "view" && (REQUIRED_KEYS[modal.section] || []).includes(key)
+
+  // After a failed "Guardar", bring the first field with an error into view (it may be
+  // below the visible part of the form) and focus it
+  const revealFirstFormError = () =>
+    window.setTimeout(() => {
+      const target = document.querySelector<HTMLElement>(
+        '.fixed.inset-0 [aria-invalid="true"], .fixed.inset-0 [role="alert"]',
+      )
+      target?.scrollIntoView({ block: "center", behavior: "smooth" })
+      if (target?.matches("input, select, textarea")) target.focus({ preventScroll: true })
+    }, 60)
 
   const saveModal = () => {
     const sec = modal.section
     const config = MOD_CFG[sec]
     if (!config) return
 
-    if (sec === "produccion" && !productionItems.length) {
+    if (VALIDATED_SECTIONS.includes(sec)) {
+      setFormTried(true)
+      if (Object.keys(getFieldErrors()).length) return revealFirstFormError()
+    }
+
+    setFormValidationAttempted(true)
+    const errors = validateManagedForm(sec, formData, modal.mode)
+    setFormFieldErrors(errors)
+    if (Object.keys(errors).length) return revealFirstFormError()
+
+    if (sec === "roles") {
+      const roleName = String(formData["0"] ?? "").trim()
+      const roleDescription = String(formData["1"] ?? "").trim()
+      if (!roleName || !roleDescription) {
+        setFormFieldErrors({
+          "0": roleName ? "" : "Este campo es obligatorio.",
+          "1": roleDescription ? "" : "Este campo es obligatorio.",
+        })
+        return
+      }
+    }
+
+    if ((sec === "produccion" || sec === "producto-no-conforme") && !productionItems.length) {
       setProductionFormError("Agrega al menos un producto o producto de insumo.")
       return
+    }
+    if (sec === "pedidos" && pedidoOrderLines.length === 0) {
+      setFormFieldErrors((current) => ({
+        ...current,
+        "1": "Agrega al menos un producto al pedido.",
+      }))
+      return
+    }
+    if (sec === "producto") {
+      const invalidIngredient = technicalIngredients.find((ingredient) => {
+        const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
+        return (
+          !supply ||
+          !Number.isFinite(ingredient.quantity) ||
+          ingredient.quantity <= 0 ||
+          !ingredient.unit ||
+          String(supply[2] ?? "").trim().toLowerCase() !== ingredient.unit.trim().toLowerCase()
+        )
+      })
+      if (invalidIngredient) {
+        window.alert(`Verifica la cantidad y unidad de «${invalidIngredient.name}» en la ficha técnica.`)
+        return
+      }
     }
     if (
       sec === "producto-no-conforme" &&
       !getProductSupplyOptions().includes(String(formData["1"] ?? ""))
     ) return
-    if (sec === "clientes") {
-      const isLocalClient = String(formData["6"] ?? "").toLowerCase() === "sí"
-      const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
-      const missingField = requiredFields.find(
-        (key) => !String(formData[key] ?? "").trim(),
-      )
-      if (missingField) {
-        setClientFormError(
-          isLocalClient
-            ? "Completa nombre, tipo y número de documento y teléfono."
-            : "Completa todos los campos obligatorios del cliente.",
-        )
+    if (sec === "insumos" && String(formData["7"] ?? "").toLowerCase() === "sí") {
+      // A producto de insumo must be saved together with its technical sheet
+      if (!String(formData["0"] ?? "").trim())
+        return setSupplyFormError("Escribe el nombre del insumo.")
+      if (!String(formData["10"] ?? "").trim())
+        return setSupplyFormError("Ficha técnica: elige al menos un insumo principal.")
+      if (!String(formData["11"] ?? "").trim())
+        return setSupplyFormError("Ficha técnica: escribe cómo se prepara.")
+    }
+    if (sec === "compras") {
+      if (!String(formData["0"] ?? "").trim()) {
+        setPurchaseFormError("Selecciona el proveedor.")
+        return
+      }
+      if (!parsePurchaseItems(formData["6"]).length) {
+        setPurchaseFormError("Agrega al menos un insumo a la compra.")
         return
       }
     }
@@ -7179,27 +10255,75 @@ function AdminPanel({
       if (Number.isFinite(index)) newRow[index] = formData[field.key] ?? ""
       else newRow.push(formData[field.key] ?? "")
     })
+    if (sec === "proveedores") {
+      newRow[4] = `${String(formData["10"] ?? "").trim()} ${String(formData["11"] ?? "").trim()}`.trim()
+    }
+    if (sec === "cat-producto") newRow[0] = String(newRow[0] ?? "").trim()
 
     if (sec === "producto") {
       newRow[6] =
         String(formData["6"] || "").trim() ||
         getAutoTechVersion(rows.producto || [])
-      newRow[7] = String(formData["7"] || "").trim()
+      newRow[7] = technicalIngredients.map((ingredient) => ingredient.name).join(", ")
       newRow[8] = String(formData["8"] || "").trim()
+      const serializedRecipe = JSON.stringify(technicalIngredients)
+      newRow[9] = serializedRecipe
+      newRow[10] = String(formData["10"] || "Disponible")
+      if (previousRow && String(previousRow[9] ?? "[]") !== serializedRecipe) {
+        newRow[6] = nextTechVersion(String(previousRow[6] ?? ""))
+      }
+    }
+
+    if (sec === "insumos") {
+      newRow[0] = String(newRow[0] ?? "").trim()
+      // New insumos start with no stock (the field isn't shown when creating)
+      newRow[4] = modal.mode === "add" ? 0 : Number(newRow[4] || 0)
+      newRow[6] = previousRow?.[6] ?? "" // unused slot (old "Stock máximo")
+      if (String(newRow[7]).toLowerCase() === "sí") {
+        newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
+        newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"
+      } else {
+        newRow[8] = newRow[9] = newRow[10] = newRow[11] = ""
+      }
+    }
+
+    if (sec === "compras") {
+      // Subtotal and total always come from the purchased items
+      const total = parsePurchaseItems(formData["6"]).reduce((sum, item) => sum + item.total, 0)
+      newRow[3] = total
+      newRow[4] = total
     }
 
     if (sec === "pedidos") {
-      const total = Number(formData["5"] || 0)
+      const total = pedidoOrderLines.reduce(
+        (sum, line) => sum + line.unitPrice * line.quantity,
+        0,
+      )
+      newRow[1] = pedidoOrderLines
+        .map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${pedidoOrderLines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`)
+        .join(", ")
       newRow[5] = total
       newRow[6] = "Recibido"
-      newRow[7] = String(formData["7"] || "Pendiente").trim()
-      newRow[8] = "Pendiente admin"
+      // Modality and payment status follow the payment method (not chosen by hand)
+      const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
+      newRow[4] = payment.modalidad
+      newRow[7] = payment.estadoPago
+      // Big orders wait for the owner; the rest go straight to production on save
+      newRow[8] =
+        modal.mode === "edit" && previousRow
+          ? previousRow[9] // editing never re-sends an order
+          : total >= APPROVAL_MIN
+            ? "Pendiente admin"
+            : "Enviada a producción"
+      newRow[9] = JSON.stringify(pedidoOrderLines)
     }
 
     if (config.autoId) {
       const prefix =
         sec === "produccion"
           ? "OP"
+          : sec === "producto-no-conforme"
+            ? "PNC"
           : sec === "ventas"
             ? "VTA"
             : sec === "pedidos"
@@ -7216,6 +10340,16 @@ function AdminPanel({
       )
     }
 
+    if (sec === "producto-no-conforme") {
+      newRow[1] = productionItems.map((item) => item.name).join(", ")
+      newRow[2] = JSON.stringify(productionItems)
+      newRow[3] = productionItems.reduce((total, item) => total + item.quantity, 0)
+      newRow[4] = formData["3"] ?? ""
+      newRow[5] = formData["4"] ?? ""
+      newRow[6] = formData["5"] ?? ""
+      newRow[7] = productionItems[0]?.unit ?? "und"
+    }
+
     if (sec === "produccion") {
       const currentDateTime = getCurrentDateTimeParts()
       newRow[1] = productionItems.map((item) => item.name).join(", ")
@@ -7224,6 +10358,7 @@ function AdminPanel({
         0,
       )
       newRow[13] = JSON.stringify(productionItems)
+      newRow[3] = modal.mode === "add" ? getNextProductionPriority(rows.produccion || []) : (previousRow?.[3] ?? getNextProductionPriority(rows.produccion || []))
       newRow[6] = previousRow?.[6] ?? currentDateTime.date
       newRow[7] = previousRow?.[7] ?? currentDateTime.time
       newRow[8] = previousRow?.[8] ?? "Recibida"
@@ -7254,12 +10389,34 @@ function AdminPanel({
           : "Activo"
       newRow[config.statusIndex] = previousRow?.[config.statusIndex] ?? defaultStatus
     }
+    // Keep the backend id so the edit updates the same record
+    const idIndex = syncIdIndex(sec)
+    if (idIndex !== undefined) newRow[idIndex] = previousRow?.[idIndex] ?? ""
 
     setRows((current) => {
       const updated = [...(current[sec] || [])]
       if (modal.mode === "add") updated.unshift(newRow)
       else if (modal.mode === "edit" && modal.idx !== null)
         updated[modal.idx] = newRow
+
+      if (sec === "pedidos" && modal.mode === "add" && newRow[9] === "Enviada a producción") {
+        // New order that needs no owner approval → its production orders are created now
+        return {
+          ...current,
+          pedidos: updated,
+          produccion: buildProductionRows(pedidoOrderLines, current.produccion || [], String(newRow[0])),
+        }
+      }
+
+      if (sec === "compras") {
+        // Stock: undo what the previous version of this purchase added, then add the new items
+        let insumoRows = current.insumos || []
+        if (modal.mode === "edit" && previousRow && String(previousRow[5]) !== "Anulado")
+          insumoRows = withStockChange(insumoRows, previousRow[6], -1)
+        if (String(newRow[5]) !== "Anulado")
+          insumoRows = withStockChange(insumoRows, newRow[6], 1)
+        return { ...current, compras: updated, insumos: insumoRows }
+      }
 
       if (sec === "insumos") {
         const previousName = String(previousRow?.[0] ?? "")
@@ -7285,6 +10442,17 @@ function AdminPanel({
 
       return { ...current, [sec]: updated }
     })
+    // The photo is sent only when it changed (new upload or new URL)
+    const previousImg = modal.idx !== null ? prodImgs[modal.idx] : ""
+    syncRow(
+      sec,
+      newRow,
+      modal.mode === "add",
+      false,
+      sec === "producto" && imgPreview && imgPreview !== previousImg
+        ? (id) => api(`/productos/${id}/imagen`, "PUT", { imagen: imgPreview })
+        : undefined,
+    )
     if (sec === "producto" && imgPreview) {
       const imageIndex = modal.mode === "add" ? 0 : modal.idx!
       setProdImgs((current) => ({ ...current, [imageIndex]: imgPreview }))
@@ -7309,8 +10477,9 @@ function AdminPanel({
         if (salesRows.some((sale) => sale[9] === newRow[0])) return current
         salesRows.unshift([
           `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
-          "Admin Parche",
+          sellerName,
           newRow[1],
+          getCurrentDateTimeParts().date,
           newRow[2],
           newRow[3],
           newRow[4],
@@ -7318,13 +10487,24 @@ function AdminPanel({
           newRow[6],
           "Pendiente",
           newRow[0],
-          newRow[6],
+          newRow[7],
+          newRow[10] ?? "[]",
         ])
         return { ...current, ventas: salesRows }
       })
     }
-    if (sec === "roles" && modal.mode === "add") {
-      setRolesPerms((current) => ({ ...current, [String(newRow[0])]: {} }))
+    if (sec === "roles" && modal.mode === "edit" && previousRow) {
+      const previousRoleName = String(previousRow[0] ?? "")
+      const nextRoleName = String(newRow[0] ?? "")
+      if (previousRoleName !== nextRoleName) {
+        setRolesPerms((current) => {
+          const previousPermissions = current[previousRoleName]
+          const next = { ...current }
+          delete next[previousRoleName]
+          if (previousPermissions) next[nextRoleName] = previousPermissions
+          return next
+        })
+      }
     }
     if (sec === "clientes") setClientFormError("")
     if (sec === "produccion") setProductionFormError("")
@@ -7334,6 +10514,22 @@ function AdminPanel({
   const isStatusActive = (value: string | number) => {
     const status = String(value)
     return !["Inactivo", "Inactiva", "Anulado", "Anulada"].includes(status)
+  }
+
+  // Purchases (compras rows) made to a supplier, matched by name
+  const getSupplierPurchases = (supplierName: string) => {
+    const name = supplierName.trim().toLowerCase()
+    return (rows.compras || []).filter(
+      (purchase) => String(purchase[0] ?? "").trim().toLowerCase() === name,
+    )
+  }
+
+  const getCategoryRecords = (section: "cat-insumos" | "cat-producto", categoryName: string) => {
+    const name = categoryName.trim().toLowerCase()
+    const relatedSection = section === "cat-insumos" ? "insumos" : "producto"
+    return (rows[relatedSection] || []).filter(
+      (record) => String(record[1] ?? "").trim().toLowerCase() === name,
+    )
   }
 
   const getDeleteAssessment = (
@@ -7389,25 +10585,59 @@ function AdminPanel({
       }
     }
 
+    if (sec === "proveedores") {
+      const supplierLabel = `el proveedor «${recordName}»`
+      const purchases = getSupplierPurchases(recordName)
+      if (purchases.length) {
+        const n = purchases.length
+        return {
+          allowed: false,
+          targetLabel: supplierLabel,
+          reason: `Tiene ${n} ${n === 1 ? "compra" : "compras"} de insumos ${n === 1 ? "registrada" : "registradas"}. Para no perder el historial de compras no se puede eliminar; si ya no trabajas con él, desactívalo con el interruptor de estado.`,
+        }
+      }
+      return {
+        allowed: true,
+        targetLabel: supplierLabel,
+        reason: "No tiene compras de insumos registradas.",
+      }
+    }
+
+    if (sec === "cat-insumos" || sec === "cat-producto") {
+      const categoryLabel = `la categoría «${recordName}»`
+      const normalizedCategoryName = recordName
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim()
+        .toLowerCase()
+      if (sec === "cat-producto" && normalizedCategoryName === "adiciones") {
+        return {
+          allowed: false,
+          targetLabel: categoryLabel,
+          reason: "La categoría «Adiciones» es necesaria para los productos y no se puede eliminar.",
+        }
+      }
+      const records = getCategoryRecords(sec, recordName)
+      if (records.length) {
+        const recordType = sec === "cat-insumos" ? "insumo" : "producto"
+        return {
+          allowed: false,
+          targetLabel: categoryLabel,
+          reason: `Tiene ${records.length} ${records.length === 1 ? recordType : `${recordType}s`} asociados. Primero reasigna o elimina esos registros para poder eliminar la categoría.`,
+        }
+      }
+      return {
+        allowed: true,
+        targetLabel: categoryLabel,
+        reason: "No tiene registros asociados.",
+      }
+    }
+
     if (MOD_CFG[sec]?.noDelete) {
       return {
         allowed: false,
         targetLabel,
         reason: `La eliminación está desactivada en el módulo «${moduleName}». Conserva el registro y utiliza la acción de anulación disponible para mantener su historial.`,
-      }
-    }
-
-    if (sec === "proveedores") {
-      const providerName = String(row?.[0] ?? "")
-      const hasPurchases = (rows.compras || []).some(
-        (purchase) => String(purchase[0] ?? "") === providerName
-      )
-      if (hasPurchases) {
-        return {
-          allowed: false,
-          targetLabel,
-          reason: `El proveedor «${providerName}» está asociado a una o más compras registradas. No se puede eliminar para mantener la trazabilidad de las transacciones.`,
-        }
       }
     }
 
@@ -7494,7 +10724,13 @@ function AdminPanel({
   ) => {
     const currentRows = rows[sec] || []
     const currentRow = currentRows[rowIndex]
-    if (!currentRow || isStatusLocked(sec, currentRow)) return
+    if (
+      !currentRow ||
+      isStatusLocked(sec, currentRow) ||
+      (sec === "cat-producto" &&
+        normalizeName(String(currentRow[0] ?? "")) === "adiciones" &&
+        isStatusActive(currentRow[statusIndex] ?? "Activa"))
+    ) return
 
     const currentValue = String(
       currentRow[statusIndex] ??
@@ -7510,11 +10746,36 @@ function AdminPanel({
       ? inactiveStatus
       : activeStatus
 
+    if (sec === "usuarios") {
+      const email = String(currentRow[4] ?? "").trim().toLowerCase()
+      if (email) {
+        const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
+        saveLS("adminUserStatuses", { ...statuses, [email]: nextValue })
+      }
+    }
+
+    if (DB_SYNC[sec]) {
+      // e.g. inactive products disappear from the customer menu
+      const syncedRow = [...currentRow]
+      syncedRow[statusIndex] = nextValue
+      syncRow(sec, syncedRow, false, true)
+    }
+
     setRows((current) => {
       const updated = [...(current[sec] || [])]
       const updatedRow = [...updated[rowIndex]]
       updatedRow[statusIndex] = nextValue
       updated[rowIndex] = updatedRow
+
+      if (sec === "compras") {
+        // Anular a purchase removes its items from stock; reactivating adds them back
+        const sign = isStatusActive(nextValue) ? 1 : -1
+        return {
+          ...current,
+          compras: updated,
+          insumos: withStockChange(current.insumos || [], updatedRow[6], sign),
+        }
+      }
 
       if (sec === "insumos" && String(updatedRow[7]).toLowerCase() === "sí") {
         const productRows = (current.producto || []).map((product) =>
@@ -7532,12 +10793,14 @@ function AdminPanel({
       return { ...current, [sec]: updated }
     })
 
-    setAnulled((current) => {
-      const next = new Set(current[sec] || [])
-      if (isStatusActive(nextValue)) next.delete(rowIndex)
-      else next.add(rowIndex)
-      return { ...current, [sec]: next }
-    })
+    if (sec !== "usuarios") {
+      setAnulled((current) => {
+        const next = new Set(current[sec] || [])
+        if (isStatusActive(nextValue)) next.delete(rowIndex)
+        else next.add(rowIndex)
+        return { ...current, [sec]: next }
+      })
+    }
   }
 
   const StatusSwitch = ({
@@ -7608,80 +10871,107 @@ function AdminPanel({
   const approveOrderForProduction = (orderIndex: number) => {
     const order = rows.pedidos?.[orderIndex]
     const proof = paymentProofs[orderIndex]
+    const paymentStatus = String(order?.[8] ?? "")
+    const transferPayment = isTransferPaymentMethod(String(order?.[4] ?? ""))
     const payOnDelivery = String(order?.[5]) === "Contraentrega"
     if (
       !order ||
-      (!payOnDelivery &&
-        (String(order[8]).toLowerCase() !== "pagado" || !proof)) ||
-      String(order[9]) === "Autorizada"
+      ["Autorizada", "Enviada a producción"].includes(String(order[9])) ||
+      (transferPayment &&
+        !["Pendiente de verificación", "Pagado"].includes(paymentStatus)) ||
+      (transferPayment && paymentStatus === "Pendiente de verificación" && !proof) ||
+      (!transferPayment && !payOnDelivery && paymentStatus !== "Pagado")
     ) return
 
-    // Let the client see the owner's confirmation
+    const requestedItems = getAdminOrderLines(order)
+    if (!requestedItems.length) {
+      window.alert("Este pedido no tiene productos para enviar a producción.")
+      return
+    }
+
+    const storedOrders = loadOrders()
+    const storedOrder = storedOrders.find((item) => item.id === order[0])
+    if (storedOrder?.productionAuthorized) return
+    const currentDateTime = getCurrentDateTimeParts()
+    const productionRecords: (string | number)[][] = []
+    const existingProductionRows = [...(rows.produccion || [])]
+    let priority = Math.max(
+      0,
+      ...existingProductionRows.map((row) => Number(row[3]) || 0),
+    )
+    requestedItems.slice().reverse().forEach((item) => {
+      priority += 1
+      const parent = requestedItems.find((candidate) => candidate.id === item.parentId)
+      const productionRecord: (string | number)[] = [
+        getNextProductionCode(existingProductionRows),
+        parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
+        item.quantity,
+        priority,
+        currentDateTime.date,
+        currentDateTime.time,
+        currentDateTime.date,
+        currentDateTime.time,
+        "Iniciada",
+        "",
+        0,
+        "Sí",
+        JSON.stringify([
+          {
+            status: "Iniciada",
+            date: currentDateTime.date,
+            time: currentDateTime.time,
+          },
+        ]),
+        JSON.stringify([{
+          name: item.product,
+          quantity: item.quantity,
+          category: item.category,
+          ...(item.parentId ? { parentId: item.parentId } : {}),
+        }]),
+        "No",
+      ]
+      existingProductionRows.unshift(productionRecord)
+      productionRecords.unshift(productionRecord)
+    })
     saveOrders(
-      loadOrders().map((o) =>
-        o.id === order[0] ? { ...o, status: "Confirmado" } : o,
+      storedOrders.map((item) =>
+        item.id === order[0]
+          ? {
+              ...item,
+              status: "Confirmado",
+              ...(transferPayment ? { paymentStatus: "Pagado" as const } : {}),
+              productionAuthorized: true,
+              productionRecords,
+            }
+          : item,
       ),
     )
-
-    const currentDateTime = getCurrentDateTimeParts()
-    const availableProducts = getAvailableProductos()
-    const requestedItems = String(order[2] ?? "")
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean)
-      .map((item) => {
-        const product = availableProducts.find((name) =>
-          item.toLowerCase().includes(name.toLowerCase()),
-        )
-        const quantityMatch = item.match(/\b(\d+)\b/)
-        return {
-          product: product || "",
-          quantity: quantityMatch ? Number(quantityMatch[1]) : 1,
-        }
-      })
-      .filter((item) => Boolean(item.product))
+    pushOrder(String(order[0]))
 
     setRows((current) => {
+      const currentOrder = current.pedidos?.[orderIndex]
+      if (!currentOrder || String(currentOrder[9]) === "Autorizada") {
+        return current
+      }
       const orderRows = [...(current.pedidos || [])]
-      const updatedOrder = [...orderRows[orderIndex]]
+      const updatedOrder = [...currentOrder]
+      updatedOrder[8] = transferPayment ? "Pagado" : updatedOrder[8]
       updatedOrder[9] = "Autorizada"
-      if (updatedOrder[7] === "Por confirmar") updatedOrder[7] = "Confirmado"
+      if (
+        transferPayment ||
+        updatedOrder[7] === "Por confirmar" ||
+        updatedOrder[7] === "Pendiente de verificación"
+      ) {
+        updatedOrder[7] = "Confirmado"
+      }
+      updatedOrder[11] = ""
       orderRows[orderIndex] = updatedOrder
 
-      const productionRows = [...(current.produccion || [])]
-      let priority = Math.max(
-        0,
-        ...productionRows.map((row) => Number(row[3]) || 0),
-      )
-      requestedItems.forEach((item) => {
-        priority += 1
-        productionRows.unshift([
-          getNextProductionCode(productionRows),
-          item.product,
-          item.quantity,
-          priority,
-          currentDateTime.date,
-          currentDateTime.time,
-          currentDateTime.date,
-          currentDateTime.time,
-          "Iniciada",
-          "",
-          0,
-          "Sí",
-          JSON.stringify([
-            {
-              status: "Iniciada",
-              date: currentDateTime.date,
-              time: currentDateTime.time,
-            },
-          ]),
-          JSON.stringify([{ name: item.product, quantity: item.quantity }]),
-        ])
-      })
+      const productionRows = [...productionRecords, ...(current.produccion || [])]
 
       let salesRows = [...(current.ventas || [])]
       const notShipped = !["En camino", "Entregado"].includes(
-        String(updatedOrder[6]),
+        String(updatedOrder[7]),
       )
       const alreadyDuplicated = salesRows.some(
         (sale) => sale[9] === updatedOrder[0],
@@ -7689,7 +10979,7 @@ function AdminPanel({
       if (notShipped && !alreadyDuplicated) {
         salesRows.unshift([
           `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
-          "Admin Parche",
+          sellerName,
           updatedOrder[1],
           currentDateTime.date,
           updatedOrder[3],
@@ -7698,7 +10988,8 @@ function AdminPanel({
           updatedOrder[6],
           "Pendiente",
           updatedOrder[0],
-          updatedOrder[6],
+          updatedOrder[7],
+          updatedOrder[10] ?? "[]",
         ])
       }
 
@@ -7711,15 +11002,161 @@ function AdminPanel({
     })
   }
 
+  // Order status -> status its production orders move to (forward only)
+  const ORDER_TO_PRODUCTION: Record<string, (typeof PRODUCTION_STATUSES)[number]> = {
+    Confirmado: "Iniciada",
+    "En cocina": "En cocina",
+    "En camino": "Terminado",
+    Entregado: "Terminado",
+  }
+  // Choosing the current status again still catches up production that fell behind
+  const setClientOrderStatus = async (orderIndex: number, status: string) => {
+    const order = rows.pedidos?.[orderIndex]
+    if (!order) return
+    const orderId = String(order[0])
+    // Move the order's production first; "En cocina" takes the supplies out of the stock
+    const target = ORDER_TO_PRODUCTION[status]
+    if (target) {
+      const codes = new Set([
+        ...(loadOrders().find((o) => o.id === orderId)?.productionRecords ?? []).map((r) => String(r[0])),
+        ...(rows.produccion || []).filter((r) => String(r[15] ?? "") === orderId).map((r) => String(r[0])),
+      ])
+      const rank = (s: string) => PRODUCTION_STATUSES.indexOf(s as (typeof PRODUCTION_STATUSES)[number])
+      for (const [index, row] of (rows.produccion || []).entries()) {
+        if (!codes.has(String(row[0])) || rank(String(row[8])) >= rank(target) || row[8] === "Producto no conforme") continue
+        // changeProductionStatus already told the admin why (stock, ficha técnica...)
+        if (!(await changeProductionStatus(index, target))) return
+      }
+    }
+    if (String(order[7]) === status) return
+    saveOrders(loadOrders().map((item) => (item.id === orderId ? { ...item, status } : item)))
+    pushOrder(orderId)
+    setRows((current) => ({
+      ...current,
+      pedidos: (current.pedidos || []).map((row, index) => {
+        if (index !== orderIndex) return row
+        const updated = [...row]
+        updated[7] = status
+        return updated
+      }),
+    }))
+  }
+
+  const rejectTransferPayment = () => {
+    if (paymentRejectionTarget === null) return
+    const orderIndex = paymentRejectionTarget
+    const order = rows.pedidos?.[orderIndex]
+    const reason = paymentRejectionReason.trim()
+    if (!order || !reason) {
+      setPaymentRejectionError("Escribe el motivo por el que rechazas el comprobante.")
+      return
+    }
+    if (
+      !isTransferPaymentMethod(String(order[4] ?? "")) ||
+      String(order[8]) !== "Pendiente de verificación"
+    ) {
+      setPaymentRejectionError("Este comprobante ya no está pendiente de revisión.")
+      return
+    }
+
+    const orderId = String(order[0])
+    saveOrders(
+      loadOrders().map((item) =>
+        item.id === orderId
+          ? {
+              ...item,
+              paymentStatus: "Rechazado",
+              paymentRejectionReason: reason,
+              productionAuthorized: false,
+            }
+          : item,
+      ),
+    )
+    pushOrder(orderId)
+    setRows((current) => {
+      const currentOrder = current.pedidos?.[orderIndex]
+      if (!currentOrder || String(currentOrder[8]) !== "Pendiente de verificación") {
+        return current
+      }
+      const orderRows = [...(current.pedidos || [])]
+      const updatedOrder = [...currentOrder]
+      updatedOrder[8] = "Rechazado"
+      updatedOrder[11] = reason
+      orderRows[orderIndex] = updatedOrder
+      return { ...current, pedidos: orderRows }
+    })
+    setPaymentRejectionTarget(null)
+    setPaymentRejectionReason("")
+    setPaymentRejectionError("")
+  }
+
   const saveQuickClient = () => {
     const isLocalClient = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
     const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
-    if (requiredFields.some((key) => !String(quickClientForm[key] ?? "").trim())) {
+    const errors: Record<string, string> = {}
+    requiredFields.forEach((key) => {
+      const value = String(quickClientForm[key] ?? "").trim()
+      if (!value) {
+        errors[key] = "Este campo es obligatorio."
+      } else if (key === "2") {
+        const error = validateDocumentNumber(value, quickClientForm["1"] ?? "")
+        if (error) errors[key] = error
+      } else if (key === "3") {
+        const error = validatePhoneNumber(value)
+        if (error) errors[key] = error
+      } else if (key === "4" && !EMAIL_PATTERN.test(value)) {
+        errors[key] = "Escribe un correo electrónico válido."
+      }
+    })
+    const docNumber = String(quickClientForm["2"] ?? "").trim().toLowerCase()
+    const phone = String(quickClientForm["3"] ?? "").trim().replace(/\s+/g, "")
+    const email = String(quickClientForm["4"] ?? "").trim().toLowerCase()
+    ;(rows.usuarios || []).forEach((userRow) => {
+      if (
+        docNumber &&
+        String(userRow[2] ?? "").trim().toLowerCase() === docNumber
+      ) {
+        errors["2"] = "Ya existe una persona registrada con este documento."
+      }
+      if (
+        email &&
+        String(userRow[4] ?? "").trim().toLowerCase() === email
+      ) {
+        errors["4"] = "Ya existe una persona registrada con este correo electrónico."
+      }
+    })
+    ;(rows.clientes || []).forEach((clientRow) => {
+      if (
+        docNumber &&
+        String(clientRow[2] ?? "").trim().toLowerCase() === docNumber
+      ) {
+        errors["2"] = "Ya existe una persona registrada con este documento."
+      }
+      if (
+        phone &&
+        String(clientRow[3] ?? "").trim().replace(/\s+/g, "") === phone
+      ) {
+        errors["3"] = "Ya existe una persona registrada con este teléfono."
+      }
+      if (
+        email &&
+        String(clientRow[4] ?? "").trim().toLowerCase() === email
+      ) {
+        errors["4"] = "Ya existe una persona registrada con este correo electrónico."
+      }
+    })
+    setQuickClientErrors(errors)
+    if (Object.keys(errors).length) {
       setQuickClientError(
-        isLocalClient
-          ? "Completa nombre, tipo y número de documento y teléfono."
-          : "Completa todos los campos obligatorios del cliente.",
+        "Corrige los campos indicados antes de registrar el cliente.",
       )
+      return
+    }
+    // Same document number as an existing client is not allowed here either
+    const docKey = normalizeDocument(quickClientForm["2"])
+    const duplicate = (rows.clientes || []).find((client) => normalizeDocument(client[2]) === docKey)
+    if (duplicate) {
+      setQuickClientError(`Ya existe un cliente con este número de documento: «${String(duplicate[0])}».`)
       return
     }
     const name = String(quickClientForm["0"]).trim()
@@ -7728,9 +11165,9 @@ function AdminPanel({
       quickClientForm["1"],
       quickClientForm["2"],
       quickClientForm["3"],
-      isLocalClient ? "Sí" : "No",
       quickClientForm["4"] || "",
       quickClientForm["5"] || "",
+      isLocalClient ? "Sí" : "No",
       "Activo",
     ]
     setRows((current) => ({
@@ -7739,6 +11176,7 @@ function AdminPanel({
     }))
     setFormData((current) => ({ ...current, "1": name }))
     setQuickClientForm({})
+    setQuickClientErrors({})
     setQuickClientError("")
     setQuickClientOpen(false)
   }
@@ -7757,6 +11195,7 @@ function AdminPanel({
       "5": currentDateTime.date,
     })
     setPncError("")
+    setPncFieldErrors({})
     setPncTarget(rowIndex)
   }
 
@@ -7766,7 +11205,29 @@ function AdminPanel({
     if (!order) return
     const availableProducts = getNonconformingProductOptions()
     const affectedProduct = String(pncForm["1"] ?? "").trim()
+    const damagedDescription = String(pncForm["2"] ?? "").trim()
+    const quantity = Number(pncForm["3"])
+    const validationErrors: Record<string, string> = {}
+    if (!affectedProduct) validationErrors["1"] = "Selecciona un producto."
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      validationErrors["3"] = "Ingresa una cantidad mayor que cero."
+    }
+    if (!damagedDescription) {
+      validationErrors["2"] = "Describe el producto o los productos que se dañaron."
+    }
+    if (!String(pncForm["4"] ?? "").trim()) {
+      validationErrors["4"] = "Selecciona el motivo."
+    }
+    if (!String(pncForm["5"] ?? "").trim()) {
+      validationErrors["5"] = "Selecciona la fecha del registro."
+    }
+    setPncFieldErrors(validationErrors)
+    if (Object.keys(validationErrors).length) {
+      setPncError("Completa los campos indicados antes de registrar.")
+      return
+    }
     if (!availableProducts.includes(affectedProduct)) {
+      setPncFieldErrors({ "1": "Solo puedes registrar productos que estén en producción." })
       setPncError("Solo puedes registrar productos que estén en producción.")
       return
     }
@@ -7776,10 +11237,10 @@ function AdminPanel({
     const pncRecord: (string | number)[] = [
       pncForm["0"] || order[0],
       affectedProduct,
-      pncForm["2"] || affectedProduct,
-      Number(pncForm["3"] || order[2] || 1),
-      pncForm["4"] || "Producto perdido",
-      pncForm["5"] || currentDateTime.date,
+      damagedDescription,
+      quantity,
+      String(pncForm["4"]).trim(),
+      String(pncForm["5"]).trim(),
     ]
 
     setRows((current) => {
@@ -7825,8 +11286,11 @@ function AdminPanel({
           },
         ]),
         updatedOrder[13],
+        "No",
+        String(updatedOrder[15] ?? ""),
+        "",
       ]
-      productionRows.unshift(restartedOrder)
+      productionRows.push(restartedOrder)
 
       return {
         ...current,
@@ -7840,23 +11304,77 @@ function AdminPanel({
     setPncTarget(null)
     setPncForm({})
     setPncError("")
+    setPncFieldErrors({})
   }
 
-  const changeProductionStatus = (
+  const changeProductionStatus = async (
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
-  ) => {
+  ): Promise<boolean> => {
+    const sourceRow = rows.produccion?.[rowIndex]
+    if (!sourceRow) return false
+    if (String(sourceRow[8]) === nextStatus) return true
+    const consumeStock = nextStatus === "En cocina" && String(sourceRow[14]) !== "Sí"
+    const requiredSupplies = new Map<string, { quantity: number; unit: string }>()
+    if (consumeStock) {
+      for (const item of getProductionOrderItems(sourceRow)) {
+        const product = rows.producto?.find((candidate) => candidate[0] === item.name)
+        for (const ingredient of getProductRecipe(product)) {
+          const supply = rows.insumos?.find((candidate) => candidate[0] === ingredient.name)
+          const unit = String(supply?.[2] ?? "").trim()
+          if (!supply || !unit || unit.toLowerCase() !== ingredient.unit.trim().toLowerCase()) {
+            window.alert(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y use la misma unidad de la ficha técnica.`)
+            return false
+          }
+          const current = requiredSupplies.get(ingredient.name)
+          requiredSupplies.set(ingredient.name, {
+            quantity: (current?.quantity ?? 0) + ingredient.quantity * item.quantity,
+            unit,
+          })
+        }
+      }
+      for (const [name, requirement] of requiredSupplies) {
+        const supply = rows.insumos?.find((candidate) => candidate[0] === name)
+        const stock = Number(supply?.[4])
+        if (!Number.isFinite(stock) || stock < requirement.quantity) {
+          window.alert(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
+          return false
+        }
+      }
+      // The backend takes the supplies out of the stock (all or nothing, once per order) before the status changes
+      if (requiredSupplies.size) {
+        try {
+          await api("/consumos-produccion", "POST", {
+            numero_orden: String(sourceRow[0]),
+            insumos: [...requiredSupplies].map(([insumo, r]) => ({ insumo, cantidad: r.quantity })),
+          })
+        } catch (err) {
+          window.alert(`No se pudo iniciar la producción: ${(err as Error).message}`)
+          loadModule("insumos")
+          return false
+        }
+      }
+    }
     setRows((current) => {
       const productionRows = [...(current.produccion || [])]
       const currentRow = productionRows[rowIndex]
       if (!currentRow) return current
+      if (consumeStock && String(currentRow[14]) === "Sí") return current
 
       const currentDateTime = getCurrentDateTimeParts()
+      const now = new Date()
+      const formatRealTime = (date: Date) => {
+        const hours = date.getHours()
+        const minutes = date.getMinutes()
+        const seconds = date.getSeconds()
+        const period = hours >= 12 ? "PM" : "AM"
+        const hours12 = hours % 12 || 12
+        return `${hours12}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")} ${period}`
+      }
+      const realTime = formatRealTime(now)
       const updatedRow = [...currentRow]
-      updatedRow[4] = currentDateTime.date
-      updatedRow[5] = currentDateTime.time
-      updatedRow[6] = currentDateTime.date
-      updatedRow[7] = currentDateTime.time
+      updatedRow[5] = realTime
+      updatedRow[7] = realTime
       updatedRow[8] = nextStatus
       let history: { status: string; date: string; time: string }[] = []
       try {
@@ -7868,17 +11386,18 @@ function AdminPanel({
       history.push({
         status: nextStatus,
         date: currentDateTime.date,
-        time: currentDateTime.time,
+        time: realTime,
       })
       updatedRow[12] = JSON.stringify(history)
       updatedRow[11] =
         nextStatus !== "Recibida" || String(currentRow[11]).toLowerCase() === "sí"
           ? "Sí"
           : "No"
+      if (consumeStock) updatedRow[14] = "Sí"
 
       if (nextStatus === "Terminado") {
         if (currentRow[8] !== "Terminado") {
-          updatedRow[9] = `${currentDateTime.date} ${currentDateTime.time}`
+          updatedRow[9] = `${currentDateTime.date} ${realTime}`
           const lastDeparture = Math.max(
             0,
             ...productionRows.map((row) => Number(row[10]) || 0),
@@ -7890,6 +11409,15 @@ function AdminPanel({
         updatedRow[10] = 0
       }
       productionRows[rowIndex] = updatedRow
+      const supplies = consumeStock
+        ? (current.insumos || []).map((supply) => {
+            const required = requiredSupplies.get(String(supply[0]))
+            if (!required) return supply
+            const updatedSupply = [...supply]
+            updatedSupply[4] = Number(updatedSupply[4]) - required.quantity
+            return updatedSupply
+          })
+        : current.insumos
 
       if (nextStatus === "Producto no conforme") {
         const newPriority =
@@ -7901,23 +11429,27 @@ function AdminPanel({
           updatedRow[2],
           newPriority,
           currentDateTime.date,
-          currentDateTime.time,
+          realTime,
           currentDateTime.date,
-          currentDateTime.time,
+          realTime,
           "Iniciada",
           "",
           0,
           "Sí",
           JSON.stringify([
-            { status: "Iniciada", date: currentDateTime.date, time: currentDateTime.time },
+            { status: "Iniciada", date: currentDateTime.date, time: realTime },
           ]),
           updatedRow[13],
+          "No",
+          String(updatedRow[15] ?? ""),
+          "",
         ]
-        productionRows.unshift(restartedOrder)
+        productionRows.push(restartedOrder)
       }
 
-      return { ...current, produccion: productionRows }
+      return { ...current, produccion: productionRows, ...(supplies ? { insumos: supplies } : {}) }
     })
+    return true
   }
 
   const ProductionStatusSelect = ({ rowIndex }: { rowIndex: number }) => {
@@ -8026,6 +11558,7 @@ function AdminPanel({
     if (!target) return
     if (!getDeleteAssessment(target.section, rows[target.section]?.[target.idx]).allowed)
       return
+    deleteRowInDb(target.section, rows[target.section]?.[target.idx])
 
     setRows((current) => {
       const currentRow = current[target.section]?.[target.idx]
@@ -8038,11 +11571,9 @@ function AdminPanel({
     setDelTarget(null)
   }
   const handleFile = (file: File) => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      if (e.target?.result) setImgPreview(e.target.result as string)
-    }
-    reader.readAsDataURL(file)
+    readVoucher(file)
+      .then(setImgPreview)
+      .catch(() => window.alert("No se pudo leer la imagen. Prueba con otra (JPG o PNG)."))
   }
 
   const parsePurchaseItems = (value: string | number | undefined) =>
@@ -8061,6 +11592,28 @@ function AdminPanel({
           total: parsedQuantity * parsedUnitPrice,
         }
       })
+
+  // Adds (sign 1) or removes (sign -1) a purchase's quantities to each insumo's
+  // "Stock actual" (row[4]). Items are matched by name ignoring case/accents.
+  function withStockChange(
+    insumoRows: (string | number)[][],
+    purchaseItems: string | number | undefined,
+    sign: 1 | -1,
+  ) {
+    const totals = new Map<string, number>()
+    for (const item of parsePurchaseItems(purchaseItems)) {
+      const key = normalizeName(item.name)
+      totals.set(key, (totals.get(key) ?? 0) + (Number(item.quantity) || 0))
+    }
+    return insumoRows.map((supply) => {
+      const qty = totals.get(normalizeName(supply[0]))
+      if (!qty) return supply
+      const updated = [...supply]
+      const next = Number(updated[4] || 0) + sign * qty
+      updated[4] = Math.max(0, Math.round(next * 1000) / 1000)
+      return updated
+    })
+  }
 
   const parseProductionHistory = (
     value: string | number | undefined,
@@ -8146,9 +11699,9 @@ function AdminPanel({
   const TOP = [
     { name: "Mini", units: 284, pct: 100 },
     { name: "Salchipapa Sencilla", units: 241, pct: 85 },
-    { name: "Mediano (Perro)", units: 198, pct: 70 },
-    { name: "Super Gourmet", units: 167, pct: 59 },
-    { name: "Mega Gourmet", units: 143, pct: 50 },
+    { name: "Perro Mediano", units: 198, pct: 70 },
+    { name: "Salchipapa Super Gourmet", units: 167, pct: 59 },
+    { name: "Salchipapa Mega Gourmet", units: 143, pct: 50 },
   ]
   const KPI = [
     {
@@ -8256,7 +11809,7 @@ function AdminPanel({
                 <div className="flex items-center gap-1">
                   <div
                     className="w-2.5 h-2.5 rounded-sm"
-                    style={{ background: "#2E7D60" }}
+                    style={{ background: "#D2A84E" }}
                   />
                   <span className="text-xs" style={{ color: t.muted }}>
                     Ventas
@@ -8348,7 +11901,7 @@ function AdminPanel({
                         <span
                           style={{
                             fontSize: "0.5rem",
-                            color: "#2E7D60",
+                            color: "#D2A84E",
                             fontWeight: 700,
                           }}
                         >
@@ -8358,7 +11911,7 @@ function AdminPanel({
                           style={{
                             width: "100%",
                             height: `${hV}px`,
-                            background: "#2E7D60",
+                            background: "#D2A84E",
                             borderRadius: "3px 3px 0 0",
                             minHeight: "4px",
                           }}
@@ -8387,8 +11940,9 @@ function AdminPanel({
                     </div>
                     <span
                       style={{
-                        color: t.subtle,
-                        fontSize: "0.5rem",
+                        color: t.text,
+                        fontSize: "0.55rem",
+                        fontWeight: 700,
                         whiteSpace: "nowrap",
                         overflow: "hidden",
                         maxWidth: "40px",
@@ -8561,6 +12115,7 @@ function AdminPanel({
       </div>
 
       <div
+        id="admin-alerts-section"
         className="mt-5 rounded-2xl overflow-hidden"
         style={{ background: t.card, border: `1px solid ${t.border}` }}
       >
@@ -8631,29 +12186,23 @@ function AdminPanel({
     const cfg = MOD_CFG[section]
     if (!cfg) return null
 
+    const searchInputRef = useRef<HTMLInputElement>(null)
     const isProducto = section === "producto"
+
+    // Do not steal focus from an open form when its controlled fields update.
+    useEffect(() => {
+      if (modal.mode === null && searchInputRef.current) {
+        const currentValue = searchInputRef.current.value
+        searchInputRef.current.focus()
+        searchInputRef.current.value = currentValue
+        // Restore cursor position to end
+        searchInputRef.current.setSelectionRange(currentValue.length, currentValue.length)
+      }
+    }, [search[section], pg[section]])
     const noDelete = !!cfg.noDelete
     const noExp = !!cfg.noExport
     const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))
-    const sRows = section === "produccion"
-      ? indexedRows.sort((first, second) => {
-          const statusOrder: Record<string, number> = {
-            Recibida: 0,
-            Iniciada: 1,
-            "En cocina": 2,
-            Terminado: 3,
-            "Producto no conforme": 4,
-          }
-          const statusDifference =
-            (statusOrder[String(first.row[8])] ?? 9) -
-            (statusOrder[String(second.row[8])] ?? 9)
-          if (statusDifference !== 0) return statusDifference
-          if (String(first.row[8]) === "Terminado") {
-            return (Number(first.row[10]) || 0) - (Number(second.row[10]) || 0)
-          }
-          return (Number(first.row[3]) || 0) - (Number(second.row[3]) || 0)
-        })
-      : indexedRows
+    const sRows = indexedRows
     const q = (search[section] || "").toLowerCase()
     const filtered = sRows.filter(
         ({ row }) =>
@@ -8673,7 +12222,10 @@ function AdminPanel({
         ? [0, 1, 2, 4]
         : row
             .map((_, index) => index)
-            .filter((index) => !cfg.hiddenCellIndexes?.includes(index))
+            .filter(
+              (index) =>
+                !cfg.hiddenCellIndexes?.includes(index) && index !== syncIdIndex(section),
+            )
     const getDisplayCells = (row: (string | number)[]) =>
       getDisplayCellIndexes(row).map((index) => row[index])
     const columnCount = Math.max(
@@ -8704,6 +12256,7 @@ function AdminPanel({
       cell: string | number,
       primary = false,
       isLow = false,
+      isPrincipalAdmin = false,
     ) => {
       const badge = badgeSt(cell)
       const color = isLow ? C.red : primary ? t.text : t.muted
@@ -8717,12 +12270,69 @@ function AdminPanel({
           </span>
         )
       }
-      return <span style={{ color }}>{String(cell)}</span>
+      return (
+        <span style={{ color }}>
+          {String(cell)}
+          {isPrincipalAdmin && (
+            <span
+              className="ml-2 inline-block rounded-full px-2 py-0.5 text-[9px] font-bold"
+              style={{ background: `${C.mustard}18`, color: C.mustard }}
+            >
+              Administrador principal
+            </span>
+          )}
+        </span>
+      )
+    }
+
+    const formatSalesDate = (value: string | number) => {
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value))
+      if (!match) return "—"
+      const [, year, month, day] = match
+      const date = new Date(Number(year), Number(month) - 1, Number(day))
+      if (
+        date.getFullYear() !== Number(year) ||
+        date.getMonth() !== Number(month) - 1 ||
+        date.getDate() !== Number(day)
+      ) return "—"
+      return date.toLocaleDateString("es-CO", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      })
+    }
+
+    const formatDisplayCell = (
+      cell: string | number,
+      rowCellIndex: number,
+    ): string | number => {
+      if (section === "producto" && rowCellIndex === 2 && !(Number(cell) > 0)) {
+        return "Sin precio"
+      }
+      if (section !== "ventas") return cell
+      if (rowCellIndex === 3) return formatSalesDate(cell)
+      if (rowCellIndex === 7) {
+        const total = Number(cell)
+        return Number.isFinite(total) ? fmt(total) : "—"
+      }
+      return cell
     }
 
     const renderStatusControl = (rowIndex: number, rowCellIndex: number) => {
       if (cfg.statusIndex === undefined || rowCellIndex !== cfg.statusIndex) {
         return null
+      }
+      const row = rows[section]?.[rowIndex]
+      if (
+        section === "cat-producto" &&
+        normalizeName(String(row?.[0] ?? "")) === "adiciones" &&
+        isStatusActive(row?.[cfg.statusIndex] ?? "Activa")
+      ) {
+        return (
+          <span className="text-[10px] font-semibold" style={{ color: "#2E7D60" }}>
+            {String(row?.[cfg.statusIndex] ?? "Activa")} · Protegida
+          </span>
+        )
       }
       if (section === "produccion") {
         return <ProductionStatusSelect rowIndex={rowIndex} />
@@ -8738,11 +12348,29 @@ function AdminPanel({
     }
 
     const renderActions = (rowIndex: number, isAnulled: boolean) => {
-      const detailActionLabel = section === "compras" ? "Ver compra" : "Ver detalle"
+      const orderRow = section === "pedidos" ? rows.pedidos?.[rowIndex] : undefined
+      const needsPaymentReview =
+        !!orderRow &&
+        isTransferPaymentMethod(String(orderRow[4] ?? "")) &&
+        String(orderRow[8]) === "Pendiente de verificación"
+      const detailActionLabel = needsPaymentReview
+        ? "Revisar transferencia"
+        : section === "compras"
+          ? "Ver compra"
+          : "Ver detalle"
       const deleteAssessment = getDeleteAssessment(
         section,
         rows[section]?.[rowIndex],
       )
+      const canShowProductionDelete =
+        section !== "produccion" ||
+        String(rows.produccion?.[rowIndex]?.[8] ?? "Recibida") === "Recibida"
+      const isPrincipalAdmin =
+        section === "usuarios" &&
+        String(rows.usuarios?.[rowIndex]?.[8] ?? "") === "Principal"
+      const isProtectedAdditionCategory =
+        section === "cat-producto" &&
+        normalizeName(String(rows[section]?.[rowIndex]?.[0] ?? "")) === "adiciones"
       const deleteBlocked = !deleteAssessment.allowed
       const deleteButton = (
         <button
@@ -8791,7 +12419,15 @@ function AdminPanel({
             </button>
           )}
           {cfg.statusIndex !== undefined ? (
-            !noDelete && deleteButton
+            section === "producto" ? (
+              null
+            ) : (
+              !isPrincipalAdmin &&
+              !isProtectedAdditionCategory &&
+              !noDelete &&
+              canShowProductionDelete &&
+              deleteButton
+            )
           ) : noDelete ? (
             isAnulled ? (
               <button
@@ -8817,9 +12453,10 @@ function AdminPanel({
                 {Ico.ban}
               </button>
             )
-          ) : (
+          ) : !isPrincipalAdmin && !isProtectedAdditionCategory ? (
             deleteButton
-          )}
+          ) : null
+          }
         </div>
       )
     }
@@ -8828,13 +12465,15 @@ function AdminPanel({
       <div className="min-w-0">
         <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
           <div
-            className="flex w-full min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 sm:w-auto"
+            className="flex w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2 sm:w-72"
             style={{ background: t.input, border: `1px solid ${t.inputB}` }}
           >
             <span className="flex-shrink-0" style={{ color: t.muted }}>
               {Ico.search}
             </span>
             <input
+              ref={searchInputRef}
+              key={`search-${section}`}
               placeholder="Buscar..."
               value={search[section] || ""}
               onChange={(event) => {
@@ -8862,6 +12501,8 @@ function AdminPanel({
               </button>
             )}
           </div>
+          {/* Short search on the left, action buttons pushed to the right */}
+          <div className="hidden sm:block sm:flex-1" />
           {!noExp && (
             <button
               type="button"
@@ -8962,6 +12603,8 @@ function AdminPanel({
                 )}
                 {pageRows.map(({ row, index: originalIndex }, rowIndex) => {
                   const isAnulled = anulSet.has(originalIndex)
+                  const isPrincipalAdmin =
+                    section === "usuarios" && String(row[8] ?? "") === "Principal"
                   const isLow =
                     section === "insumos" &&
                     Number(row[4]) <= Number(row[5])
@@ -9017,12 +12660,13 @@ function AdminPanel({
                       )}
                       {displayCells.map((cell, cellIndex) => {
                         const rowCellIndex = displayCellIndexes[cellIndex]
+                        const displayCell = formatDisplayCell(cell, rowCellIndex)
                         return (
                           <td
                             key={rowCellIndex}
                             className="min-w-0 px-2 py-3 align-top text-xs leading-snug break-words [overflow-wrap:anywhere]"
                           >
-                            {rowCellIndex === cfg.statusIndex ? (
+                            {rowCellIndex === cfg.statusIndex && !isPrincipalAdmin ? (
                               renderStatusControl(originalIndex, rowCellIndex)
                             ) : cellIndex === 0 && (isSupplyProduct || isLocalClient) ? (
                               <div className="min-w-0">
@@ -9032,7 +12676,12 @@ function AdminPanel({
                                 </span>
                               </div>
                             ) : (
-                              renderCellValue(cell, cellIndex === 0, isLow)
+                              renderCellValue(
+                                displayCell,
+                                cellIndex === 0,
+                                isLow,
+                                section === "usuarios" && rowCellIndex === 0 && isPrincipalAdmin,
+                              )
                             )}
                           </td>
                         )
@@ -9058,6 +12707,8 @@ function AdminPanel({
             ) : (
               pageRows.map(({ row, index: originalIndex }, rowIndex) => {
                 const isAnulled = anulSet.has(originalIndex)
+                const isPrincipalAdmin =
+                  section === "usuarios" && String(row[8] ?? "") === "Principal"
                 const isLow =
                   section === "insumos" &&
                   Number(row[4]) <= Number(row[5])
@@ -9102,7 +12753,12 @@ function AdminPanel({
                         </div>
                       )}
                       <div className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words [overflow-wrap:anywhere]">
-                        {renderCellValue(displayCells[0] ?? "—", true, isLow)}
+                        {renderCellValue(
+                          displayCells[0] ?? "—",
+                          true,
+                          isLow,
+                          section === "usuarios" && displayCellIndexes[0] === 0 && isPrincipalAdmin,
+                        )}
                         {(isSupplyProduct || isLocalClient) && (
                           <span className="mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
                             {isLocalClient ? "Cliente de local" : "Producto de insumo"}
@@ -9128,10 +12784,12 @@ function AdminPanel({
                               className="min-w-0 text-xs leading-snug break-words [overflow-wrap:anywhere]"
                               style={{ fontWeight: 500 }}
                             >
-                              {rowCellIndex === cfg.statusIndex ? (
+                              {rowCellIndex === cfg.statusIndex && !isPrincipalAdmin ? (
                                 renderStatusControl(originalIndex, rowCellIndex)
                               ) : (
-                                renderCellValue(cell)
+                                renderCellValue(
+                                  formatDisplayCell(cell, rowCellIndex),
+                                )
                               )}
                             </dd>
                           </div>
@@ -9192,114 +12850,237 @@ function AdminPanel({
   }
 
   // Roles permissions matrix for create/edit
-  const RolesPermMatrix = ({ roleName }: { roleName: string }) => {
-    const perms = rolesPerms[roleName] || {}
+  const RolesPermMatrix = ({
+    roleName,
+    permissionKey = roleName,
+    readOnly = false,
+  }: {
+    roleName: string
+    permissionKey?: string
+    readOnly?: boolean
+  }) => {
+    const isAdmin = roleName.toLowerCase() === "administrador"
+    const perms = isAdmin
+      ? Object.fromEntries(
+          PERMISSION_MODULES.map(({ name }) => [
+            name,
+            ["Ver", "Crear", "Editar", "Anular", "Eliminar"],
+          ]),
+        )
+      : (rolesPerms[permissionKey] || {})
     const commonActions = ["Ver", "Crear", "Editar"]
     const toggle = (mod: string, action: string) => {
+      if (readOnly || isAdmin) return
       setRolesPerms((rp) => {
-        const cur = rp[roleName]?.[mod] || []
+        const cur = rp[permissionKey]?.[mod] || []
         const next = cur.includes(action)
           ? cur.filter((a) => a !== action)
           : [...cur, action]
-        return { ...rp, [roleName]: { ...(rp[roleName] || {}), [mod]: next } }
+        return { ...rp, [permissionKey]: { ...(rp[permissionKey] || {}), [mod]: next } }
       })
     }
-    return (
-      <div className="mt-3">
-        <div className="text-xs font-bold mb-2" style={{ color: t.muted }}>
-          Permisos por módulo
-        </div>
-        <div
-          className="min-w-0 overflow-hidden rounded-xl"
-          style={{ border: `1px solid ${t.border}` }}
-        >
-          <div
-            className="grid min-w-0 items-center px-2.5 py-2"
-            style={{
-              gridTemplateColumns:
-                "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
-              background: t.cardAlt,
-              borderBottom: `1px solid ${t.border}`,
-            }}
-          >
-            <div
-              className="min-w-0 text-[10px] font-bold break-words"
-              style={{ color: t.muted }}
-            >
-              Módulo
-            </div>
-            {commonActions.map((action) => (
-              <div
-                key={action}
-                className="min-w-0 text-center text-[10px] font-bold leading-tight break-words"
-                style={{ color: t.muted }}
+    const setAllPermissions = (select: boolean) => {
+      if (readOnly || isAdmin) return
+      setRolesPerms((rp) => {
+        const nextPerms = Object.fromEntries(
+          PERMISSION_MODULES.map(({ name, finalAction }) => {
+            const actions = [...commonActions, finalAction]
+            return [name, select ? actions : []]
+          }),
+        )
+        return { ...rp, [permissionKey]: nextPerms }
+      })
+    }
+    const setActionForAll = (action: string, select: boolean) => {
+      if (readOnly || isAdmin) return
+      setRolesPerms((rp) => {
+        const current = rp[permissionKey] || {}
+        const nextPerms = Object.fromEntries(
+          PERMISSION_MODULES.map(({ name, finalAction }) => {
+            const targetAction = action === "final" ? finalAction : action
+            const currentActions = current[name] || []
+            const nextActions = select
+              ? currentActions.includes(targetAction)
+                ? currentActions
+                : [...currentActions, targetAction]
+              : currentActions.filter((currentAction) => currentAction !== targetAction)
+            return [name, nextActions]
+          }),
+        )
+        return { ...rp, [permissionKey]: { ...current, ...nextPerms } }
+      })
+    }
+    const columnHeader = (label: string, action: string) => {
+      return (
+        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5">
+          <span className="text-center text-[10px] font-bold leading-tight break-words" style={{ color: t.muted }}>
+            {label}
+          </span>
+          {!readOnly && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setActionForAll(action, true)}
+                disabled={isAdmin}
+                aria-label={`Seleccionar todo: ${label} en todos los módulos`}
+                title={`Seleccionar todo: ${label} en todos los módulos`}
+                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ background: t.input, color: C.mustard }}
               >
-                {action}
-              </div>
-            ))}
-            <div
-              className="min-w-0 text-center text-[10px] font-bold leading-tight break-words"
-              style={{ color: t.muted }}
-            >
-              Anular / Eliminar
+                ✓
+              </button>
+              <button
+                type="button"
+                onClick={() => setActionForAll(action, false)}
+                disabled={isAdmin}
+                aria-label={`Quitar todo: ${label} en todos los módulos`}
+                title={`Quitar todo: ${label} en todos los módulos`}
+                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+                style={{ background: t.input, color: t.muted }}
+              >
+                ×
+              </button>
             </div>
+          )}
+        </div>
+      )
+    }
+    const permissionSections = [
+      { title: "Administración e inventario", modules: PERMISSION_MODULES.slice(0, 8) },
+      { title: "Operación y ventas", modules: PERMISSION_MODULES.slice(8) },
+    ]
+    return (
+      <div className="mt-2">
+        <div className="flex items-center justify-between gap-2 mb-1.5">
+          <div className="text-xs font-bold" style={{ color: t.muted }}>
+            Permisos por módulo
           </div>
-          {PERMISSION_MODULES.map(({ name, finalAction }, index) => {
-            const moduleActions = [...commonActions, finalAction]
-            return (
-              <div
-                key={name}
-                className="grid min-w-0 items-center px-2.5 py-2"
+          {!readOnly && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setAllPermissions(true)}
+                disabled={isAdmin}
+                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
+                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
                 style={{
-                  gridTemplateColumns:
-                    "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
-                  borderBottom:
-                    index < PERMISSION_MODULES.length - 1
-                      ? `1px solid ${t.border}`
-                      : "none",
+                  background: t.input,
+                  color: t.text,
+                  opacity: isAdmin ? 0.5 : 1,
+                  cursor: isAdmin ? "not-allowed" : "pointer",
                 }}
               >
+                Seleccionar todo
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllPermissions(false)}
+                disabled={isAdmin}
+                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
+                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
+                style={{
+                  background: t.input,
+                  color: t.text,
+                  opacity: isAdmin ? 0.5 : 1,
+                  cursor: isAdmin ? "not-allowed" : "pointer",
+                }}
+              >
+                Quitar todos
+              </button>
+            </div>
+          )}
+        </div>
+        <div className="grid min-w-0 gap-3 md:grid-cols-2">
+          {permissionSections.map(({ title, modules }, sectionIndex) => (
+            <section key={sectionIndex} className="min-w-0">
+              <h4 className="mb-1.5 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
+                {title}
+              </h4>
+              <div
+                className="min-w-0 overflow-hidden rounded-xl"
+                style={{ border: `1px solid ${t.border}` }}
+              >
                 <div
-                  className="min-w-0 text-xs leading-snug break-words"
-                  style={{ color: t.text }}
+                  className="grid min-w-0 items-center px-2 py-1.5"
+                  style={{
+                    gridTemplateColumns:
+                      "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
+                    background: t.cardAlt,
+                    borderBottom: `1px solid ${t.border}`,
+                  }}
                 >
-                  {name}
-                </div>
-                {moduleActions.map((action) => (
-                  <div key={action} className="flex min-w-0 justify-center">
-                    <input
-                      type="checkbox"
-                      title={action}
-                      aria-label={`${action} ${name}`}
-                      checked={(perms[name] || []).includes(action)}
-                      onChange={() => toggle(name, action)}
-                      className="cursor-pointer"
-                      style={{
-                        accentColor: C.mustard,
-                        width: "14px",
-                        height: "14px",
-                      }}
-                    />
+                  <div
+                    className="min-w-0 text-[10px] font-bold break-words"
+                    style={{ color: t.muted }}
+                  >
+                    Módulo
                   </div>
-                ))}
+                  {commonActions.map((action) => (
+                    <div key={action}>{columnHeader(action, action)}</div>
+                  ))}
+                  <div>{columnHeader("Anular / Eliminar", "final")}</div>
+                </div>
+                {modules.map(({ name, finalAction }, index) => {
+                  const moduleActions = [...commonActions, finalAction]
+                  return (
+                    <div
+                      key={name}
+                      className="grid min-w-0 items-center px-2 py-0.5"
+                      style={{
+                        gridTemplateColumns:
+                          "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
+                        borderBottom:
+                          index < modules.length - 1
+                            ? `1px solid ${t.border}`
+                            : "none",
+                      }}
+                    >
+                      <div
+                        className="min-w-0 text-xs leading-snug break-words"
+                        style={{ color: t.text }}
+                      >
+                        {name}
+                      </div>
+                      {moduleActions.map((action) => (
+                        <div key={action} className="flex min-w-0 justify-center">
+                          <input
+                            type="checkbox"
+                            title={action}
+                            aria-label={`${action} ${name}`}
+                            checked={(perms[name] || []).includes(action)}
+                            onChange={() => toggle(name, action)}
+                            disabled={readOnly}
+                            className={readOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"}
+                            style={{
+                              accentColor: C.mustard,
+                              width: "14px",
+                              height: "14px",
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })}
               </div>
-            )
-          })}
+            </section>
+          ))}
         </div>
       </div>
     )
   }
 
+  // Called as a plain function ({CRUDModal()}), not <CRUDModal />: a component
+  // declared inside AdminPanel is a new type on every render, which remounted the
+  // form on each keystroke and dropped input focus. Keep hooks out of here.
   const CRUDModal = () => {
-    const scrollRef = useRef<HTMLDivElement>(null)
-    const savedScrollTop = useRef<number>(0)
-    const prevShowSupplyTechnicalSheet = useRef<boolean>(false)
     if (!modal.mode) return null
     const cfg = MOD_CFG[modal.section]
     if (!cfg) return null
     const isView = modal.mode === "view"
     const isRoles = modal.section === "roles"
     const isProduct = modal.section === "producto"
+    const isProductCategory = modal.section === "cat-producto"
     const isPedido = modal.section === "pedidos"
     const isPurchase = modal.section === "compras"
     const isSupply = modal.section === "insumos"
@@ -9308,50 +13089,126 @@ function AdminPanel({
     const isSales = modal.section === "ventas"
     const isReturns = modal.section === "devoluciones"
     const isClient = modal.section === "clientes"
+    const isSupplier = modal.section === "proveedores"
+    const isUser = modal.section === "usuarios"
     const row = modal.idx !== null ? rows[modal.section]?.[modal.idx] : null
+    const isPrincipalAdminUser =
+      isUser && String(row?.[8] ?? "") === "Principal"
+    const isProtectedAdditionCategory =
+      modal.section === "cat-producto" &&
+      normalizeName(String(row?.[0] ?? "")) === "adiciones"
+    const orderDetails = isPedido ? getAdminOrderLines(row || undefined) : []
+    const saleOrderLines = getSaleOrderLines(isSales ? row : null)
+    const saleOrderIndex = isSales
+      ? rows.pedidos?.findIndex((order) => order[0] === row?.[9]) ?? -1
+      : -1
+    // Purchase module (Compras) gets a compact 2-column form and a formatted detail view
+    // Modules with the compact form: narrow 2-column modal, titled by entity,
+    // formatted detail view ("isPurchaseModule" started with Compras, now shared)
+    const PURCHASE_ENTITIES: Record<string, { name: string; fem: boolean }> = {
+      "cat-insumos": { name: "categoría de insumo", fem: true },
+      insumos: { name: "insumo", fem: false },
+      proveedores: { name: "proveedor", fem: false },
+      compras: { name: "compra", fem: true },
+      perdidas: { name: "pérdida de insumo", fem: true },
+      "cat-producto": { name: "categoría de producto", fem: true },
+      produccion: { name: "orden de producción", fem: true },
+      "producto-no-conforme": { name: "producto no conforme", fem: false },
+      clientes: { name: "cliente", fem: false },
+      pedidos: { name: "pedido", fem: false },
+      ventas: { name: "venta", fem: true },
+      devoluciones: { name: "devolución", fem: true },
+    }
+    const purchaseEntity = PURCHASE_ENTITIES[modal.section]
+    const isPurchaseModule = !!purchaseEntity
+    // Sellers: active staff users (from the backend) plus whoever is logged in
+    const sellerOptions = [
+      ...new Set([
+        sellerName,
+        ...(rows.usuarios || []).filter((r) => isActiveStatus(r[5])).map((r) => String(r[0])),
+      ]),
+    ].filter(Boolean)
+    const namesOf = (sec: string) =>
+      (rows[sec] || []).map((r) => String(r[0] ?? "")).filter(Boolean)
+    // Sections whose first field is a name/main choice that reads better full width
+    const WIDE_FIRST_FIELD = ["cat-insumos", "insumos", "proveedores", "compras", "perdidas", "cat-producto", "clientes", "pedidos"]
+    const isWideField = (f: FieldType) =>
+      (f.key === "0" && (WIDE_FIRST_FIELD.includes(modal.section) || !isSupplier)) ||
+      f.type === "textarea" ||
+      f.type === "checkbox" ||
+      (modal.section === "proveedores" && (f.key === "5" || f.key === "7")) ||
+      (modal.section === "clientes" && f.key === "5")
+    const splitList = (value: string) =>
+      value.split(",").map((item) => item.trim()).filter(Boolean)
+    const supplyInfo = (name: string) =>
+      (rows.insumos || []).find((supply) => String(supply[0]) === name)
+    // Insumos the supplier sells (supplier row[7]), limited to insumos that still exist
+    const supplierSupplies = (supplierName: string) => {
+      const supplier = (rows.proveedores || []).find((p) => String(p[0]) === supplierName)
+      return splitList(String(supplier?.[7] ?? "")).filter((name) => supplyInfo(name))
+    }
+    const formatViewValue = (f: FieldType, raw: string) => {
+      if (!raw || raw === "—") return "—"
+      if (f.type === "date") {
+        const d = new Date(`${raw}T00:00:00`)
+        return Number.isNaN(d.getTime())
+          ? raw
+          : d.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
+      }
+      if (f.type === "number" && /costo|subtotal|total/i.test(f.label)) return fmt(Number(raw))
+      if (isSupply && ["4", "5", "6"].includes(f.key))
+        return `${Number(raw).toLocaleString("es-CO")} ${String(row?.[2] ?? "")}`.trim()
+      return raw
+    }
+    const statusValue =
+      cfg.statusIndex !== undefined && row ? String(row[cfg.statusIndex] ?? "") : ""
     const dataFields = cfg.fields.filter((f) => f.type !== "image")
     const showSupplyTechnicalSheet =
       isSupply &&
       String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
-    const formDataFields = isProduction
+    const formDataFields = isUser
+      ? dataFields.filter(
+          (field) =>
+            field.key !== "6" ||
+            (modal.mode === "add" &&
+              String(formData["3"] ?? "").toLowerCase() === "cliente"),
+        )
+      : isProduction
       ? dataFields.filter((field) => !["0", "1"].includes(field.key))
+      : isPnc
+        ? dataFields.filter((field) => !["0", "1", "2", "6"].includes(field.key))
       : isSupply
         ? dataFields.filter(
             (field) =>
-              !["8", "9", "10", "11"].includes(field.key) ||
-              showSupplyTechnicalSheet,
+              // "Stock actual" isn't entered when creating: it starts at 0
+              !(modal.mode === "add" && field.key === "4") &&
+              (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
           )
         : dataFields
     const productMainFields = isProduct
-      ? dataFields.filter((field) => ["0", "1", "2", "3"].includes(field.key))
+      ? dataFields.filter(
+          (field) =>
+            ["0", "1", "2", "3", "10"].includes(field.key) &&
+            !(modal.mode === "add" && field.key === "2"),
+        )
       : dataFields
     const productTechFields = isProduct
-      ? dataFields.filter((field) => Number(field.key) >= 5)
+      ? dataFields.filter((field) => ["5", "6", "7", "8"].includes(field.key))
       : []
     const rowOffset = cfg.autoId ? 1 : 0
     const availableProductos = isPedido ? getAvailableProductos() : []
     const availableProductionProducts = isProduction
       ? getAvailableProductos()
       : []
-    const availablePncProducts = isPnc ? getProductSupplyOptions() : []
+    const availablePncDamagedItems = isPnc ? getNonconformingProductOptions() : []
+    const availableItemOptions = isProduction
+      ? availableProductionProducts
+      : availablePncDamagedItems
     const clientOptions = (rows.clientes || [])
       .map((client) => String(client[0] ?? ""))
       .filter(Boolean)
 
-    // Restore scroll position when supply technical sheet is toggled
-    useLayoutEffect(() => {
-      if (prevShowSupplyTechnicalSheet.current !== showSupplyTechnicalSheet) {
-        prevShowSupplyTechnicalSheet.current = showSupplyTechnicalSheet
-        if (scrollRef.current && savedScrollTop.current > 0) {
-          scrollRef.current.scrollTop = savedScrollTop.current
-        }
-      }
-    }, [showSupplyTechnicalSheet])
-
     const handleSupplyCheckboxToggle = () => {
-      if (scrollRef.current) {
-        savedScrollTop.current = scrollRef.current.scrollTop
-      }
       setFormData((current) => {
         const enabled =
           String(current["7"] ?? "No").toLowerCase() === "sí"
@@ -9365,16 +13222,17 @@ function AdminPanel({
             "11": "",
           }
         }
-        const productName = current["0"] || "Producto de insumo"
+        // Sheet name is filled from the insumo name on save if left empty
         return {
           ...current,
           "7": "Sí",
-          "8": `Ficha técnica - ${productName}`,
+          "8": "",
           "9": "v1.0",
-          "10": productName,
+          "10": "",
           "11": "",
         }
       })
+      setSupplyFormError("")
     }
 
     return (
@@ -9384,24 +13242,30 @@ function AdminPanel({
         onClick={() => setModal({ mode: null, section: "", idx: null })}
       >
         <div
-          className="flex min-w-0 w-full max-w-5xl flex-col overflow-hidden rounded-2xl"
+          className={`flex min-w-0 w-full ${isRoles || isPnc ? "max-w-6xl" : isProduct ? "max-w-3xl" : isUser ? "max-w-2xl" : isSupplier ? "max-w-5xl" : isProductCategory ? "max-w-xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
-            maxHeight: "88vh",
+            maxHeight: isPurchaseModule || isProduct || isRoles ? "94vh" : "88vh",
           }}
           onClick={(e) => e.stopPropagation()}
         >
           <div
-            className="flex items-center justify-between px-5 py-4"
+            className={`flex items-center justify-between px-5 ${isUser || isRoles ? "py-3" : "py-4"}`}
             style={{ borderBottom: `1px solid ${t.border}` }}
           >
             <h3 className="font-semibold text-base" style={{ color: t.text }}>
-              {modal.mode === "add"
-                ? "Nuevo registro"
-                : modal.mode === "edit"
-                  ? "Editar registro"
-                  : "Ver detalle"}
+              {purchaseEntity
+                ? modal.mode === "add"
+                  ? `${purchaseEntity.fem ? "Nueva" : "Nuevo"} ${purchaseEntity.name}`
+                  : modal.mode === "edit"
+                    ? `Editar ${purchaseEntity.name}`
+                    : `Detalle ${purchaseEntity.fem ? "de la" : "del"} ${purchaseEntity.name}`
+                : modal.mode === "add"
+                  ? "Nuevo registro"
+                  : modal.mode === "edit"
+                    ? "Editar registro"
+                    : "Ver detalle"}
             </h3>
             <button
               onClick={() => setModal({ mode: null, section: "", idx: null })}
@@ -9412,10 +13276,51 @@ function AdminPanel({
             </button>
           </div>
           <div
-            ref={scrollRef}
-            className="flex min-w-0 flex-col gap-3 overflow-x-hidden overflow-y-auto px-4 py-4 sm:px-5"
-            style={{ maxHeight: "65vh", scrollbarWidth: "none" }}
+            className={`min-w-0 overflow-x-hidden ${isRoles ? "overflow-y-auto md:overflow-y-hidden" : "overflow-y-auto"} px-4 ${isUser ? "py-3 sm:px-5" : "py-4 sm:px-5"} ${
+              isUser
+                ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
+                : isRoles && !isView
+                ? "grid content-start gap-x-4 gap-y-2.5 sm:grid-cols-2"
+                : isPurchaseModule
+                  ? `grid min-h-0 flex-1 content-start gap-x-4 gap-y-3 ${
+                      // Supplier: 4 columns on large screens — supplier data spans the left two,
+                      // contact person goes two fields per row on the right (keeps "Cargo" in view)
+                      isSupplier ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4" : "sm:grid-cols-2"
+                    }`
+                  : isProduct
+                    ? "flex min-h-0 flex-1 flex-col gap-3"
+                    : "flex flex-col gap-3"
+            }`}
+            style={{
+              maxHeight: isPurchaseModule || isProduct ? undefined : isRoles ? "78vh" : isUser ? "58vh" : "65vh",
+              // A visible (thin) scrollbar tells the user there are more fields below
+              scrollbarWidth: "thin",
+            }}
           >
+            {/* Purchase module detail header: record name + status */}
+            {isView && isPurchaseModule && !isPurchase && row && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-4 py-3 sm:col-span-2"
+                style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}
+              >
+                <div className="min-w-0">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: t.muted }}>
+                    {purchaseEntity.name}
+                  </div>
+                  <div className="text-base font-bold break-words" style={{ color: t.text }}>
+                    {String(row[0] ?? "—")}
+                  </div>
+                </div>
+                {statusValue && (
+                  <span
+                    className="rounded-full px-2.5 py-1 text-[10px] font-bold"
+                    style={{ background: badgeSt(statusValue)?.bg ?? t.input, color: badgeSt(statusValue)?.color ?? t.muted }}
+                  >
+                    {statusValue}
+                  </span>
+                )}
+              </div>
+            )}
             {/* Image field */}
             {isProduct && cfg.fields.some((f) => f.type === "image") && (
               <div className="flex flex-col gap-2">
@@ -9480,7 +13385,7 @@ function AdminPanel({
                     <input
                       type="url"
                       placeholder="o pega una URL de imagen..."
-                      value={imgPreview.startsWith("http") ? imgPreview : ""}
+                      value={imgPreview.startsWith("data:") ? "" : imgPreview}
                       onChange={(e) => setImgPreview(e.target.value)}
                       className="w-full px-3 py-2 rounded-xl text-xs outline-none"
                       style={{
@@ -9493,8 +13398,10 @@ function AdminPanel({
                 )}
               </div>
             )}
-            {isPedido && (
-              <div className="flex min-w-0 flex-col gap-2">
+            {/* Proof only matters for transfers (cash / pay at the store = contraentrega) */}
+            {isPedido && (isView || formData["3"] === "Transferencia") && (
+              // Last in the form (order-last): client and products come first
+              <div className="order-last flex min-w-0 flex-col gap-2 sm:col-span-2">
                 <label className="text-xs font-semibold" style={{ color: t.muted }}>Comprobante de pago</label>
                 {isView ? (
                   paymentProofDraft ? (
@@ -9519,7 +13426,7 @@ function AdminPanel({
                         reader.readAsDataURL(file)
                       }
                     }} />
-                    <input type="url" placeholder="O pega una URL del comprobante" value={paymentProofDraft.startsWith("http") || paymentProofDraft.startsWith("blob:") ? paymentProofDraft : ""} onChange={(event) => setPaymentProofDraft(event.target.value)} className="mt-3 w-full min-w-0 rounded-lg px-3 py-2 text-xs" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
+                    <input type="url" placeholder="O pega una URL del comprobante" value={paymentProofDraft.startsWith("data:") ? "" : paymentProofDraft} onChange={(event) => setPaymentProofDraft(event.target.value)} className="mt-3 w-full min-w-0 rounded-lg px-3 py-2 text-xs" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
                   </div>
                 )}
               </div>
@@ -9533,17 +13440,41 @@ function AdminPanel({
                   >
                     Producto
                   </div>
+                  {modal.mode === "add" && (
+                    <p className="text-xs" style={{ color: t.muted }}>
+                      Puedes agregar el precio después desde la opción Editar.
+                    </p>
+                  )}
                   {productMainFields.map((f) => {
                     const val = isView
                       ? String(row ? (row[Number(f.key)] ?? "—") : "—")
                       : formData[f.key] || ""
+                    // Categories come only from "Categ. Producto" (active), deduplicated
+                    // ignoring case/accents so the same category never appears twice
+                    const productFieldOptions =
+                      f.key === "1"
+                        ? [
+                            ...(rows["cat-producto"] || [])
+                              .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
+                              .map((category) => String(category[0] ?? "").trim())
+                              .filter(Boolean),
+                            "Producto de insumo",
+                          ]
+                            .filter(
+                              (name, index, all) =>
+                                all.findIndex((other) => normalizeName(other) === normalizeName(name)) === index,
+                            )
+                            .sort((a, b) => a.localeCompare(b))
+                        : f.options
                     return (
                       <div key={f.key} className="flex flex-col gap-1.5">
                         <label
                           className="text-xs font-semibold"
-                          style={{ color: t.muted }}
+                          style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
                         >
                           {f.label}
+                          {(isRequiredField(f.key) ||
+                            getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)) && " *"}
                         </label>
                         {isView ? (
                           <div
@@ -9555,21 +13486,30 @@ function AdminPanel({
                         ) : f.type === "select" ? (
                           <select
                             value={val}
+                            disabled={isPedido && f.key === "7"}
                             onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
+                              updateAdminField(modal.section, f.key, e.target.value)
                             }
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                            title={
+                              isPedido && f.key === "7"
+                                ? "El pago solo cambia al aprobar o rechazar el comprobante en el detalle del pedido."
+                                : undefined
+                            }
                             style={{
                               background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
                               color: val ? t.text : t.muted,
+                              opacity: isPedido && f.key === "7" ? 0.7 : 1,
                             }}
                           >
                             <option value="">Selecciona...</option>
-                            {f.options?.map((o) => (
+                            {productFieldOptions?.map((o) => (
                               <option key={o} value={o}>
                                 {o}
                               </option>
@@ -9579,16 +13519,18 @@ function AdminPanel({
                           <textarea
                             value={val}
                             onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
+                              updateAdminField(modal.section, f.key, e.target.value)
                             }
-                            rows={3}
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
+                            rows={isPurchaseModule || isProduct ? 2 : 3}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
                             style={{
                               background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
                               color: t.text,
                             }}
                           />
@@ -9597,31 +13539,90 @@ function AdminPanel({
                             type={f.type}
                             value={val}
                             onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
+                              updateAdminField(modal.section, f.key, e.target.value)
                             }
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
                             style={{
                               background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
                               color: t.text,
                             }}
                           />
                         )}
+                        <FieldError msg={shownFieldError(f.key) || formFieldErrors[f.key]} />
                       </div>
                     )
                   })}
                 </div>
                 <div className="flex flex-col gap-3">
-                  <div
-                    className="text-xs font-bold uppercase tracking-wide"
-                    style={{ color: t.muted }}
-                  >
-                    Ficha técnica
+                  <div className="flex items-center justify-between gap-2">
+                    <div
+                      className="text-xs font-bold uppercase tracking-wide"
+                      style={{ color: t.muted }}
+                    >
+                      Ficha técnica
+                    </div>
+                    {!isView && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTechnicalSheetError("")
+                          setTechnicalSheetOpen(true)
+                        }}
+                        className="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
+                        style={{ background: C.mustard, color: "#fff" }}
+                      >
+                        {technicalIngredients.length
+                          ? "Editar ficha técnica"
+                          : "Agregar ficha técnica"}
+                      </button>
+                    )}
                   </div>
+                  {!isView && (
+                    <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                      {technicalIngredients.length
+                        ? (
+                          <>
+                            <div className="mb-2 text-xs font-bold" style={{ color: t.text }}>
+                              Insumos y cantidades
+                            </div>
+                            {technicalIngredients.map((ingredient, index) => (
+                              <div
+                                key={`${ingredient.name}-${index}`}
+                                className="flex justify-between gap-3 border-t py-2 text-xs"
+                                style={{ borderColor: t.border, color: t.muted }}
+                              >
+                                <span className="min-w-0 truncate">{ingredient.name}</span>
+                                <strong className="shrink-0" style={{ color: t.text }}>
+                                  {ingredient.quantity} {ingredient.unit}
+                                </strong>
+                              </div>
+                            ))}
+                          </>
+                        )
+                        : <span className="text-xs" style={{ color: t.muted }}>
+                            Ficha técnica opcional. Puedes agregar insumos, cantidades y unidades.
+                          </span>}
+                    </div>
+                  )}
+                  {isView && getProductRecipe(row ?? undefined).length > 0 && (
+                    <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                      <div className="mb-2 text-xs font-bold" style={{ color: t.text }}>Insumos y cantidades</div>
+                      {getProductRecipe(row ?? undefined).map((ingredient, index) => (
+                        <div key={`${ingredient.name}-${index}`} className="flex justify-between gap-3 border-t py-2 text-xs" style={{ borderColor: t.border, color: t.muted }}>
+                          <span>{ingredient.name}</span>
+                          <strong style={{ color: t.text }}>{ingredient.quantity} {ingredient.unit}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {productTechFields.map((f) => {
+                    if (!isView) return null
                     const fieldRowIndex = Number(f.key)
                     const val = isView
                       ? String(row ? (row[fieldRowIndex] ?? "—") : "—")
@@ -9747,6 +13748,21 @@ function AdminPanel({
                               </span>
                             </div>
                           </div>
+                        ) : isView && isProduct && f.key === "8" ? (
+                          <ol
+                            className="w-full list-decimal space-y-2 rounded-xl px-4 py-3 pl-8 text-sm"
+                            style={{ background: t.input, color: t.text }}
+                          >
+                            {getPreparationSteps(val).length ? (
+                              getPreparationSteps(val).map((step, index) => (
+                                <li key={`${index}-${step}`}>{step}</li>
+                              ))
+                            ) : (
+                              <li className="list-none" style={{ color: t.muted }}>
+                                No hay pasos de preparación registrados.
+                              </li>
+                            )}
+                          </ol>
                         ) : isView ? (
                           <div
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
@@ -9819,21 +13835,12 @@ function AdminPanel({
               </div>
             ) : (
               <>
-                {showSupplyTechnicalSheet && (
-                  <div className="mt-1 border-t pt-4" style={{ borderColor: t.border }}>
-                    <div className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
-                      Ficha técnica del producto de insumo
-                    </div>
-                    <p className="mb-3 mt-1 text-xs" style={{ color: t.muted }}>
-                      Completa la ficha como en el formulario de productos.
-                    </p>
-                  </div>
-                )}
-                {isProduction && (
-                  <section className="rounded-2xl p-4" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                {/* In the production detail the products are listed in its summary below */}
+                {(isPnc || (isProduction && !isView)) && (
+                  <section className="rounded-2xl p-4 sm:col-span-2" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                     <div className="mb-3 flex items-center gap-2">
                       <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Productos de la orden</h4>
+                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>{isPnc ? "Productos o insumos que se dañaron" : "Productos de la orden"}</h4>
                     </div>
                     {productionItems.length ? (
                       <div className="mb-3 flex flex-col gap-2">
@@ -9841,41 +13848,558 @@ function AdminPanel({
                           <div key={`${item.name}-${index}`} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-xs" style={{ background: t.input, border: `1px solid ${t.border}` }}>
                             <span className="min-w-0 font-semibold break-words" style={{ color: t.text }}>{item.name}</span>
                             <div className="flex flex-shrink-0 items-center gap-2">
-                              <span style={{ color: t.muted }}>× {item.quantity}</span>
+                              <span style={{ color: t.muted }}>
+                                × {item.quantity}
+                                {isPnc && ` ${item.unit || getNonconformingItemUnit(item.name)}`}
+                              </span>
                               {!isView && <button type="button" aria-label={`Quitar ${item.name}`} onClick={() => setProductionItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg" style={{ color: C.red, background: `${C.red}10` }}>{Ico.x}</button>}
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div className="mb-3 rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>Agrega al menos un producto o producto de insumo.</div>
+                      <div className="mb-3 rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>{isPnc ? "Agrega al menos un producto o insumo perdido." : "Agrega al menos un producto o producto de insumo."}</div>
                     )}
                     {!isView && (
                       <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_100px_auto]">
                         <select value={productionProductSelect} onChange={(event) => setProductionProductSelect(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: productionProductSelect ? t.text : t.muted }}>
-                          <option value="">Selecciona un producto...</option>
-                          {availableProductionProducts.filter((product) => !productionItems.some((item) => item.name === product)).map((product) => {
-                            const isSupply = rows.producto?.some((item) => item[0] === product && item[1] === "Producto de insumo")
-                            return <option key={product} value={product}>{product}{isSupply ? " · Producto de insumo" : ""}</option>
+                          <option value="">Selecciona un producto o insumo...</option>
+                          {(isPnc
+                            ? availableItemOptions
+                            : availableItemOptions.filter((product) => !productionItems.some((item) => item.name === product)))
+                            .map((product, index) => {
+                            const isSupply = isPnc
+                              ? rows.insumos?.some((item) => item[0] === product)
+                              : rows.producto?.some((item) => item[0] === product && item[1] === "Producto de insumo")
+                            return <option key={`${product}-${index}`} value={product}>{product}{isSupply ? " · Insumo" : ""}</option>
                           })}
                         </select>
                         <input type="number" min="1" value={productionItemQuantity} onChange={(event) => setProductionItemQuantity(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
                         <button type="button" onClick={() => {
                           if (!productionProductSelect) return
                           const quantity = Math.max(1, Number(productionItemQuantity) || 1)
-                          setProductionItems((current) => [...current, { name: productionProductSelect, quantity }])
+                          setProductionItems((current) => [
+                            ...current,
+                            {
+                              name: productionProductSelect,
+                              quantity,
+                              ...(isPnc ? { unit: getNonconformingItemUnit(productionProductSelect) } : {}),
+                            },
+                          ])
                           setProductionProductSelect("")
                           setProductionItemQuantity("1")
                           setProductionFormError("")
                         }} className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer" style={{ background: C.mustard, color: "#fff" }}>Agregar</button>
                       </div>
                     )}
-                    <p className="mt-2 text-[10px]" style={{ color: t.muted }}>El selector incluye productos normales y productos de insumo.</p>
+                    {!isView && isPnc && productionProductSelect && (
+                      <p className="mt-2 rounded-lg px-3 py-2 text-xs" style={{ background: t.input, color: t.muted }}>
+                        Unidad de medida:{" "}
+                        <strong style={{ color: t.text }}>
+                          {getNonconformingItemUnit(productionProductSelect)}
+                        </strong>
+                      </p>
+                    )}
+                    <p className="mt-2 text-[10px]" style={{ color: t.muted }}>{isPnc ? "Selecciona todos los productos o insumos que se perdieron y agrega la cantidad de cada uno." : "El selector incluye productos normales y productos de insumo."}</p>
                     {productionFormError && <p className="mt-2 text-xs font-medium" style={{ color: C.red }}>{productionFormError}</p>}
                   </section>
                 )}
+                {isUser &&
+                  !isView &&
+                  modal.mode === "add" &&
+                  String(formData["3"] ?? "").toLowerCase() !== "cliente" && (
+                    <div
+                      className="rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2"
+                      style={{
+                        background: `${C.mustard}12`,
+                        color: t.text,
+                        border: `1px solid ${C.mustard}35`,
+                      }}
+                    >
+                      La contraseña temporal se asignará según el rol y deberá cambiarse en el primer inicio de sesión.
+                    </div>
+                  )}
                 {formDataFields.map((f) => {
-                if (isView && isPurchase && f.key === "6") return null
+                if (isView && isPurchase) return null // the purchase ticket shows everything
+                if (isPurchase && !isView && f.key === "2") return null
+                // Shown in the detail header (with autoId, row[0] is the code, so field "0" stays)
+                if (isView && isPurchaseModule && f.key === "0" && !cfg.autoId) return null
+                // Order total is computed from its products ("Total del pedido"), not typed
+                if (isPedido && !isView && f.key === "5") return null
+                // Modality and payment status come from the payment method (read-only)
+                if (isPedido && !isView && (f.key === "4" || f.key === "7")) {
+                  const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
+                  const value = f.key === "4" ? payment.modalidad : payment.estadoPago
+                  return (
+                    <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
+                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                        {f.label}
+                      </span>
+                      <div
+                        className="rounded-xl px-3.5 py-2.5 text-sm font-semibold"
+                        style={{
+                          background: t.cardAlt,
+                          border: `1px dashed ${t.inputB}`,
+                          color: value ? (value === "Pagado" ? "#2E7D60" : t.text) : t.muted,
+                        }}
+                        title="Se asigna automáticamente según el método de pago"
+                      >
+                        {value || "Según el método de pago"}
+                      </div>
+                      {f.key === "7" && (
+                        <span className="text-[11px]" style={{ color: t.muted }}>
+                          Automático: transferencia con comprobante = pagado; efectivo o pago en el local = contraentrega y pendiente.
+                        </span>
+                      )}
+                    </div>
+                  )
+                }
+                // Production detail already shows "Creada" date/time in its summary
+                if (isView && isProduction && (f.key === "3" || f.key === "4")) return null
+                // Insumo technical sheet (fields 8-11) rendered as one card at field "8"
+                if (isSupply && ["9", "10", "11"].includes(f.key)) return null
+                if (isSupply && f.key === "8") {
+                  if (!showSupplyTechnicalSheet) return null
+                  const src = (key: string) => String((isView ? row?.[Number(key)] : formData[key]) ?? "")
+                  const supplyName = src("0").trim() || "este insumo"
+                  const mainSupplies = splitList(src("10"))
+                  const setSheet = (key: string, value: string) => {
+                    setSupplyFormError("")
+                    updateAdminField(modal.section, key, value)
+                  }
+                  const sheetControl = { background: t.card, border: `1.5px solid ${t.inputB}`, color: t.text }
+                  return (
+                    <section
+                      key="ficha-tecnica"
+                      className="rounded-xl p-4 sm:col-span-2"
+                      style={{ background: `${C.mustard}0D`, border: `1.5px solid ${C.mustard}55` }}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>
+                            Ficha técnica · Producto de insumo
+                          </div>
+                          <div className="text-sm font-semibold break-words" style={{ color: t.text }}>
+                            {src("8").trim() || `Ficha técnica - ${supplyName}`}
+                          </div>
+                        </div>
+                        <span
+                          className="rounded-full px-2.5 py-1 text-[10px] font-bold"
+                          style={{ background: `${C.mustard}20`, color: C.mustard }}
+                        >
+                          {src("9") || "v1.0"}
+                        </span>
+                      </div>
+                      {!isView && (
+                        <p className="mt-1 text-xs" style={{ color: t.muted }}>
+                          Esta ficha se crea junto con el insumo y también aparecerá en el módulo Productos.
+                        </p>
+                      )}
+                      <div className="mt-4 grid gap-3">
+                        {!isView && (
+                          <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
+                            Nombre de la ficha
+                            <input
+                              value={formData["8"] ?? ""}
+                              onChange={(e) => setSheet("8", e.target.value)}
+                              placeholder={`Ficha técnica - ${supplyName}`}
+                              className="rounded-xl px-3 py-2.5 text-sm outline-none"
+                              style={sheetControl}
+                            />
+                          </label>
+                        )}
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                            Insumos principales{!isView && " *"}
+                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            {mainSupplies.length === 0 ? (
+                              <span className="rounded-full px-2.5 py-1 text-xs" style={{ background: t.input, color: t.muted }}>
+                                Sin insumos seleccionados
+                              </span>
+                            ) : (
+                              mainSupplies.map((name) =>
+                                isView ? (
+                                  <span
+                                    key={name}
+                                    className="rounded-full px-2.5 py-1 text-xs font-semibold"
+                                    style={{ background: `${C.mustard}15`, color: C.mustard }}
+                                  >
+                                    {name}
+                                  </span>
+                                ) : (
+                                  <button
+                                    key={name}
+                                    type="button"
+                                    aria-label={`Quitar ${name} de la ficha`}
+                                    onClick={() => setSheet("10", mainSupplies.filter((n) => n !== name).join(", "))}
+                                    className="flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
+                                    style={{ background: `${C.mustard}15`, color: C.mustard, border: `1px solid ${C.mustard}35` }}
+                                  >
+                                    {name} <span aria-hidden="true">×</span>
+                                  </button>
+                                ),
+                              )
+                            )}
+                          </div>
+                          {!isView && (
+                            <select
+                              value=""
+                              onChange={(e) => {
+                                if (e.target.value) setSheet("10", [...mainSupplies, e.target.value].join(", "))
+                              }}
+                              aria-invalid={!!formFieldErrors["10"]}
+                              className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                              style={{
+                                ...sheetControl,
+                                border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
+                                color: t.muted,
+                              }}
+                            >
+                              <option value="">+ Agregar insumo a la ficha...</option>
+                              {getAvailableInsumos()
+                                .filter((name) => !mainSupplies.includes(name))
+                                .map((name) => (
+                                  <option key={name} value={name}>
+                                    {name}
+                                  </option>
+                                ))}
+                            </select>
+                          )}
+                          {formFieldErrors["10"] && (
+                            <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
+                              {formFieldErrors["10"]}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-col gap-1.5">
+                          <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                            Cómo se prepara{!isView && " *"}
+                          </span>
+                          {isView ? (
+                            <div className="text-sm whitespace-pre-line break-words" style={{ color: t.text }}>
+                              {src("11") || "—"}
+                            </div>
+                          ) : (
+                            <textarea
+                              value={formData["11"] ?? ""}
+                              onChange={(e) => setSheet("11", e.target.value)}
+                              rows={3}
+                              placeholder={"1. Recibir y revisar el insumo.\n2. Porcionar.\n3. Almacenar y servir."}
+                              className="resize-none rounded-xl px-3 py-2.5 text-sm outline-none"
+                              style={sheetControl}
+                            />
+                          )}
+                        </div>
+                      </div>
+                      {!isView && (shownFieldError("10") || shownFieldError("11")) && (
+                        <p className="mt-3 text-xs font-medium" style={{ color: C.red }} role="alert">
+                          {shownFieldError("10") || shownFieldError("11")}
+                        </p>
+                      )}
+                    </section>
+                  )
+                }
+                // Purchase form: subtotal/total are computed from the items below
+                if (isPurchase && (f.key === "3" || f.key === "4")) return null
+                if (isPurchase && f.key === "6") {
+                  const supplier = String(formData["0"] ?? "")
+                  const allowed = supplierSupplies(supplier)
+                  const items = parsePurchaseItems(formData["6"])
+                  const total = items.reduce((sum, item) => sum + item.total, 0)
+                  const setItems = (next: { name: string; quantity: string; unitPrice?: string }[]) =>
+                    setFormData((current) => ({
+                      ...current,
+                      "6": next.map((i) => `${i.name} | ${i.quantity} | ${i.unitPrice ?? 0}`).join("\n"),
+                    }))
+                  const pickSupply = (name: string) => {
+                    setPurchaseItemSelect(name)
+                    setPurchaseItemPrice(name ? String(supplyInfo(name)?.[3] ?? "") : "")
+                    setPurchaseFormError("")
+                  }
+                  const addItem = () => {
+                    const qty = Number(purchaseItemQty)
+                    const price = Number(purchaseItemPrice)
+                    if (!purchaseItemSelect) return setPurchaseFormError("Elige el insumo que vas a agregar.")
+                    if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
+                    if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
+                    const existing = items.find(
+                      (i) => i.name === purchaseItemSelect && Number(i.unitPrice) === price,
+                    )
+                    setItems(
+                      existing
+                        ? items.map((i) => (i === existing ? { ...i, quantity: String(Number(i.quantity) + qty) } : i))
+                        : [...items, { name: purchaseItemSelect, quantity: String(qty), unitPrice: String(price) }],
+                    )
+                    setPurchaseItemSelect("")
+                    setPurchaseItemQty("1")
+                    setPurchaseItemPrice("")
+                    setPurchaseFormError("")
+                  }
+                  const controlSt = { background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }
+                  // "Enviar a pérdida": only for items already saved in this purchase (edit mode)
+                  const savedItems = modal.mode === "edit" ? parsePurchaseItems(row?.[6]) : []
+                  const lossOrigin = row
+                    ? `Compra a ${String(row[0])} del ${formatViewValue(cfg.fields[1], String(row[1] ?? ""))}`
+                    : ""
+                  const lostSoFar = (name: string) =>
+                    (rows.perdidas || [])
+                      .filter((l) => String(l[5] ?? "") === lossOrigin && String(l[0]) === name)
+                      .reduce((sum, l) => sum + (parseFloat(String(l[1])) || 0), 0)
+                  const openLoss = (name: string) => {
+                    const bought = savedItems
+                      .filter((i) => i.name === name)
+                      .reduce((sum, i) => sum + Number(i.quantity || 0), 0)
+                    const max = bought - lostSoFar(name)
+                    setLossError("")
+                    if (!(max > 0)) {
+                      setPurchaseNotice(`Ya registraste como pérdida todo el insumo «${name}» de esta compra.`)
+                      return
+                    }
+                    setPurchaseNotice("")
+                    const now = new Date()
+                    setLossDraft({
+                      insumo: name,
+                      unit: String(supplyInfo(name)?.[2] ?? "und"),
+                      max,
+                      qty: "",
+                      motivo: "",
+                      responsable: user?.name ?? "",
+                      fecha: [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-"),
+                      origin: lossOrigin,
+                    })
+                  }
+                  return (
+                    <section
+                      key="purchase-items"
+                      className="rounded-xl p-4 sm:col-span-2"
+                      style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}
+                    >
+                      <div className="text-sm font-semibold" style={{ color: t.text }}>
+                        Insumos comprados
+                      </div>
+                      {!supplier ? (
+                        <p className="mt-1 text-xs" style={{ color: t.muted }}>
+                          Primero selecciona el proveedor para ver los insumos que te vende.
+                        </p>
+                      ) : !allowed.length ? (
+                        <p className="mt-1 text-xs" style={{ color: C.red }}>
+                          «{supplier}» no tiene insumos asignados. Asígnalos en Proveedores → Editar → «Insumos que suministra».
+                        </p>
+                      ) : (
+                        <>
+                          <p className="mt-1 text-xs" style={{ color: t.muted }}>
+                            Insumos que vende «{supplier}». Agrega todos los que necesites.
+                          </p>
+                          <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_96px_120px_auto]">
+                            <label className="flex min-w-0 flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                              Insumo
+                              <select
+                                value={purchaseItemSelect}
+                                onChange={(e) => pickSupply(e.target.value)}
+                                className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                                style={{ ...controlSt, color: purchaseItemSelect ? t.text : t.muted }}
+                              >
+                                <option value="">Selecciona un insumo...</option>
+                                {allowed.map((name) => (
+                                  <option key={name} value={name}>
+                                    {name}
+                                    {supplyInfo(name)?.[2] ? ` (${String(supplyInfo(name)?.[2])})` : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                              Cantidad
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                value={purchaseItemQty}
+                                onChange={(e) => setPurchaseItemQty(e.target.value)}
+                                className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                                style={controlSt}
+                              />
+                            </label>
+                            <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                              Precio unitario
+                              <input
+                                type="number"
+                                min="0"
+                                value={purchaseItemPrice}
+                                onChange={(e) => setPurchaseItemPrice(e.target.value)}
+                                placeholder="$"
+                                className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                                style={controlSt}
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={addItem}
+                              className="cursor-pointer rounded-xl px-4 py-2.5 text-xs font-bold hover:opacity-90"
+                              style={{ background: C.mustard, color: "#fff" }}
+                            >
+                              Agregar
+                            </button>
+                          </div>
+                        </>
+                      )}
+                      <div className="mt-3 flex flex-col">
+                        {items.length === 0 ? (
+                          <div className="rounded-lg px-3 py-3 text-center text-xs" style={{ background: t.input, color: t.muted }}>
+                            Aún no has agregado insumos.
+                          </div>
+                        ) : (
+                          items.map((item, index) => (
+                            <div
+                              key={`${item.name}-${index}`}
+                              className="flex items-center gap-3 border-b py-2 text-sm last:border-b-0"
+                              style={{ borderColor: t.border }}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate font-semibold" style={{ color: t.text }}>{item.name}</div>
+                                <div className="text-[11px]" style={{ color: t.muted }}>
+                                  {Number(item.quantity).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")} × {fmt(Number(item.unitPrice || 0))}
+                                </div>
+                                {savedItems.length > 0 && lostSoFar(item.name) > 0 && (
+                                  <div className="text-[11px] font-semibold" style={{ color: C.red }}>
+                                    Perdido: {lostSoFar(item.name).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")}
+                                  </div>
+                                )}
+                              </div>
+                              <span className="font-bold" style={{ color: C.mustard }}>{fmt(item.total)}</span>
+                              {savedItems.some((i) => i.name === item.name) && (
+                                <button
+                                  type="button"
+                                  title="Enviar este insumo a Pérdida de insumos"
+                                  aria-label={`Enviar ${item.name} a pérdida de insumos`}
+                                  onClick={() => openLoss(item.name)}
+                                  className="flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-[11px] font-bold hover:opacity-80"
+                                  style={{ color: C.amber, background: `${C.amber}18` }}
+                                >
+                                  {Ico.alert} Pérdida
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                aria-label={`Quitar ${item.name}`}
+                                onClick={() => setItems(items.filter((_, i) => i !== index))}
+                                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                style={{ color: C.red, background: `${C.red}10` }}
+                              >
+                                {Ico.x}
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div
+                        className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs"
+                        style={{ borderColor: t.border }}
+                      >
+                        <span style={{ color: t.muted }}>
+                          Subtotal: <strong style={{ color: t.text }}>{fmt(total)}</strong>
+                        </span>
+                        <span className="text-sm" style={{ color: t.text }}>
+                          Total: <strong style={{ color: C.mustard }}>{fmt(total)}</strong>
+                        </span>
+                      </div>
+                      {purchaseFormError && (
+                        <p className="mt-2 text-xs font-medium" style={{ color: C.red }} role="alert">
+                          {purchaseFormError}
+                        </p>
+                      )}
+                      {purchaseNotice && (
+                        <p
+                          className="mt-2 rounded-lg px-3 py-2 text-xs font-medium"
+                          style={{ background: "rgba(58,109,94,0.12)", color: "#2E7D60" }}
+                          role="status"
+                        >
+                          {purchaseNotice}
+                        </p>
+                      )}
+                    </section>
+                  )
+                }
+                const isLocalClient =
+                  isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
+                const requiredFormField =
+                  !isView &&
+                  getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)
+                const fieldValidationError = isView ? undefined : formFieldErrors[f.key]
+                // Supplier form: pick which insumos this supplier sells
+                if (modal.section === "proveedores" && !isView && f.key === "7") {
+                  const selected = splitList(String(formData["7"] ?? ""))
+                  const toggleSupply = (name: string) =>
+                    updateAdminField(
+                      "proveedores",
+                      "7",
+                      (selected.includes(name)
+                        ? selected.filter((item) => item !== name)
+                        : [...selected, name]
+                      ).join(", "),
+                    )
+                  return (
+                    <div key="7" className="flex flex-col gap-1.5 lg:col-start-1 lg:col-span-2">
+                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                        {f.label}{requiredFormField && " *"}
+                      </span>
+                      <details className="group relative">
+                        <summary
+                          className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm"
+                          title={selected.join(", ")}
+                          style={{
+                            background: t.input,
+                            border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
+                            color: selected.length ? t.text : t.muted,
+                          }}
+                        >
+                          <span className="truncate">
+                            {selected.length
+                              ? `${selected.length} insumo${selected.length === 1 ? "" : "s"} seleccionado${selected.length === 1 ? "" : "s"}`
+                              : "Selecciona los insumos"}
+                          </span>
+                          <span aria-hidden="true" className="text-xs">⌄</span>
+                        </summary>
+                        <div
+                          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl p-1.5 shadow-xl"
+                          style={{ background: t.card, border: `1px solid ${t.border}` }}
+                        >
+                          {namesOf("insumos").length ? namesOf("insumos").map((name) => {
+                            const on = selected.includes(name)
+                            return (
+                              <label
+                                key={name}
+                                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs"
+                                style={{ color: t.text }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={on}
+                                  onChange={() => toggleSupply(name)}
+                                  style={{ accentColor: C.mustard }}
+                                />
+                                <span className="min-w-0 break-words">{name}</span>
+                              </label>
+                            )
+                          }) : (
+                            <p className="px-2.5 py-2 text-xs" style={{ color: t.muted }}>
+                              No hay insumos registrados.
+                            </p>
+                          )}
+                        </div>
+                      </details>
+                      <p className="text-[11px]" style={{ color: t.muted }}>
+                        Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
+                      </p>
+                      {fieldValidationError && (
+                        <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
+                          {fieldValidationError}
+                        </span>
+                      )}
+                    </div>
+                  )
+                }
                 const fieldRowIndex = Number(f.key) + rowOffset
                 const val = isView
                   ? String(row ? (row[fieldRowIndex] ?? "—") : "—")
@@ -9883,126 +14407,255 @@ function AdminPanel({
                 const fieldOptions =
                   isProduction && f.key === "0"
                     ? availableProductionProducts
-                    : isPnc && f.key === "1"
-                      ? availablePncProducts
-                      : (isSales && f.key === "1") ||
+                    : isSales && f.key === "0"
+                      ? sellerOptions
+                    : (isSales && f.key === "1") ||
                           (isPedido && f.key === "0") ||
                           (isReturns && f.key === "2")
                         ? clientOptions
-                        : f.options
-                const existingProductos =
-                  isPedido && f.key === "1"
-                    ? val
-                        .split(",")
-                        .map((item) => item.trim())
-                        .filter(Boolean)
-                    : []
-                const isLocalClient =
-                  isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
-                const requiredClientField =
-                  isClient &&
-                  !isView &&
-                  (["0", "1", "2", "3"].includes(f.key) ||
-                    (!isLocalClient && ["4", "5"].includes(f.key)))
+                        : isPurchase && f.key === "0" && namesOf("proveedores").length
+                          ? namesOf("proveedores")
+                          : modal.section === "perdidas" && f.key === "0" && namesOf("insumos").length
+                            ? namesOf("insumos")
+                            : isSupply && f.key === "1" && namesOf("cat-insumos").length
+                              ? namesOf("cat-insumos")
+                              : isUser && f.key === "3" && namesOf("roles").length
+                                ? (rows.roles || []).filter((r) => isActiveStatus(r[2])).map((r) => String(r[0]))
+                                : f.options
+                const visibleFieldOptions =
+                  isUser &&
+                  f.key === "1" &&
+                  String(formData["3"] ?? "").toLowerCase() !== "cliente"
+                              ? fieldOptions?.filter((option) => option !== "Tarjeta de Identidad")
+                              : fieldOptions
+                const pedidoCategories = [
+                  "Todas",
+                  ...new Set(
+                    (rows["cat-producto"] || [])
+                      .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
+                      .map((category) => String(category[0] ?? "").trim())
+                      .filter(Boolean),
+                  ),
+                ]
+                const filteredOrderProducts = availableProductos.filter((productName) => {
+                  const product = rows.producto?.find((item) => item[0] === productName)
+                  return (
+                    Number(product?.[2]) > 0 &&
+                    (pedidoProductCategory === "Todas" || String(product?.[1] ?? "") === pedidoProductCategory)
+                  )
+                })
+                const selectedOrderProduct = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
+                const isSelectedAddition = String(selectedOrderProduct?.[1] ?? "").toLowerCase() === "adiciones"
                 const updateFieldValue = (value: string) => {
                   if (isSales && f.key === "1" && value === "__new_client__") {
                     setQuickClientForm({})
+                    setQuickClientErrors({})
                     setQuickClientError("")
                     setQuickClientOpen(true)
                     return
                   }
-                  setFormData((current) => ({ ...current, [f.key]: value }))
+                  if (isPurchase && f.key === "0") {
+                    // Changing supplier keeps only the items the new supplier sells
+                    const allowed = supplierSupplies(value)
+                    const nextForm = {
+                      ...formData,
+                      "0": value,
+                      "6": String(formData["6"] ?? "")
+                        .split("\n")
+                        .filter((line) => allowed.includes(line.split("|")[0].trim()))
+                        .join("\n"),
+                    }
+                    setFormData(nextForm)
+                    if (formValidationAttempted) {
+                      setFormFieldErrors(
+                        validateManagedForm(modal.section, nextForm, modal.mode),
+                      )
+                    }
+                    setPurchaseItemSelect("")
+                    setPurchaseItemPrice("")
+                    setPurchaseFormError("")
+                    return
+                  }
+                  if (["usuarios", "clientes", "proveedores"].includes(modal.section)) {
+                    const normalized =
+                      (modal.section === "usuarios" && f.key === "2") ||
+                      (modal.section === "clientes" && f.key === "2") ||
+                      (isSupplier && f.key === "9")
+                        ? normalizeDocumentInput(
+                            value,
+                            String(formData[isSupplier ? "8" : "1"] ?? ""),
+                          )
+                        : ((modal.section === "clientes" && f.key === "3") ||
+                            (isSupplier && ["3", "12"].includes(f.key)))
+                          ? normalizePhoneInput(value)
+                          : isSupplier && f.key === "1"
+                            ? value.replace(/[^0-9.-]/g, "").slice(0, 20)
+                            : value
+                    updateAdminField(modal.section, f.key, normalized)
+                    return
+                  }
+                  updateAdminField(modal.section, f.key, value)
                 }
                 return (
-                  <div key={f.key} className="flex flex-col gap-1.5">
+                  <Fragment key={f.key}>
+                  {isSupplier && (f.key === "1" || f.key === "8") && (
+                    <div
+                      className={`pt-1 sm:col-span-2 ${
+                        f.key === "1" ? "lg:col-span-2 lg:col-start-1" : "lg:col-span-2 lg:col-start-3"
+                      }`}
+                    >
+                      <div className="mb-1 h-px" style={{ background: t.border }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                        {f.key === "1" ? "Datos del proveedor" : "Persona de contacto"}
+                      </h4>
+                    </div>
+                  )}
+                  <div
+                    className={`flex min-w-0 flex-col gap-1 ${
+                      isSupplier
+                      ? Number(f.key) < 8
+                        ? "lg:col-span-2 lg:col-start-1"
+                        : f.key === "14"
+                          ? "lg:col-span-2 lg:col-start-3" // Cargo
+                          : Number(f.key) % 2 === 0
+                            ? "lg:col-start-3" // tipo doc, nombre, teléfono
+                            : "lg:col-start-4" // nº doc, apellido, correo
+                        : isPurchaseModule && isWideField(f)
+                          ? "sm:col-span-2"
+                          : ""
+                    }`}
+                  >
                     <label
                       className="text-xs font-semibold"
-                      style={{ color: t.muted }}
+                      style={{ color: !isView && shownFieldError(f.key) ? C.red : t.muted }}
                     >
                       {f.label}
-                      {requiredClientField && " *"}
+                      {!isView && (isRequiredField(f.key) || requiredFormField) && " *"}
                     </label>
                     {isPedido && f.key === "1" && !isView ? (
-                      <div className="flex flex-col gap-2">
-                        <div className="flex flex-wrap gap-2">
-                          {existingProductos.length === 0 ? (
-                            <div
-                              className="text-xs px-2.5 py-1.5 rounded-full"
-                              style={{ background: t.input, color: t.muted }}
+                      <div className="flex flex-col gap-3">
+                        <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                          {/* Wide enough so category and product names show complete */}
+                          <div className="grid gap-2 sm:grid-cols-[minmax(150px,1fr)_minmax(0,1.7fr)_64px_auto]">
+                            <select
+                              value={pedidoProductCategory}
+                              onChange={(event) => {
+                                setPedidoProductCategory(event.target.value)
+                                setPedidoProductoSelect("")
+                              }}
+                              className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none"
+                              style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                              aria-label="Filtrar productos por categoría"
                             >
-                              Sin productos seleccionados
-                            </div>
-                          ) : (
-                            existingProductos.map((producto) => (
-                              <button
-                                key={producto}
-                                type="button"
-                                onClick={() => {
-                                  const next = existingProductos.filter(
-                                    (item) => item !== producto,
-                                  )
-                                  setFormData((d) => ({
-                                    ...d,
-                                    [f.key]: next.join(", "),
-                                  }))
-                                }}
-                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs cursor-pointer"
-                                style={{
-                                  background: `${C.mustard}15`,
-                                  color: C.mustard,
-                                  border: `1px solid ${C.mustard}35`,
-                                }}
+                              {pedidoCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                            </select>
+                            <select
+                              value={pedidoProductoSelect}
+                              onChange={(event) => setPedidoProductoSelect(event.target.value)}
+                              className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none cursor-pointer"
+                              style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                            >
+                              <option value="">Selecciona producto o adición...</option>
+                              {filteredOrderProducts.map((product) => {
+                                const productRow = rows.producto?.find((item) => item[0] === product)
+                                return <option key={product} value={product}>{product}{productRow?.[1] === "Adiciones" ? " · Adición" : ""}</option>
+                              })}
+                            </select>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={pedidoProductQuantity}
+                              onChange={(event) => setPedidoProductQuantity(event.target.value)}
+                              className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none"
+                              style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                              aria-label="Cantidad"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const productRow = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
+                                const quantity = Number(pedidoProductQuantity)
+                                if (!productRow || !Number.isInteger(quantity) || quantity <= 0) return
+                                const parentLine = pedidoOrderLines.find((line) => line.id === pedidoParentSelect)
+                                const id = `order-line-${Date.now()}-${pedidoOrderLines.length}`
+                                const line: AdminOrderLine = {
+                                  id,
+                                  product: pedidoProductoSelect,
+                                  category: String(productRow[1] ?? ""),
+                                  quantity,
+                                  unitPrice: Number(productRow[2]) || 0,
+                                  ...(isSelectedAddition && parentLine ? { parentId: parentLine.id } : {}),
+                                }
+                                setPedidoOrderLines((current) => [...current, line])
+                                setPedidoProductoSelect("")
+                                setPedidoProductQuantity("1")
+                                setPedidoParentSelect("")
+                              }}
+                              className="rounded-xl px-3 py-2.5 text-xs font-bold cursor-pointer"
+                              style={{ background: C.mustard, color: "#fff" }}
+                            >
+                              Agregar
+                            </button>
+                          </div>
+                          {isSelectedAddition && (
+                            <label className="mt-2 flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                              Adición de (opcional)
+                              <select
+                                value={pedidoParentSelect}
+                                onChange={(event) => setPedidoParentSelect(event.target.value)}
+                                className="w-full rounded-xl px-3 py-2 text-xs outline-none"
+                                style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
                               >
-                                <span>{producto}</span>
-                                <span>×</span>
-                              </button>
-                            ))
+                                <option value="">Sin producto asociado</option>
+                                {pedidoOrderLines.filter((line) => line.category.toLowerCase() !== "adiciones").map((line) => (
+                                  <option key={line.id} value={line.id}>{line.product} × {line.quantity}</option>
+                                ))}
+                              </select>
+                            </label>
                           )}
                         </div>
-                        <div className="flex gap-2">
-                          <select
-                            value={pedidoProductoSelect}
-                            onChange={(e) =>
-                              setPedidoProductoSelect(e.target.value)
-                            }
-                            className="w-full min-w-0 flex-1 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
-                              color: t.text,
-                            }}
-                          >
-                            <option value="">Selecciona un producto...</option>
-                            {availableProductos
-                              .filter(
-                                (producto) =>
-                                  !existingProductos.includes(producto),
-                              )
-                              .map((producto) => (
-                                <option key={producto} value={producto}>
-                                  {producto}
-                                </option>
-                              ))}
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (!pedidoProductoSelect) return
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: [
-                                  ...existingProductos,
-                                  pedidoProductoSelect,
-                                ].join(", "),
-                              }))
-                              setPedidoProductoSelect("")
-                            }}
-                            className="flex-shrink-0 px-3 py-2 rounded-xl text-xs font-bold cursor-pointer"
-                            style={{ background: C.mustard, color: "#fff" }}
-                          >
-                            Agregar
-                          </button>
-                        </div>
+                        {!pedidoOrderLines.length ? (
+                          <div className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>
+                            Agrega al menos un producto al pedido.
+                          </div>
+                        ) : (
+                          <div className="flex flex-col divide-y rounded-xl px-3" style={{ background: t.input, borderColor: t.border }}>
+                            {pedidoOrderLines.map((line) => (
+                              <div key={line.id} className="flex items-center gap-3 py-2.5 text-xs" style={{ borderColor: t.border }}>
+                                <div className="min-w-0 flex-1">
+                                  <div className="font-semibold" style={{ color: t.text }}>
+                                    {line.product} × {line.quantity}
+                                    {line.category.toLowerCase() === "adiciones" && <span className="ml-1 rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: `${C.amber}18`, color: C.amber }}>Adición</span>}
+                                  </div>
+                                  {line.parentId && <div className="mt-0.5" style={{ color: t.muted }}>Adición de: {pedidoOrderLines.find((parent) => parent.id === line.parentId)?.product ?? "Producto"}</div>}
+                                </div>
+                                <span style={{ color: t.muted }}>{fmt(line.unitPrice)} c/u</span>
+                                <strong style={{ color: C.mustard }}>{fmt(line.unitPrice * line.quantity)}</strong>
+                                <button
+                                  type="button"
+                                  aria-label={`Quitar ${line.product}`}
+                                  onClick={() => setPedidoOrderLines((current) => current.filter((item) => item.id !== line.id).map((item) => item.parentId === line.id ? { ...item, parentId: undefined } : item))}
+                                  className="flex h-6 w-6 items-center justify-center rounded-lg cursor-pointer"
+                                  style={{ color: C.red, background: `${C.red}10` }}
+                                >
+                                  {Ico.x}
+                                </button>
+                              </div>
+                            ))}
+                            <div className="flex justify-between py-2 text-xs font-bold" style={{ color: t.text }}>
+                              <span>Total del pedido</span>
+                              <span style={{ color: C.mustard }}>{fmt(pedidoOrderLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0))}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : isView && isPurchaseModule ? (
+                      <div
+                        className="w-full min-w-0 border-b pb-2 text-sm font-medium break-words whitespace-pre-line"
+                        style={{ borderColor: t.border, color: t.text }}
+                      >
+                        {formatViewValue(f, val)}
                       </div>
                     ) : isView ? (
                       <div
@@ -10018,11 +14671,13 @@ function AdminPanel({
                         aria-checked={String(val).toLowerCase() === "sí"}
                         onClick={() => {
                           if (isClient) {
-                            setFormData((current) => {
-                              const enabled =
-                                String(current[f.key] ?? "No").toLowerCase() === "sí"
-                              return { ...current, [f.key]: enabled ? "No" : "Sí" }
-                            })
+                            const enabled =
+                              String(formData[f.key] ?? "No").toLowerCase() === "sí"
+                            updateAdminField(
+                              modal.section,
+                              f.key,
+                              enabled ? "No" : "Sí",
+                            )
                           } else {
                             handleSupplyCheckboxToggle()
                           }
@@ -10054,16 +14709,33 @@ function AdminPanel({
                     ) : f.type === "select" ? (
                       <select
                         value={val}
+                        disabled={
+                          isPrincipalAdminUser &&
+                          modal.mode === "edit" &&
+                          f.key === "3"
+                        }
                         onChange={(e) => updateFieldValue(e.target.value)}
-                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                        onBlur={() => {
+                          if (requiredFormField) {
+                            setFormFieldErrors(
+                              validateManagedForm(modal.section, formData, modal.mode),
+                            )
+                          }
+                        }}
+                        aria-invalid={!!fieldValidationError}
+                        className={`w-full min-w-0 rounded-xl text-sm outline-none cursor-pointer ${isUser || isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: val ? t.text : t.muted,
+                          cursor:
+                            isPrincipalAdminUser && modal.mode === "edit" && f.key === "3"
+                              ? "not-allowed"
+                              : "pointer",
                         }}
                       >
                         <option value="">Selecciona...</option>
-                        {fieldOptions?.map((o) => (
+                        {visibleFieldOptions?.map((o) => (
                           <option key={o} value={o}>
                             {o}
                           </option>
@@ -10076,95 +14748,179 @@ function AdminPanel({
                       <textarea
                         value={val}
                         onChange={(e) =>
-                          setFormData((d) => ({
-                            ...d,
-                            [f.key]: e.target.value,
-                          }))
+                          updateAdminField(modal.section, f.key, e.target.value)
                         }
-                        rows={3}
-                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
+                        onBlur={() =>
+                          requiredFormField &&
+                          setFormFieldErrors(
+                            validateManagedForm(modal.section, formData, modal.mode),
+                          )
+                        }
+                        aria-invalid={!isView && !!fieldValidationError}
+                        rows={isPurchaseModule ? 2 : isRoles ? 2 : 3}
+                        className={`w-full min-w-0 rounded-xl text-sm outline-none resize-none ${isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: t.text,
                         }}
                       />
                     ) : (
                       <input
                         type={f.type}
-                        value={val}
-                        onChange={(e) =>
-                          setFormData((d) => ({
-                            ...d,
-                            [f.key]: e.target.value,
-                          }))
+                        disabled={
+                          isProtectedAdditionCategory &&
+                          modal.mode === "edit" &&
+                          f.key === "0"
                         }
-                        className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
+                        max={isPurchase && f.key === "1" ? getCurrentDateTimeParts().date : undefined}
+                        value={val}
+                        inputMode={
+                          (modal.section === "usuarios" && f.key === "2") ||
+                          (isClient && ["2", "3"].includes(f.key)) ||
+                          (isSupplier &&
+                            ["1", "12"].includes(f.key)) ||
+                          (isSupplier &&
+                            f.key === "9" &&
+                            formData["8"] !== "Pasaporte")
+                            ? "numeric"
+                            : undefined
+                        }
+                        onChange={(e) => updateFieldValue(e.target.value)}
+                        onBlur={() => {
+                          if (requiredFormField) {
+                            setFormFieldErrors(
+                              validateManagedForm(modal.section, formData, modal.mode),
+                            )
+                          }
+                        }}
+                        aria-invalid={!isView && !!fieldValidationError}
+                        className={`w-full min-w-0 rounded-xl text-sm outline-none ${isUser || isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
-                          border: `1.5px solid ${t.inputB}`,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: t.text,
+                          opacity:
+                            isProtectedAdditionCategory &&
+                            modal.mode === "edit" &&
+                            f.key === "0"
+                              ? 0.7
+                              : 1,
                         }}
                       />
                     )}
+                    {!isView && (
+                      <FieldError msg={shownFieldError(f.key) || fieldValidationError} />
+                    )}
                   </div>
+                  </Fragment>
                 )
                 })}
               </>
             )}
             {isClient && !isView && clientFormError && (
-              <div className="rounded-xl px-3 py-2.5 text-xs font-medium" style={{ background: `${C.red}10`, color: C.red }}>
+              <div className="rounded-xl px-3 py-2.5 text-xs font-medium sm:col-span-2" style={{ background: `${C.red}10`, color: C.red }}>
                 {clientFormError}
               </div>
             )}
             {/* Section-specific view detail extras */}
-            {isView && modal.section === "cat-insumos" && (
-              <div
-                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
-                style={{ background: t.input, color: t.muted }}
-              >
-                Insumos asociados:{" "}
-                <strong style={{ color: t.text }}>
-                  {[3, 5, 2, 4, 6][modal.idx! % 5] ?? 3}
-                </strong>
-              </div>
-            )}
-            {isView && modal.section === "insumos" && (
-              <div
-                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
-                style={{ background: t.input }}
-              >
-                <div
-                  className="text-xs font-semibold mb-1"
-                  style={{ color: t.muted }}
-                >
-                  Proveedor
+            {/* Purchase module: real related data */}
+            {isView && modal.section === "cat-insumos" && row && (() => {
+              const supplies = (rows.insumos || []).filter((s) => String(s[1]) === String(row[0]))
+              return (
+                <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
+                  <div className="text-xs font-semibold mb-1.5" style={{ color: t.muted }}>
+                    Insumos en esta categoría ({supplies.length})
+                  </div>
+                  <div style={{ color: t.text }}>
+                    {supplies.length ? supplies.map((s) => String(s[0])).join(", ") : "Ningún insumo usa esta categoría todavía."}
+                  </div>
                 </div>
-                <div style={{ color: t.text }}>
-                  {[
-                    "Carnes Premium SAS",
-                    "Lácteos del Valle",
-                    "Panes Artesanales",
-                    "AgroVerde",
-                    "Carnes Premium SAS",
-                  ][modal.idx! % 5] ?? "Carnes Premium SAS"}
+              )
+            })()}
+            {isView && modal.section === "insumos" && row && (() => {
+              // Every purchase line of this insumo: what was bought, how much and for how much
+              const name = normalizeName(row[0])
+              const unit = String(row[2] ?? "und")
+              const lines = (rows.compras || []).flatMap((purchase) =>
+                parsePurchaseItems(purchase[6])
+                  .filter((item) => normalizeName(item.name) === name)
+                  .map((item) => ({
+                    supplier: String(purchase[0] ?? ""),
+                    date: String(purchase[1] ?? ""),
+                    annulled: String(purchase[5]) === "Anulado",
+                    quantity: Number(item.quantity) || 0,
+                    unitPrice: Number(item.unitPrice) || 0,
+                    total: item.total,
+                  })),
+              )
+              const active = lines.filter((l) => !l.annulled)
+              const boughtQty = active.reduce((s, l) => s + l.quantity, 0)
+              const boughtValue = active.reduce((s, l) => s + l.total, 0)
+              const dateField = MOD_CFG.compras.fields.find((field) => field.key === "1")!
+              return (
+                <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
+                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                      Compras de este insumo
+                    </span>
+                    {active.length > 0 && (
+                      <span className="text-xs" style={{ color: t.muted }}>
+                        Total comprado:{" "}
+                        <strong style={{ color: t.text }}>
+                          {boughtQty.toLocaleString("es-CO")} {unit}
+                        </strong>{" "}
+                        · <strong style={{ color: C.mustard }}>{fmt(boughtValue)}</strong>
+                      </span>
+                    )}
+                  </div>
+                  {lines.length === 0 ? (
+                    <div style={{ color: t.text }}>Aún no hay compras registradas de este insumo.</div>
+                  ) : (
+                    lines.map((l, i) => (
+                      <div
+                        key={i}
+                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
+                        style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
+                      >
+                        <span className="min-w-0" style={{ color: t.text }}>
+                          <strong>{formatViewValue(dateField, l.date)}</strong> · {l.supplier}
+                          {l.annulled && <span style={{ color: C.red }}> · Anulada</span>}
+                        </span>
+                        <span style={{ color: t.muted }}>
+                          {l.quantity.toLocaleString("es-CO")} {unit} × {fmt(l.unitPrice)} ={" "}
+                          <strong style={{ color: C.mustard }}>{fmt(l.total)}</strong>
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
-              </div>
-            )}
-            {isView && modal.section === "proveedores" && (
-              <div
-                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
-                style={{ background: t.input }}
-              >
-                <span style={{ color: t.muted }}>Insumos asociados: </span>
-                <strong style={{ color: t.text }}>
-                  {[5, 3][modal.idx! % 2]}
-                </strong>
-              </div>
-            )}
+              )
+            })()}
+            {isView && modal.section === "proveedores" && row && (() => {
+              const purchases = getSupplierPurchases(String(row[0]))
+              const total = purchases.reduce((s, p) => s + Number(p[4] || 0), 0)
+              return (
+                <div className="grid grid-cols-2 gap-3 rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
+                  <div>
+                    <div className="text-xs font-semibold" style={{ color: t.muted }}>Compras registradas</div>
+                    <div className="text-lg font-bold" style={{ color: t.text }}>{purchases.length}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold" style={{ color: t.muted }}>Total comprado</div>
+                    <div className="text-lg font-bold" style={{ color: C.mustard }}>{fmt(total)}</div>
+                  </div>
+                  <div className="col-span-2 text-xs" style={{ color: t.muted }}>
+                    {purchases.length
+                      ? "Como tiene compras registradas, este proveedor no se puede eliminar."
+                      : "No tiene compras registradas: se puede eliminar si ya no lo necesitas."}
+                  </div>
+                </div>
+              )
+            })()}
             {isView && isPurchase && (
               <div
-                className="min-w-0 overflow-hidden rounded-xl"
+                className="min-w-0 overflow-hidden rounded-xl sm:col-span-2"
                 style={{ border: `1px dashed ${t.inputB}`, background: t.card }}
               >
                 <div
@@ -10181,8 +14937,8 @@ function AdminPanel({
                 </div>
                 <div className="grid gap-2 px-4 py-3 text-xs sm:grid-cols-3" style={{ color: t.muted }}>
                   <span><strong style={{ color: t.text }}>Proveedor:</strong> {String(row?.[0] ?? "—")}</span>
-                  <span><strong style={{ color: t.text }}>Compra:</strong> {String(row?.[1] ?? "—")}</span>
-                  <span><strong style={{ color: t.text }}>Registro:</strong> {String(row?.[2] ?? "—")}</span>
+                  <span><strong style={{ color: t.text }}>Compra:</strong> {formatViewValue(cfg.fields[1], String(row?.[1] ?? ""))}</span>
+                  <span><strong style={{ color: t.text }}>Registro:</strong> {formatViewValue(cfg.fields[2], String(row?.[2] ?? ""))}</span>
                 </div>
                 <div className="min-w-0 border-t border-dashed px-4 py-3" style={{ borderColor: t.inputB }}>
                   <div className="mb-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted, fontFamily: "Montserrat, sans-serif" }}>Insumos comprados</div>
@@ -10191,7 +14947,7 @@ function AdminPanel({
                       <div key={`${item.name}-${index}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 border-b py-2.5 text-xs last:border-b-0" style={{ borderColor: t.border }}>
                         <span className="min-w-0 font-semibold break-words" style={{ color: t.text }}>{item.name}</span>
                         <span className="text-right font-bold" style={{ color: C.mustard }}>{fmt(item.total)}</span>
-                        <span className="col-span-2 text-[10px]" style={{ color: t.muted }}>{item.quantity} und × {fmt(Number(item.unitPrice || 0))}</span>
+                        <span className="col-span-2 text-[10px]" style={{ color: t.muted }}>{item.quantity} {String(supplyInfo(item.name)?.[2] ?? "und")} × {fmt(Number(item.unitPrice || 0))}</span>
                       </div>
                     ))
                   ) : (
@@ -10204,19 +14960,25 @@ function AdminPanel({
                 </div>
               </div>
             )}
-            {isView && modal.section === "cat-producto" && (
-              <div
-                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
-                style={{ background: t.input }}
-              >
-                Productos en esta categoría:{" "}
-                <strong style={{ color: t.text }}>
-                  {[9, 7, 3, 3, 2, 2, 4, 2][modal.idx! % 8] ?? 4}
-                </strong>
-              </div>
-            )}
+            {isView && modal.section === "cat-producto" && row && (() => {
+              const products = (rows.producto || []).filter(
+                (product) => normalizeName(product[1]) === normalizeName(row[0]),
+              )
+              return (
+                <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
+                  <div className="text-xs font-semibold mb-1.5" style={{ color: t.muted }}>
+                    Productos en esta categoría ({products.length})
+                  </div>
+                  <div style={{ color: t.text }}>
+                    {products.length
+                      ? products.map((product) => String(product[0])).join(", ")
+                      : "Ningún producto usa esta categoría todavía."}
+                  </div>
+                </div>
+              )
+            })()}
             {isView && isProduction && (
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
                 <div className="rounded-xl px-3.5 py-3 sm:col-span-2" style={{ background: t.input }}>
                   <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Productos de la orden</span>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -10264,42 +15026,196 @@ function AdminPanel({
               </div>
             )}
             {isView && isPedido && (
-              <div className="rounded-xl p-4" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+              <div className="rounded-xl p-4 sm:col-span-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
                 <div className="grid gap-2 sm:grid-cols-3">
                   <span className="text-xs" style={{ color: t.muted }}>Estado: <strong style={{ color: t.text }}>{String(row?.[7] ?? "Recibido")}</strong></span>
                   <span className="text-xs" style={{ color: t.muted }}>Pago: <strong style={{ color: String(row?.[8]) === "Pagado" ? "#2E7D60" : C.red }}>{String(row?.[8] ?? "Pendiente")}</strong></span>
                   <span className="text-xs" style={{ color: t.muted }}>Autorización: <strong style={{ color: String(row?.[9]) === "Autorizada" ? "#2E7D60" : C.mustard }}>{String(row?.[9] ?? "Pendiente admin")}</strong></span>
                 </div>
-                <button
-                  type="button"
-                  disabled={(String(row?.[5]) !== "Contraentrega" && (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) || String(row?.[9]) === "Autorizada"}
-                  onClick={() => approveOrderForProduction(modal.idx!)}
-                  className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ background: C.mustard, color: "#fff" }}
-                >
-                  {String(row?.[9]) === "Autorizada" ? "Producción ya autorizada" : "Confirmar pedido y enviar a producción"}
-                </button>
+                <div className="mt-4">
+                  <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle del pedido</h4>
+                  <div className="flex flex-col gap-2">
+                    {orderDetails.map((line) => {
+                      const parent = line.parentId
+                        ? orderDetails.find((candidate) => candidate.id === line.parentId)
+                        : undefined
+                      return (
+                        <div key={line.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                          <span style={{ color: t.text }}>{parent ? `↳ ${line.product} · adición de ${parent.product}` : line.product} <span style={{ color: t.muted }}>× {line.quantity}</span></span>
+                          <strong className="shrink-0" style={{ color: t.text }}>{fmt(line.quantity * line.unitPrice)}</strong>
+                        </div>
+                      )
+                    })}
+                    {!orderDetails.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
+                  </div>
+                </div>
+                {paymentProofs[modal.idx!] && (
+                  <div className="mt-4">
+                    <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
+                      Comprobante de transferencia
+                    </h4>
+                    <img
+                      src={paymentProofs[modal.idx!]}
+                      alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
+                      className="max-h-64 w-full rounded-xl object-contain"
+                      style={{ background: t.card, border: `1px solid ${t.border}` }}
+                    />
+                  </div>
+                )}
+                {loadOrders().some((order) => order.id === row?.[0]) && (
+                  <label className="mt-4 flex items-center justify-between gap-3 text-xs font-semibold" style={{ color: t.text }}>
+                    Estado del pedido (lo ve el cliente)
+                    <select
+                      value={String(row?.[7] ?? "")}
+                      onChange={(e) => setClientOrderStatus(modal.idx!, e.target.value)}
+                      className="rounded-lg px-3 py-2 text-sm"
+                      style={{ background: t.card, color: t.text, border: `1px solid ${t.border}` }}
+                    >
+                      {[...new Set([String(row?.[7] ?? ""), "Por confirmar", ...ORDER_STEPS, "Cancelado"])]
+                        .filter(Boolean)
+                        .map((status) => (
+                          <option key={status} value={status}>
+                            {status}
+                          </option>
+                        ))}
+                    </select>
+                  </label>
+                )}
+                {loadOrders().some((order) => order.id === row?.[0]) && ORDER_TO_PRODUCTION[String(row?.[7])] && (
+                  <button
+                    type="button"
+                    onClick={() => setClientOrderStatus(modal.idx!, String(row?.[7]))}
+                    className="mt-2 w-full cursor-pointer rounded-xl py-2 text-xs font-bold"
+                    style={{ background: `${C.mustard}14`, color: C.mustard }}
+                  >
+                    Sincronizar producción con «{String(row?.[7])}»
+                  </button>
+                )}
+                {String(row?.[8]) === "Rechazado" && (
+                  <p className="mt-4 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
+                    Transferencia rechazada: {String(row?.[11] || "Sin motivo registrado.")}
+                  </p>
+                )}
+                {isTransferPaymentMethod(String(row?.[4] ?? "")) &&
+                String(row?.[8]) === "Pendiente de verificación" ? (
+                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentRejectionTarget(modal.idx!)
+                        setPaymentRejectionReason("")
+                        setPaymentRejectionError("")
+                      }}
+                      className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
+                      style={{ background: `${C.red}12`, color: C.red }}
+                    >
+                      Rechazar transferencia
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!paymentProofs[modal.idx!]}
+                      onClick={() => approveOrderForProduction(modal.idx!)}
+                      className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      Aprobar transferencia y enviar a producción
+                    </button>
+                  </div>
+                ) : String(row?.[9]) === "Autorizada" ? (
+                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
+                    Pago aprobado y producción autorizada.
+                  </p>
+                ) : String(row?.[9]) === "Enviada a producción" ? (
+                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
+                    Ya se envió a producción.
+                  </p>
+                ) : String(row?.[8]) !== "Rechazado" && (
+                  <button
+                    type="button"
+                    disabled={
+                      (String(row?.[5]) !== "Contraentrega" &&
+                        (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) ||
+                      ["Autorizada", "Enviada a producción"].includes(String(row?.[9]))
+                    }
+                    onClick={() => approveOrderForProduction(modal.idx!)}
+                    className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ background: C.mustard, color: "#fff" }}
+                  >
+                    Confirmar pedido y enviar a producción
+                  </button>
+                )}
+              </div>
+            )}
+            {isView && isSales && (
+              <div className="rounded-xl p-4 sm:col-span-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+                <h4 className="mb-3 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle de la venta</h4>
+                <div className="flex flex-col gap-2">
+                  {saleOrderLines.map((line) => {
+                    const parent = line.parentId
+                      ? saleOrderLines.find((candidate) => candidate.id === line.parentId)
+                      : undefined
+                    return (
+                      <div key={line.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                        <span style={{ color: t.text }}>{parent ? `↳ ${line.product} · adición de ${parent.product}` : line.product} <span style={{ color: t.muted }}>× {line.quantity}</span></span>
+                        <strong className="shrink-0" style={{ color: t.text }}>{fmt(line.quantity * line.unitPrice)}</strong>
+                      </div>
+                    )
+                  })}
+                  {!saleOrderLines.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
+                </div>
+                {saleOrderIndex >= 0 && paymentProofs[saleOrderIndex] && (
+                  <div className="mt-4">
+                    <h4 className="mb-2 text-xs font-bold" style={{ color: t.text }}>Comprobante de pago</h4>
+                    <img src={paymentProofs[saleOrderIndex]} alt="Comprobante de pago" className="max-h-56 w-full rounded-lg object-contain" style={{ background: t.card }} />
+                  </div>
+                )}
               </div>
             )}
             {/* Roles permissions matrix */}
             {isRoles && !isView && (
-              <RolesPermMatrix roleName={formData["0"] || ""} />
+              <div className="sm:col-span-2">
+                <RolesPermMatrix
+                  roleName={formData["0"] || ""}
+                  permissionKey={
+                    modal.mode === "edit" && row
+                      ? String(row[0] ?? "")
+                      : formData["0"] || ""
+                  }
+                />
+              </div>
             )}
             {isRoles && isView && row && (
-              <RolesPermMatrix roleName={String(row[0])} />
+              <RolesPermMatrix roleName={String(row[0])} readOnly={true} />
             )}
           </div>
           <div
-            className="px-5 py-4 flex gap-3"
+            className={`px-5 flex gap-3 ${isUser || isRoles ? "py-3" : "py-4"}`}
             style={{ borderTop: `1px solid ${t.border}` }}
           >
             <button
               onClick={() => setModal({ mode: null, section: "", idx: null })}
-              className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer"
+              className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer transition-colors"
               style={{ background: t.input, color: t.muted }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(182,140,28,0.12)"
+                e.currentTarget.style.color = C.mustard
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = t.input
+                e.currentTarget.style.color = t.muted
+              }}
             >
-              Cancelar
+              {isView ? "Cerrar" : "Cancelar"}
             </button>
+            {isView && isPurchaseModule && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && (
+              <button
+                onClick={() => openEdit(modal.section, modal.idx!)}
+                className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                Editar
+              </button>
+            )}
             {!isView && (
               <button
                 onClick={saveModal}
@@ -10311,6 +15227,377 @@ function AdminPanel({
             )}
           </div>
         </div>
+        {technicalSheetOpen && isProduct && !isView && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6"
+            style={{ background: "rgba(0,0,0,0.55)" }}
+            onClick={() => setTechnicalSheetOpen(false)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="product-tech-sheet-title"
+              className="flex w-full max-w-xl flex-col overflow-hidden rounded-2xl"
+              style={{ background: t.card, border: `1px solid ${t.border}`, maxHeight: "85vh" }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${t.border}` }}>
+                <div>
+                  <h3 id="product-tech-sheet-title" className="font-semibold" style={{ color: t.text }}>Ficha técnica del producto</h3>
+                  <p className="mt-1 text-xs" style={{ color: t.muted }}>{formData["0"] || "Producto"} · versión {formData["6"] || getAutoTechVersion(rows.producto || [])}</p>
+                </div>
+                <button type="button" onClick={() => setTechnicalSheetOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-xl cursor-pointer" style={{ background: t.input, color: t.muted }} aria-label="Cerrar ficha técnica">{Ico.x}</button>
+              </div>
+              <div className="flex flex-col gap-3 overflow-y-auto px-5 py-4">
+                <p className="text-xs" style={{ color: t.muted }}>Agrega cada insumo y la cantidad necesaria para una unidad del producto. La unidad se toma del inventario y debe coincidir.</p>
+                <section className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                  <h4 className="mb-1 text-xs font-bold" style={{ color: t.text }}>
+                    Cómo se prepara · pasos en orden
+                  </h4>
+                  <p className="mb-3 text-[11px]" style={{ color: t.muted }}>
+                    Agrega cada acción y ordénala desde el primer paso hasta el último.
+                  </p>
+                  {technicalSteps.length ? (
+                    <ol className="mb-3 flex flex-col gap-2">
+                      {technicalSteps.map((step, index) => (
+                        <li
+                          key={`${index}-${step}`}
+                          className="flex items-center gap-2 rounded-lg px-2.5 py-2"
+                          style={{ background: t.input }}
+                        >
+                          <span className="w-6 shrink-0 text-xs font-bold" style={{ color: C.mustard }}>
+                            {index + 1}.
+                          </span>
+                          <span className="min-w-0 flex-1 text-xs" style={{ color: t.text }}>
+                            {step}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Mover paso ${index + 1} arriba`}
+                            title="Mover arriba"
+                            disabled={index === 0}
+                            onClick={() => setTechnicalSteps((current) => {
+                              const next = [...current]
+                              ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
+                              return next
+                            })}
+                            className="h-7 w-7 rounded-md text-sm font-bold disabled:opacity-30"
+                            style={{ background: t.card, color: t.text }}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Mover paso ${index + 1} abajo`}
+                            title="Mover abajo"
+                            disabled={index === technicalSteps.length - 1}
+                            onClick={() => setTechnicalSteps((current) => {
+                              const next = [...current]
+                              ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+                              return next
+                            })}
+                            className="h-7 w-7 rounded-md text-sm font-bold disabled:opacity-30"
+                            style={{ background: t.card, color: t.text }}
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Quitar paso ${index + 1}`}
+                            title="Quitar paso"
+                            onClick={() => setTechnicalSteps((current) => current.filter((_, stepIndex) => stepIndex !== index))}
+                            className="flex h-7 w-7 items-center justify-center rounded-md"
+                            style={{ background: `${C.red}10`, color: C.red }}
+                          >
+                            {Ico.trash}
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="mb-3 rounded-lg px-3 py-3 text-center text-xs" style={{ background: t.input, color: t.muted }}>
+                      Aún no hay pasos de preparación.
+                    </p>
+                  )}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="text"
+                      aria-label="Acción del paso de preparación"
+                      placeholder="Escribe una acción..."
+                      value={technicalStepDraft}
+                      onChange={(event) => setTechnicalStepDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault()
+                          const step = technicalStepDraft.trim()
+                          if (!step) return
+                          setTechnicalSteps((current) => [...current, step])
+                          setTechnicalStepDraft("")
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded-lg px-3 py-2 text-xs outline-none"
+                      style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const step = technicalStepDraft.trim()
+                        if (!step) return
+                        setTechnicalSteps((current) => [...current, step])
+                        setTechnicalStepDraft("")
+                      }}
+                      disabled={!technicalStepDraft.trim()}
+                      className="rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-50"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      Agregar paso
+                    </button>
+                  </div>
+                </section>
+                {technicalIngredients.length ? (
+                  technicalIngredients.map((ingredient, index) => (
+                    <div key={`${ingredient.name}-${index}`} className="grid items-center gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_110px_90px_auto]" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                      <span className="min-w-0 truncate text-sm font-semibold" style={{ color: t.text }}>{ingredient.name}</span>
+                      <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold" style={{ color: t.muted }}>
+                        Cantidad
+                        <input
+                          aria-label={`Cantidad de ${ingredient.name}`}
+                          type="number"
+                          min="0.001"
+                          step="any"
+                          value={ingredient.quantity}
+                          onChange={(event) => setTechnicalIngredients((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Number(event.target.value) } : item))}
+                          className="w-full rounded-lg px-3 py-2 text-sm font-normal outline-none"
+                          style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                        />
+                      </label>
+                      <span className="text-xs" style={{ color: t.muted }}>{ingredient.unit}</span>
+                      <button type="button" onClick={() => setTechnicalIngredients((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-8 w-8 items-center justify-center rounded-lg cursor-pointer" style={{ background: `${C.red}10`, color: C.red }} aria-label={`Quitar ${ingredient.name}`}>{Ico.trash}</button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl px-3 py-5 text-center text-xs" style={{ background: t.input, color: t.muted }}>Todavía no hay insumos en esta ficha.</div>
+                )}
+                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px_auto]">
+                  <select
+                    value={technicalIngredientSelect}
+                    onChange={(event) => setTechnicalIngredientSelect(event.target.value)}
+                    className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
+                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                  >
+                    <option value="">Selecciona un insumo...</option>
+                    {getAvailableInsumos().filter((name) => !technicalIngredients.some((item) => item.name === name)).map((name) => {
+                      const supply = rows.insumos?.find((item) => item[0] === name)
+                      return <option key={name} value={name}>{name} · {String(supply?.[2] ?? "und")}</option>
+                    })}
+                  </select>
+                  <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold" style={{ color: t.muted }}>
+                    Cantidad necesaria
+                    <input
+                      aria-label="Cantidad del insumo"
+                      type="number"
+                      min="0.001"
+                      step="any"
+                      value={technicalIngredientQuantity}
+                      onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
+                      className="w-full rounded-xl px-3 py-2 text-sm font-normal outline-none"
+                      style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const supply = rows.insumos?.find((item) => item[0] === technicalIngredientSelect)
+                      const quantity = Number(technicalIngredientQuantity)
+                      if (!supply || !Number.isFinite(quantity) || quantity <= 0) {
+                        setTechnicalSheetError("Selecciona un insumo e ingresa una cantidad mayor que cero.")
+                        return
+                      }
+                      setTechnicalIngredients((current) => [...current, {
+                        name: technicalIngredientSelect,
+                        quantity,
+                        unit: String(supply[2] ?? ""),
+                      }])
+                      setTechnicalIngredientSelect("")
+                      setTechnicalIngredientQuantity("1")
+                      setTechnicalSheetError("")
+                    }}
+                    className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer"
+                    style={{ background: C.mustard, color: "#fff" }}
+                  >
+                    Agregar insumo
+                  </button>
+                </div>
+                {technicalSheetError && <p className="text-xs font-medium" style={{ color: C.red }} role="alert">{technicalSheetError}</p>}
+              </div>
+              <div className="flex justify-end gap-2 px-5 py-4" style={{ borderTop: `1px solid ${t.border}` }}>
+                <button type="button" onClick={() => setTechnicalSheetOpen(false)} className="rounded-xl px-4 py-2.5 text-sm font-semibold cursor-pointer" style={{ background: t.input, color: t.muted }}>Cancelar</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const recipe = JSON.stringify(technicalIngredients)
+                    setFormData((current) => ({
+                      ...current,
+                      "5": `Ficha técnica - ${current["0"] || "Producto"}`,
+                      "7": technicalIngredients.map((ingredient) => ingredient.name).join(", "),
+                      "8": JSON.stringify([
+                        ...technicalSteps,
+                        ...(technicalStepDraft.trim() ? [technicalStepDraft.trim()] : []),
+                      ]),
+                      "9": recipe,
+                    }))
+                    if (technicalStepDraft.trim()) {
+                      setTechnicalSteps((current) => [...current, technicalStepDraft.trim()])
+                    }
+                    setTechnicalStepDraft("")
+                    setTechnicalSheetOpen(false)
+                    setTechnicalSheetError("")
+                  }}
+                  className="rounded-xl px-4 py-2.5 text-sm font-bold cursor-pointer"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  Guardar ficha
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {isPurchase && lossDraft && (() => {
+          const motivos =
+            MOD_CFG.perdidas.fields.find((field) => field.key === "2")?.options ?? []
+          const updateLoss = (patch: Partial<typeof lossDraft>) => {
+            setLossError("")
+            setLossDraft((current) => (current ? { ...current, ...patch } : current))
+          }
+          const confirmLoss = () => {
+            const qty = Number(lossDraft.qty)
+            if (!(qty > 0)) return setLossError("Escribe cuánto se perdió.")
+            if (qty > lossDraft.max)
+              return setLossError(
+                `No puede ser más de lo comprado: máximo ${lossDraft.max.toLocaleString("es-CO")} ${lossDraft.unit}.`,
+              )
+            if (!lossDraft.motivo) return setLossError("Selecciona el motivo de la pérdida.")
+            if (!lossDraft.responsable.trim()) return setLossError("Escribe quién es el responsable.")
+            if (!lossDraft.fecha) return setLossError("Selecciona la fecha.")
+            const lossRow: Row = [
+              lossDraft.insumo,
+              `${qty} ${lossDraft.unit}`,
+              lossDraft.motivo,
+              lossDraft.responsable.trim(),
+              lossDraft.fecha,
+              lossDraft.origin,
+            ]
+            setRows((current) => ({ ...current, perdidas: [lossRow, ...(current.perdidas || [])] }))
+            syncRow("perdidas", lossRow, true)
+            setPurchaseNotice(
+              `Se envió a Pérdida de insumos: ${qty.toLocaleString("es-CO")} ${lossDraft.unit} de «${lossDraft.insumo}» (${lossDraft.motivo}).`,
+            )
+            setLossDraft(null)
+            setLossError("")
+          }
+          const controlSt = { background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }
+          return (
+            <div
+              className="fixed inset-0 z-[80] flex items-center justify-center px-4"
+              style={{ background: "rgba(0,0,0,0.45)" }}
+              onClick={(e) => {
+                e.stopPropagation()
+                setLossDraft(null)
+              }}
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="loss-dialog-title"
+                className="w-full max-w-sm rounded-2xl p-5"
+                style={{ background: t.card, border: `1px solid ${t.border}` }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <h3 id="loss-dialog-title" className="text-base font-semibold" style={{ color: t.text }}>
+                  Enviar a pérdida de insumos
+                </h3>
+                <p className="mt-1 mb-4 text-xs" style={{ color: t.muted }}>
+                  <strong style={{ color: t.text }}>{lossDraft.insumo}</strong> · {lossDraft.origin}
+                </p>
+                <div className="flex flex-col gap-3">
+                  <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
+                    Cantidad perdida ({lossDraft.unit}) · máximo {lossDraft.max.toLocaleString("es-CO")}
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={lossDraft.qty}
+                      onChange={(e) => updateLoss({ qty: e.target.value })}
+                      className="rounded-xl px-3 py-2.5 text-sm outline-none"
+                      style={controlSt}
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
+                    Motivo
+                    <select
+                      value={lossDraft.motivo}
+                      onChange={(e) => updateLoss({ motivo: e.target.value })}
+                      className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                      style={{ ...controlSt, color: lossDraft.motivo ? t.text : t.muted }}
+                    >
+                      <option value="">Selecciona...</option>
+                      {motivos.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
+                      Responsable
+                      <input
+                        value={lossDraft.responsable}
+                        onChange={(e) => updateLoss({ responsable: e.target.value })}
+                        placeholder="Ej: cocinero"
+                        className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
+                        style={controlSt}
+                      />
+                    </label>
+                    <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
+                      Fecha
+                      <input
+                        type="date"
+                        value={lossDraft.fecha}
+                        onChange={(e) => updateLoss({ fecha: e.target.value })}
+                        className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
+                        style={controlSt}
+                      />
+                    </label>
+                  </div>
+                  {lossError && (
+                    <p className="text-xs font-medium" style={{ color: C.red }} role="alert">
+                      {lossError}
+                    </p>
+                  )}
+                </div>
+                <div className="mt-5 flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setLossDraft(null)}
+                    className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
+                    style={{ background: t.input, color: t.muted }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmLoss}
+                    className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
+                    style={{ background: C.red, color: "#fff" }}
+                  >
+                    Enviar a pérdida
+                  </button>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
       </div>
     )
   }
@@ -10321,12 +15608,28 @@ function AdminPanel({
     const productOptions = orderItems.length
       ? orderItems.map((item) => item.name)
       : getNonconformingProductOptions()
+    const selectedItemUnit = pncForm["1"]
+      ? getNonconformingItemUnit(pncForm["1"])
+      : ""
     const controlStyle = {
       background: t.input,
       border: `1px solid ${t.inputB}`,
       color: t.text,
       fontFamily: "Poppins, sans-serif",
     }
+    const updatePncField = (key: string, value: string) => {
+      setPncForm((current) => ({ ...current, [key]: value }))
+      setPncFieldErrors((current) => {
+        const next = { ...current }
+        delete next[key]
+        return next
+      })
+      setPncError("")
+    }
+    const pncStyle = (key: string) => ({
+      ...controlStyle,
+      border: `1px solid ${pncFieldErrors[key] ? C.red : t.inputB}`,
+    })
     return (
       <div
         className="fixed inset-0 z-[70] flex items-end justify-center px-3 pb-3 pt-8 sm:items-center sm:px-4 sm:pb-4"
@@ -10334,7 +15637,7 @@ function AdminPanel({
         onClick={() => setPncTarget(null)}
       >
         <div
-          className="flex max-h-[92vh] w-full max-w-2xl min-w-0 flex-col overflow-hidden rounded-3xl"
+          className="flex max-h-[92vh] w-full max-w-4xl min-w-0 flex-col overflow-hidden rounded-3xl"
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
@@ -10379,7 +15682,7 @@ function AdminPanel({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Producto o producto de insumo
+                  Producto o producto de insumo *
                   <select value={pncForm["1"] || ""} onChange={(event) => {
                     const selectedProduct = event.target.value
                     const selectedItem = orderItems.find((item) => item.name === selectedProduct)
@@ -10389,18 +15692,34 @@ function AdminPanel({
                       "2": selectedProduct,
                       "3": String(selectedItem?.quantity ?? current["3"] ?? 1),
                     }))
-                  }} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle}>
+                    setPncFieldErrors((current) => {
+                      const next = { ...current }
+                      delete next["1"]
+                      delete next["2"]
+                      delete next["3"]
+                      return next
+                    })
+                    setPncError("")
+                  }} aria-invalid={!!pncFieldErrors["1"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("1")}>
                     <option value="">Selecciona...</option>
                     {productOptions.map((product) => <option key={product} value={product}>{product}</option>)}
                   </select>
+                  {pncFieldErrors["1"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["1"]}</span>}
+                  {selectedItemUnit && (
+                    <span className="rounded-lg px-3 py-2 text-[11px] font-medium" style={{ background: t.input, color: t.muted }}>
+                      Unidad de medida: <strong style={{ color: t.text }}>{selectedItemUnit}</strong>
+                    </span>
+                  )}
                 </label>
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Cantidad
-                  <input type="number" min="1" value={pncForm["3"] || "1"} onChange={(event) => setPncForm((current) => ({ ...current, "3": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                  Cantidad *
+                  <input type="number" min="1" value={pncForm["3"] || "1"} onChange={(event) => updatePncField("3", event.target.value)} aria-invalid={!!pncFieldErrors["3"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("3")} />
+                  {pncFieldErrors["3"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["3"]}</span>}
                 </label>
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold sm:col-span-2" style={{ color: t.muted }}>
-                  Productos que se dañaron
-                  <textarea rows={2} value={pncForm["2"] || ""} onChange={(event) => setPncForm((current) => ({ ...current, "2": event.target.value }))} className="w-full min-w-0 resize-none rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                  Productos que se dañaron *
+                  <textarea rows={2} value={pncForm["2"] || ""} onChange={(event) => updatePncField("2", event.target.value)} aria-invalid={!!pncFieldErrors["2"]} className="w-full min-w-0 resize-none rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("2")} />
+                  {pncFieldErrors["2"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["2"]}</span>}
                 </label>
               </div>
             </section>
@@ -10412,14 +15731,16 @@ function AdminPanel({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Motivo
-                  <select value={pncForm["4"] || "Producto perdido"} onChange={(event) => setPncForm((current) => ({ ...current, "4": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle}>
+                  Motivo *
+                  <select value={pncForm["4"] || "Producto perdido"} onChange={(event) => updatePncField("4", event.target.value)} aria-invalid={!!pncFieldErrors["4"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("4")}>
                     {["Tiempo superado", "Error en preparación", "Ingrediente incorrecto", "Daño físico", "Producto perdido", "Otro"].map((reason) => <option key={reason}>{reason}</option>)}
                   </select>
+                  {pncFieldErrors["4"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["4"]}</span>}
                 </label>
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Fecha del registro
-                  <input type="date" value={pncForm["5"] || ""} onChange={(event) => setPncForm((current) => ({ ...current, "5": event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={controlStyle} />
+                  Fecha del registro *
+                  <input type="date" value={pncForm["5"] || ""} onChange={(event) => updatePncField("5", event.target.value)} aria-invalid={!!pncFieldErrors["5"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("5")} />
+                  {pncFieldErrors["5"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["5"]}</span>}
                 </label>
               </div>
             </section>
@@ -10447,17 +15768,60 @@ function AdminPanel({
   const QuickClientModal = () => {
     if (!quickClientOpen) return null
     const quickIsLocal = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
+    const updateQuickClientField = (
+      key: string,
+      rawValue: string,
+      validateImmediately = false,
+    ) => {
+      const value =
+        key === "2"
+          ? normalizeDocumentInput(rawValue, quickClientForm["1"] ?? "")
+          : key === "3"
+            ? normalizePhoneInput(rawValue)
+            : rawValue
+      const nextForm = { ...quickClientForm, [key]: value }
+      if (key === "1") {
+        nextForm["2"] = normalizeDocumentInput(
+          nextForm["2"] ?? "",
+          value,
+        )
+      }
+      setQuickClientForm(nextForm)
+      if (validateImmediately || quickClientErrors[key] || quickClientError) {
+        const isLocal = String(nextForm["6"] ?? "").toLowerCase() === "sí"
+        const required =
+          key === "0" || key === "1" || key === "2" || key === "3" ||
+          (!isLocal && (key === "4" || key === "5"))
+        let error = required && !value.trim() ? "Este campo es obligatorio." : ""
+        if (!error && key === "2" && value.trim()) {
+          error = validateDocumentNumber(value, nextForm["1"] ?? "")
+        }
+        if (!error && key === "3" && value.trim()) error = validatePhoneNumber(value)
+        if (!error && key === "4" && value.trim() && !EMAIL_PATTERN.test(value.trim())) {
+          error = "Escribe un correo electrónico válido."
+        }
+        setQuickClientErrors((current) => {
+          const updated = { ...current }
+          if (error) updated[key] = error
+          else delete updated[key]
+          return updated
+        })
+        if (!error) setQuickClientError("")
+      }
+    }
     const field = (key: string, label: string, type = "text", options?: string[]) => (
       <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-        {label}
+        {label}{(key === "0" || key === "1" || key === "2" || key === "3" ||
+          (!quickIsLocal && (key === "4" || key === "5"))) && " *"}
         {options ? (
-          <select value={quickClientForm[key] || ""} onChange={(event) => setQuickClientForm((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}>
+          <select value={quickClientForm[key] || ""} onBlur={() => updateQuickClientField(key, quickClientForm[key] || "", true)} onChange={(event) => updateQuickClientField(key, event.target.value)} aria-invalid={!!quickClientErrors[key]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${quickClientErrors[key] ? C.red : t.inputB}`, color: t.text }}>
             <option value="">Selecciona...</option>
             {options.map((option) => <option key={option}>{option}</option>)}
           </select>
         ) : (
-          <input type={type} value={quickClientForm[key] || ""} onChange={(event) => setQuickClientForm((current) => ({ ...current, [key]: event.target.value }))} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
+          <input type={type} inputMode={key === "2" || key === "3" ? "numeric" : undefined} value={quickClientForm[key] || ""} onBlur={() => updateQuickClientField(key, quickClientForm[key] || "", true)} onChange={(event) => updateQuickClientField(key, event.target.value)} aria-invalid={!!quickClientErrors[key]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${quickClientErrors[key] ? C.red : t.inputB}`, color: t.text }} />
         )}
+        {quickClientErrors[key] && <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>{quickClientErrors[key]}</span>}
       </label>
     )
     return (
@@ -10478,7 +15842,16 @@ function AdminPanel({
               type="button"
               role="checkbox"
               aria-checked={quickIsLocal}
-              onClick={() => setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))}
+              onClick={() => {
+                setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))
+                setQuickClientErrors((current) => {
+                  const next = { ...current }
+                  if (quickIsLocal) return next
+                  delete next["4"]
+                  delete next["5"]
+                  return next
+                })
+              }}
               className="flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 text-left sm:col-span-2"
               style={{ background: t.input, border: `1px solid ${t.inputB}` }}
             >
@@ -10572,6 +15945,76 @@ function AdminPanel({
     )
   }
 
+  const PaymentRejectionModal = () => {
+    if (paymentRejectionTarget === null) return null
+    const order = rows.pedidos?.[paymentRejectionTarget]
+    if (!order) return null
+
+    return (
+      <div
+        className="fixed inset-0 z-[70] flex items-center justify-center px-4"
+        style={{ background: "rgba(0,0,0,0.65)" }}
+        onClick={() => setPaymentRejectionTarget(null)}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="payment-rejection-title"
+          className="w-full max-w-md rounded-2xl p-5"
+          style={{ background: t.card, border: `1px solid ${t.border}` }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h3 id="payment-rejection-title" className="text-base font-bold" style={{ color: t.text }}>
+            Rechazar transferencia
+          </h3>
+          <p className="mt-2 text-sm" style={{ color: t.muted }}>
+            El pedido {String(order[0])} no se enviará a producción. Escribe el motivo para que quede guardado en el pedido.
+          </p>
+          <textarea
+            autoFocus
+            rows={3}
+            value={paymentRejectionReason}
+            onChange={(event) => {
+              setPaymentRejectionReason(event.target.value)
+              setPaymentRejectionError("")
+            }}
+            placeholder="Ej.: comprobante no válido o pago no recibido"
+            aria-label="Motivo del rechazo"
+            className="mt-4 w-full resize-none rounded-xl px-3 py-2.5 text-sm outline-none"
+            style={{
+              background: t.input,
+              border: `1px solid ${paymentRejectionError ? C.red : t.inputB}`,
+              color: t.text,
+            }}
+          />
+          {paymentRejectionError && (
+            <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
+              {paymentRejectionError}
+            </p>
+          )}
+          <div className="mt-4 flex gap-3">
+            <button
+              type="button"
+              onClick={() => setPaymentRejectionTarget(null)}
+              className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
+              style={{ background: t.input, color: t.muted }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={rejectTransferPayment}
+              className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
+              style={{ background: C.red, color: "#fff" }}
+            >
+              Confirmar rechazo
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   const DelModal = () => {
     if (!delTarget) return null
 
@@ -10611,8 +16054,10 @@ function AdminPanel({
           </h3>
           <p className="mb-5 text-sm leading-relaxed" style={{ color: t.text }}>
             {canDelete
-              ? `Si eliminas este registro, se removerá del sistema y no se podrá recuperar.`
-              : `No puedes eliminar este registro. ${assessment.reason}`}
+              ? `¿Seguro que quieres eliminar ${assessment.targetLabel}? ${
+                  delTarget.section === "proveedores" ? `${assessment.reason} ` : ""
+                }Se quitará del sistema y no se podrá recuperar.`
+              : `No puedes eliminar ${assessment.targetLabel}. ${assessment.reason}`}
           </p>
           <div className="flex gap-3">
             <button
@@ -10672,10 +16117,14 @@ function AdminPanel({
         </button>
       </div>
       <nav
+        ref={preserveSidebarScroll}
+        onScroll={(event) => {
+          sidebarScrollTop.current = event.currentTarget.scrollTop
+        }}
         className="flex-1 overflow-y-auto py-3 px-2"
         style={{ scrollbarWidth: "none" }}
       >
-        {SIDEBAR_MENU.map((g) => {
+        {visibleMenu.map((g) => {
           const leaf = g.children.length === 0
           const active = leaf && section === g.key
           const anyChild = g.children.some((c) => c.key === section)
@@ -10685,7 +16134,6 @@ function AdminPanel({
                 onClick={() => {
                   if (leaf) {
                     setSection(g.key as AdminSection)
-                    setSidebarOpen(false)
                   } else toggleGrp(g.key)
                 }}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer"
@@ -10736,7 +16184,6 @@ function AdminPanel({
                       key={item.key}
                       onClick={() => {
                         setSection(item.key as AdminSection)
-                        setSidebarOpen(false)
                       }}
                       className="w-full text-left px-3 py-2 rounded-lg cursor-pointer"
                       style={{
@@ -10771,6 +16218,14 @@ function AdminPanel({
         >
           {Ico.globe}
           <span>{user ? "Vista de cliente" : "Ver sitio"}</span>
+        </button>
+        <button
+          onClick={onLogout}
+          className="mt-1 w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80"
+          style={{ color: C.red }}
+        >
+          {Ico.logout}
+          <span>Cerrar sesión</span>
         </button>
       </div>
     </>
@@ -10966,6 +16421,9 @@ function AdminPanel({
                       onClick={() => {
                         setSection("dashboard")
                         setNotificationsOpen(false)
+                        setTimeout(() => {
+                          document.getElementById("admin-alerts-section")?.scrollIntoView({ behavior: "smooth", block: "start" })
+                        }, 100)
                       }}
                       className="w-full cursor-pointer text-center text-xs font-semibold"
                       style={{ color: C.mustard }}
@@ -11033,7 +16491,18 @@ function AdminPanel({
                   <button
                     onClick={() => {
                       setProfileOpen(false)
-                      setShowLogoutModal(true)
+                      setShowAdminProfile(true)
+                    }}
+                    className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-xs cursor-pointer"
+                    style={{ color: C.mustard }}
+                  >
+                    {Ico.user}
+                    <span>Mi perfil</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false)
+                      onSwitchToClient()
                     }}
                     className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-xs cursor-pointer"
                     style={{ color: C.red }}
@@ -11056,62 +16525,25 @@ function AdminPanel({
           {section !== "dashboard" && <GenericTable />}
         </main>
       </div>
-      <CRUDModal />
+      {CRUDModal()}
       <ProductionPncModal />
       <QuickClientModal />
       <AnulModal />
+      <PaymentRejectionModal />
       <DelModal />
-      {showLogoutModal && (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center px-4"
-          style={{ background: "rgba(0,0,0,0.65)" }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="admin-logout-title"
-            className="w-full max-w-sm rounded-2xl p-6 text-center"
-            style={{ background: t.card, border: `1px solid ${t.border}` }}
-          >
-            <div
-              className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full"
-              style={{ background: `${C.red}12`, color: C.red }}
-            >
-              {Ico.logout}
-            </div>
-            <h3
-              id="admin-logout-title"
-              className="mb-3 text-base font-semibold"
-              style={{ color: t.text }}
-            >
-              ¿Cerrar sesión?
-            </h3>
-            <p className="mb-5 text-sm leading-relaxed" style={{ color: t.text }}>
-              ¿Estás seguro de que deseas cerrar sesión? Tendrás que iniciar sesión nuevamente para acceder al panel de administración.
-            </p>
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={() => setShowLogoutModal(false)}
-                className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
-                style={{ background: t.input, color: t.muted }}
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowLogoutModal(false)
-                  onSwitchToClient()
-                }}
-                className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
-                style={{ background: C.red, color: "#fff" }}
-              >
-                Cerrar sesión
-              </button>
-            </div>
-          </div>
-        </div>
+      {showAdminProfile && user && (
+        <AdminProfilePage
+          user={user}
+          onClose={() => setShowAdminProfile(false)}
+          onUpdateUser={(u) => {
+            // Update user in localStorage and state
+            const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
+            const updatedUser = saved ? { ...u, ...saved, role: u.role } : u
+            saveLS(`profile:${u.email.toLowerCase()}`, updatedUser)
+            // Dispatch a custom event to notify the App component
+            window.dispatchEvent(new CustomEvent("admin-user-updated", { detail: updatedUser }))
+          }}
+        />
       )}
     </div>
   )
@@ -11121,6 +16553,7 @@ function AdminPanel({
 export default function App() {
   const [page, setPage] = useState<Page>("landing")
   const [user, setUser] = useState<User | null>(null)
+  const [firstPasswordDestination, setFirstPasswordDestination] = useState<Page>("app")
   // The cart is kept in the browser, so it survives logout and reloads
   const [cart, setCart] = useState<CartItem[]>(() => loadLS("cart", []))
   const [forgotEmail, setForgotEmail] = useState("")
@@ -11128,6 +16561,37 @@ export default function App() {
   const [clientView, setClientView] = useState<"menu" | "orders">("menu")
 
   useEffect(() => saveLS("cart", cart), [cart])
+
+  // Menu comes from the backend; if it can't be reached, the built-in PRODUCTS stay
+  const [, setMenuVersion] = useState(0)
+  useEffect(() => {
+    loadMenu()
+      .then(() => setMenuVersion((v) => v + 1))
+      .catch((err) => console.warn("No se pudo cargar el menú del backend:", err))
+  }, [])
+
+  // Listen for admin user updates from the AdminProfilePage
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const customEvent = e as CustomEvent
+      const updatedUser = customEvent.detail as User
+      setUser(updatedUser)
+    }
+    window.addEventListener("admin-user-updated", handler)
+    return () => window.removeEventListener("admin-user-updated", handler)
+  }, [])
+
+  // Orders come from the backend; the panel opens once they're loaded
+  const [ordersLoadedFor, setOrdersLoadedFor] = useState("")
+  useEffect(() => {
+    if (!user || user.requiresPasswordChange) return
+    refreshOrders(user.role)
+      .catch((err) => console.warn("No se pudieron cargar los pedidos del backend:", err))
+      .finally(() => {
+        setOrdersLoadedFor(user.email)
+        setOrdersVersion((v) => v + 1)
+      })
+  }, [user?.email, user?.role, user?.requiresPasswordChange])
 
   // Re-read on every render so status changes made in the admin panel show up
   const orders = user
@@ -11137,15 +16601,38 @@ export default function App() {
   // Profile (phone, cédula, addresses) is saved per email, so it survives logout
   const updateUser = (u: User) => {
     setUser(u)
-    saveLS(`profile:${u.email}`, u)
+    saveLS(`profile:${u.email.toLowerCase()}`, u)
+    saveRegisteredClient(u)
+    // Name, document, phone and addresses live in the backend (the photo stays in this browser)
+    if (loadLS("token", ""))
+      api("/auth/me", "PATCH", {
+        nombre: u.name,
+        tipo_documento: u.docType,
+        documento: u.cedula,
+        telefono: u.phone,
+        direcciones: u.addresses,
+      }).catch((err) => console.warn("No se pudo guardar el perfil en el backend:", err))
   }
   const login = (u: User, next: Page = "app") => {
-    const saved = loadLS<User | null>(`profile:${u.email}`, null)
-    updateUser(saved ? { ...u, ...saved, role: u.role } : u)
+    const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
+    // What the backend has wins; the browser copy only fills the gaps (e.g. the photo)
+    const fromBackend = Object.fromEntries(Object.entries(u).filter(([, v]) => v !== undefined)) as User
+    const authenticatedUser = saved ? { ...saved, ...fromBackend, password: undefined } : u
+    if (authenticatedUser.requiresPasswordChange) {
+      setUser(authenticatedUser)
+      setClientView("menu")
+      setFirstPasswordDestination(next)
+      setPage("first-password")
+      return
+    }
+    updateUser(authenticatedUser)
     setClientView("menu")
     setPage(next)
   }
   const logout = () => {
+    localStorage.removeItem("token")
+    localStorage.removeItem("orders") // may hold every customer's orders (admin)
+    setOrdersLoadedFor("")
     setUser(null)
     setPage("landing")
   }
@@ -11153,8 +16640,11 @@ export default function App() {
     saveOrders(fn(loadOrders()))
     setOrdersVersion((v) => v + 1)
   }
+  // The backend puts a rejected payment back to "Pendiente de verificación"
   const setVoucher = (id: string, voucher: string) =>
-    updateOrders((os) => os.map((o) => (o.id === id ? { ...o, voucher } : o)))
+    api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobante`, "PATCH", { comprobante: voucher })
+      .then((p) => updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o))))
+      .catch((err) => window.alert(`No se pudo subir el comprobante: ${(err as Error).message}`))
   const goCheckout = () => {
     setPage("checkout")
   }
@@ -11165,7 +16655,7 @@ export default function App() {
   if (page === "login")
     return (
       <LoginPage
-        onLogin={login}
+        onLogin={(u) => login(u, u.role === "admin" ? "admin" : "app")}
         onRegister={() => setPage("register")}
         onForgot={() => setPage("forgot")}
         onBack={() => setPage("landing")}
@@ -11174,21 +16664,9 @@ export default function App() {
   if (page === "register")
     return (
       <RegisterPage
-        onVerify={(email, name) => {
-          // Add the new user to the admin users module
-          const newUser: (string | number)[] = [
-            name,
-            "Cédula de Ciudadanía",
-            "",
-            "Cliente",
-            email,
-            "Activo",
-            "",
-          ]
-          // We'll use a custom event to communicate with the AdminPanel
-          window.dispatchEvent(
-            new CustomEvent("user-registered", { detail: newUser })
-          )
+        onVerify={(u) => {
+          saveLS(`profile:${u.email}`, u)
+          saveRegisteredClient(u)
           setPage("login")
         }}
         onLoginLink={() => setPage("login")}
@@ -11207,6 +16685,24 @@ export default function App() {
     )
   if (page === "reset")
     return <ResetPage email={forgotEmail} onDone={() => setPage("login")} />
+  if (page === "first-password" && user)
+    return (
+      <FirstPasswordPage
+        onComplete={async (password) => {
+          const result = await api<{ token: string }>(
+            "/auth/me/contrasena-inicial",
+            "PATCH",
+            { nueva: password },
+          )
+          saveLS("token", result.token)
+          const updatedUser = { ...user, requiresPasswordChange: false }
+          setUser(updatedUser)
+          saveLS(`profile:${updatedUser.email.toLowerCase()}`, updatedUser)
+          saveRegisteredClient(updatedUser)
+          setPage(firstPasswordDestination)
+        }}
+      />
+    )
   if (page === "guest-menu")
     return (
       <GuestMenuPage
@@ -11223,26 +16719,43 @@ export default function App() {
         setCart={setCart}
         user={user}
         onLogin={(u) => login(u, "checkout")}
-        onRegisterVerified={(u) => login(u, "checkout")}
+        onRegisterVerified={(u) => {
+          saveRegisteredClient(u)
+          login(u, "checkout")
+        }}
         onBack={() => setPage(user ? "app" : "landing")}
-        onPlaceOrder={(info) => {
+        onPlaceOrder={async (info, shouldSaveAddress) => {
           if (!user) return
-          updateOrders((os) => [
-            {
-              ...info,
-              email: user.email,
-              cliente: user.name,
-              id: `PED-${Date.now().toString().slice(-6)}`,
-              date: new Date().toLocaleString("es-CO", {
-                dateStyle: "medium",
-                timeStyle: "short",
-              }),
-              items: cart,
-              total: cartTotal(cart),
-              status: cartTotal(cart) >= APPROVAL_MIN ? "Por confirmar" : "Recibido",
-            },
-            ...os,
-          ])
+          if (shouldSaveAddress) {
+            const normalizedAddress = info.direccion.trim()
+            updateUser({
+              ...user,
+              addresses: [
+                normalizedAddress,
+                ...(user.addresses || []).filter(
+                  (address) => address.trim().toLowerCase() !== normalizedAddress.toLowerCase(),
+                ),
+              ],
+            })
+          }
+          // The backend prices the order with the menu in the database and sets its status
+          const created = await api<DbRecord>("/pedidos", "POST", {
+            nombre: info.nombre,
+            telefono: info.telefono,
+            direccion: info.direccion,
+            notas: info.notas,
+            pago: info.pago,
+            comprobante: info.voucher,
+            items: cart
+              .filter((item) => item.qty > 0)
+              .map((item) => ({
+                producto: item.name,
+                cantidad: item.qty,
+                salsas: item.sauces || [],
+                adiciones: (item.additions || []).map((a) => ({ nombre: a.name, cantidad: a.qty })),
+              })),
+          })
+          updateOrders((os) => [orderFromDb(created), ...os])
           setCart([])
         }}
         onComplete={() => {
@@ -11277,17 +16790,23 @@ export default function App() {
         onVoucher={setVoucher}
       />
     )
-  if (page === "admin")
+  if (page === "admin" && user?.role === "admin" && ordersLoadedFor !== user.email)
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm" style={{ color: C.mustard }}>
+        Cargando pedidos…
+      </div>
+    )
+  if (page === "admin" && user?.role === "admin")
     return (
       <AdminPanel
         onSwitchToClient={() => setPage(user ? "app" : "landing")}
+        onLogout={logout}
         user={user}
       />
     )
   return (
     <LandingPage
       onLogin={() => setPage("login")}
-      onAdmin={() => setPage("admin")}
       onGuestMenu={goGuestMenu}
       onCheckout={goCheckout}
       cart={cart}
