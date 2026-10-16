@@ -1,8 +1,7 @@
 {
+  "title": "El Parche de las Mini Burguer",
+  "language": "es",
   "description": "Discover a vibrant online platform for ordering gourmet mini burgers and fast food from El Parche de las Mini Burguer, designed for a youthful and family-friendly experience.",
-  "robots": {
-    "index": false
-  },
   "accessibility": {
     "addBypassLinks": false,
     "ignoreReducedMotion": false
