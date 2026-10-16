@@ -196,7 +196,7 @@ const BEVERAGE_SIZES = [
 const PRODUCTS: Product[] = [
   {
     id: 1,
-    name: "Mini",
+    name: "Hamburguesa Mini",
     desc: "Hamburguesa pequeña de la casa con salsa secreta.",
     price: 13000,
     priceStr: "$13.000",
@@ -206,7 +206,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 2,
-    name: "Sencilla",
+    name: "Hamburguesa Sencilla",
     desc: "Carne de la casa, vegetales frescos y salsas.",
     price: 14500,
     priceStr: "$14.500",
@@ -216,7 +216,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 3,
-    name: "Tradicional",
+    name: "Hamburguesa Tradicional",
     desc: "Carne, queso cheddar y tocineta crujiente.",
     price: 16000,
     priceStr: "$16.000",
@@ -226,7 +226,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 4,
-    name: "Super Mini",
+    name: "Hamburguesa Super Mini",
     desc: "Porción mediana especial con carne y vegetales.",
     price: 15500,
     priceStr: "$15.500",
@@ -236,7 +236,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 5,
-    name: "Doble",
+    name: "Hamburguesa Doble",
     desc: "Doble carne de la casa, queso y salsas especiales.",
     price: 18500,
     priceStr: "$18.500",
@@ -246,7 +246,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 6,
-    name: "Triple",
+    name: "Hamburguesa Triple",
     desc: "Triple carne de la casa, queso y salsas a elección.",
     price: 20500,
     priceStr: "$20.500",
@@ -256,7 +256,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 7,
-    name: "Pollo",
+    name: "Hamburguesa Pollo",
     desc: "Pechuga de pollo jugosa, queso y salsas.",
     price: 17500,
     priceStr: "$17.500",
@@ -266,7 +266,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 8,
-    name: "Mixta",
+    name: "Hamburguesa Mixta",
     desc: "Combinación de carne y pollo con queso.",
     price: 20500,
     priceStr: "$20.500",
@@ -1208,6 +1208,9 @@ type ModConfig = {
   statusIndex?: number
   inactiveStatus?: string
   hiddenCellIndexes?: number[]
+  // Column of the short filter next to "Buscar" (default: statusIndex) and its name
+  filterIndex?: number
+  filterLabel?: string
 }
 
 const PERMISSION_MODULES = [
@@ -1327,7 +1330,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "11", label: "Cómo se prepara", type: "textarea" },
     ],
     seed: [],
-    noDelete: true,
+    // Deletable only while no purchase, loss or ficha técnica uses it (see getDeleteAssessment)
     statusIndex: 12,
     hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11],
   },
@@ -1341,6 +1344,8 @@ const MOD_CFG: Record<string, ModConfig> = {
       "Estado",
     ],
     fields: [
+      // A "Persona natural" has no NIT nor contact person: it's identified by its own document (8, 9)
+      { key: "15", label: "Tipo de persona", type: "select", options: ["Persona jurídica", "Persona natural"] },
       { key: "1", label: "NIT", type: "text" },
       { key: "0", label: "Nombre empresa", type: "text" },
       { key: "2", label: "Correo", type: "email" },
@@ -1359,7 +1364,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [],
     // Deletable only while the supplier has no purchases (see getDeleteAssessment)
     statusIndex: 6,
-    hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14],
+    hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   },
   compras: {
     columns: ["Proveedor", "Fecha", "Subtotal", "Total", "Estado"],
@@ -1411,6 +1416,8 @@ const MOD_CFG: Record<string, ModConfig> = {
     noExport: true,
     noDelete: true,
     hiddenCellIndexes: [5],
+    filterIndex: 2,
+    filterLabel: "Motivo",
   },
   "cat-producto": {
     columns: ["Nombre Categoría", "Descripción", "Estado"],
@@ -1547,15 +1554,24 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "1", label: "Cantidad", type: "number" },
       { key: "3", label: "Fecha de creación", type: "date" },
       { key: "4", label: "Hora de creación", type: "time" },
+
       { key: "15", label: "Comentario (opcional)", type: "textarea" },
+
+      { key: "15", label: "Comentario (lo que no debe llevar)", type: "textarea" },
+
     ],
     seed: [],
     autoId: true,
     statusIndex: 8,
+
     // 14 = stock already consumed, 15 = source order code, 16 = comment
     hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13, 14, 15, 16],
     // 14 = stock already consumed (Sí/No), 15 = order code it came from (internal data)
     hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13, 14, 15],
+
+    // 14 = stock already consumed (Sí/No), 15 = order code it came from (internal data), 16 = comentario
+    hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13, 14, 15, 16],
+
   },
   "producto-no-conforme": {
     columns: ["Orden", "Productos o insumos dañados", "Cantidad", "Motivo", "Fecha", "Estado"],
@@ -1673,6 +1689,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     noDelete: true,
     autoId: true,
     hiddenCellIndexes: [1, 4, 5, 6, 9, 11, 12],
+    filterIndex: 8,
   },
   pedidos: {
     columns: [
@@ -1729,6 +1746,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     // 10 = order lines JSON saved by admin-created orders (was showing as "Dato 7")
     // 11 = payment rejection reason
     hiddenCellIndexes: [2, 3, 4, 5, 10, 11],
+    filterIndex: 7,
   },
   devoluciones: {
     columns: ["Código", "Cliente", "Motivo", "Fecha"],
@@ -1754,6 +1772,8 @@ const MOD_CFG: Record<string, ModConfig> = {
     noDelete: true,
     noExport: true,
     hiddenCellIndexes: [1, 3],
+    filterIndex: 4,
+    filterLabel: "Motivo",
   },
 }
 
@@ -3885,6 +3905,7 @@ function saveLS(key: string, value: unknown) {
 
 // ── Backend (parche-backend) ───────────────────────────────────────────────────
 
+
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api"
 // VITE_API_URL wins; otherwise the local backend on this PC and the Render one when published
 const API_URL =
@@ -3892,6 +3913,9 @@ const API_URL =
   (["localhost", "127.0.0.1"].includes(window.location.hostname)
     ? "http://localhost:3000/api"
     : "https://backend-parche.onrender.com/api")
+
+// Always the Render backend; set VITE_API_URL=http://localhost:3000/api to use the one on this PC
+const API_URL = import.meta.env.VITE_API_URL || "https://backend-parche.onrender.com/api"
 
 // Uploaded photos come as "/imagenes/<id>" (served by the API); other images are full URLs
 const imageUrl = (u: string | undefined) => (u?.startsWith("/imagenes/") ? API_URL + u : u || "")
@@ -4018,6 +4042,21 @@ async function idByName(path: string, nameKey: string, idKey: string, name: stri
 }
 const categoryIdByName = (path: string, name: string | number) =>
   idByName(path, "nombre_categoria", "id_categoria", name, "La categoría")
+
+// Supplier that is a person, not a company: no NIT nor contact person (row/form key 15)
+const isNaturalSupplier = (tipo: string | number | undefined) => String(tipo ?? "") === "Persona natural"
+const SUPPLIER_COMPANY_ONLY_KEYS = ["1", "10", "11", "12", "13", "14"]
+
+// "Cebolla, Tomate" -> ["Cebolla", "Tomate"] (insumos a supplier sells)
+const splitNames = (value: string | number | undefined) =>
+  String(value ?? "").split(",").map((name) => name.trim()).filter(Boolean)
+
+// Ficha técnica of an insumo: "Azúcar (50 g), Limón (2 und)" -> [{ name: "Azúcar", quantity: "50" }, ...]
+const parseMainSupplies = (value: string | number | undefined) =>
+  splitNames(value).map((part) => {
+    const match = /^(.*?)\s*\(\s*([\d.]+)[^)]*\)$/.exec(part)
+    return match ? { name: match[1], quantity: match[2] } : { name: part, quantity: "" }
+  })
 
 // Purchase items text: one "insumo | cantidad | costo unitario" per line
 const parsePurchaseLines = (value: string | number | undefined) =>
@@ -4250,19 +4289,20 @@ const DB_SYNC: Record<string, SyncSpec> = {
     reloads: ["insumos"],
   },
   // [0 nombre, 1 NIT, 2 correo, 3 teléfono, 4 contacto, 5 dirección, 6 estado, 7 insumos,
-  //  8-14 contacto: tipo doc, nº doc, nombre, apellido, teléfono, correo, cargo]
+  //  8-14 contacto: tipo doc, nº doc, nombre, apellido, teléfono, correo, cargo, 15 tipo de persona]
   proveedores: {
     path: "/proveedores",
     update: "PATCH",
-    idIndex: 15,
+    idIndex: 16,
     idOf: (p) => p.id_proveedor,
     // Nombre/apellido (10, 11) stay empty: the edit form splits them from "contacto"
     toRow: (p) =>
       withId(
         [p.nombre, p.nit || "", p.correo || "", p.telefono || "", p.contacto || "", p.direccion || "",
           p.estado === "ACTIVO" ? "Activo" : "Inactivo", p.insumos || "", p.contacto_tipo_documento || "",
-          p.contacto_documento || "", "", "", p.contacto_telefono || "", p.contacto_correo || "", p.contacto_cargo || ""],
-        15,
+          p.contacto_documento || "", "", "", p.contacto_telefono || "", p.contacto_correo || "", p.contacto_cargo || "",
+          p.tipo || "Persona jurídica"],
+        16,
         p.id_proveedor,
       ),
     toBody: (row) => ({
@@ -4279,6 +4319,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       contacto_telefono: text(row[12]),
       contacto_correo: optionalEmail(row[13]),
       contacto_cargo: text(row[14]),
+      tipo: text(row[15]) || "Persona jurídica",
     }),
   },
 }
@@ -9941,6 +9982,7 @@ function AdminPanel({
   )
   const [paymentProofDraft, setPaymentProofDraft] = useState("")
   const [search, setSearch] = useState<Record<string, string>>({})
+  const [tableFilter, setTableFilter] = useState<Record<string, string>>({})
   const [pg, setPg] = useState<Record<string, number>>({})
   const [modal, setModal] = useState<{
     mode: ModalMode
@@ -9988,6 +10030,8 @@ function AdminPanel({
   } | null>(null)
   const [lossError, setLossError] = useState("")
   const [purchaseNotice, setPurchaseNotice] = useState("")
+  // Insumo form: suppliers that sell it (saved in each supplier's "Insumos que suministra")
+  const [supplySuppliers, setSupplySuppliers] = useState<string[]>([])
   const resetPurchasePicker = () => {
     setPurchaseItemSelect("")
     setPurchaseItemQty("1")
@@ -10424,7 +10468,8 @@ function AdminPanel({
     const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
     const excludedKeys: Record<string, string[]> = {
       insumos: [
-        // "Stock actual" isn't shown when creating (a new insumo starts at 0)
+        // "Costo unitario" comes from the purchases; "Stock actual" starts at 0
+        "3",
         ...(mode === "add" ? ["4"] : []),
         ...(String(draft["7"] ?? "").toLowerCase() === "sí"
           ? ["8", "9"]
@@ -10463,9 +10508,9 @@ function AdminPanel({
       ],
       // "7" (insumos que suministra) is optional: they can be assigned later, and
       // Compras already warns when a supplier has none
-      proveedores: [
-        "0", "1", "2", "3", "5", "8", "9", "10", "11", "12", "13", "14",
-      ],
+      proveedores: isNaturalSupplier(draft["15"])
+        ? ["0", "2", "3", "5", "8", "9", "15"]
+        : ["0", "1", "2", "3", "5", "8", "9", "10", "11", "12", "13", "14", "15"],
       roles: ["0", "1"],
     }
 
@@ -10501,7 +10546,8 @@ function AdminPanel({
         : sec === "clientes"
           ? ["0", "1", "2", "3", ...(clientIsLocal ? [] : ["4", "5"])].includes(key)
           : sec === "proveedores"
-            ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14"].includes(key)
+            ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14", "15"].includes(key) &&
+              !(isNaturalSupplier(draft["15"]) && SUPPLIER_COMPANY_ONLY_KEYS.includes(key))
             : sec === "roles"
               ? ["0", "1"].includes(key)
               : false
@@ -10681,6 +10727,7 @@ function AdminPanel({
 
       setTechnicalSheetError("")
     }
+    if (sec === "proveedores") initialFields["15"] = "Persona jurídica"
     if (sec === "ventas") {
       initialFields["8"] = "Sin pedido"
       initialFields["0"] = sellerName
@@ -10688,6 +10735,7 @@ function AdminPanel({
     if (sec === "insumos") {
       initialFields["7"] = "No"
       setSupplyFormError("")
+      setSupplySuppliers([])
     }
     if (sec === "producto-no-conforme") {
       initialFields["6"] = "und"
@@ -10756,12 +10804,18 @@ function AdminPanel({
       const legacyContactName = String(row[4] ?? "").trim().split(/\s+/)
       if (!nextForm["10"]) nextForm["10"] = legacyContactName.shift() ?? ""
       if (!nextForm["11"]) nextForm["11"] = legacyContactName.join(" ")
+      if (!nextForm["15"]) nextForm["15"] = "Persona jurídica"
     }
     setFormValidationAttempted(false)
     setFormFieldErrors({})
     if (sec === "clientes") setClientFormError("")
     if (sec === "compras") resetPurchasePicker()
-    if (sec === "insumos") setSupplyFormError("")
+    if (sec === "insumos") {
+      setSupplyFormError("")
+      setSupplySuppliers(
+        (rows.proveedores || []).filter((p) => splitNames(p[7]).includes(String(row[0]))).map((p) => String(p[0])),
+      )
+    }
     if (sec === "produccion") {
       setProductionItems(getProductionOrderItems(row))
       setProductionProductSelect("")
@@ -10864,14 +10918,15 @@ function AdminPanel({
       if (dup) e["0"] = `Ya existe el insumo «${String(dup[0])}».`
       if (!v("1")) e["1"] = "Selecciona la categoría."
       if (!v("2")) e["2"] = "Selecciona la unidad de medida."
-      if (!v("3")) e["3"] = "Escribe el costo unitario."
-      else if (!(n("3") > 0)) e["3"] = "El costo debe ser mayor que 0."
+      if (v("3") && !(n("3") >= 0)) e["3"] = "El costo no puede ser negativo."
       if (modal.mode !== "add" && v("4") && !(n("4") >= 0))
         e["4"] = "El stock actual no puede ser negativo."
       if (!v("5")) e["5"] = "Escribe el stock mínimo."
       else if (!(n("5") >= 0)) e["5"] = "El stock mínimo no puede ser negativo."
       if (v("7").toLowerCase() === "sí") {
         if (!v("10")) e["10"] = "Ficha técnica: elige al menos un insumo principal."
+        else if (parseMainSupplies(v("10")).some((i) => !(Number(i.quantity) > 0)))
+          e["10"] = "Ficha técnica: escribe cuánto se usa de cada insumo principal."
         if (!v("11")) e["11"] = "Ficha técnica: escribe cómo se prepara."
       }
     }
@@ -11036,6 +11091,10 @@ function AdminPanel({
     })
     if (sec === "proveedores") {
       newRow[4] = `${String(formData["10"] ?? "").trim()} ${String(formData["11"] ?? "").trim()}`.trim()
+      if (isNaturalSupplier(newRow[15])) {
+        newRow[4] = String(newRow[0] ?? "").trim()
+        for (const key of SUPPLIER_COMPANY_ONLY_KEYS) newRow[Number(key)] = ""
+      }
     }
     if (sec === "cat-producto") newRow[0] = String(newRow[0] ?? "").trim()
 
@@ -11055,7 +11114,8 @@ function AdminPanel({
 
     if (sec === "insumos") {
       newRow[0] = String(newRow[0] ?? "").trim()
-      // New insumos start with no stock (the field isn't shown when creating)
+      // New insumos start with no stock and no cost (it's set by each purchase)
+      newRow[3] = modal.mode === "add" ? 0 : Number(newRow[3] || 0)
       newRow[4] = modal.mode === "add" ? 0 : Number(newRow[4] || 0)
       newRow[6] = previousRow?.[6] ?? "" // unused slot (old "Stock máximo")
       if (String(newRow[7]).toLowerCase() === "sí") {
@@ -11141,6 +11201,8 @@ function AdminPanel({
         0,
       )
       newRow[13] = JSON.stringify(productionItems)
+      newRow[4] = modal.mode === "add" ? currentDateTime.date : previousRow?.[4] ?? currentDateTime.date
+      newRow[5] = modal.mode === "add" ? currentDateTime.time : previousRow?.[5] ?? currentDateTime.time
       newRow[3] = modal.mode === "add" ? getNextProductionPriority(rows.produccion || []) : (previousRow?.[3] ?? getNextProductionPriority(rows.produccion || []))
       newRow[6] = previousRow?.[6] ?? currentDateTime.date
       newRow[7] = previousRow?.[7] ?? currentDateTime.time
@@ -11257,6 +11319,24 @@ function AdminPanel({
         ? (id) => api(`/productos/${id}/imagen`, "PUT", { imagen: imgPreview })
         : undefined,
     )
+    if (sec === "insumos") {
+      // Add/remove (or rename) the insumo in each supplier's "Insumos que suministra"
+      const name = String(newRow[0])
+      const previousName = String(previousRow?.[0] ?? name)
+      ;(rows.proveedores || []).forEach((supplier) => {
+        const current = splitNames(supplier[7])
+        const others = current.filter((n) => n !== name && n !== previousName)
+        const next = supplySuppliers.includes(String(supplier[0])) ? [...others, name] : others
+        if (next.join(", ") === current.join(", ")) return
+        const updatedSupplier = [...supplier]
+        updatedSupplier[7] = next.join(", ")
+        setRows((cur) => ({
+          ...cur,
+          proveedores: (cur.proveedores || []).map((r) => (r === supplier ? updatedSupplier : r)),
+        }))
+        syncRow("proveedores", updatedSupplier, false)
+      })
+    }
     if (sec === "producto" && imgPreview) {
       const imageIndex = modal.mode === "add" ? 0 : modal.idx!
       setProdImgs((current) => ({ ...current, [imageIndex]: imgPreview }))
@@ -11404,6 +11484,29 @@ function AdminPanel({
         allowed: true,
         targetLabel: supplierLabel,
         reason: "No tiene compras de insumos registradas.",
+      }
+    }
+
+    if (sec === "insumos") {
+      const supplyLabel = `el insumo «${recordName}»`
+      const uses = [
+        (rows.compras || []).some((p) => parsePurchaseLines(p[6]).some((i) => i.name === recordName)) && "compras",
+        (rows.perdidas || []).some((l) => String(l[0]) === recordName) && "pérdidas de insumos",
+        ((rows.producto || []).some((p) => getProductRecipe(p).some((i) => i.name === recordName)) ||
+          (rows.insumos || []).some((i) => parseMainSupplies(i[10]).some((m) => m.name === recordName))) &&
+          "fichas técnicas",
+      ].filter(Boolean)
+      if (uses.length) {
+        return {
+          allowed: false,
+          targetLabel: supplyLabel,
+          reason: `Está registrado en ${uses.join(" y ")}. Para no perder ese historial no se puede eliminar; si ya no lo usas, desactívalo con el interruptor de estado.`,
+        }
+      }
+      return {
+        allowed: true,
+        targetLabel: supplyLabel,
+        reason: "No tiene compras, pérdidas ni fichas técnicas registradas.",
       }
     }
 
@@ -12104,8 +12207,6 @@ function AdminPanel({
         date: currentDateTime.date,
         time: currentDateTime.time,
       })
-      updatedOrder[4] = currentDateTime.date
-      updatedOrder[5] = currentDateTime.time
       updatedOrder[6] = currentDateTime.date
       updatedOrder[7] = currentDateTime.time
       updatedOrder[8] = nextStatus
@@ -12225,7 +12326,6 @@ function AdminPanel({
       }
       const realTime = formatRealTime(now)
       const updatedRow = [...currentRow]
-      updatedRow[5] = realTime
       updatedRow[7] = realTime
       updatedRow[8] = nextStatus
       let history: { status: string; date: string; time: string }[] = []
@@ -12345,7 +12445,7 @@ function AdminPanel({
             fontFamily: "Poppins, sans-serif",
           }}
         >
-          {PRODUCTION_STATUSES.map((status) => (
+          {PRODUCTION_STATUSES.filter((status, i) => i >= PRODUCTION_STATUSES.indexOf(value)).map((status) => (
             <option key={status} value={status}>{status}</option>
           ))}
         </select>
@@ -12418,6 +12518,13 @@ function AdminPanel({
 
       const updated = [...(current[target.section] || [])]
       updated.splice(target.idx, 1)
+      if (target.section === "insumos") {
+        // Its "Producto de insumo" copy in Productos goes with it
+        const producto = (current.producto || []).filter(
+          (p) => !(p[1] === "Producto de insumo" && p[0] === currentRow?.[0]),
+        )
+        return { ...current, insumos: updated, producto }
+      }
       return { ...current, [target.section]: updated }
     })
     setDelTarget(null)
@@ -12549,7 +12656,7 @@ function AdminPanel({
   const chart = CHART_DATA[chartFilter]
 
   const TOP = [
-    { name: "Mini", units: 284, pct: 100 },
+    { name: "Hamburguesa Mini", units: 284, pct: 100 },
     { name: "Salchipapa Sencilla", units: 241, pct: 85 },
     { name: "Perro Mediano", units: 198, pct: 70 },
     { name: "Salchipapa Super Gourmet", units: 167, pct: 59 },
@@ -13056,9 +13163,16 @@ function AdminPanel({
     const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))
     const sRows = indexedRows
     const q = (search[section] || "").toLowerCase()
+    const filterIndex = cfg.filterIndex ?? cfg.statusIndex
+    const filterValue = tableFilter[section] || ""
+    const filterOptions =
+      filterIndex === undefined
+        ? []
+        : [...new Set(indexedRows.map(({ row }) => String(row[filterIndex] ?? "").trim()).filter(Boolean))].sort()
     const filtered = sRows.filter(
         ({ row }) =>
-          !q || row.some((cell) => String(cell).toLowerCase().includes(q)),
+          (!q || row.some((cell) => String(cell).toLowerCase().includes(q))) &&
+          (!filterValue || String(row[filterIndex!] ?? "").trim() === filterValue),
       )
     const cur = pg[section] || 0
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -13417,6 +13531,29 @@ function AdminPanel({
               </button>
             )}
           </div>
+          {filterIndex !== undefined && (
+            <select
+              value={filterValue}
+              onChange={(event) => {
+                setTableFilter((current) => ({ ...current, [section]: event.target.value }))
+                setP(0)
+              }}
+              aria-label={`Filtrar por ${(cfg.filterLabel ?? "Estado").toLowerCase()}`}
+              className="cursor-pointer rounded-xl px-3 py-2 text-xs outline-none"
+              style={{
+                background: filterValue ? `${C.mustard}18` : t.input,
+                border: `1px solid ${filterValue ? C.mustard : t.inputB}`,
+                color: filterValue ? C.mustard : t.muted,
+              }}
+            >
+              <option value="">{cfg.filterLabel ?? "Estado"}: todos</option>
+              {filterOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          )}
           {/* Short search on the left, action buttons pushed to the right */}
           <div className="hidden sm:block sm:flex-1" />
           {!noExp && (
@@ -14208,6 +14345,7 @@ function AdminPanel({
     const showSupplyTechnicalSheet =
       isSupply &&
       String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
+
     const formDataFields = isUser
       ? dataFields.filter(
           (field) =>
@@ -14217,6 +14355,11 @@ function AdminPanel({
         )
       : isProduction
       ? dataFields.filter((field) => !["0", "1"].includes(field.key))
+
+    const formDataFields = isProduction
+      // Date and time of creation are set automatically and can't be changed
+      ? dataFields.filter((field) => !["0", "1", "3", "4"].includes(field.key))
+
       : isPnc
 
         ? dataFields.filter((field) => !["0", "1", "2", "6"].includes(field.key))
@@ -14226,8 +14369,8 @@ function AdminPanel({
       : isSupply
         ? dataFields.filter(
             (field) =>
-              // "Stock actual" isn't entered when creating: it starts at 0
-              !(modal.mode === "add" && field.key === "4") &&
+              // Not entered when creating: the cost comes from the first purchase, stock starts at 0
+              !(modal.mode === "add" && ["3", "4"].includes(field.key)) &&
               (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
           )
         : dataFields
@@ -15573,11 +15716,25 @@ function AdminPanel({
                   if (!showSupplyTechnicalSheet) return null
                   const src = (key: string) => String((isView ? row?.[Number(key)] : formData[key]) ?? "")
                   const supplyName = src("0").trim() || "este insumo"
-                  const mainSupplies = splitList(src("10"))
+                  const mainSupplies = parseMainSupplies(src("10"))
                   const setSheet = (key: string, value: string) => {
                     setSupplyFormError("")
                     updateAdminField(modal.section, key, value)
                   }
+                  const unitOf = (name: string) => String(supplyInfo(name)?.[2] ?? "und")
+                  // Stored as text the backend already keeps: "Azúcar (50 g), Limón (2 und)"
+                  const setMainSupplies = (next: { name: string; quantity: string }[]) =>
+                    setSheet(
+                      "10",
+                      next.map((i) => (i.quantity ? `${i.name} (${i.quantity} ${unitOf(i.name)})` : i.name)).join(", "),
+                    )
+                  // Only plain insumos can be ingredients: not this one, nor others sold as products (e.g. a gaseosa)
+                  const ingredientOptions = getAvailableInsumos().filter(
+                    (name) =>
+                      name !== src("0").trim() &&
+                      String(supplyInfo(name)?.[7] ?? "").toLowerCase() !== "sí" &&
+                      !mainSupplies.some((i) => i.name === name),
+                  )
                   const sheetControl = { background: t.card, border: `1.5px solid ${t.inputB}`, color: t.text }
                   return (
                     <section
@@ -15623,41 +15780,63 @@ function AdminPanel({
                           <span className="text-xs font-semibold" style={{ color: t.muted }}>
                             Insumos principales{!isView && " *"}
                           </span>
-                          <div className="flex flex-wrap gap-2">
-                            {mainSupplies.length === 0 ? (
-                              <span className="rounded-full px-2.5 py-1 text-xs" style={{ background: t.input, color: t.muted }}>
-                                Sin insumos seleccionados
-                              </span>
-                            ) : (
-                              mainSupplies.map((name) =>
-                                isView ? (
-                                  <span
-                                    key={name}
-                                    className="rounded-full px-2.5 py-1 text-xs font-semibold"
-                                    style={{ background: `${C.mustard}15`, color: C.mustard }}
-                                  >
-                                    {name}
+                          {mainSupplies.length === 0 ? (
+                            <span className="self-start rounded-full px-2.5 py-1 text-xs" style={{ background: t.input, color: t.muted }}>
+                              Sin insumos seleccionados
+                            </span>
+                          ) : isView ? (
+                            <div className="flex flex-wrap gap-2">
+                              {splitNames(src("10")).map((part) => (
+                                <span
+                                  key={part}
+                                  className="rounded-full px-2.5 py-1 text-xs font-semibold"
+                                  style={{ background: `${C.mustard}15`, color: C.mustard }}
+                                >
+                                  {part}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-2">
+                              {mainSupplies.map((item, index) => (
+                                <div key={item.name} className="flex items-center gap-2">
+                                  <span className="min-w-0 flex-1 truncate text-sm font-semibold" style={{ color: t.text }}>
+                                    {item.name}
                                   </span>
-                                ) : (
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={item.quantity}
+                                    onChange={(e) =>
+                                      setMainSupplies(
+                                        mainSupplies.map((m, i) => (i === index ? { ...m, quantity: e.target.value } : m)),
+                                      )
+                                    }
+                                    placeholder="Cantidad"
+                                    aria-label={`Cantidad de ${item.name}`}
+                                    className="w-24 rounded-xl px-3 py-2 text-sm outline-none"
+                                    style={sheetControl}
+                                  />
+                                  <span className="w-8 text-xs" style={{ color: t.muted }}>{unitOf(item.name)}</span>
                                   <button
-                                    key={name}
                                     type="button"
-                                    aria-label={`Quitar ${name} de la ficha`}
-                                    onClick={() => setSheet("10", mainSupplies.filter((n) => n !== name).join(", "))}
-                                    className="flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
-                                    style={{ background: `${C.mustard}15`, color: C.mustard, border: `1px solid ${C.mustard}35` }}
+                                    aria-label={`Quitar ${item.name} de la ficha`}
+                                    onClick={() => setMainSupplies(mainSupplies.filter((_, i) => i !== index))}
+                                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                    style={{ color: C.red, background: `${C.red}10` }}
                                   >
-                                    {name} <span aria-hidden="true">×</span>
+                                    {Ico.x}
                                   </button>
-                                ),
-                              )
-                            )}
-                          </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {!isView && (
                             <select
                               value=""
                               onChange={(e) => {
-                                if (e.target.value) setSheet("10", [...mainSupplies, e.target.value].join(", "))
+                                if (e.target.value) setMainSupplies([...mainSupplies, { name: e.target.value, quantity: "" }])
                               }}
                               aria-invalid={!!formFieldErrors["10"]}
                               className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
@@ -15668,13 +15847,11 @@ function AdminPanel({
                               }}
                             >
                               <option value="">+ Agregar insumo a la ficha...</option>
-                              {getAvailableInsumos()
-                                .filter((name) => !mainSupplies.includes(name))
-                                .map((name) => (
-                                  <option key={name} value={name}>
-                                    {name}
-                                  </option>
-                                ))}
+                              {ingredientOptions.map((name) => (
+                                <option key={name} value={name}>
+                                  {name} ({unitOf(name)})
+                                </option>
+                              ))}
                             </select>
                           )}
                           {formFieldErrors["10"] && (
@@ -15723,15 +15900,27 @@ function AdminPanel({
                       ...current,
                       "6": next.map((i) => `${i.name} | ${i.quantity} | ${i.unitPrice ?? 0}`).join("\n"),
                     }))
+                  // Typed in the search box; the price is suggested once it matches an insumo (last purchase price)
                   const pickSupply = (name: string) => {
                     setPurchaseItemSelect(name)
-                    setPurchaseItemPrice(name ? String(supplyInfo(name)?.[3] ?? "") : "")
+                    if (allowed.includes(name)) setPurchaseItemPrice(String(supplyInfo(name)?.[3] || ""))
                     setPurchaseFormError("")
+                  }
+                  // Puts the line back in the picker so its quantity or price can be corrected
+                  const editItem = (index: number) => {
+                    const item = items[index]
+                    setPurchaseItemSelect(item.name)
+                    setPurchaseItemQty(String(item.quantity))
+                    setPurchaseItemPrice(String(item.unitPrice ?? ""))
+                    setPurchaseFormError("")
+                    setItems(items.filter((_, i) => i !== index))
                   }
                   const addItem = () => {
                     const qty = Number(purchaseItemQty)
                     const price = Number(purchaseItemPrice)
                     if (!purchaseItemSelect) return setPurchaseFormError("Elige el insumo que vas a agregar.")
+                    if (!allowed.includes(purchaseItemSelect))
+                      return setPurchaseFormError(`«${purchaseItemSelect}» no está entre los insumos de «${supplier}». Elígelo de la lista.`)
                     if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
                     if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
                     const existing = items.find(
@@ -15805,20 +15994,23 @@ function AdminPanel({
                           <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_96px_120px_auto]">
                             <label className="flex min-w-0 flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                               Insumo
-                              <select
+                              <input
+                                type="search"
+                                list="purchase-supply-options"
                                 value={purchaseItemSelect}
                                 onChange={(e) => pickSupply(e.target.value)}
-                                className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                                style={{ ...controlSt, color: purchaseItemSelect ? t.text : t.muted }}
-                              >
-                                <option value="">Selecciona un insumo...</option>
+                                placeholder="Buscar insumo..."
+                                autoComplete="off"
+                                className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
+                                style={controlSt}
+                              />
+                              <datalist id="purchase-supply-options">
                                 {allowed.map((name) => (
                                   <option key={name} value={name}>
-                                    {name}
-                                    {supplyInfo(name)?.[2] ? ` (${String(supplyInfo(name)?.[2])})` : ""}
+                                    {supplyInfo(name)?.[2] ? String(supplyInfo(name)?.[2]) : ""}
                                   </option>
                                 ))}
-                              </select>
+                              </datalist>
                             </label>
                             <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                               Cantidad
@@ -15891,6 +16083,16 @@ function AdminPanel({
                                   {Ico.alert} Pérdida
                                 </button>
                               )}
+                              <button
+                                type="button"
+                                title="Editar cantidad o precio"
+                                aria-label={`Editar ${item.name}`}
+                                onClick={() => editItem(index)}
+                                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                style={{ color: C.mustard, background: `${C.mustard}18` }}
+                              >
+                                {Ico.edit}
+                              </button>
                               <button
                                 type="button"
                                 aria-label={`Quitar ${item.name}`}
@@ -15990,6 +16192,11 @@ function AdminPanel({
 
                   )
                 }
+                const naturalSupplier =
+                  isSupplier && isNaturalSupplier(isView ? row?.[15] : formData["15"])
+                if (naturalSupplier && SUPPLIER_COMPANY_ONLY_KEYS.includes(f.key)) return null
+                const fieldLabel =
+                  naturalSupplier && f.key === "0" ? "Nombre completo" : f.label
                 const fieldRowIndex = Number(f.key) + rowOffset
                 const val = isView
                   ? String(row ? (row[fieldRowIndex] ?? "—") : "—")
@@ -16090,22 +16297,64 @@ function AdminPanel({
                 }
                 return (
                   <Fragment key={f.key}>
-                  {isSupplier && (f.key === "1" || f.key === "8") && (
+                  {isSupply && !isView && f.key === "7" && (
+                    <div className="flex flex-col gap-1.5 sm:col-span-2">
+                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                        Proveedores que lo venden
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {(rows.proveedores || [])
+                          .filter((p) => isActiveStatus(p[6]) || supplySuppliers.includes(String(p[0])))
+                          .map((p) => {
+                            const name = String(p[0])
+                            const on = supplySuppliers.includes(name)
+                            return (
+                              <button
+                                key={name}
+                                type="button"
+                                role="checkbox"
+                                aria-checked={on}
+                                onClick={() =>
+                                  setSupplySuppliers(on ? supplySuppliers.filter((n) => n !== name) : [...supplySuppliers, name])
+                                }
+                                className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold"
+                                style={{
+                                  background: on ? `${C.mustard}18` : t.input,
+                                  border: `1.5px solid ${on ? C.mustard : t.inputB}`,
+                                  color: on ? C.mustard : t.muted,
+                                }}
+                              >
+                                {on && Ico.check}
+                                {name}
+                              </button>
+                            )
+                          })}
+                      </div>
+                      <p className="text-[11px]" style={{ color: t.muted }}>
+                        Así ya aparece en «Insumos comprados» al registrar una compra a ese proveedor. El costo se toma del precio de la compra.
+                      </p>
+                    </div>
+                  )}
+                  {isSupplier && (f.key === "15" || f.key === "8") && (
                     <div
                       className={`pt-1 sm:col-span-2 ${
-                        f.key === "1" ? "lg:col-span-2 lg:col-start-1" : "lg:col-span-2 lg:col-start-3"
+                        f.key === "15" ? "lg:col-span-2 lg:col-start-1" : "lg:col-span-2 lg:col-start-3"
                       }`}
                     >
                       <div className="mb-1 h-px" style={{ background: t.border }} />
                       <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
-                        {f.key === "1" ? "Datos del proveedor" : "Persona de contacto"}
+                        {f.key === "15"
+                          ? "Datos del proveedor"
+                          : naturalSupplier
+                            ? "Documento de identidad"
+                            : "Persona de contacto"}
                       </h4>
                     </div>
                   )}
                   <div
                     className={`flex min-w-0 flex-col gap-1 ${
                       isSupplier
-                      ? Number(f.key) < 8
+                      ? Number(f.key) < 8 || f.key === "15"
                         ? "lg:col-span-2 lg:col-start-1"
                         : f.key === "14"
                           ? "lg:col-span-2 lg:col-start-3" // Cargo
@@ -16127,7 +16376,7 @@ function AdminPanel({
 
                       style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
                     >
-                      {f.label}
+                      {fieldLabel}
                       {(isRequiredField(f.key) || requiredFormField) && " *"}
 
                     </label>
