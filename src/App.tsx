@@ -1,5 +1,5 @@
 import { Fragment, useState, useRef, useEffect, useCallback } from "react"
-import logoImg from "@/imports/Gemini_Generated_Image_ei2okyei2okyei2o-Photoroom.png"
+import logoImg from "@/imports/logo.png"
 import qrImg from "@/imports/image-4.png"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -18,6 +18,8 @@ type User = {
   password?: string
   // Backend modules this user may see (VER), from the login. Undefined = everything.
   permissions?: string[]
+  // Logged in with the provisional password e-mailed at sign-up: must choose their own first
+  mustChangePassword?: boolean
 }
 type RegisteredClient = Pick<User, "name" | "email" | "cedula" | "docType" | "phone">
 type CartItem = {
@@ -1153,9 +1155,6 @@ type ModConfig = {
   statusIndex?: number
   inactiveStatus?: string
   hiddenCellIndexes?: number[]
-  // Column of the short filter next to "Buscar" (default: statusIndex) and its name
-  filterIndex?: number
-  filterLabel?: string
 }
 
 const PERMISSION_MODULES = [
@@ -1358,8 +1357,6 @@ const MOD_CFG: Record<string, ModConfig> = {
     noExport: true,
     noDelete: true,
     hiddenCellIndexes: [5],
-    filterIndex: 2,
-    filterLabel: "Motivo",
   },
   "cat-producto": {
     columns: ["Nombre Categoría", "Descripción", "Estado"],
@@ -1593,7 +1590,6 @@ const MOD_CFG: Record<string, ModConfig> = {
     noDelete: true,
     autoId: true,
     hiddenCellIndexes: [1, 4, 5, 6, 9, 11, 12],
-    filterIndex: 8,
   },
   pedidos: {
     columns: [
@@ -1650,7 +1646,6 @@ const MOD_CFG: Record<string, ModConfig> = {
     // 10 = order lines JSON saved by admin-created orders (was showing as "Dato 7")
     // 11 = payment rejection reason
     hiddenCellIndexes: [2, 3, 4, 5, 10, 11],
-    filterIndex: 7,
   },
   devoluciones: {
     columns: ["Código", "Cliente", "Motivo", "Fecha"],
@@ -1676,8 +1671,6 @@ const MOD_CFG: Record<string, ModConfig> = {
     noDelete: true,
     noExport: true,
     hiddenCellIndexes: [1, 3],
-    filterIndex: 4,
-    filterLabel: "Motivo",
   },
 }
 
@@ -1813,7 +1806,6 @@ const SIDEBAR_MENU = [
 type FieldErrors = Record<string, string>
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/
 const NAME_RE = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' ]+$/
-const DEMO_CODE = "841736"
 const DOC_RULES: Record<string, { re: RegExp; msg: string }> = {
   "Cédula de Ciudadanía": {
     re: /^\d{6,10}$/,
@@ -1900,26 +1892,26 @@ function validateRegister(f: {
   if (em) e.email = em
   else if (loadLS(`profile:${f.email.trim().toLowerCase()}`, null))
     e.email = "Ya existe una cuenta con este correo. Inicia sesión."
-  if (!f.pass) e.pass = "Crea una contraseña."
+  return { ...e, ...passwordErrors(f.pass, f.pass2) }
+}
+
+function passwordErrors(pass: string, pass2: string): FieldErrors {
+  const e: FieldErrors = {}
+  if (!pass) e.pass = "Crea una contraseña."
   else {
     const missing = [
-      f.pass.length < 8 && "mínimo 8 caracteres",
-      !/[A-Z]/.test(f.pass) && "una mayúscula",
-      !/[a-z]/.test(f.pass) && "una minúscula",
-      !/\d/.test(f.pass) && "un número",
+      pass.length < 8 && "mínimo 8 caracteres",
+      !/[A-Z]/.test(pass) && "una mayúscula",
+      !/[a-z]/.test(pass) && "una minúscula",
+      !/\d/.test(pass) && "un número",
     ].filter(Boolean)
     if (missing.length) e.pass = `La contraseña necesita ${missing.join(", ")}.`
   }
-  if (!f.pass2) e.pass2 = "Confirma tu contraseña."
-  else if (f.pass2 !== f.pass) e.pass2 = "Las contraseñas no coinciden."
+  if (!pass2) e.pass2 = "Confirma tu contraseña."
+  else if (pass2 !== pass) e.pass2 = "Las contraseñas no coinciden."
   return e
 }
 
-function codeError(code: string) {
-  if (code.length < 6) return "El código tiene 6 números."
-  if (code !== DEMO_CODE) return "El código no es correcto. Revisa el que te enviamos."
-  return ""
-}
 
 function FieldError({ msg }: { msg?: string }) {
   if (!msg) return null
@@ -2247,9 +2239,7 @@ function RegisterPage({
   onLoginLink: () => void
   onBack: () => void
 }) {
-  const [step, setStep] = useState<"form" | "verifying">("form")
   const [tried, setTried] = useState(false)
-  const [codeTried, setCodeTried] = useState(false)
   const [form, setForm] = useState({
     name: "",
     lastname: "",
@@ -2260,9 +2250,7 @@ function RegisterPage({
     pass: "",
     pass2: "",
   })
-  const [code, setCode] = useState("")
   const errors = tried ? validateRegister(form) : {}
-  const err = codeTried ? codeError(code) : ""
   const upd = (k: keyof typeof form) => (v: string) =>
     setForm((current) => ({
       ...current,
@@ -2273,102 +2261,32 @@ function RegisterPage({
             ? digitsOnly(v).slice(0, 10)
             : v,
     }))
-  const submitForm = (e: React.FormEvent) => {
-    e.preventDefault()
-    setTried(true)
-    if (Object.keys(validateRegister(form)).length) return
-    setStep("verifying")
-  }
+
+  const newUser = (): User => ({
+    name: `${form.name.trim()} ${form.lastname.trim()}`.trim(),
+    email: form.email.trim().toLowerCase(),
+    role: "user",
+    docType: form.docType,
+    phone: form.phone.replace(/\s/g, ""),
+    cedula: form.docNum.trim(),
+  })
   const [serverErr, setServerErr] = useState("")
   const [busy, setBusy] = useState(false)
-  const submitCode = async (e: React.FormEvent) => {
+  const submitForm = async (e: React.FormEvent) => {
     e.preventDefault()
-    setCodeTried(true)
+    setTried(true)
     setServerErr("")
-    if (busy || codeError(code)) return
-    const u: User = {
-      name: `${form.name.trim()} ${form.lastname.trim()}`.trim(),
-      email: form.email.trim().toLowerCase(),
-      role: "user",
-      docType: form.docType,
-      phone: form.phone.replace(/\s/g, ""),
-      cedula: form.docNum.trim(),
-    }
+    if (busy || Object.keys(validateRegister(form)).length) return
     setBusy(true)
     try {
-      await apiRegister({ ...u, password: form.pass })
-      onVerify(u)
+      await apiRegister(newUser(), form.pass)
+      onVerify(newUser())
     } catch (err) {
       setServerErr((err as Error).message)
     } finally {
       setBusy(false)
     }
   }
-  if (step === "verifying")
-    return (
-      <AuthLayout
-        title="Verifica tu correo"
-        sub={
-          <>
-            Código enviado a <strong>{form.email}</strong>
-          </>
-        }
-      >
-        <form onSubmit={submitCode} className="flex flex-col gap-4">
-          <div className="text-center text-5xl py-2">📧</div>
-          <p
-            className="text-xs text-center"
-            style={{ color: "rgba(30,30,30,0.5)" }}
-          >
-            Ingresa el código de 6 dígitos que enviamos a tu correo. (Demo:{" "}
-            <strong>{DEMO_CODE}</strong>)
-          </p>
-          <input
-            maxLength={6}
-            placeholder="000000"
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            inputMode="numeric"
-            aria-invalid={!!err}
-            className="w-full px-4 py-4 rounded-xl text-center text-2xl font-bold tracking-widest outline-none"
-            style={{
-              background: "rgba(30,30,30,0.05)",
-              border: `1.5px solid ${err ? C.red : "rgba(30,30,30,0.12)"}`,
-              color: "#1A1714",
-              letterSpacing: "0.3em",
-            }}
-          />
-          <FieldError msg={err || serverErr} />
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
-            style={{ background: C.mustard, color: "#fff" }}
-          >
-            {busy ? "Creando cuenta..." : "Verificar y continuar"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setStep("form")}
-            className="text-xs text-center cursor-pointer"
-            style={{ color: "rgba(30,30,30,0.4)" }}
-          >
-            ← Volver
-          </button>
-          <button
-            type="button"
-            onClick={onBack}
-            className="w-full py-2 rounded-xl font-medium text-sm cursor-pointer"
-            style={{
-              background: "rgba(30,30,30,0.05)",
-              color: "rgba(30,30,30,0.5)",
-            }}
-          >
-            ← Volver al inicio
-          </button>
-        </form>
-      </AuthLayout>
-    )
   return (
     <div
       className="min-h-screen flex items-center justify-center px-3 py-4"
@@ -2558,12 +2476,14 @@ function RegisterPage({
                 Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
               </p>
             )}
+            <FieldError msg={serverErr} />
             <button
               type="submit"
-              className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+              disabled={busy}
+              className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
               style={{ background: C.mustard, color: "#fff" }}
             >
-              Continuar →
+              {busy ? "Creando cuenta..." : "Crear cuenta →"}
             </button>
             <button
               type="button"
@@ -2583,6 +2503,101 @@ function RegisterPage({
   )
 }
 
+// After logging in with the provisional password from the sign-up e-mail
+function ChooseOwnPasswordPage({
+  user,
+  onDone,
+  onLogout,
+}: {
+  user: User
+  onDone: () => void
+  onLogout: () => void
+}) {
+  const [current, setCurrent] = useState("")
+  const [pass, setPass] = useState("")
+  const [pass2, setPass2] = useState("")
+  const [tried, setTried] = useState(false)
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  const errors = tried ? passwordErrors(pass, pass2) : {}
+  return (
+    <AuthLayout
+      title="Crea tu contraseña"
+      sub={
+        <>
+          Hola <strong>{user.name}</strong>, cambia la contraseña provisional por una propia
+        </>
+      }
+    >
+      <form
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault()
+          setTried(true)
+          setServerErr("")
+          if (busy || !current || Object.keys(passwordErrors(pass, pass2)).length) return
+          setBusy(true)
+          api("/auth/me/contrasena", "PATCH", { actual: current, nueva: pass })
+            .then(onDone)
+            .catch((err) => setServerErr((err as Error).message))
+            .finally(() => setBusy(false))
+        }}
+        className="flex flex-col gap-3"
+      >
+        <InputField
+          label="Contraseña provisional (la del correo)"
+          type="password"
+          placeholder="••••••••"
+          value={current}
+          onChange={setCurrent}
+          required
+          error={tried && !current ? "Escribe la contraseña provisional." : ""}
+        />
+        <InputField
+          label="Nueva contraseña"
+          type="password"
+          placeholder="••••••••"
+          value={pass}
+          onChange={setPass}
+          required
+          error={errors.pass}
+        />
+        <InputField
+          label="Confirmar"
+          type="password"
+          placeholder="••••••••"
+          value={pass2}
+          onChange={setPass2}
+          required
+          error={errors.pass2}
+        />
+        {!errors.pass && (
+          <p className="text-[11px]" style={{ color: "rgba(30,30,30,0.45)" }}>
+            Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
+          </p>
+        )}
+        <FieldError msg={serverErr} />
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
+          style={{ background: C.mustard, color: "#fff" }}
+        >
+          {busy ? "Guardando..." : "Guardar y continuar"}
+        </button>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="w-full py-2 rounded-xl text-sm cursor-pointer"
+          style={{ background: "rgba(30,30,30,0.05)", color: "rgba(30,30,30,0.5)" }}
+        >
+          Cerrar sesión
+        </button>
+      </form>
+    </AuthLayout>
+  )
+}
+
 function ForgotPage({
   onReset,
   onBack,
@@ -2593,13 +2608,15 @@ function ForgotPage({
   const [email, setEmail] = useState("")
   const [sent, setSent] = useState(false)
   const [emailErr, setEmailErr] = useState("")
+  const [busy, setBusy] = useState(false)
   if (sent)
     return (
-      <AuthLayout title="Correo enviado" sub="Revisa tu bandeja de entrada">
+      <AuthLayout title="Revisa tu correo" sub="Te enviamos un código de 6 dígitos">
         <div className="text-center py-2">
           <div className="text-5xl mb-3">📧</div>
           <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.55)" }}>
-            Enlace enviado a <strong>{email}</strong>
+            Enviamos el código a <strong>{email}</strong>. Vence en 15 minutos; si no lo ves, revisa también
+            la carpeta de spam.
           </p>
           <button
             onClick={() => onReset(email)}
@@ -2624,14 +2641,19 @@ function ForgotPage({
   return (
     <AuthLayout
       title="Recuperar contraseña"
-      sub="Ingresa tu correo y te enviamos el enlace"
+      sub="Ingresa tu correo y te enviamos un código"
     >
       <form
         onSubmit={(e) => {
           e.preventDefault()
           const error = emailError(email)
           setEmailErr(error)
-          if (!error) setSent(true)
+          if (error || busy) return
+          setBusy(true)
+          api("/auth/recuperar", "POST", { correo: email.trim() })
+            .then(() => setSent(true))
+            .catch((err) => setEmailErr((err as Error).message))
+            .finally(() => setBusy(false))
         }}
         className="flex flex-col gap-3"
       >
@@ -2649,10 +2671,11 @@ function ForgotPage({
         />
         <button
           type="submit"
-          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+          disabled={busy}
+          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
           style={{ background: C.mustard, color: "#fff" }}
         >
-          Enviar enlace
+          {busy ? "Enviando..." : "Enviar código"}
         </button>
         <button
           type="button"
@@ -2671,10 +2694,12 @@ function ForgotPage({
 }
 
 function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
+  const [code, setCode] = useState("")
   const [pass, setPass] = useState("")
   const [pass2, setPass2] = useState("")
   const [err, setErr] = useState("")
   const [ok, setOk] = useState(false)
+  const [busy, setBusy] = useState(false)
   if (ok)
     return (
       <AuthLayout title="¡Listo!" sub="Contraseña actualizada">
@@ -2702,18 +2727,36 @@ function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
       <form
         onSubmit={(e) => {
           e.preventDefault()
+          if (!/^\d{6}$/.test(code.trim())) {
+            setErr("Escribe el código de 6 dígitos que te llegó al correo.")
+            return
+          }
           if (pass !== pass2) {
             setErr("No coinciden.")
             return
           }
-          if (pass.length < 6) {
-            setErr("Mínimo 6 caracteres.")
+          if (pass.length < 8) {
+            setErr("Mínimo 8 caracteres.")
             return
           }
-          setOk(true)
+          if (busy) return
+          setBusy(true)
+          setErr("")
+          api("/auth/restablecer", "POST", { correo: email.trim(), codigo: code.trim(), nueva: pass })
+            .then(() => setOk(true))
+            .catch((error) => setErr((error as Error).message))
+            .finally(() => setBusy(false))
         }}
         className="flex flex-col gap-3"
       >
+        <InputField
+          label="Código del correo"
+          type="text"
+          placeholder="123456"
+          value={code}
+          onChange={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
+          required
+        />
         <InputField
           label="Nueva contraseña"
           type="password"
@@ -2737,10 +2780,11 @@ function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
         )}
         <button
           type="submit"
-          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+          disabled={busy}
+          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
           style={{ background: C.mustard, color: "#fff" }}
         >
-          Guardar
+          {busy ? "Guardando..." : "Guardar"}
         </button>
       </form>
     </AuthLayout>
@@ -3701,6 +3745,7 @@ type AuthData = {
     telefono: string | null
     direcciones: string[] | null
     roles: string[]
+    debe_cambiar_contrasena?: boolean
   }
   permisos: { modulo: string; privilegios: string[] }[]
 }
@@ -3716,6 +3761,7 @@ const toUser = ({ token, usuario: u, permisos }: AuthData): User => {
     cedula: u.documento || undefined,
     phone: u.telefono || undefined,
     addresses: u.direcciones?.length ? u.direcciones : undefined,
+    mustChangePassword: !!u.debe_cambiar_contrasena,
   }
 }
 
@@ -3834,8 +3880,6 @@ const DB_SYNC: Record<string, SyncSpec> = {
     path: "/usuarios",
     update: "PATCH",
     idIndex: 7,
-    // Customers are managed in Clientes
-    shows: (u) => !u.roles?.includes("CLIENTE"),
     idOf: (u) => u.id_usuario,
     toRow: (u) =>
       withId(
@@ -4155,6 +4199,28 @@ const PANEL_SYNC: Record<string, PanelSyncSpec> = {
     owns: (row) => !loadOrders().some((order) => order.id === row[0]),
   },
 }
+// Short filter next to "Buscar": the specific columns (row index) each module can be filtered by
+const TABLE_FILTERS: Record<string, { label: string; index: number }[]> = {
+  roles: [{ label: "Estado", index: 2 }],
+  usuarios: [{ label: "Rol", index: 3 }, { label: "Estado", index: 5 }],
+  "cat-insumos": [{ label: "Estado", index: 2 }],
+  insumos: [{ label: "Categoría", index: 1 }, { label: "Estado", index: 12 }],
+  proveedores: [{ label: "Tipo de persona", index: 15 }, { label: "Estado", index: 6 }],
+  compras: [{ label: "Proveedor", index: 0 }, { label: "Estado", index: 5 }],
+  perdidas: [{ label: "Motivo", index: 2 }],
+  "cat-producto": [{ label: "Estado", index: 2 }],
+  producto: [{ label: "Categoría", index: 1 }, { label: "Estado", index: 4 }],
+  produccion: [{ label: "Estado", index: 8 }],
+  "producto-no-conforme": [{ label: "Estado", index: 8 }],
+  clientes: [{ label: "Cliente de local", index: 6 }, { label: "Estado", index: 7 }],
+  ventas: [{ label: "Estado de venta", index: 8 }, { label: "Método de pago", index: 5 }],
+  pedidos: [
+    { label: "Estado", index: 7 },
+    { label: "Estado de pago", index: 8 },
+    { label: "Tipo de pedido", index: 3 },
+  ],
+  devoluciones: [{ label: "Motivo", index: 4 }],
+}
 const syncIdIndex = (sec: string) => (DB_SYNC[sec] ?? PANEL_SYNC[sec])?.idIndex
 // Pads the row so the id never leaves empty gaps before it
 const withPanelId = (row: Row, idIndex: number, id: string | number) => {
@@ -4193,11 +4259,11 @@ async function loadMenu() {
   )
 }
 
-const apiRegister = async (u: User) =>
+const apiRegister = async (u: User, password: string) =>
   toUser(
     await api<AuthData>("/auth/registro", "POST", {
       correo: u.email,
-      contrasena: u.password,
+      contrasena: password,
       nombre: u.name,
       tipo_documento: u.docType || undefined,
       documento: u.cedula || undefined,
@@ -4791,7 +4857,6 @@ function CheckoutPage({
   setCart,
   user,
   onLogin,
-  onRegisterVerified,
   onBack,
   onPlaceOrder,
   onComplete,
@@ -4800,13 +4865,11 @@ function CheckoutPage({
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
   user: User | null
   onLogin: (u: User) => void
-  onRegisterVerified: (u: User) => void
   onBack: () => void
   onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<void>
   onComplete: () => void
 }) {
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
-  const [regStep, setRegStep] = useState<"form" | "verifying">("form")
   const [loginForm, setLoginForm] = useState({ email: "", pass: "" })
   const [regForm, setRegForm] = useState({
     name: "",
@@ -4855,7 +4918,6 @@ function CheckoutPage({
     setEditingAddress(!hasSavedAddress)
     setSaveAddress(!hasSavedAddress)
   }, [user])
-  const [code, setCode] = useState("")
   const [voucher, setVoucher] = useState("")
   const [ordered, setOrdered] = useState(false)
   const [placedTotal, setPlacedTotal] = useState(0)
@@ -4904,13 +4966,11 @@ function CheckoutPage({
   // Errors show after the first submit of each form and update while typing
   const [loginTried, setLoginTried] = useState(false)
   const [regTried, setRegTried] = useState(false)
-  const [codeTried, setCodeTried] = useState(false)
   const [serverErr, setServerErr] = useState("")
   const [busy, setBusy] = useState(false)
   // Password, account existence and status are checked by the backend
   const loginErrors = loginTried ? validateLogin(loginForm.email, loginForm.pass) : {}
   const regErrors = regTried ? validateRegister(regForm) : {}
-  const codeErr = codeTried ? codeError(code) : ""
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoginTried(true)
@@ -4926,17 +4986,11 @@ function CheckoutPage({
       setBusy(false)
     }
   }
-  const handleRegisterForm = (e: React.FormEvent) => {
+  const handleRegisterForm = async (e: React.FormEvent) => {
     e.preventDefault()
     setRegTried(true)
-    if (Object.keys(validateRegister(regForm)).length) return
-    setRegStep("verifying")
-  }
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setCodeTried(true)
     setServerErr("")
-    if (busy || codeError(code)) return
+    if (busy || Object.keys(validateRegister(regForm)).length) return
     const u: User = {
       name: regForm.name.trim(),
       email: regForm.email.trim().toLowerCase(),
@@ -4948,8 +5002,8 @@ function CheckoutPage({
     setBusy(true)
     try {
       // Registering returns a token, so the client is logged in right away
-      await apiRegister({ ...u, password: regForm.pass })
-      onRegisterVerified(u)
+      onLogin(await apiRegister(u, regForm.pass))
+      saveRegisteredClient(u)
       setCheckoutStep(2)
     } catch (err) {
       setServerErr((err as Error).message)
@@ -5209,7 +5263,7 @@ function CheckoutPage({
                       key={tab}
                       onClick={() => {
                         setAuthTab(tab)
-                        setRegStep("form")
+                        setServerErr("")
                       }}
                       className="flex-1 py-2 rounded-lg text-sm font-semibold cursor-pointer"
                       style={{
@@ -5256,7 +5310,7 @@ function CheckoutPage({
                     </button>
                   </form>
                 )}
-                {authTab === "register" && regStep === "form" && (
+                {authTab === "register" && (
                   <form
                     onSubmit={handleRegisterForm}
                     noValidate
@@ -5359,56 +5413,14 @@ function CheckoutPage({
                       required
                       error={regErrors.pass2}
                     />
-                    <button
-                      type="submit"
-                      className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
-                      style={{ background: C.mustard, color: "#fff" }}
-                    >
-                      Crear cuenta →
-                    </button>
-                  </form>
-                )}
-                {authTab === "register" && regStep === "verifying" && (
-                  <form onSubmit={handleVerify} noValidate className="flex flex-col gap-4">
-                    <p
-                      className="text-xs text-center"
-                      style={{ color: "rgba(30,30,30,0.5)" }}
-                    >
-                      Código enviado a <strong>{regForm.email}</strong>. (Demo:{" "}
-                      {DEMO_CODE})
-                    </p>
-                    <input
-                      maxLength={6}
-                      placeholder="000000"
-                      inputMode="numeric"
-                      value={code}
-                      onChange={(e) =>
-                        setCode(e.target.value.replace(/\D/g, ""))
-                      }
-                      aria-invalid={!!codeErr}
-                      className="w-full px-4 py-4 rounded-xl text-center text-2xl font-bold tracking-widest outline-none"
-                      style={{
-                        background: "rgba(30,30,30,0.05)",
-                        border: `1.5px solid ${codeErr ? C.red : "rgba(30,30,30,0.12)"}`,
-                        color: "#1A1714",
-                      }}
-                    />
-                    <FieldError msg={codeErr || serverErr} />
+                    <FieldError msg={serverErr} />
                     <button
                       type="submit"
                       disabled={busy}
-                      className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+                      className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
                       style={{ background: C.mustard, color: "#fff" }}
                     >
-                      {busy ? "Creando cuenta..." : "Verificar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRegStep("form")}
-                      className="text-xs text-center cursor-pointer"
-                      style={{ color: "rgba(30,30,30,0.45)" }}
-                    >
-                      ← Corregir mis datos
+                      {busy ? "Creando cuenta..." : "Crear cuenta →"}
                     </button>
                   </form>
                 )}
@@ -7019,14 +7031,12 @@ function ClientApp({
 // ── Landing Page ───────────────────────────────────────────────────────────────
 function LandingPage({
   onLogin,
-  onAdmin,
   onGuestMenu,
   onCheckout,
   cart,
   setCart,
 }: {
   onLogin: () => void
-  onAdmin: () => void
   onGuestMenu: () => void
   onCheckout: () => void
   cart: CartItem[]
@@ -7163,16 +7173,6 @@ function LandingPage({
                   {cartCount}
                 </span>
               )}
-            </button>
-            <button
-              onClick={onAdmin}
-              className="hidden sm:inline-flex items-center gap-1.5 text-xs px-3 py-2 rounded-full font-semibold border cursor-pointer hover:opacity-70"
-              style={{
-                color: scrolled ? TEXT : "#fff",
-                borderColor: scrolled ? BORDER : "rgba(255,255,255,0.3)",
-              }}
-            >
-              {Ico.settings} Admin
             </button>
             <button
               onClick={onLogin}
@@ -7949,17 +7949,6 @@ function LandingPage({
             style={{ color: "rgba(250,243,224,0.2)" }}
           >
             <span>© 2024 El Parche de las Mini Burguer · Bello, Antioquia</span>
-            <button
-              onClick={onAdmin}
-              style={{
-                color: "rgba(250,243,224,0.18)",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              Admin
-            </button>
           </div>
         </div>
       </footer>
@@ -8876,10 +8865,6 @@ function AdminPanel({
         saveOrders(loadOrders().map((o) => (o.id === order[0] ? { ...o, productionRecords: created } : o)))
         pushOrder(String(order[0]))
       })
-    initialRows.produccion = [
-      ...clientOrders.flatMap((order) => order.productionRecords ?? []),
-      ...(initialRows.produccion || []),
-    ]
     const supplyProducts = (initialRows.insumos || [])
       .filter((row) => String(row[7]).toLowerCase() === "sí")
       .map(supplyAsProduct)
@@ -9560,7 +9545,7 @@ function AdminPanel({
       pedidos: ["1", "4", "5", "7", "9"],
     }
     const managedRequiredKeys: Record<string, string[]> = {
-      usuarios: ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])],
+      usuarios: ["0", "1", "2", "3", "4"],
       clientes: [
         "0",
         "1",
@@ -9597,7 +9582,7 @@ function AdminPanel({
     const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
     const required =
       sec === "usuarios"
-        ? ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])].includes(key)
+        ? ["0", "1", "2", "3", "4"].includes(key)
         : sec === "clientes"
           ? ["0", "1", "2", "3", ...(clientIsLocal ? [] : ["4", "5"])].includes(key)
           : sec === "proveedores"
@@ -12102,16 +12087,22 @@ function AdminPanel({
         })
       : indexedRows
     const q = (search[section] || "").toLowerCase()
-    const filterIndex = cfg.filterIndex ?? cfg.statusIndex
+    const filterGroups = (TABLE_FILTERS[section] || [])
+      .map(({ label, index }) => ({
+        label,
+        index,
+        values: [
+          ...new Set(indexedRows.map(({ row }) => String(row[index] ?? "").trim()).filter(Boolean)),
+        ].sort((x, y) => x.localeCompare(y)),
+      }))
+      .filter(({ values }) => values.length > 0)
+    // Stored as "<cell index>::<value>"
     const filterValue = tableFilter[section] || ""
-    const filterOptions =
-      filterIndex === undefined
-        ? []
-        : [...new Set(indexedRows.map(({ row }) => String(row[filterIndex] ?? "").trim()).filter(Boolean))].sort()
+    const [filterCell, filterText] = filterValue ? filterValue.split("::") : []
     const filtered = sRows.filter(
         ({ row }) =>
           (!q || row.some((cell) => String(cell).toLowerCase().includes(q))) &&
-          (!filterValue || String(row[filterIndex!] ?? "").trim() === filterValue),
+          (!filterValue || String(row[Number(filterCell)] ?? "").trim() === filterText),
       )
     const cur = pg[section] || 0
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -12392,14 +12383,14 @@ function AdminPanel({
               </button>
             )}
           </div>
-          {filterIndex !== undefined && (
+          {filterGroups.length > 0 && (
             <select
               value={filterValue}
               onChange={(event) => {
                 setTableFilter((current) => ({ ...current, [section]: event.target.value }))
                 setP(0)
               }}
-              aria-label={`Filtrar por ${(cfg.filterLabel ?? "Estado").toLowerCase()}`}
+              aria-label="Filtrar la lista"
               className="cursor-pointer rounded-xl px-3 py-2 text-xs outline-none"
               style={{
                 background: filterValue ? `${C.mustard}18` : t.input,
@@ -12407,11 +12398,15 @@ function AdminPanel({
                 color: filterValue ? C.mustard : t.muted,
               }}
             >
-              <option value="">{cfg.filterLabel ?? "Estado"}: todos</option>
-              {filterOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
+              <option value="">Filtrar: todos</option>
+              {filterGroups.map((group) => (
+                <optgroup key={group.index} label={group.label}>
+                  {group.values.map((value) => (
+                    <option key={value} value={`${group.index}::${value}`}>
+                      {value}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           )}
@@ -13059,6 +13054,9 @@ function AdminPanel({
               !(modal.mode === "add" && ["3", "4"].includes(field.key)) &&
               (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
           )
+      : isUser && modal.mode === "add"
+        // The new user receives a provisional password by e-mail (blank on edit = keep it)
+        ? dataFields.filter((field) => field.key !== "6")
         : dataFields
     const productMainFields = isProduct
       ? dataFields.filter(
@@ -16399,6 +16397,19 @@ export default function App() {
     setPage("guest-menu")
   }
 
+  // Nothing else is shown until the provisional password from the sign-up e-mail is replaced
+  if (user?.mustChangePassword)
+    return (
+      <ChooseOwnPasswordPage
+        user={user}
+        onDone={() => {
+          const updated = { ...user, mustChangePassword: false }
+          setUser(updated)
+          saveLS(`profile:${updated.email.toLowerCase()}`, updated)
+        }}
+        onLogout={logout}
+      />
+    )
   if (page === "login")
     return (
       <LoginPage
@@ -16448,10 +16459,6 @@ export default function App() {
         setCart={setCart}
         user={user}
         onLogin={(u) => login(u, "checkout")}
-        onRegisterVerified={(u) => {
-          saveRegisteredClient(u)
-          login(u, "checkout")
-        }}
         onBack={() => setPage(user ? "app" : "landing")}
         onPlaceOrder={async (info, shouldSaveAddress) => {
           if (!user) return
@@ -16536,8 +16543,6 @@ export default function App() {
   return (
     <LandingPage
       onLogin={() => setPage("login")}
-      // The admin panel needs a real admin login (the backend checks its token)
-      onAdmin={() => setPage(user?.role === "admin" ? "admin" : "login")}
       onGuestMenu={goGuestMenu}
       onCheckout={goCheckout}
       cart={cart}
