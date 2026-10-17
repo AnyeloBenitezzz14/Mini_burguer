@@ -59,7 +59,7 @@ type ModalMode = "add" | "edit" | "view" | null
 type FieldType = {
   key: string
   label: string
-  type: "text" | "email" | "tel" | "number" | "select" | "textarea" | "date" | "time" | "image" | "checkbox"
+  type: "text" | "email" | "tel" | "number" | "select" | "textarea" | "date" | "time" | "image" | "checkbox" | "password"
   options?: string[]
 }
 type Product = {
@@ -88,6 +88,7 @@ type AdminOrderLine = {
 type ProductionItem = {
   name: string
   quantity: number
+  unit?: string
   category?: string
   parentId?: string
 }
@@ -183,7 +184,7 @@ const drinkSupplyName = (lineName: string) => {
 const PRODUCTS: Product[] = [
   {
     id: 1,
-    name: "Hamburguesa Mini",
+    name: "Mini",
     desc: "Hamburguesa pequeña de la casa con salsa secreta.",
     price: 13000,
     priceStr: "$13.000",
@@ -193,7 +194,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 2,
-    name: "Hamburguesa Sencilla",
+    name: "Sencilla",
     desc: "Carne de la casa, vegetales frescos y salsas.",
     price: 14500,
     priceStr: "$14.500",
@@ -203,7 +204,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 3,
-    name: "Hamburguesa Tradicional",
+    name: "Tradicional",
     desc: "Carne, queso cheddar y tocineta crujiente.",
     price: 16000,
     priceStr: "$16.000",
@@ -213,7 +214,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 4,
-    name: "Hamburguesa Super Mini",
+    name: "Super Mini",
     desc: "Porción mediana especial con carne y vegetales.",
     price: 15500,
     priceStr: "$15.500",
@@ -223,7 +224,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 5,
-    name: "Hamburguesa Doble",
+    name: "Doble",
     desc: "Doble carne de la casa, queso y salsas especiales.",
     price: 18500,
     priceStr: "$18.500",
@@ -233,7 +234,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 6,
-    name: "Hamburguesa Triple",
+    name: "Triple",
     desc: "Triple carne de la casa, queso y salsas a elección.",
     price: 20500,
     priceStr: "$20.500",
@@ -243,7 +244,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 7,
-    name: "Hamburguesa Pollo",
+    name: "Pollo",
     desc: "Pechuga de pollo jugosa, queso y salsas.",
     price: 17500,
     priceStr: "$17.500",
@@ -253,7 +254,7 @@ const PRODUCTS: Product[] = [
   },
   {
     id: 8,
-    name: "Hamburguesa Mixta",
+    name: "Mixta",
     desc: "Combinación de carne y pollo con queso.",
     price: 20500,
     priceStr: "$20.500",
@@ -1105,7 +1106,47 @@ const Ico = {
       <polyline points="20 6 9 17 4 12" />
     </svg>
   ),
+  burger: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 10a9 7 0 0118 0" />
+      <path d="M3 11h18M4 14h16M5 17h14" />
+      <path d="M4 19h16a2 2 0 002-2v-1H2v1a2 2 0 002 2z" />
+    </svg>
+  ),
+  phone: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.8 19.8 0 01-8.63-3.07 19.5 19.5 0 01-6-6A19.8 19.8 0 012.12 4.2 2 2 0 014.11 2h3a2 2 0 012 1.72l.45 3.02a2 2 0 01-.57 1.7L7.1 10.33a16 16 0 006 6l1.89-1.89a2 2 0 011.7-.57l3.02.45a2 2 0 011.72 2z" />
+    </svg>
+  ),
+  mail: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="4" width="20" height="16" rx="2" />
+      <path d="m22 7-10 6L2 7" />
+    </svg>
+  ),
+  target: (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1" />
+      <path d="m16 8 5-5M17 3h4v4" />
+    </svg>
+  ),
+  delivery: (
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="7" cy="18" r="2.5" />
+      <circle cx="18" cy="18" r="2.5" />
+      <path d="M4.5 18H3V6h11v12M14 10h4l3 4v4h-.5M14 14h7M7 15.5V10h7" />
+    </svg>
+  ),
+  leaf: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 4c-8 0-14 2.5-14 9a7 7 0 007 7c6.5 0 7-8 7-16z" />
+      <path d="M4 21c2.5-5 6-8 12-11" />
+    </svg>
+  ),
 }
+
 
 // ── Theme tokens ───────────────────────────────────────────────────────────────
 function tk(dark: boolean) {
@@ -1285,13 +1326,12 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Empleado", "Domiciliario", "Cliente", "Administrador"],
       },
       { key: "4", label: "Correo electrónico", type: "email" },
-      { key: "6", label: "Contraseña", type: "text" },
+      { key: "6", label: "Contraseña", type: "password" },
     ],
     seed: [],
     noExport: true,
-    noDelete: true,
     statusIndex: 5,
-    hiddenCellIndexes: [6],
+    hiddenCellIndexes: [6, 8],
   },
   "cat-insumos": {
     columns: ["Nombre Categoría", "Descripción", "Estado"],
@@ -1337,7 +1377,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "11", label: "Cómo se prepara", type: "textarea" },
     ],
     seed: [],
-    // Deletable only while no purchase, loss or ficha técnica uses it (see getDeleteAssessment)
+    noDelete: true,
     statusIndex: 12,
     hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11],
   },
@@ -1351,8 +1391,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       "Estado",
     ],
     fields: [
-      // A "Persona natural" has no NIT nor contact person: it's identified by its own document (8, 9)
-      { key: "15", label: "Tipo de persona", type: "select", options: ["Persona jurídica", "Persona natural"] },
       { key: "1", label: "NIT", type: "text" },
       { key: "0", label: "Nombre empresa", type: "text" },
       { key: "2", label: "Correo", type: "email" },
@@ -1371,7 +1409,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [],
     // Deletable only while the supplier has no purchases (see getDeleteAssessment)
     statusIndex: 6,
-    hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+    hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14],
   },
   compras: {
     columns: ["Proveedor", "Fecha", "Subtotal", "Total", "Estado"],
@@ -1476,12 +1514,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "6", label: "Versión de la ficha", type: "text" },
       { key: "7", label: "Insumos principales", type: "textarea" },
       { key: "8", label: "Cómo se prepara", type: "textarea" },
-      {
-        key: "10",
-        label: "Disponibilidad",
-        type: "select",
-        options: ["Disponible", "No disponible"],
-      },
     ],
     // Every menu product (so each category has its products in the order picker) + additions
     seed: [
@@ -1532,12 +1564,12 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "1", label: "Cantidad", type: "number" },
       { key: "3", label: "Fecha de creación", type: "date" },
       { key: "4", label: "Hora de creación", type: "time" },
-      { key: "15", label: "Comentario (lo que no debe llevar)", type: "textarea" },
+      { key: "15", label: "Comentario (opcional)", type: "textarea" },
     ],
     seed: [],
     autoId: true,
     statusIndex: 8,
-    // 14 = stock already consumed (Sí/No), 15 = order code it came from (internal data), 16 = comentario
+    // 14 = stock already consumed, 15 = source order code, 16 = comment
     hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13, 14, 15, 16],
   },
   "producto-no-conforme": {
@@ -1795,6 +1827,7 @@ function buildProductionRows(
       }]),
       "No",
       orderCode,
+      "",
     ])
   })
   return result
@@ -1865,6 +1898,9 @@ const SIDEBAR_MENU = [
 type FieldErrors = Record<string, string>
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/
 const NAME_RE = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' ]+$/
+// Same rules under the names the production/registro code uses
+const getPasswordError = (password: string) => passwordErrors(password, password).pass ?? ""
+const validateAccountDocumentNumber = (value: string, docType: string) => validateDocumentNumber(value, docType)
 function emailError(email: string) {
   if (!email.trim()) return "Ingresa tu correo electrónico."
   if (!EMAIL_RE.test(email.trim()))
@@ -2325,7 +2361,7 @@ function RegisterPage({
   }
   return (
     <div
-      className="min-h-screen flex items-center justify-center px-3 py-4"
+      className="min-h-screen flex items-center justify-center px-4 py-8"
       style={{ background: "#F7F2E8", fontFamily: "Poppins, sans-serif" }}
     >
       <div className="w-full max-w-6xl grid lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-6 items-center">
@@ -2393,7 +2429,7 @@ function RegisterPage({
             Crear cuenta
           </h2>
           <div
-            className="text-xs mb-4"
+            className="text-sm mb-6"
             style={{ color: "rgba(30,30,30,0.45)" }}
           >
             ¿Ya tienes cuenta?{" "}
@@ -2405,9 +2441,9 @@ function RegisterPage({
               Inicia sesión
             </button>
           </div>
-          <form onSubmit={submitForm} noValidate className="flex flex-col gap-2">
+          <form onSubmit={submitForm} noValidate className="flex flex-col gap-4 [&_input]:px-4 [&_input]:py-3 [&_select]:px-4 [&_select]:py-3">
             {/* Document type first, its number right next to it */}
-            <div className="grid grid-cols-2 gap-2 items-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <div className="flex flex-col gap-1 min-w-0">
                 <label
                   className="text-xs font-semibold"
@@ -2451,7 +2487,7 @@ function RegisterPage({
                 error={errors.docNum}
               />
             </div>
-            <div className="grid grid-cols-2 gap-2 items-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <InputField
                 label="Nombre *"
                 placeholder="Tu nombre"
@@ -2468,7 +2504,7 @@ function RegisterPage({
                 error={errors.lastname}
               />
             </div>
-            <div className="grid grid-cols-2 gap-2 items-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <InputField
                 label="Teléfono"
                 type="tel"
@@ -2487,7 +2523,7 @@ function RegisterPage({
                 error={errors.email}
               />
             </div>
-            <div className="grid grid-cols-2 gap-2 items-start">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <InputField
                 label="Contraseña *"
                 type="password"
@@ -3740,8 +3776,7 @@ function saveLS(key: string, value: unknown) {
 }
 
 // ── Backend (parche-backend) ───────────────────────────────────────────────────
-// Always the Render backend; set VITE_API_URL=http://localhost:3000/api to use the one on this PC
-const API_URL = import.meta.env.VITE_API_URL || "https://backend-parche.onrender.com/api"
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api"
 // Uploaded photos come as "/imagenes/<id>" (served by the API); other images are full URLs
 const imageUrl = (u: string | undefined) => (u?.startsWith("/imagenes/") ? API_URL + u : u || "")
 
@@ -4014,19 +4049,22 @@ const DB_SYNC: Record<string, SyncSpec> = {
       withId([roleLabel(r.nombre_rol), r.descripcion || "", r.estado === "ACTIVO" ? "Activo" : "Inactivo"], 3, r.id_rol),
     toBody: (row) => ({ nombre_rol: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
   },
-  // [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, 6 contraseña (only to create/change it)]
+  // [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, 6 contraseña, 7 id, 8 admin principal]
   usuarios: {
     path: "/usuarios",
     update: "PATCH",
     idIndex: 7,
     idOf: (u) => u.id_usuario,
-    toRow: (u) =>
-      withId(
+    toRow: (u) => {
+      const row = withId(
         [u.nombre || "", u.tipo_documento || "", u.documento || "", roleLabel(u.roles?.[0] || ""), u.correo,
           u.estado === "ACTIVO" ? "Activo" : "Inactivo", ""],
         7,
         u.id_usuario,
-      ),
+      )
+      row[8] = u.es_administrador_principal ? "Principal" : ""
+      return row
+    },
     toBody: (row) => {
       const rol = text(row[3]).toUpperCase()
       return {
@@ -4037,7 +4075,6 @@ const DB_SYNC: Record<string, SyncSpec> = {
         tipo: rol === "CLIENTE" ? "CLIENTE" : "EMPLEADO",
         correo: text(row[4]),
         estado: estadoOf(row[5]),
-        // Blank on edit = keep the current password
         contrasena: text(row[6]) || undefined,
       }
     },
@@ -4210,20 +4247,19 @@ const DB_SYNC: Record<string, SyncSpec> = {
     reloads: ["insumos"],
   },
   // [0 nombre, 1 NIT, 2 correo, 3 teléfono, 4 contacto, 5 dirección, 6 estado, 7 insumos,
-  //  8-14 contacto: tipo doc, nº doc, nombre, apellido, teléfono, correo, cargo, 15 tipo de persona]
+  //  8-14 contacto: tipo doc, nº doc, nombre, apellido, teléfono, correo, cargo]
   proveedores: {
     path: "/proveedores",
     update: "PATCH",
-    idIndex: 16,
+    idIndex: 15,
     idOf: (p) => p.id_proveedor,
     // Nombre/apellido (10, 11) stay empty: the edit form splits them from "contacto"
     toRow: (p) =>
       withId(
         [p.nombre, p.nit || "", p.correo || "", p.telefono || "", p.contacto || "", p.direccion || "",
           p.estado === "ACTIVO" ? "Activo" : "Inactivo", p.insumos || "", p.contacto_tipo_documento || "",
-          p.contacto_documento || "", "", "", p.contacto_telefono || "", p.contacto_correo || "", p.contacto_cargo || "",
-          p.tipo || "Persona jurídica"],
-        16,
+          p.contacto_documento || "", "", "", p.contacto_telefono || "", p.contacto_correo || "", p.contacto_cargo || ""],
+        15,
         p.id_proveedor,
       ),
     toBody: (row) => ({
@@ -4240,7 +4276,6 @@ const DB_SYNC: Record<string, SyncSpec> = {
       contacto_telefono: text(row[12]),
       contacto_correo: optionalEmail(row[13]),
       contacto_cargo: text(row[14]),
-      tipo: text(row[15]) || "Persona jurídica",
     }),
   },
 }
@@ -4252,7 +4287,7 @@ async function saveRowToDb(spec: SyncSpec, row: Row) {
   const saved = id
     ? await api<DbRecord>(`${spec.path}/${id}`, spec.update, body)
     : await api<DbRecord>(spec.path, "POST", body)
-  return spec.idOf(saved)
+  return { id: spec.idOf(saved), saved }
 }
 
 // ── Permissions ↔ backend ──────────────────────────────────────────────────────
@@ -6043,8 +6078,9 @@ function ChangePasswordForm({
     }
 
     // Validate new password
-    if (newPass.length < 8) {
-      setError("La nueva contraseña debe tener al menos 8 caracteres.")
+    const passwordError = getPasswordError(newPass)
+    if (passwordError) {
+      setError(passwordError.replace("Crea una contraseña.", "Escribe una nueva contraseña."))
       return
     }
     if (newPass !== confirmPass) {
@@ -7081,7 +7117,7 @@ function ClientApp({
                 border: `1px solid ${C.forest}22`,
               }}
             >
-              <span className="text-2xl">🧅</span>
+              <span className="inline-flex text-2xl" style={{ color: C.forest }}>{Ico.leaf}</span>
               <span className="text-sm font-medium" style={{ color: C.forest }}>
                 Especialidad: <strong>cebolla marinada</strong> — 100% gratis
                 con tu pedido.
@@ -7484,7 +7520,8 @@ function LandingPage({
                 color: C.amber,
               }}
             >
-              🔥 Desde 2013 en Bello, Antioquia
+              <span className="mr-1 inline-flex align-middle">{Ico.fire}</span>
+              Desde 2013 en Bello, Antioquia
             </div>
             <h1
               style={{
@@ -7570,7 +7607,7 @@ function LandingPage({
             className="rounded-2xl px-6 py-5 flex items-center gap-5"
             style={{ background: C.forest }}
           >
-            <div className="text-4xl flex-shrink-0">🛵</div>
+            <div className="flex-shrink-0 text-white">{Ico.delivery}</div>
             <div>
               <div
                 className="font-black text-lg text-white"
@@ -7590,7 +7627,7 @@ function LandingPage({
             className="rounded-2xl px-6 py-5 flex items-center gap-5"
             style={{ background: C.red }}
           >
-            <div className="text-4xl flex-shrink-0">🧅</div>
+            <div className="flex-shrink-0 text-white">{Ico.leaf}</div>
             <div>
               <div
                 className="font-black text-lg text-white"
@@ -7643,7 +7680,7 @@ function LandingPage({
               style={{ background: C.mustard }}
             >
               <div className="flex items-center gap-3">
-                <span className="text-2xl">🛒</span>
+                <span className="inline-flex text-white">{Ico.shopping}</span>
                 <div>
                   <div className="font-bold text-sm text-white">
                     {cartCount} producto{cartCount > 1 ? "s" : ""} en tu carrito
@@ -8053,19 +8090,19 @@ function LandingPage({
               </h4>
               <ul className="flex flex-col gap-3 text-sm">
                 <li className="flex gap-2.5 items-start">
-                  <span style={{ color: C.amber, marginTop: "2px" }}>📍</span>
+                  <span className="mt-0.5" style={{ color: C.amber }}>{Ico.mapPin}</span>
                   <span style={{ color: "rgba(250,243,224,0.45)" }}>
                     051053, Cra. 58A #42c-28, Bello, Antioquia
                   </span>
                 </li>
                 <li className="flex gap-2.5 items-center">
-                  <span style={{ color: C.amber }}>📞</span>
+                  <span style={{ color: C.amber }}>{Ico.phone}</span>
                   <a href="tel:+573206332670" style={{ color: C.amber }}>
                     320 633 2670
                   </a>
                 </li>
                 <li className="flex gap-2.5 items-center">
-                  <span style={{ color: C.amber }}>✉️</span>
+                  <span style={{ color: C.amber }}>{Ico.mail}</span>
                   <a
                     href="mailto:Elparchedelasminiburguers@gmail.com"
                     style={{ color: C.amber, fontSize: "0.72rem" }}
@@ -8114,7 +8151,8 @@ function LandingPage({
                     borderTop: "1px solid rgba(250,243,224,0.06)",
                   }}
                 >
-                  🚀 Domicilios disponibles en toda la zona
+                  <span className="mr-1 inline-flex align-middle">{Ico.mapPin}</span>
+                  Domicilios disponibles en toda la zona
                 </div>
               </div>
             </div>
@@ -8185,7 +8223,7 @@ function LandingPage({
               className="text-sm font-medium flex-1"
               style={{ color: "#1A1714" }}
             >
-              ¿Cómo podemos ayudarte? 👋
+              ¿Cómo podemos ayudarte?
             </span>
             <button
               onClick={() => setWaBubble(false)}
@@ -9180,13 +9218,23 @@ function AdminPanel({
     }
     const saved =
       statusOnly && spec.setStatus
-        ? spec.setStatus(row[spec.idIndex], row).then(() => Number(row[spec.idIndex]))
+        ? spec.setStatus(row[spec.idIndex], row).then(() => ({
+            id: Number(row[spec.idIndex]),
+            saved: undefined,
+          }))
         : saveRowToDb(spec, row)
     saved
-      .then((id) => {
+      .then(({ id, saved: savedRecord }) => {
         setRows((current) => ({
           ...current,
-          [sec]: (current[sec] || []).map((r) => (r === row ? withId([...r], spec.idIndex, id) : r)),
+          [sec]: (current[sec] || []).map((r) => {
+            if (r !== row) return r
+            const updated = withId([...r], spec.idIndex, id)
+            if (sec === "usuarios" && savedRecord?.es_administrador_principal) {
+              updated[8] = "Principal"
+            }
+            return updated
+          }),
         }))
         spec.reloads?.forEach(loadModule)
         if (statusOnly) return
@@ -9314,6 +9362,8 @@ function AdminPanel({
   const [imgPreview, setImgPreview] = useState("")
   const [technicalSheetOpen, setTechnicalSheetOpen] = useState(false)
   const [technicalIngredients, setTechnicalIngredients] = useState<TechnicalIngredient[]>([])
+  const [technicalSteps, setTechnicalSteps] = useState<string[]>([])
+  const [technicalStepDraft, setTechnicalStepDraft] = useState("")
   const [technicalIngredientSelect, setTechnicalIngredientSelect] = useState("")
   const [technicalIngredientQuantity, setTechnicalIngredientQuantity] = useState("1")
   const [technicalSheetError, setTechnicalSheetError] = useState("")
@@ -9525,6 +9575,20 @@ function AdminPanel({
       a.localeCompare(b),
     )
 
+  const getPreparationSteps = (preparation: string | number | undefined): string[] => {
+    const value = String(preparation ?? "").trim()
+    if (!value) return []
+    try {
+      const parsed: unknown = JSON.parse(value)
+      if (Array.isArray(parsed)) {
+        return parsed.map((step) => String(step ?? "").trim()).filter(Boolean)
+      }
+    } catch {
+      // Existing preparation text is displayed as one or more legacy steps.
+    }
+    return value.split(/\r?\n/).map((step) => step.trim()).filter(Boolean)
+  }
+
   const getProductRecipe = (product: (string | number)[] | undefined) => {
     if (!product) return []
     try {
@@ -9540,6 +9604,7 @@ function AdminPanel({
             (item) => item.name && Number.isFinite(item.quantity) && item.quantity > 0 && item.unit,
           )
       }
+
     } catch {
       // Older product rows have only a comma-separated list of ingredient names.
     }
@@ -9668,6 +9733,12 @@ function AdminPanel({
     return [...new Set([...products, ...supplies])].sort((a, b) => a.localeCompare(b))
   }
 
+  const getNonconformingItemUnit = (name: string) => {
+    const supply = (rows.insumos || []).find((item) => String(item[0] ?? "").trim() === name)
+    if (supply) return String(supply[2] ?? "").trim() || "Sin unidad"
+    return "und"
+  }
+
   const getNonconformingItems = (row: (string | number)[] | undefined) => {
     if (!row) return []
     try {
@@ -9677,6 +9748,7 @@ function AdminPanel({
           .map((item) => ({
             name: String(item.name ?? "").trim(),
             quantity: Math.max(1, Number(item.quantity) || 1),
+            unit: String(item.unit ?? "").trim() || getNonconformingItemUnit(String(item.name ?? "").trim()),
           }))
           .filter((item) => item.name)
       }
@@ -9687,7 +9759,11 @@ function AdminPanel({
       .split(",")
       .map((name) => name.trim())
       .filter(Boolean)
-      .map((name) => ({ name, quantity: Math.max(1, Number(row[3]) || 1) }))
+      .map((name) => ({
+        name,
+        quantity: Math.max(1, Number(row[3]) || 1),
+        unit: getNonconformingItemUnit(name),
+      }))
   }
 
   const getProductSupplyOptions = () =>
@@ -9753,17 +9829,16 @@ function AdminPanel({
   ) => {
     const excludedKeys: Record<string, string[]> = {
       insumos: [
-        // "Costo unitario" comes from the purchases; "Stock actual" starts at 0
-        "3",
+        // "Stock actual" isn't shown when creating (a new insumo starts at 0)
         ...(mode === "add" ? ["4"] : []),
         ...(String(draft["7"] ?? "").toLowerCase() === "sí"
           ? ["8", "9"]
           : ["8", "9", "10", "11"]),
       ],
       producto: ["5", "6", "7", "8", "10", ...(mode === "add" ? ["2"] : [])],
-      produccion: ["0", "1"],
+      produccion: ["0", "1", "15"],
       "producto-no-conforme": ["0", "1", "2", "5", "6"],
-      compras: ["3", "4"],
+      compras: ["2", "3", "4"],
       // "Origen" is only filled when the loss is sent from a purchase
       perdidas: ["5"],
       // 4 (modalidad) and 7 (estado de pago) are derived from the payment method
@@ -9781,9 +9856,9 @@ function AdminPanel({
       ],
       // "7" (insumos que suministra) is optional: they can be assigned later, and
       // Compras already warns when a supplier has none
-      proveedores: isNaturalSupplier(draft["15"])
-        ? ["0", "2", "3", "5", "8", "9", "15"]
-        : ["0", "1", "2", "3", "5", "8", "9", "10", "11", "12", "13", "14", "15"],
+      proveedores: [
+        "0", "1", "2", "3", "5", "8", "9", "10", "11", "12", "13", "14",
+      ],
       roles: ["0", "1"],
     }
 
@@ -9811,8 +9886,7 @@ function AdminPanel({
         : sec === "clientes"
           ? ["0", "1", "2", "3", "4", "5"].includes(key)
           : sec === "proveedores"
-            ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14", "15"].includes(key) &&
-              !(isNaturalSupplier(draft["15"]) && SUPPLIER_COMPANY_ONLY_KEYS.includes(key))
+            ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14"].includes(key)
             : sec === "roles"
               ? ["0", "1"].includes(key)
               : false
@@ -9829,6 +9903,9 @@ function AdminPanel({
 
     if ((sec === "usuarios" && key === "2") || (sec === "clientes" && key === "2")) {
       return validateDocumentNumber(trimmed, String(draft["1"] ?? ""))
+    }
+    if (sec === "usuarios" && key === "6" && mode === "add") {
+      return getPasswordError(trimmed)
     }
     if (sec === "proveedores" && key === "1") {
       const digits = digitsOnly(trimmed)
@@ -9855,6 +9932,9 @@ function AdminPanel({
         return String(row[0] ?? "").trim().toLowerCase() === name
       })
       return sameNameExists ? "Ya existe un rol con este nombre." : ""
+    }
+    if (sec === "compras" && key === "1" && trimmed > getCurrentDateTimeParts().date) {
+      return "La fecha de compra no puede ser posterior a hoy."
     }
     return ""
   }
@@ -9940,10 +10020,16 @@ function AdminPanel({
           ? "2"
           : ""
     if (documentKey) {
-      currentDraft[documentKey] = normalizeDocumentInput(
-        currentDraft[documentKey] ?? "",
-        value,
-      )
+      currentDraft[documentKey] =
+        sec === "usuarios"
+          ? normalizeAccountDocumentInput(currentDraft[documentKey] ?? "", value)
+          : normalizeDocumentInput(currentDraft[documentKey] ?? "", value)
+    }
+    if (sec === "usuarios" && key === "2") {
+      currentDraft[key] = normalizeAccountDocumentInput(value, currentDraft["1"] ?? "")
+    }
+    if (sec === "usuarios" && key === "3" && value !== "Cliente" && currentDraft["1"] === "Tarjeta de Identidad") {
+      currentDraft["1"] = ""
     }
     setFormData(currentDraft)
     // Recompute while any error is shown: a change in one field (e.g. "Cliente de local")
@@ -9963,6 +10049,8 @@ function AdminPanel({
       initialFields["6"] = getAutoTechVersion(rows.producto || [])
       initialFields["10"] = "Disponible"
       setTechnicalIngredients([])
+      setTechnicalSteps([])
+      setTechnicalStepDraft("")
       setTechnicalSheetError("")
     }
     if (sec === "proveedores") {
@@ -9999,14 +10087,7 @@ function AdminPanel({
       initialFields["4"] = currentDateTime.time
     }
     if (sec === "compras") {
-      const today = new Date()
-      const registrationDate = [
-        today.getFullYear(),
-        String(today.getMonth() + 1).padStart(2, "0"),
-        String(today.getDate()).padStart(2, "0"),
-      ].join("-")
-      initialFields["1"] = registrationDate
-      initialFields["2"] = registrationDate
+      initialFields["1"] = getCurrentDateTimeParts().date
       resetPurchasePicker()
     }
     setFormData(initialFields)
@@ -10079,6 +10160,8 @@ function AdminPanel({
     }
     if (sec === "producto") {
       setTechnicalIngredients(getProductRecipe(row))
+      setTechnicalSteps(getPreparationSteps(row[8]))
+      setTechnicalStepDraft("")
       nextForm["9"] = String(row[9] ?? "[]")
       nextForm["10"] = String(row[10] ?? "Disponible")
       setTechnicalSheetError("")
@@ -10102,7 +10185,10 @@ function AdminPanel({
   const openView = (sec: string, idx: number) => {
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
-    if (sec === "producto") setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
+    if (sec === "producto") {
+      setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
+      setTechnicalSteps(getPreparationSteps(rows.producto?.[idx]?.[8]))
+    }
     if (sec === "produccion") {
       setProductionItems(getProductionOrderItems(rows.produccion?.[idx]))
       setProductionFormError("")
@@ -10154,15 +10240,14 @@ function AdminPanel({
       if (dup) e["0"] = `Ya existe el insumo «${String(dup[0])}».`
       if (!v("1")) e["1"] = "Selecciona la categoría."
       if (!v("2")) e["2"] = "Selecciona la unidad de medida."
-      if (v("3") && !(n("3") >= 0)) e["3"] = "El costo no puede ser negativo."
+      if (!v("3")) e["3"] = "Escribe el costo unitario."
+      else if (!(n("3") > 0)) e["3"] = "El costo debe ser mayor que 0."
       if (modal.mode !== "add" && v("4") && !(n("4") >= 0))
         e["4"] = "El stock actual no puede ser negativo."
       if (!v("5")) e["5"] = "Escribe el stock mínimo."
       else if (!(n("5") >= 0)) e["5"] = "El stock mínimo no puede ser negativo."
       if (v("7").toLowerCase() === "sí") {
         if (!v("10")) e["10"] = "Ficha técnica: elige al menos un insumo principal."
-        else if (parseMainSupplies(v("10")).some((i) => !(Number(i.quantity) > 0)))
-          e["10"] = "Ficha técnica: escribe cuánto se usa de cada insumo principal."
         if (!v("11")) e["11"] = "Ficha técnica: escribe cómo se prepara."
       }
     }
@@ -10324,10 +10409,6 @@ function AdminPanel({
     })
     if (sec === "proveedores") {
       newRow[4] = `${String(formData["10"] ?? "").trim()} ${String(formData["11"] ?? "").trim()}`.trim()
-      if (isNaturalSupplier(newRow[15])) {
-        newRow[4] = String(newRow[0] ?? "").trim()
-        for (const key of SUPPLIER_COMPANY_ONLY_KEYS) newRow[Number(key)] = ""
-      }
     }
     if (sec === "cat-producto") newRow[0] = String(newRow[0] ?? "").trim()
 
@@ -10347,8 +10428,7 @@ function AdminPanel({
 
     if (sec === "insumos") {
       newRow[0] = String(newRow[0] ?? "").trim()
-      // New insumos start with no stock and no cost (it's set by each purchase)
-      newRow[3] = modal.mode === "add" ? 0 : Number(newRow[3] || 0)
+      // New insumos start with no stock (the field isn't shown when creating)
       newRow[4] = modal.mode === "add" ? 0 : Number(newRow[4] || 0)
       newRow[6] = previousRow?.[6] ?? "" // unused slot (old "Stock máximo")
       if (String(newRow[7]).toLowerCase() === "sí") {
@@ -10419,7 +10499,7 @@ function AdminPanel({
       newRow[4] = formData["3"] ?? ""
       newRow[5] = formData["4"] ?? ""
       newRow[6] = formData["5"] ?? ""
-      newRow[7] = formData["6"] ?? "und"
+      newRow[7] = productionItems[0]?.unit ?? "und"
     }
 
     if (sec === "produccion") {
@@ -10430,8 +10510,6 @@ function AdminPanel({
         0,
       )
       newRow[13] = JSON.stringify(productionItems)
-      newRow[4] = modal.mode === "add" ? currentDateTime.date : previousRow?.[4] ?? currentDateTime.date
-      newRow[5] = modal.mode === "add" ? currentDateTime.time : previousRow?.[5] ?? currentDateTime.time
       newRow[3] = modal.mode === "add" ? getNextProductionPriority(rows.produccion || []) : (previousRow?.[3] ?? getNextProductionPriority(rows.produccion || []))
       newRow[6] = previousRow?.[6] ?? currentDateTime.date
       newRow[7] = previousRow?.[7] ?? currentDateTime.time
@@ -10527,24 +10605,6 @@ function AdminPanel({
         ? (id) => api(`/productos/${id}/imagen`, "PUT", { imagen: imgPreview })
         : undefined,
     )
-    if (sec === "insumos") {
-      // Add/remove (or rename) the insumo in each supplier's "Insumos que suministra"
-      const name = String(newRow[0])
-      const previousName = String(previousRow?.[0] ?? name)
-      ;(rows.proveedores || []).forEach((supplier) => {
-        const current = splitNames(supplier[7])
-        const others = current.filter((n) => n !== name && n !== previousName)
-        const next = supplySuppliers.includes(String(supplier[0])) ? [...others, name] : others
-        if (next.join(", ") === current.join(", ")) return
-        const updatedSupplier = [...supplier]
-        updatedSupplier[7] = next.join(", ")
-        setRows((cur) => ({
-          ...cur,
-          proveedores: (cur.proveedores || []).map((r) => (r === supplier ? updatedSupplier : r)),
-        }))
-        syncRow("proveedores", updatedSupplier, false)
-      })
-    }
     if (sec === "producto" && imgPreview) {
       const imageIndex = modal.mode === "add" ? 0 : modal.idx!
       setProdImgs((current) => ({ ...current, [imageIndex]: imgPreview }))
@@ -10861,7 +10921,13 @@ function AdminPanel({
   ) => {
     const currentRows = rows[sec] || []
     const currentRow = currentRows[rowIndex]
-    if (!currentRow || isStatusLocked(sec, currentRow)) return
+    if (
+      !currentRow ||
+      isStatusLocked(sec, currentRow) ||
+      (sec === "cat-producto" &&
+        normalizeName(String(currentRow[0] ?? "")) === "adiciones" &&
+        isStatusActive(currentRow[statusIndex] ?? "Activa"))
+    ) return
 
     const currentValue = String(
       currentRow[statusIndex] ??
@@ -11384,6 +11450,8 @@ function AdminPanel({
         date: currentDateTime.date,
         time: currentDateTime.time,
       })
+      updatedOrder[4] = currentDateTime.date
+      updatedOrder[5] = currentDateTime.time
       updatedOrder[6] = currentDateTime.date
       updatedOrder[7] = currentDateTime.time
       updatedOrder[8] = nextStatus
@@ -11416,8 +11484,11 @@ function AdminPanel({
           },
         ]),
         updatedOrder[13],
+        "No",
+        String(updatedOrder[15] ?? ""),
+        "",
       ]
-      productionRows.unshift(restartedOrder)
+      productionRows.push(restartedOrder)
 
       return {
         ...current,
@@ -11515,6 +11586,7 @@ function AdminPanel({
       }
       const realTime = formatRealTime(now)
       const updatedRow = [...currentRow]
+      updatedRow[5] = realTime
       updatedRow[7] = realTime
       updatedRow[8] = nextStatus
       let history: { status: string; date: string; time: string }[] = []
@@ -11581,8 +11653,11 @@ function AdminPanel({
             { status: "Iniciada", date: currentDateTime.date, time: realTime },
           ]),
           updatedRow[13],
+          "No",
+          String(updatedRow[15] ?? ""),
+          "",
         ]
-        productionRows.unshift(restartedOrder)
+        productionRows.push(restartedOrder)
       }
 
       return { ...current, produccion: productionRows, ...(supplies ? { insumos: supplies } : {}) }
@@ -11631,7 +11706,7 @@ function AdminPanel({
             fontFamily: "Poppins, sans-serif",
           }}
         >
-          {PRODUCTION_STATUSES.filter((status, i) => i >= PRODUCTION_STATUSES.indexOf(value)).map((status) => (
+          {PRODUCTION_STATUSES.map((status) => (
             <option key={status} value={status}>{status}</option>
           ))}
         </select>
@@ -11704,13 +11779,6 @@ function AdminPanel({
 
       const updated = [...(current[target.section] || [])]
       updated.splice(target.idx, 1)
-      if (target.section === "insumos") {
-        // Its "Producto de insumo" copy in Productos goes with it
-        const producto = (current.producto || []).filter(
-          (p) => !(p[1] === "Producto de insumo" && p[0] === currentRow?.[0]),
-        )
-        return { ...current, insumos: updated, producto }
-      }
       return { ...current, [target.section]: updated }
     })
     setDelTarget(null)
@@ -12411,25 +12479,7 @@ function AdminPanel({
     const noDelete = !!cfg.noDelete
     const noExp = !!cfg.noExport
     const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))
-    const sRows = section === "produccion"
-      ? indexedRows.sort((first, second) => {
-          const statusOrder: Record<string, number> = {
-            Recibida: 0,
-            Iniciada: 1,
-            "En cocina": 2,
-            Terminado: 3,
-            "Producto no conforme": 4,
-          }
-          const statusDifference =
-            (statusOrder[String(first.row[8])] ?? 9) -
-            (statusOrder[String(second.row[8])] ?? 9)
-          if (statusDifference !== 0) return statusDifference
-          if (String(first.row[8]) === "Terminado") {
-            return (Number(first.row[10]) || 0) - (Number(second.row[10]) || 0)
-          }
-          return (Number(first.row[3]) || 0) - (Number(second.row[3]) || 0)
-        })
-      : indexedRows
+    const sRows = indexedRows
     const q = (search[section] || "").toLowerCase()
     const filterGroups = (TABLE_FILTERS[section] || [])
       .map(({ label, index }) => ({
@@ -12496,6 +12546,7 @@ function AdminPanel({
       cell: string | number,
       primary = false,
       isLow = false,
+      isPrincipalAdmin = false,
     ) => {
       const badge = badgeSt(cell)
       const color = isLow ? C.red : primary ? t.text : t.muted
@@ -12509,7 +12560,19 @@ function AdminPanel({
           </span>
         )
       }
-      return <span style={{ color }}>{String(cell)}</span>
+      return (
+        <span style={{ color }}>
+          {String(cell)}
+          {isPrincipalAdmin && (
+            <span
+              className="ml-2 inline-block rounded-full px-2 py-0.5 text-[9px] font-bold"
+              style={{ background: `${C.mustard}18`, color: C.mustard }}
+            >
+              Administrador principal
+            </span>
+          )}
+        </span>
+      )
     }
 
     const formatSalesDate = (value: string | number) => {
@@ -12549,6 +12612,18 @@ function AdminPanel({
       if (cfg.statusIndex === undefined || rowCellIndex !== cfg.statusIndex) {
         return null
       }
+      const row = rows[section]?.[rowIndex]
+      if (
+        section === "cat-producto" &&
+        normalizeName(String(row?.[0] ?? "")) === "adiciones" &&
+        isStatusActive(row?.[cfg.statusIndex] ?? "Activa")
+      ) {
+        return (
+          <span className="text-[10px] font-semibold" style={{ color: "#2E7D60" }}>
+            {String(row?.[cfg.statusIndex] ?? "Activa")} · Protegida
+          </span>
+        )
+      }
       if (section === "produccion") {
         return <ProductionStatusSelect rowIndex={rowIndex} />
       }
@@ -12577,6 +12652,15 @@ function AdminPanel({
         section,
         rows[section]?.[rowIndex],
       )
+      const canShowProductionDelete =
+        section !== "produccion" ||
+        String(rows.produccion?.[rowIndex]?.[8] ?? "Recibida") === "Recibida"
+      const isPrincipalAdmin =
+        section === "usuarios" &&
+        String(rows.usuarios?.[rowIndex]?.[8] ?? "") === "Principal"
+      const isProtectedAdditionCategory =
+        section === "cat-producto" &&
+        normalizeName(String(rows[section]?.[rowIndex]?.[0] ?? "")) === "adiciones"
       const deleteBlocked = !deleteAssessment.allowed
       const deleteButton = (
         <button
@@ -12626,34 +12710,13 @@ function AdminPanel({
           )}
           {cfg.statusIndex !== undefined ? (
             section === "producto" ? (
-              isAnulled ? (
-                <button
-                  type="button"
-                  title="Reactivar producto"
-                  aria-label="Reactivar producto"
-                  onClick={() =>
-                    toggleStatus(section, rowIndex, cfg.statusIndex!)
-                  }
-                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
-                  style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
-                >
-                  {Ico.undo}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  title="Anular producto"
-                  aria-label="Anular producto"
-                  aria-haspopup="dialog"
-                  onClick={() => setAnulTarget({ section, idx: rowIndex })}
-                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
-                  style={{ color: C.red, background: `${C.red}12` }}
-                >
-                  {Ico.ban}
-                </button>
-              )
+              null
             ) : (
-              !noDelete && deleteButton
+              !isPrincipalAdmin &&
+              !isProtectedAdditionCategory &&
+              !noDelete &&
+              canShowProductionDelete &&
+              deleteButton
             )
           ) : noDelete ? (
             isAnulled ? (
@@ -12680,9 +12743,10 @@ function AdminPanel({
                 {Ico.ban}
               </button>
             )
-          ) : (
+          ) : !isPrincipalAdmin && !isProtectedAdditionCategory ? (
             deleteButton
-          )}
+          ) : null
+          }
         </div>
       )
     }
@@ -12856,6 +12920,8 @@ function AdminPanel({
                 )}
                 {pageRows.map(({ row, index: originalIndex }, rowIndex) => {
                   const isAnulled = anulSet.has(originalIndex)
+                  const isPrincipalAdmin =
+                    section === "usuarios" && String(row[8] ?? "") === "Principal"
                   const isLow =
                     section === "insumos" &&
                     Number(row[4]) <= Number(row[5])
@@ -12918,7 +12984,7 @@ function AdminPanel({
                             key={rowCellIndex}
                             className="min-w-0 px-2 py-3 align-top text-xs leading-snug break-words [overflow-wrap:anywhere]"
                           >
-                            {rowCellIndex === cfg.statusIndex ? (
+                            {rowCellIndex === cfg.statusIndex && !isPrincipalAdmin ? (
                               renderStatusControl(originalIndex, rowCellIndex)
                             ) : cellIndex === 0 && (isSupplyProduct || isLocalClient || isSuperAdmin) ? (
                               <div className="min-w-0">
@@ -12928,7 +12994,12 @@ function AdminPanel({
                                 </span>
                               </div>
                             ) : (
-                              renderCellValue(displayCell, cellIndex === 0, isLow)
+                              renderCellValue(
+                                displayCell,
+                                cellIndex === 0,
+                                isLow,
+                                section === "usuarios" && rowCellIndex === 0 && isPrincipalAdmin,
+                              )
                             )}
                           </td>
                         )
@@ -12954,6 +13025,8 @@ function AdminPanel({
             ) : (
               pageRows.map(({ row, index: originalIndex }, rowIndex) => {
                 const isAnulled = anulSet.has(originalIndex)
+                const isPrincipalAdmin =
+                  section === "usuarios" && String(row[8] ?? "") === "Principal"
                 const isLow =
                   section === "insumos" &&
                   Number(row[4]) <= Number(row[5])
@@ -13025,7 +13098,7 @@ function AdminPanel({
                               className="min-w-0 text-xs leading-snug break-words [overflow-wrap:anywhere]"
                               style={{ fontWeight: 500 }}
                             >
-                              {rowCellIndex === cfg.statusIndex ? (
+                              {rowCellIndex === cfg.statusIndex && !isPrincipalAdmin ? (
                                 renderStatusControl(originalIndex, rowCellIndex)
                               ) : (
                                 renderCellValue(
@@ -13443,6 +13516,7 @@ function AdminPanel({
     const isView = modal.mode === "view"
     const isRoles = modal.section === "roles"
     const isProduct = modal.section === "producto"
+    const isProductCategory = modal.section === "cat-producto"
     const isPedido = modal.section === "pedidos"
     const isPurchase = modal.section === "compras"
     const isSupply = modal.section === "insumos"
@@ -13454,6 +13528,11 @@ function AdminPanel({
     const isSupplier = modal.section === "proveedores"
     const isUser = modal.section === "usuarios"
     const row = modal.idx !== null ? rows[modal.section]?.[modal.idx] : null
+    const isPrincipalAdminUser =
+      isUser && String(row?.[8] ?? "") === "Principal"
+    const isProtectedAdditionCategory =
+      modal.section === "cat-producto" &&
+      normalizeName(String(row?.[0] ?? "")) === "adiciones"
     const orderDetails = isPedido ? getAdminOrderLines(row || undefined) : []
     const saleOrderLines = getSaleOrderLines(isSales ? row : null)
     const saleOrderIndex = isSales
@@ -13523,16 +13602,22 @@ function AdminPanel({
     const showSupplyTechnicalSheet =
       isSupply &&
       String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
-    const formDataFields = isProduction
-      // Date and time of creation are set automatically and can't be changed
-      ? dataFields.filter((field) => !["0", "1", "3", "4"].includes(field.key))
+    const formDataFields = isUser
+      ? dataFields.filter(
+          (field) =>
+            field.key !== "6" ||
+            (modal.mode === "add" &&
+              String(formData["3"] ?? "").toLowerCase() === "cliente"),
+        )
+      : isProduction
+      ? dataFields.filter((field) => !["0", "1"].includes(field.key))
       : isPnc
-        ? dataFields.filter((field) => !["0", "1", "2"].includes(field.key))
+        ? dataFields.filter((field) => !["0", "1", "2", "6"].includes(field.key))
       : isSupply
         ? dataFields.filter(
             (field) =>
-              // Not entered when creating: the cost comes from the first purchase, stock starts at 0
-              !(modal.mode === "add" && ["3", "4"].includes(field.key)) &&
+              // "Stock actual" isn't entered when creating: it starts at 0
+              !(modal.mode === "add" && field.key === "4") &&
               (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
           )
       : isUser && modal.mode === "add"
@@ -13598,11 +13683,11 @@ function AdminPanel({
         onClick={() => setModal({ mode: null, section: "", idx: null })}
       >
         <div
-          className={`flex min-w-0 w-full ${isRoles || isProduct ? "max-w-3xl" : isUser ? "max-w-2xl" : isSupplier ? "max-w-4xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+          className={`flex min-w-0 w-full ${isRoles || isPnc ? "max-w-6xl" : isProduct ? "max-w-3xl" : isUser ? "max-w-2xl" : isSupplier ? "max-w-5xl" : isProductCategory ? "max-w-xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
-            maxHeight: isPurchaseModule || isProduct ? "94vh" : isRoles ? "82vh" : "88vh",
+            maxHeight: isPurchaseModule || isProduct || isRoles ? "94vh" : "88vh",
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -13632,7 +13717,7 @@ function AdminPanel({
             </button>
           </div>
           <div
-            className={`min-w-0 overflow-x-hidden overflow-y-auto px-4 ${isUser ? "py-3 sm:px-5" : "py-4 sm:px-5"} ${
+            className={`min-w-0 overflow-x-hidden ${isRoles ? "overflow-y-auto md:overflow-y-hidden" : "overflow-y-auto"} px-4 ${isUser ? "py-3 sm:px-5" : "py-4 sm:px-5"} ${
               isUser
                 ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
                 : isRoles && !isView
@@ -13648,7 +13733,7 @@ function AdminPanel({
                     : "flex flex-col gap-3"
             }`}
             style={{
-              maxHeight: isPurchaseModule || isProduct ? undefined : isUser ? "58vh" : "65vh",
+              maxHeight: isPurchaseModule || isProduct ? undefined : isRoles ? "78vh" : isUser ? "58vh" : "65vh",
               // A visible (thin) scrollbar tells the user there are more fields below
               scrollbarWidth: "thin",
             }}
@@ -14104,6 +14189,21 @@ function AdminPanel({
                               </span>
                             </div>
                           </div>
+                        ) : isView && isProduct && f.key === "8" ? (
+                          <ol
+                            className="w-full list-decimal space-y-2 rounded-xl px-4 py-3 pl-8 text-sm"
+                            style={{ background: t.input, color: t.text }}
+                          >
+                            {getPreparationSteps(val).length ? (
+                              getPreparationSteps(val).map((step, index) => (
+                                <li key={`${index}-${step}`}>{step}</li>
+                              ))
+                            ) : (
+                              <li className="list-none" style={{ color: t.muted }}>
+                                No hay pasos de preparación registrados.
+                              </li>
+                            )}
+                          </ol>
                         ) : isView ? (
                           <div
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
@@ -14189,7 +14289,10 @@ function AdminPanel({
                           <div key={`${item.name}-${index}`} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-xs" style={{ background: t.input, border: `1px solid ${t.border}` }}>
                             <span className="min-w-0 font-semibold break-words" style={{ color: t.text }}>{item.name}</span>
                             <div className="flex flex-shrink-0 items-center gap-2">
-                              <span style={{ color: t.muted }}>× {item.quantity}</span>
+                              <span style={{ color: t.muted }}>
+                                × {item.quantity}
+                                {isPnc && ` ${item.unit || getNonconformingItemUnit(item.name)}`}
+                              </span>
                               {!isView && <button type="button" aria-label={`Quitar ${item.name}`} onClick={() => setProductionItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg" style={{ color: C.red, background: `${C.red}10` }}>{Ico.x}</button>}
                             </div>
                           </div>
@@ -14216,22 +14319,46 @@ function AdminPanel({
                         <button type="button" onClick={() => {
                           if (!productionProductSelect) return
                           const quantity = Math.max(1, Number(productionItemQuantity) || 1)
-                          setProductionItems((current) => [...current, { name: productionProductSelect, quantity }])
+                          setProductionItems((current) => [
+                            ...current,
+                            {
+                              name: productionProductSelect,
+                              quantity,
+                              ...(isPnc ? { unit: getNonconformingItemUnit(productionProductSelect) } : {}),
+                            },
+                          ])
                           setProductionProductSelect("")
                           setProductionItemQuantity("1")
                           setProductionFormError("")
                         }} className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer" style={{ background: C.mustard, color: "#fff" }}>Agregar</button>
                       </div>
                     )}
+                    {!isView && isPnc && productionProductSelect && (
+                      <p className="mt-2 rounded-lg px-3 py-2 text-xs" style={{ background: t.input, color: t.muted }}>
+                        Unidad de medida:{" "}
+                        <strong style={{ color: t.text }}>
+                          {getNonconformingItemUnit(productionProductSelect)}
+                        </strong>
+                      </p>
+                    )}
                     <p className="mt-2 text-[10px]" style={{ color: t.muted }}>{isPnc ? "Selecciona todos los productos o insumos que se perdieron y agrega la cantidad de cada uno." : "El selector incluye productos normales y productos de insumo."}</p>
                     {productionFormError && <p className="mt-2 text-xs font-medium" style={{ color: C.red }}>{productionFormError}</p>}
                   </section>
                 )}
                 {isView && isSupply && row && supplyDetail(row)}
+                {isUser && !isView && modal.mode === "add" && (
+                  <div
+                    className="rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2"
+                    style={{ background: `${C.mustard}12`, color: t.text, border: `1px solid ${C.mustard}35` }}
+                  >
+                    Le llegará al correo una contraseña provisional y deberá cambiarla la primera vez que entre.
+                  </div>
+                )}
                 {formDataFields.map((f) => {
                 // Insumo detail has its own layout (supplyDetail)
                 if (isView && isSupply) return null
                 if (isView && isPurchase) return null // the purchase ticket shows everything
+                if (isPurchase && !isView && f.key === "2") return null
                 // Shown in the detail header (with autoId, row[0] is the code, so field "0" stays)
                 if (isView && isPurchaseModule && f.key === "0" && !cfg.autoId) return null
                 // Order total is computed from its products ("Total del pedido"), not typed
@@ -14514,27 +14641,15 @@ function AdminPanel({
                       ...current,
                       "6": next.map((i) => `${i.name} | ${i.quantity} | ${i.unitPrice ?? 0}`).join("\n"),
                     }))
-                  // Typed in the search box; the price is suggested once it matches an insumo (last purchase price)
                   const pickSupply = (name: string) => {
                     setPurchaseItemSelect(name)
-                    if (allowed.includes(name)) setPurchaseItemPrice(String(supplyInfo(name)?.[3] || ""))
+                    setPurchaseItemPrice(name ? String(supplyInfo(name)?.[3] ?? "") : "")
                     setPurchaseFormError("")
-                  }
-                  // Puts the line back in the picker so its quantity or price can be corrected
-                  const editItem = (index: number) => {
-                    const item = items[index]
-                    setPurchaseItemSelect(item.name)
-                    setPurchaseItemQty(String(item.quantity))
-                    setPurchaseItemPrice(String(item.unitPrice ?? ""))
-                    setPurchaseFormError("")
-                    setItems(items.filter((_, i) => i !== index))
                   }
                   const addItem = () => {
                     const qty = Number(purchaseItemQty)
                     const price = Number(purchaseItemPrice)
                     if (!purchaseItemSelect) return setPurchaseFormError("Elige el insumo que vas a agregar.")
-                    if (!allowed.includes(purchaseItemSelect))
-                      return setPurchaseFormError(`«${purchaseItemSelect}» no está entre los insumos de «${supplier}». Elígelo de la lista.`)
                     if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
                     if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
                     const existing = items.find(
@@ -14608,23 +14723,20 @@ function AdminPanel({
                           <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_96px_120px_auto]">
                             <label className="flex min-w-0 flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                               Insumo
-                              <input
-                                type="search"
-                                list="purchase-supply-options"
+                              <select
                                 value={purchaseItemSelect}
                                 onChange={(e) => pickSupply(e.target.value)}
-                                placeholder="Buscar insumo..."
-                                autoComplete="off"
-                                className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
-                                style={controlSt}
-                              />
-                              <datalist id="purchase-supply-options">
+                                className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                                style={{ ...controlSt, color: purchaseItemSelect ? t.text : t.muted }}
+                              >
+                                <option value="">Selecciona un insumo...</option>
                                 {allowed.map((name) => (
                                   <option key={name} value={name}>
-                                    {supplyInfo(name)?.[2] ? String(supplyInfo(name)?.[2]) : ""}
+                                    {name}
+                                    {supplyInfo(name)?.[2] ? ` (${String(supplyInfo(name)?.[2])})` : ""}
                                   </option>
                                 ))}
-                              </datalist>
+                              </select>
                             </label>
                             <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                               Cantidad
@@ -14699,16 +14811,6 @@ function AdminPanel({
                               )}
                               <button
                                 type="button"
-                                title="Editar cantidad o precio"
-                                aria-label={`Editar ${item.name}`}
-                                onClick={() => editItem(index)}
-                                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
-                                style={{ color: C.mustard, background: `${C.mustard}18` }}
-                              >
-                                {Ico.edit}
-                              </button>
-                              <button
-                                type="button"
                                 aria-label={`Quitar ${item.name}`}
                                 onClick={() => setItems(items.filter((_, i) => i !== index))}
                                 className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
@@ -14753,7 +14855,7 @@ function AdminPanel({
                 const requiredFormField =
                   !isView &&
                   getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)
-                const fieldValidationError = formFieldErrors[f.key]
+                const fieldValidationError = isView ? undefined : formFieldErrors[f.key]
                 // Supplier form: pick which insumos this supplier sells
                 if (modal.section === "proveedores" && !isView && f.key === "7") {
                   const selected = splitList(String(formData["7"] ?? ""))
@@ -14919,6 +15021,12 @@ function AdminPanel({
                               : isUser && f.key === "3" && namesOf("roles").length
                                 ? (rows.roles || []).filter((r) => isActiveStatus(r[2])).map((r) => String(r[0]))
                                 : f.options
+                const visibleFieldOptions =
+                  isUser &&
+                  f.key === "1" &&
+                  String(formData["3"] ?? "").toLowerCase() !== "cliente"
+                              ? fieldOptions?.filter((option) => option !== "Tarjeta de Identidad")
+                              : fieldOptions
                 const pedidoCategories = [
                   "Todas",
                   ...new Set(
@@ -15122,7 +15230,7 @@ function AdminPanel({
                   <div
                     className={`flex min-w-0 flex-col gap-1 ${
                       isSupplier
-                      ? Number(f.key) < 8 || f.key === "15"
+                      ? Number(f.key) < 8
                         ? "lg:col-span-2 lg:col-start-1"
                         : f.key === "14"
                           ? "lg:col-span-2 lg:col-start-3" // Cargo
@@ -15136,10 +15244,10 @@ function AdminPanel({
                   >
                     <label
                       className="text-xs font-semibold"
-                      style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
+                      style={{ color: !isView && shownFieldError(f.key) ? C.red : t.muted }}
                     >
                       {fieldLabel}
-                      {(isRequiredField(f.key) || requiredFormField) && " *"}
+                      {!isView && (isRequiredField(f.key) || requiredFormField) && " *"}
                     </label>
                     {isPedido && f.key === "1" && !isView ? (
                       <div className="flex flex-col gap-3">
@@ -15416,6 +15524,11 @@ function AdminPanel({
                     ) : f.type === "select" ? (
                       <select
                         value={val}
+                        disabled={
+                          isPrincipalAdminUser &&
+                          modal.mode === "edit" &&
+                          f.key === "3"
+                        }
                         onChange={(e) => updateFieldValue(e.target.value)}
                         onBlur={() => {
                           if (requiredFormField) {
@@ -15430,10 +15543,14 @@ function AdminPanel({
                           background: t.input,
                           border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: val ? t.text : t.muted,
+                          cursor:
+                            isPrincipalAdminUser && modal.mode === "edit" && f.key === "3"
+                              ? "not-allowed"
+                              : "pointer",
                         }}
                       >
                         <option value="">Selecciona...</option>
-                        {fieldOptions?.map((o) => (
+                        {visibleFieldOptions?.map((o) => (
                           <option key={o} value={o}>
                             {o}
                           </option>
@@ -15454,7 +15571,7 @@ function AdminPanel({
                             validateManagedForm(modal.section, formData, modal.mode),
                           )
                         }
-                        aria-invalid={!!fieldValidationError}
+                        aria-invalid={!isView && !!fieldValidationError}
                         rows={isPurchaseModule ? 2 : isRoles ? 2 : 3}
                         className={`w-full min-w-0 rounded-xl text-sm outline-none resize-none ${isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
@@ -15466,6 +15583,12 @@ function AdminPanel({
                     ) : (
                       <input
                         type={f.type}
+                        disabled={
+                          isProtectedAdditionCategory &&
+                          modal.mode === "edit" &&
+                          f.key === "0"
+                        }
+                        max={isPurchase && f.key === "1" ? getCurrentDateTimeParts().date : undefined}
                         value={val}
                         inputMode={
                           (modal.section === "usuarios" && f.key === "2") ||
@@ -15486,16 +15609,24 @@ function AdminPanel({
                             )
                           }
                         }}
-                        aria-invalid={!!fieldValidationError}
+                        aria-invalid={!isView && !!fieldValidationError}
                         className={`w-full min-w-0 rounded-xl text-sm outline-none ${isUser || isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
                           border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: t.text,
+                          opacity:
+                            isProtectedAdditionCategory &&
+                            modal.mode === "edit" &&
+                            f.key === "0"
+                              ? 0.7
+                              : 1,
                         }}
                       />
                     )}
-                    <FieldError msg={shownFieldError(f.key) || fieldValidationError} />
+                    {!isView && (
+                      <FieldError msg={shownFieldError(f.key) || fieldValidationError} />
+                    )}
                   </div>
                   </Fragment>
                 )
@@ -15933,21 +16064,128 @@ function AdminPanel({
                 <button type="button" onClick={() => setTechnicalSheetOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-xl cursor-pointer" style={{ background: t.input, color: t.muted }} aria-label="Cerrar ficha técnica">{Ico.x}</button>
               </div>
               <div className="flex flex-col gap-3 overflow-y-auto px-5 py-4">
-                <p className="text-xs" style={{ color: t.muted }}>Agrega los insumos que utiliza una unidad del producto. La unidad se toma del inventario y debe coincidir.</p>
+                <p className="text-xs" style={{ color: t.muted }}>Agrega cada insumo y la cantidad necesaria para una unidad del producto. La unidad se toma del inventario y debe coincidir.</p>
+                <section className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                  <h4 className="mb-1 text-xs font-bold" style={{ color: t.text }}>
+                    Cómo se prepara · pasos en orden
+                  </h4>
+                  <p className="mb-3 text-[11px]" style={{ color: t.muted }}>
+                    Agrega cada acción y ordénala desde el primer paso hasta el último.
+                  </p>
+                  {technicalSteps.length ? (
+                    <ol className="mb-3 flex flex-col gap-2">
+                      {technicalSteps.map((step, index) => (
+                        <li
+                          key={`${index}-${step}`}
+                          className="flex items-center gap-2 rounded-lg px-2.5 py-2"
+                          style={{ background: t.input }}
+                        >
+                          <span className="w-6 shrink-0 text-xs font-bold" style={{ color: C.mustard }}>
+                            {index + 1}.
+                          </span>
+                          <span className="min-w-0 flex-1 text-xs" style={{ color: t.text }}>
+                            {step}
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Mover paso ${index + 1} arriba`}
+                            title="Mover arriba"
+                            disabled={index === 0}
+                            onClick={() => setTechnicalSteps((current) => {
+                              const next = [...current]
+                              ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
+                              return next
+                            })}
+                            className="h-7 w-7 rounded-md text-sm font-bold disabled:opacity-30"
+                            style={{ background: t.card, color: t.text }}
+                          >
+                            ↑
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Mover paso ${index + 1} abajo`}
+                            title="Mover abajo"
+                            disabled={index === technicalSteps.length - 1}
+                            onClick={() => setTechnicalSteps((current) => {
+                              const next = [...current]
+                              ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+                              return next
+                            })}
+                            className="h-7 w-7 rounded-md text-sm font-bold disabled:opacity-30"
+                            style={{ background: t.card, color: t.text }}
+                          >
+                            ↓
+                          </button>
+                          <button
+                            type="button"
+                            aria-label={`Quitar paso ${index + 1}`}
+                            title="Quitar paso"
+                            onClick={() => setTechnicalSteps((current) => current.filter((_, stepIndex) => stepIndex !== index))}
+                            className="flex h-7 w-7 items-center justify-center rounded-md"
+                            style={{ background: `${C.red}10`, color: C.red }}
+                          >
+                            {Ico.trash}
+                          </button>
+                        </li>
+                      ))}
+                    </ol>
+                  ) : (
+                    <p className="mb-3 rounded-lg px-3 py-3 text-center text-xs" style={{ background: t.input, color: t.muted }}>
+                      Aún no hay pasos de preparación.
+                    </p>
+                  )}
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="text"
+                      aria-label="Acción del paso de preparación"
+                      placeholder="Escribe una acción..."
+                      value={technicalStepDraft}
+                      onChange={(event) => setTechnicalStepDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault()
+                          const step = technicalStepDraft.trim()
+                          if (!step) return
+                          setTechnicalSteps((current) => [...current, step])
+                          setTechnicalStepDraft("")
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded-lg px-3 py-2 text-xs outline-none"
+                      style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const step = technicalStepDraft.trim()
+                        if (!step) return
+                        setTechnicalSteps((current) => [...current, step])
+                        setTechnicalStepDraft("")
+                      }}
+                      disabled={!technicalStepDraft.trim()}
+                      className="rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-50"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      Agregar paso
+                    </button>
+                  </div>
+                </section>
                 {technicalIngredients.length ? (
                   technicalIngredients.map((ingredient, index) => (
                     <div key={`${ingredient.name}-${index}`} className="grid items-center gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_110px_90px_auto]" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                       <span className="min-w-0 truncate text-sm font-semibold" style={{ color: t.text }}>{ingredient.name}</span>
-                      <input
-                        aria-label={`Cantidad de ${ingredient.name}`}
-                        type="number"
-                        min="0.001"
-                        step="any"
-                        value={ingredient.quantity}
-                        onChange={(event) => setTechnicalIngredients((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Number(event.target.value) } : item))}
-                        className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                        style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                      />
+                      <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold" style={{ color: t.muted }}>
+                        Cantidad
+                        <input
+                          aria-label={`Cantidad de ${ingredient.name}`}
+                          type="number"
+                          min="0.001"
+                          step="any"
+                          value={ingredient.quantity}
+                          onChange={(event) => setTechnicalIngredients((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Number(event.target.value) } : item))}
+                          className="w-full rounded-lg px-3 py-2 text-sm font-normal outline-none"
+                          style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                        />
+                      </label>
                       <span className="text-xs" style={{ color: t.muted }}>{ingredient.unit}</span>
                       <button type="button" onClick={() => setTechnicalIngredients((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-8 w-8 items-center justify-center rounded-lg cursor-pointer" style={{ background: `${C.red}10`, color: C.red }} aria-label={`Quitar ${ingredient.name}`}>{Ico.trash}</button>
                     </div>
@@ -15968,16 +16206,19 @@ function AdminPanel({
                       return <option key={name} value={name}>{name} · {String(supply?.[2] ?? "und")}</option>
                     })}
                   </select>
-                  <input
-                    aria-label="Cantidad del insumo"
-                    type="number"
-                    min="0.001"
-                    step="any"
-                    value={technicalIngredientQuantity}
-                    onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
-                    className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                  />
+                  <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold" style={{ color: t.muted }}>
+                    Cantidad necesaria
+                    <input
+                      aria-label="Cantidad del insumo"
+                      type="number"
+                      min="0.001"
+                      step="any"
+                      value={technicalIngredientQuantity}
+                      onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
+                      className="w-full rounded-xl px-3 py-2 text-sm font-normal outline-none"
+                      style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                    />
+                  </label>
                   <button
                     type="button"
                     onClick={() => {
@@ -16014,8 +16255,16 @@ function AdminPanel({
                       ...current,
                       "5": `Ficha técnica - ${current["0"] || "Producto"}`,
                       "7": technicalIngredients.map((ingredient) => ingredient.name).join(", "),
+                      "8": JSON.stringify([
+                        ...technicalSteps,
+                        ...(technicalStepDraft.trim() ? [technicalStepDraft.trim()] : []),
+                      ]),
                       "9": recipe,
                     }))
+                    if (technicalStepDraft.trim()) {
+                      setTechnicalSteps((current) => [...current, technicalStepDraft.trim()])
+                    }
+                    setTechnicalStepDraft("")
                     setTechnicalSheetOpen(false)
                     setTechnicalSheetError("")
                   }}
@@ -16174,6 +16423,9 @@ function AdminPanel({
     const productOptions = orderItems.length
       ? orderItems.map((item) => item.name)
       : getNonconformingProductOptions()
+    const selectedItemUnit = pncForm["1"]
+      ? getNonconformingItemUnit(pncForm["1"])
+      : ""
     const controlStyle = {
       background: t.input,
       border: `1px solid ${t.inputB}`,
@@ -16200,7 +16452,7 @@ function AdminPanel({
         onClick={() => setPncTarget(null)}
       >
         <div
-          className="flex max-h-[92vh] w-full max-w-2xl min-w-0 flex-col overflow-hidden rounded-3xl"
+          className="flex max-h-[92vh] w-full max-w-4xl min-w-0 flex-col overflow-hidden rounded-3xl"
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
@@ -16268,6 +16520,11 @@ function AdminPanel({
                     {productOptions.map((product) => <option key={product} value={product}>{product}</option>)}
                   </select>
                   {pncFieldErrors["1"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["1"]}</span>}
+                  {selectedItemUnit && (
+                    <span className="rounded-lg px-3 py-2 text-[11px] font-medium" style={{ background: t.input, color: t.muted }}>
+                      Unidad de medida: <strong style={{ color: t.text }}>{selectedItemUnit}</strong>
+                    </span>
+                  )}
                 </label>
                 <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
                   Cantidad *
