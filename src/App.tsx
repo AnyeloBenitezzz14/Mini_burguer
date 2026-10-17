@@ -32,6 +32,66 @@ type CartItem = {
   sauces?: string[]
   additions?: { name: string; qty: number; price: number }[]
 }
+// ── Delivery zone ──────────────────────────────────────────────────────────────
+// The shop is in Santa Ana (Bello, Antioquia); deliveries only up to DELIVERY_RADIUS_KM from there
+const SHOP_LOCATION = { lat: 6.3295, lon: -75.5627 }
+const DELIVERY_RADIUS_KM = 5
+const DELIVERY_ESTIMATE = "45 – 65 min"
+const BUILDING_TYPES = ["Departamento", "Edificio residencial", "Urbanización", "Hotel", "Oficinas", "Otro"]
+// Straight-line distance in km between two points (haversine)
+function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
+  const rad = (d: number) => (d * Math.PI) / 180
+  const h =
+    Math.sin(rad(b.lat - a.lat) / 2) ** 2 +
+    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lon - a.lon) / 2) ** 2
+  return 2 * 6371 * Math.asin(Math.sqrt(h))
+}
+// One text for the order (the backend keeps a single delivery address)
+const composeDeliveryAddress = (d: { calle: string; barrio: string; tipoEdificio: string; nombreEdificio: string; unidad: string }) =>
+  [
+    d.calle.trim(),
+    d.barrio.trim() && `Barrio ${d.barrio.trim()}`,
+    d.tipoEdificio && [d.tipoEdificio, d.nombreEdificio.trim()].filter(Boolean).join(" "),
+    d.unidad.trim(),
+  ]
+    .filter(Boolean)
+    .join(", ")
+// OpenStreetMap search (free). "#" breaks it ("Calle 50 #45-20" -> "Calle 50 45-20")
+async function geocodeAddress(queries: string[], signal: AbortSignal) {
+  for (const q of queries.filter(Boolean)) {
+    const url =
+      "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=co&viewbox=-75.75,6.55,-75.35,6.10&q=" +
+      encodeURIComponent(`${q.replace(/#|No\.|N°/gi, " ").replace(/\s+/g, " ").trim()}, Antioquia, Colombia`)
+    const res = await fetch(url, { signal, headers: { "Accept-Language": "es" } })
+    if (!res.ok) throw new Error(`Mapa no disponible (${res.status})`)
+    const [hit] = (await res.json()) as { lat: string; lon: string }[]
+    if (hit) return { lat: Number(hit.lat), lon: Number(hit.lon) }
+  }
+  return null
+}
+
+// A long address shown one part per line ("Calle 50 # 45-20" / "Barrio Santa Ana" / "Torre 2 apto 301")
+const AddressLines = ({ address }: { address: string }) => (
+  <>
+    {address.split(/,\s*/).filter(Boolean).map((part, i) => (
+      <span key={i} className="block">{part}</span>
+    ))}
+  </>
+)
+
+// Adds an item to the cart; if the same product with the same sauces and additions is
+// already there, only its quantity goes up
+function addCartItem(items: CartItem[], item: CartItem): CartItem[] {
+  const key = (i: CartItem) =>
+    JSON.stringify([
+      i.name,
+      [...(i.sauces ?? [])].sort(),
+      [...(i.additions ?? [])].map((a) => `${a.name}x${a.qty}`).sort(),
+    ])
+  const same = items.find((i) => key(i) === key(item))
+  return same ? items.map((i) => (i === same ? { ...i, qty: i.qty + item.qty } : i)) : [...items, item]
+}
+
 type DeliveryInfo = {
   nombre: string
   telefono: string
@@ -158,20 +218,61 @@ const ADDITIONS = [
   { name: "1 Huevo", price: 900 },
   { name: "5 Huevos", price: 4000 },
 ]
-const BEVERAGES = [
-  "Coca-Cola",
-  "Manzana",
-  "Colombiana",
-  "Uva",
-  "Pepsi",
-  "Naranja",
-]
+const BEVERAGES = ["Coca-Cola", "Colombiana", "Pepsi", "Manzana", "Uva", "Naranja"]
 const BEVERAGE_SIZES = [
   { id: "personal", label: "Personal", price: 3000 },
   { id: "1.5L", label: "1.5 L", price: 7000 },
   { id: "2.25L", label: "2.25 L", price: 9000 },
   { id: "3L", label: "3 L", price: 12000 },
 ]
+
+// How each flavour is shown in the menu (the order line keeps the plain flavour, e.g. "Gaseosa Manzana (1.5 L)")
+const BEVERAGE_INFO: Record<string, { label: string; color: string }> = {
+  "Coca-Cola": { label: "Coca-Cola", color: "#D7202C" },
+  Colombiana: { label: "Colombiana Postobón", color: "#E39A27" },
+  Pepsi: { label: "Pepsi", color: "#1E4FA0" },
+  Manzana: { label: "Manzana Postobón", color: "#C8263A" },
+  Uva: { label: "Uva Postobón", color: "#6B2C91" },
+  Naranja: { label: "Naranja Postobón", color: "#F07C12" },
+}
+const BEVERAGE_ORDER = ["Coca-Cola", "Colombiana", "Pepsi", "Manzana", "Uva", "Naranja"]
+// Sizes each flavour has in stock (from the menu); a flavour not listed shows in every size
+const BEVERAGE_STOCK: Record<string, string[]> = {}
+const beverageInStock = (flavor: string, sizeLabel: string) => !BEVERAGE_STOCK[flavor] || BEVERAGE_STOCK[flavor].includes(sizeLabel)
+const beverageLabel = (flavor: string) => BEVERAGE_INFO[flavor]?.label ?? flavor
+// Optional photos: src/imports/bebidas/coca-cola.png, colombiana.png, pepsi.png, manzana.png, uva.png, naranja.png
+const BEVERAGE_IMAGES = import.meta.glob("/src/imports/bebidas/*.{png,jpg,jpeg,webp}", {
+  eager: true,
+  import: "default",
+}) as Record<string, string>
+const beverageImage = (flavor: string) => {
+  const slug = normalizeName(flavor).replace(/\s+/g, "-")
+  return Object.entries(BEVERAGE_IMAGES).find(([path]) => path.toLowerCase().includes(`/${slug}.`))?.[1]
+}
+// Photos from Wikimedia Commons: Manzana and Uva are CC BY-SA, so their author must be credited
+const BEVERAGE_PHOTO_CREDITS: Record<string, string> = {
+  "Coca-Cola": "Foto: Ralf Roletschek, dominio público (Wikimedia Commons)",
+  Pepsi: "Foto: Wikimedia Commons, dominio público",
+  Manzana: "Foto: Yearofthedragon, CC BY-SA 3.0 (Wikimedia Commons), recortada",
+  Uva: "Foto: Yearofthedragon, CC BY-SA 3.0 (Wikimedia Commons), recortada",
+}
+// The flavour's photo, or a bottle drawn in its colour while there is none.
+// "cover" fills the little box (no side gaps); "contain" shows the whole photo when enlarged
+const BeverageArt = ({ flavor, fit = "cover" }: { flavor: string; fit?: "cover" | "contain" }) => {
+  const img = beverageImage(flavor)
+  if (img)
+    return <img src={img} alt={beverageLabel(flavor)} className={`h-full w-full ${fit === "cover" ? "object-cover" : "object-contain"}`} />
+  const color = BEVERAGE_INFO[flavor]?.color ?? C.mustard
+  return (
+    <svg viewBox="0 0 40 64" className="h-full w-auto" aria-hidden="true">
+      <rect x="15" y="2" width="10" height="7" rx="2" fill={color} />
+      <path d="M14 9h12l3 10c2 3 4 6 4 11v28a4 4 0 0 1-4 4H11a4 4 0 0 1-4-4V30c0-5 2-8 4-11z" fill={color} />
+      <rect x="7" y="32" width="26" height="12" fill="#fff" opacity="0.92" />
+      <path d="M10 38c5-3 15 3 20 0" stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" />
+      <path d="M12 14h3l-2 8" stroke="#fff" strokeWidth="1.5" fill="none" opacity="0.5" strokeLinecap="round" />
+    </svg>
+  )
+}
 
 // An order's drink line "Gaseosa Coca-Cola (1.5 L)" is the insumo "Gaseosa Coca-Cola 1.5 L"
 // (one per flavor and size, so the stock says which ones are left)
@@ -1326,12 +1427,19 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Empleado", "Domiciliario", "Cliente", "Administrador"],
       },
       { key: "4", label: "Correo electrónico", type: "email" },
+      // Only for staff (not Cliente)
+      { key: "9", label: "Teléfono", type: "tel" },
+      { key: "12", label: "Teléfono de emergencia (opcional)", type: "tel" },
+      { key: "13", label: "Correo personal (opcional)", type: "email" },
+      { key: "10", label: "Barrio", type: "text" },
+      { key: "11", label: "Dirección", type: "text" },
       { key: "6", label: "Contraseña", type: "password" },
     ],
     seed: [],
     noExport: true,
     statusIndex: 5,
-    hiddenCellIndexes: [6, 8],
+    // 7 id, 8 superadmin mark, 9-13 staff contact
+    hiddenCellIndexes: [6, 8, 9, 10, 11, 12, 13],
   },
   "cat-insumos": {
     columns: ["Nombre Categoría", "Descripción", "Estado"],
@@ -2856,6 +2964,34 @@ function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
   )
 }
 
+// Product picture: a click shows it big and complete; another click puts it back
+function ZoomableImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [zoomed, setZoomed] = useState(false)
+  return (
+    <>
+      <img
+        src={src}
+        alt={alt}
+        onClick={() => setZoomed(true)}
+        title="Toca para ver más grande"
+        className={`${className ?? ""} cursor-zoom-in`}
+      />
+      {zoomed && (
+        <div
+          className="fixed inset-0 z-[90] flex cursor-zoom-out flex-col items-center justify-center gap-3 p-4"
+          style={{ background: "rgba(0,0,0,0.85)" }}
+          onClick={() => setZoomed(false)}
+          role="dialog"
+          aria-label={alt}
+        >
+          <img src={src} alt={alt} className="max-h-[80vh] max-w-[92vw] rounded-2xl object-contain shadow-2xl" />
+          <span className="text-xs text-white/70">Toca para volver</span>
+        </div>
+      )}
+    </>
+  )
+}
+
 // ── Product Info Modal (info only, centered) ───────────────────────────────────
 function ProductInfoModal({
   product,
@@ -2885,11 +3021,7 @@ function ProductInfoModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative" style={{ height: "200px" }}>
-          <img
-            src={product.img}
-            alt={product.name}
-            className="w-full h-full object-cover"
-          />
+          <ZoomableImage src={product.img} alt={product.name} className="w-full h-full object-cover" />
           <div
             className="absolute inset-0"
             style={{
@@ -2981,6 +3113,8 @@ function AddToCartModal({
   const [selSauces, setSelSauces] = useState<string[]>([])
   const [addQtys, setAddQtys] = useState<Record<string, number>>({})
   const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0].id)
+  // Drink whose picture is shown big (click again to close)
+  const [zoomBeverage, setZoomBeverage] = useState<string | null>(null)
   const [customizationTab, setCustomizationTab] = useState<"sauces" | "additions" | "beverages">("sauces")
   const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
@@ -3068,11 +3202,7 @@ function AddToCartModal({
             aria-hidden="true"
             className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
           />
-          <img
-            src={product.img}
-            alt={product.name}
-            className="relative z-10 h-full w-full object-contain"
-          />
+          <ZoomableImage src={product.img} alt={product.name} className="relative z-10 h-full w-full object-contain" />
           <button
             onClick={onClose}
             className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
@@ -3245,22 +3375,39 @@ function AddToCartModal({
                 ))}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-1">
-              {BEVERAGES.map((flavor) => {
+            <div className="grid grid-cols-2 gap-1.5">
+              {!BEVERAGES.some((flavor) => beverageInStock(flavor, selectedBeverageSize.label)) && (
+                <p className="col-span-2 py-3 text-center text-xs" style={{ color: MUTED }}>
+                  No hay gaseosas de este tamaño en este momento. Prueba otro tamaño.
+                </p>
+              )}
+              {BEVERAGES.filter((flavor) => beverageInStock(flavor, selectedBeverageSize.label)).map((flavor) => {
                 const size = selectedBeverageSize
                 const key = `Gaseosa ${flavor} ${size.id}`
                 const quantity = addQtys[key] || 0
                 return (
                   <div
                     key={flavor}
-                    className="flex min-w-0 items-center justify-between gap-1 rounded-xl px-2 py-1"
-                    style={{ border: `1px solid ${BORDER}`, background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
+                    className="flex min-w-0 items-center justify-between gap-2 rounded-xl py-1 pl-1 pr-2"
+                    style={{
+                      border: `1px solid ${quantity > 0 ? C.mustard : BORDER}`,
+                      background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)",
+                    }}
                   >
+                    <button
+                      type="button"
+                      onClick={() => setZoomBeverage(flavor)}
+                      aria-label={`Ver ${beverageLabel(flavor)} más grande`}
+                      className="flex h-11 w-9 flex-shrink-0 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg"
+                      style={{ background: dark ? "rgba(244,238,220,0.06)" : "#fff" }}
+                    >
+                      <BeverageArt flavor={flavor} />
+                    </button>
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="text-xs leading-tight" style={{ color: TEXT }}>
-                        {flavor}
+                      <span className="text-sm font-semibold leading-tight" style={{ color: TEXT }}>
+                        {beverageLabel(flavor)}
                       </span>
-                      <span className="text-[11px] font-semibold leading-tight" style={{ color: quantity > 0 ? C.mustard : MUTED }}>
+                      <span className="text-xs font-semibold leading-tight" style={{ color: quantity > 0 ? C.mustard : MUTED }}>
                         {quantity > 0 ? `+${fmt(size.price * quantity)}` : fmt(size.price)}
                       </span>
                     </div>
@@ -3298,6 +3445,29 @@ function AddToCartModal({
                 )
               })}
             </div>
+            {zoomBeverage && (
+              <div
+                className="fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center p-6"
+                style={{ background: "rgba(0,0,0,0.75)" }}
+                onClick={() => setZoomBeverage(null)}
+                role="dialog"
+                aria-label={beverageLabel(zoomBeverage)}
+              >
+                <div className="flex flex-col items-center gap-3">
+                  <div
+                    className="flex h-[min(60vh,420px)] w-[min(70vw,300px)] items-center justify-center overflow-hidden rounded-2xl p-4"
+                    style={{ background: "#fff" }}
+                  >
+                    <BeverageArt flavor={zoomBeverage} fit="contain" />
+                  </div>
+                  <span className="text-base font-bold text-white">{beverageLabel(zoomBeverage)}</span>
+                  {beverageImage(zoomBeverage) && BEVERAGE_PHOTO_CREDITS[zoomBeverage] && (
+                    <span className="max-w-xs text-center text-[10px] text-white/60">{BEVERAGE_PHOTO_CREDITS[zoomBeverage]}</span>
+                  )}
+                  <span className="text-xs text-white/70">Toca para volver</span>
+                </div>
+              </div>
+            )}
           </div>
           )}
         </div>
@@ -3622,9 +3792,8 @@ function GuestMenuPage({
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
   ) => {
-    setCart((items) => [
-      ...items,
-      {
+    setCart((items) =>
+      addCartItem(items, {
         id: Date.now(),
         name: product.name,
         description: product.desc,
@@ -3633,8 +3802,8 @@ function GuestMenuPage({
         img: product.img,
         sauces,
         additions,
-      },
-    ])
+      }),
+    )
     setAddProduct(null)
   }
 
@@ -3843,6 +4012,8 @@ type CatalogItem = {
   precio: number
   categoria: string
   imagenes: string[]
+  // Drink flavours: the sizes with stock today (the backend already hides what can't be sold)
+  disponible_en?: string[]
 }
 
 // Backend category name → menu category id (inverse of PRODUCT_CAT_LABEL)
@@ -3975,6 +4146,10 @@ const COUNTER_CLIENT_DOC = "000000000"
 const isCounterClientRow = (sec: string, row: (string | number)[] | undefined) =>
   sec === "clientes" && String(row?.[2] ?? "").replace(/\D/g, "") === COUNTER_CLIENT_DOC
 
+// Usuarios form: staff (any role except Cliente) also gives contact details (row/form keys 9-12)
+const isStaffRole = (rol: string | number | undefined) => !!String(rol ?? "").trim() && String(rol).trim().toLowerCase() !== "cliente"
+const STAFF_CONTACT_KEYS = ["9", "10", "11", "12", "13"]
+
 // Superadministrador: always this account; nobody can deactivate, delete it, change its role or e-mail
 const SUPER_ADMIN_EMAIL = "admin@minifood.com"
 // Usuarios row: [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, ...]
@@ -4063,6 +4238,11 @@ const DB_SYNC: Record<string, SyncSpec> = {
         u.id_usuario,
       )
       row[8] = u.es_administrador_principal ? "Principal" : ""
+      row[9] = u.telefono || ""
+      row[10] = u.barrio || ""
+      row[11] = u.direccion || ""
+      row[12] = u.telefono_emergencia || ""
+      row[13] = u.correo_personal || ""
       return row
     },
     toBody: (row) => {
@@ -4076,6 +4256,16 @@ const DB_SYNC: Record<string, SyncSpec> = {
         correo: text(row[4]),
         estado: estadoOf(row[5]),
         contrasena: text(row[6]) || undefined,
+        // Staff contact (clients keep theirs in Clientes)
+        ...(rol !== "CLIENTE"
+          ? {
+              telefono: text(row[9]),
+              barrio: text(row[10]),
+              direccion: text(row[11]),
+              telefono_emergencia: text(row[12]),
+              correo_personal: text(row[13]),
+            }
+          : {}),
       }
     },
   },
@@ -4414,7 +4604,11 @@ async function loadMenu() {
   const inCat = (cat: string) => items.filter((p) => p.categoria === cat)
   ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio })))
   SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
-  BEVERAGES.splice(0, BEVERAGES.length, ...inCat("Sabores de bebida").map((p) => p.nombre))
+  const flavors = inCat("Sabores de bebida").map((p) => p.nombre)
+  for (const key of Object.keys(BEVERAGE_STOCK)) delete BEVERAGE_STOCK[key]
+  for (const p of inCat("Sabores de bebida")) if (p.disponible_en) BEVERAGE_STOCK[p.nombre] = p.disponible_en
+  const rank = (f: string) => (BEVERAGE_ORDER.indexOf(f) + 1 || 99)
+  BEVERAGES.splice(0, BEVERAGES.length, ...flavors.sort((a, b) => rank(a) - rank(b)))
   // The customizer always needs at least one size, so keep the built-in ones if none are active
   const sizes = inCat("Bebidas").map((p) => ({ id: p.nombre, label: p.nombre, price: p.precio }))
   if (sizes.length) BEVERAGE_SIZES.splice(0, BEVERAGE_SIZES.length, ...sizes)
@@ -5062,9 +5256,48 @@ function CheckoutPage({
     notas: "",
     pago: "Efectivo",
   })
+  // Address typed in parts; `direccion` is built from them (see composeDeliveryAddress)
+  const [addressParts, setAddressParts] = useState({ barrio: "", calle: "", tipoEdificio: "", nombreEdificio: "", unidad: "" })
+  const setAddressPart = (key: keyof typeof addressParts, value: string) =>
+    setAddressParts((current) => {
+      const next = { ...current, [key]: value, ...(key === "tipoEdificio" && !value ? { nombreEdificio: "" } : {}) }
+      setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(next) }))
+      return next
+    })
+  // Where the address is on the map and whether it's inside the delivery zone
+  const [geo, setGeo] = useState<{ status: "idle" | "loading" | "ok" | "far" | "notfound" | "error"; lat?: number; lon?: number; km?: number }>({ status: "idle" })
   const [editingAddress, setEditingAddress] = useState(
     () => !(user?.addresses?.length),
   )
+  // Locate the address (1 s after the last change: OpenStreetMap allows ~1 search per second)
+  const geoQueries = editingAddress
+    ? [addressParts.calle && addressParts.barrio && `${addressParts.calle}, ${addressParts.barrio}`, addressParts.barrio]
+    : [delivForm.direccion, /Barrio ([^,]+)/.exec(delivForm.direccion)?.[1] ?? ""]
+  const geoKey = geoQueries.join("|")
+  useEffect(() => {
+    if (!geoQueries.some(Boolean)) {
+      setGeo({ status: "idle" })
+      return
+    }
+    const controller = new AbortController()
+    setGeo({ status: "loading" })
+    const timer = setTimeout(() => {
+      geocodeAddress(geoQueries as string[], controller.signal)
+        .then((point) => {
+          if (!point) return setGeo({ status: "notfound" })
+          const km = distanceKm(SHOP_LOCATION, point)
+          setGeo({ status: km <= DELIVERY_RADIUS_KM ? "ok" : "far", ...point, km })
+        })
+        .catch((err) => {
+          if ((err as Error).name !== "AbortError") setGeo({ status: "error" })
+        })
+    }, 1000)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geoKey])
   const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(false)
   const [saveAddress, setSaveAddress] = useState(
     () => !(user?.addresses?.length),
@@ -5096,7 +5329,8 @@ function CheckoutPage({
   const [voucher, setVoucher] = useState("")
   const [ordered, setOrdered] = useState(false)
   const [placedTotal, setPlacedTotal] = useState(0)
-  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(user ? 2 : 1)
+  // Everybody (guest, client, admin, employee) starts by reviewing the cart
+  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(1)
   // Guests see only their cart until they press "Hacer pedido"
   const [showAuth, setShowAuth] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -5135,7 +5369,9 @@ function CheckoutPage({
   const delivFilled =
     !!delivForm.nombre.trim() &&
     !validatePhoneNumber(delivForm.telefono) &&
-    !!delivForm.direccion.trim()
+    !!delivForm.direccion.trim() &&
+    (!editingAddress || (!!addressParts.barrio.trim() && !!addressParts.calle.trim())) &&
+    (geo.status === "ok" || geo.status === "error")
   const canOrder = user && delivFilled
 
   // Errors show after the first submit of each form and update while typing
@@ -5207,6 +5443,12 @@ function CheckoutPage({
           onClick: () => setShowAuth(true),
           disabled: !hasActiveItems,
         }
+    : checkoutStep === 1
+      ? {
+          label: "Hacer pedido",
+          onClick: () => setCheckoutStep(2),
+          disabled: !hasActiveItems,
+        }
     : checkoutStep === 2
       ? {
           label: "Confirma tus datos",
@@ -5267,9 +5509,9 @@ function CheckoutPage({
               ["Método de pago", delivForm.pago],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between gap-4">
-                <span style={{ color: MUTED }}>{k}</span>
-                <span className="font-semibold text-right" style={{ color: C.dark }}>
-                  {v}
+                <span className="flex-shrink-0" style={{ color: MUTED }}>{k}</span>
+                <span className="min-w-0 break-words font-semibold text-right" style={{ color: C.dark }}>
+                  {k === "Entrega en" ? <AddressLines address={v} /> : v}
                 </span>
               </div>
             ))}
@@ -5338,7 +5580,7 @@ function CheckoutPage({
         <ol className="flex items-center max-w-xl mx-auto mb-10">
           {["Identificación", "Entrega", "Revisión"].map((label, i) => {
             const step = (i + 1) as 1 | 2 | 3
-            const done = checkoutStep > step || (step === 1 && !!user)
+            const done = checkoutStep > step
             const active = checkoutStep === step && !done
             const reachable =
               (step === 1 && !user) ||
@@ -5386,7 +5628,7 @@ function CheckoutPage({
         <div className="grid lg:grid-cols-[1fr_380px] gap-6 items-start">
           {/* LEFT: current step */}
           <div className="flex flex-col gap-6 min-w-0">
-            {!user && !showAuth && (
+            {checkoutStep === 1 && !showAuth && (
               <section className="p-6 rounded-2xl" style={CARD_ST}>
                 <div className="flex items-center justify-between gap-3 mb-1">
                   <h2 className="font-bold text-lg" style={{ color: C.dark }}>
@@ -5605,18 +5847,15 @@ function CheckoutPage({
             {user && checkoutStep === 2 && (
               <>
                 <section className="p-6 rounded-2xl" style={CARD_ST}>
-                  <h2 className="font-bold text-lg mb-1" style={{ color: C.dark }}>
+                  <h2 className="font-bold text-lg mb-3" style={{ color: C.dark }}>
                     Datos de entrega
                   </h2>
-                  <p className="text-sm mb-5" style={{ color: MUTED }}>
-                    ¿A dónde llevamos tu pedido?
-                  </p>
                   <button
                     type="button"
                     role="switch"
                     aria-checked={deliverToOtherPerson}
                     onClick={toggleDeliveryRecipient}
-                    className="mb-4 flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors"
+                    className="mb-3 flex w-full items-center justify-between gap-3 rounded-xl px-3.5 py-2 text-left transition-colors"
                     style={{
                       background: deliverToOtherPerson ? `${C.mustard}12` : "rgba(30,30,30,0.03)",
                       border: `1px solid ${deliverToOtherPerson ? `${C.mustard}70` : LINE}`,
@@ -5626,11 +5865,6 @@ function CheckoutPage({
                       <strong className="block text-sm" style={{ color: C.dark }}>
                         El pedido lo recibe otra persona
                       </strong>
-                      <span className="mt-0.5 block text-xs" style={{ color: MUTED }}>
-                        {deliverToOtherPerson
-                          ? "Ingresa los datos de quien recibirá el pedido."
-                          : "Activa esta opción para indicar otro destinatario."}
-                      </span>
                     </span>
                     <span
                       aria-hidden="true"
@@ -5643,16 +5877,12 @@ function CheckoutPage({
                       />
                     </span>
                   </button>
-                  <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="grid sm:grid-cols-2 gap-3">
                     {[
                       ["nombre", deliverToOtherPerson ? "Nombre de quien recibe *" : "Nombre completo *", "text", "Quién recibe"],
                       ["telefono", deliverToOtherPerson ? "Teléfono de quien recibe *" : "Teléfono *", "tel", "3XX XXX XXXX"],
-                      ["notas", "Notas para el pedido", "text", "Ej: sin cebolla, timbre dañado"],
                     ].map(([k, lbl, t, ph]) => (
-                      <div
-                        key={k}
-                        className={k === "notas" ? "sm:col-span-2" : ""}
-                      >
+                      <div key={k}>
                         <InputField
                           label={lbl}
                           type={t}
@@ -5675,8 +5905,8 @@ function CheckoutPage({
                       </div>
                     ))}
                   </div>
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between gap-3 mb-1">
                       <button
                         type="button"
                         onClick={() => setEditingAddress((editing) => !editing)}
@@ -5687,20 +5917,54 @@ function CheckoutPage({
                       </button>
                     </div>
                     {editingAddress ? (
-                      <InputField
-                        label="Dirección de entrega *"
-                        placeholder="Calle, número, barrio y ciudad"
-                        value={delivForm.direccion}
-                        onChange={(direccion) =>
-                          setDelivForm((form) => ({ ...form, direccion }))
-                        }
-                        required
-                        error={
-                          deliveryTried && !delivForm.direccion.trim()
-                            ? "La dirección de entrega es obligatoria."
-                            : undefined
-                        }
-                      />
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <InputField
+                          label="Barrio *"
+                          placeholder="Ej: Santa Ana, Niquía"
+                          value={addressParts.barrio}
+                          onChange={(v) => setAddressPart("barrio", v)}
+                          required
+                          error={deliveryTried && !addressParts.barrio.trim() ? "El barrio es obligatorio." : undefined}
+                        />
+                        <InputField
+                          label="Dirección *"
+                          placeholder="Ej: Calle 50 # 45-20"
+                          value={addressParts.calle}
+                          onChange={(v) => setAddressPart("calle", v)}
+                          required
+                          error={deliveryTried && !addressParts.calle.trim() ? "La dirección es obligatoria." : undefined}
+                        />
+                        <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
+                          Tipo de edificio
+                          <select
+                            value={addressParts.tipoEdificio}
+                            onChange={(e) => setAddressPart("tipoEdificio", e.target.value)}
+                            className="w-full rounded-xl px-3.5 py-3 text-sm outline-none"
+                            style={{ background: "rgba(30,30,30,0.05)", border: "1.5px solid rgba(30,30,30,0.12)", color: "#1A1714" }}
+                          >
+                            <option value="">Casa / ninguno</option>
+                            {BUILDING_TYPES.map((type) => (
+                              <option key={type} value={type}>{type}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <InputField
+                          label="Apartamento, unidad, piso, casa y torre"
+                          placeholder="Ej: Torre 2, apto 301"
+                          value={addressParts.unidad}
+                          onChange={(v) => setAddressPart("unidad", v)}
+                        />
+                        {addressParts.tipoEdificio && (
+                          <div className="sm:col-span-2">
+                            <InputField
+                              label="Nombre del edificio"
+                              placeholder="Ej: Torres de Santa Ana"
+                              value={addressParts.nombreEdificio}
+                              onChange={(v) => setAddressPart("nombreEdificio", v)}
+                            />
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <div
                         className="px-4 py-3 rounded-xl text-sm"
@@ -5732,7 +5996,36 @@ function CheckoutPage({
                         ))}
                       </div>
                     )}
-                    <label className="flex items-start gap-2 mt-3 text-xs cursor-pointer" style={{ color: MUTED }}>
+                    {/* Map of the address + delivery zone (up to DELIVERY_RADIUS_KM from Santa Ana, Bello) */}
+                    {geo.status !== "idle" && (
+                      <div className="mt-3 overflow-hidden rounded-xl" style={{ border: `1px solid ${LINE}` }}>
+                        {geo.lat !== undefined && geo.lon !== undefined && (
+                          <iframe
+                            title="Ubicación de la dirección de entrega"
+                            className="block h-32 w-full"
+                            loading="lazy"
+                            src={`https://www.openstreetmap.org/export/embed.html?bbox=${geo.lon - 0.012}%2C${geo.lat - 0.008}%2C${geo.lon + 0.012}%2C${geo.lat + 0.008}&layer=mapnik&marker=${geo.lat}%2C${geo.lon}`}
+                          />
+                        )}
+                        {geo.status !== "ok" && (
+                        <p
+                          className="px-3 py-2 text-xs font-medium"
+                          role="status"
+                          style={{
+                            background: geo.status === "loading" || geo.status === "error" ? "rgba(30,30,30,0.04)" : `${C.red}12`,
+                            color: geo.status === "loading" || geo.status === "error" ? MUTED : C.red,
+                          }}
+                        >
+                          {geo.status === "loading" && "Ubicando la dirección en el mapa..."}
+                          {geo.status === "far" &&
+                            `Esta dirección está fuera de nuestra zona de domicilio (hasta ${DELIVERY_RADIUS_KM} km de Santa Ana, Bello), así que no podemos llevar este pedido.`}
+                          {geo.status === "notfound" && "No encontramos esta dirección en el mapa. Revisa el barrio y la dirección (ej: Calle 50 # 45-20)."}
+                          {geo.status === "error" && "No pudimos cargar el mapa en este momento; el local confirmará la zona al recibir tu pedido."}
+                        </p>
+                        )}
+                      </div>
+                    )}
+                    <label className="flex items-start gap-2 mt-2 text-xs cursor-pointer" style={{ color: MUTED }}>
                       <input
                         type="checkbox"
                         checked={saveAddress}
@@ -5870,9 +6163,9 @@ function CheckoutPage({
                     </div>
                     {g.rows.map(([k, v]) => (
                       <div key={k} className="flex justify-between gap-4 text-sm py-0.5">
-                        <span style={{ color: MUTED }}>{k}</span>
-                        <span className="font-medium text-right" style={{ color: C.dark }}>
-                          {v}
+                        <span className="flex-shrink-0" style={{ color: MUTED }}>{k}</span>
+                        <span className="min-w-0 break-words font-medium text-right" style={{ color: C.dark }}>
+                          {k === "Dirección" ? <AddressLines address={v} /> : v}
                         </span>
                       </div>
                     ))}
@@ -5945,6 +6238,10 @@ function CheckoutPage({
                 <span>Domicilio</span>
                 <span style={{ color: MUTED }}>Costo según zona</span>
               </div>
+              <div className="flex justify-between" style={{ color: MUTED }}>
+                <span>Tiempo estimado</span>
+                <span className="font-semibold" style={{ color: C.dark }}>{DELIVERY_ESTIMATE}</span>
+              </div>
             </div>
             <div
               className="flex justify-between items-baseline font-black text-lg pt-4 mt-4"
@@ -5957,6 +6254,24 @@ function CheckoutPage({
               <span>Total</span>
               <span style={{ color: C.mustard }}>{fmt(subtotal)}</span>
             </div>
+            {user && checkoutStep >= 2 && (
+              <label className="mt-4 block">
+                <span className="mb-1.5 flex items-baseline justify-between gap-2">
+                  <span className="text-xs font-semibold" style={{ color: C.dark }}>
+                    Notas para el pedido <span className="font-normal" style={{ color: MUTED }}>(opcional)</span>
+                  </span>
+                  <span className="text-[10px]" style={{ color: MUTED }}>{delivForm.notas.length}/200</span>
+                </span>
+                <textarea
+                  value={delivForm.notas}
+                  onChange={(e) => setDelivForm((f) => ({ ...f, notas: e.target.value.slice(0, 200) }))}
+                  rows={2}
+                  placeholder="Ej: sin cebolla, el timbre no sirve, llamar al llegar"
+                  className="w-full resize-none rounded-xl px-3 py-2 text-sm outline-none"
+                  style={{ background: "rgba(30,30,30,0.04)", border: `1px solid ${LINE}`, color: C.dark }}
+                />
+              </label>
+            )}
             <FieldError msg={orderError} />
             {cta ? (
               <button
@@ -5978,7 +6293,13 @@ function CheckoutPage({
             {user && checkoutStep >= 2 && (!delivFilled || !payReady) && (
               <p className="mt-3 text-xs text-center" style={{ color: MUTED }}>
                 {!delivFilled
-                  ? "Completa nombre, teléfono y dirección para continuar."
+                  ? geo.status === "far"
+                    ? `Tu dirección está fuera de la zona de domicilio (máximo ${DELIVERY_RADIUS_KM} km).`
+                    : geo.status === "notfound"
+                      ? "Revisa el barrio y la dirección: no la encontramos en el mapa."
+                      : geo.status === "loading"
+                        ? "Ubicando tu dirección..."
+                        : "Completa nombre, teléfono, barrio y dirección para continuar."
                   : `Sube el comprobante de ${delivForm.pago} para continuar.`}
               </p>
             )}
@@ -6025,9 +6346,8 @@ function CheckoutPage({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={(product, qty, sauces, additions) => {
-            setCart((items) => [
-              ...items,
-              {
+            setCart((items) =>
+              addCartItem(items, {
                 id: Date.now(),
                 name: product.name,
                 description: product.desc,
@@ -6036,8 +6356,8 @@ function CheckoutPage({
                 img: product.img,
                 sauces,
                 additions,
-              },
-            ])
+              }),
+            )
             setAddProduct(null)
             setPickerOpen(false)
           }}
@@ -6887,9 +7207,8 @@ function ClientApp({
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
   ) => {
-    setCart((c) => [
-      ...c,
-      {
+    setCart((c) =>
+      addCartItem(c, {
         id: Date.now(),
         name: p.name,
         description: p.desc,
@@ -6898,8 +7217,8 @@ function ClientApp({
         img: p.img,
         sauces,
         additions,
-      },
-    ])
+      }),
+    )
     setAddProduct(null)
   }
   const quickAdd = (p: Product) =>
@@ -6982,12 +7301,10 @@ function ClientApp({
               {dark ? Ico.sun : Ico.moon}
             </button>
             <button
-              onClick={() => setView("cart")}
+              onClick={onCheckout}
+              aria-label="Ver mi carrito"
               className="relative w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
-              style={{
-                background: view === "cart" ? `${C.mustard}20` : BORDER,
-                color: view === "cart" ? C.mustard : TEXT,
-              }}
+              style={{ background: BORDER, color: TEXT }}
             >
               {Ico.cart}
               {cartCount > 0 && (
@@ -7123,37 +7440,6 @@ function ClientApp({
                 con tu pedido.
               </span>
             </div>
-          </div>
-        )}
-        {view === "cart" && (
-          <div className="max-w-lg mx-auto">
-            <h2
-              className="font-black text-2xl mb-5"
-              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
-            >
-              Carrito
-            </h2>
-            <CartSummary cart={cart} setCart={setCart} dark={dark} />
-            {cart.length > 0 && (
-              <button
-                onClick={onCheckout}
-                className="w-full mt-4 py-4 rounded-2xl font-bold text-sm cursor-pointer hover:opacity-90"
-                style={{ background: C.mustard, color: "#fff" }}
-              >
-                Confirmar pedido →
-              </button>
-            )}
-            {cart.length === 0 && (
-              <div className="text-center mt-4">
-                <button
-                  onClick={() => setView("menu")}
-                  className="px-8 py-3 rounded-full font-bold text-sm cursor-pointer"
-                  style={{ background: C.mustard, color: "#fff" }}
-                >
-                  Ver menú
-                </button>
-              </div>
-            )}
           </div>
         )}
         {view === "orders" && (
@@ -7311,9 +7597,8 @@ function LandingPage({
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
   ) => {
-    setCart((c) => [
-      ...c,
-      {
+    setCart((c) =>
+      addCartItem(c, {
         id: Date.now(),
         name: p.name,
         description: p.desc,
@@ -7322,8 +7607,8 @@ function LandingPage({
         img: p.img,
         sauces,
         additions,
-      },
-    ])
+      }),
+    )
     setAddProduct(null)
   }
   const NAVLINKS = [
@@ -8983,6 +9268,11 @@ function AdminPanel({
   )
   const [open, setOpen] = useState<string[]>(["ventas-g"])
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Desktop: menu with icons only (☰ in the header switches it); remembered in this browser
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadLS("adminSidebarCollapsed", false))
+  useEffect(() => saveLS("adminSidebarCollapsed", sidebarCollapsed), [sidebarCollapsed])
+  // Labels hide only on large screens (on a phone the menu is a full drawer)
+  const hideOnMini = sidebarCollapsed ? "lg:hidden" : ""
   const [profileOpen, setProfileOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [readNotifications, setReadNotifications] = useState<Set<number>>(
@@ -9845,7 +10135,7 @@ function AdminPanel({
       pedidos: ["1", "4", "5", "7", "9"],
     }
     const managedRequiredKeys: Record<string, string[]> = {
-      usuarios: ["0", "1", "2", "3", "4"],
+      usuarios: ["0", "1", "2", "3", "4", ...(isStaffRole(draft["3"]) ? ["9", "10", "11"] : [])],
       clientes: [
         "0",
         "1",
@@ -9882,7 +10172,7 @@ function AdminPanel({
     const trimmed = value.trim()
     const required =
       sec === "usuarios"
-        ? ["0", "1", "2", "3", "4"].includes(key)
+        ? ["0", "1", "2", "3", "4", ...(isStaffRole(draft["3"]) ? ["9", "10", "11"] : [])].includes(key)
         : sec === "clientes"
           ? ["0", "1", "2", "3", "4", "5"].includes(key)
           : sec === "proveedores"
@@ -9916,12 +10206,13 @@ function AdminPanel({
     if (sec === "proveedores" && key === "9") {
       return validateDocumentNumber(trimmed, String(draft["8"] ?? ""))
     }
-    if ((sec === "usuarios" && key === "4") ||
+    if ((sec === "usuarios" && ["4", "13"].includes(key)) ||
         (sec === "clientes" && key === "4") ||
         (sec === "proveedores" && ["2", "13"].includes(key))) {
       return EMAIL_PATTERN.test(trimmed) ? "" : "Escribe un correo electrónico válido."
     }
     if ((sec === "clientes" && key === "3") ||
+        (sec === "usuarios" && ["9", "12"].includes(key)) ||
         (sec === "proveedores" && ["3", "12"].includes(key))) {
       return validatePhoneNumber(trimmed)
     }
@@ -13183,51 +13474,58 @@ function AdminPanel({
         )
       : (rolesPerms[permissionKey] || {})
     const commonActions = ["Ver", "Crear", "Editar"]
-    const groups = [
-      { title: "Configuración", modules: ["Roles y permisos", "Usuarios"] },
-      { title: "Inventario y compras", modules: ["Categoría Insumos", "Insumos", "Proveedores", "Compras", "Pérdida Insumos"] },
-      { title: "Productos y producción", modules: ["Categoría Producto", "Productos", "Producción", "Producto No Conforme"] },
-      { title: "Ventas y clientes", modules: ["Clientes", "Pedidos", "Ventas", "Devoluciones"] },
-    ]
     const actionsOf = (mod: string) => [
       ...commonActions,
       PERMISSION_MODULES.find((m) => m.name === mod)?.finalAction ?? "Anular",
     ]
+    const allNames = PERMISSION_MODULES.map((m) => m.name)
     const totalPermissions = PERMISSION_MODULES.length * 4
     // Only the module's own 4 actions count (Administrador has Anular and Eliminar everywhere)
     const grantedIn = (mod: string) => actionsOf(mod).filter((a) => (perms[mod] || []).includes(a))
-    const granted = PERMISSION_MODULES.reduce((n, { name }) => n + grantedIn(name).length, 0)
+    const granted = allNames.reduce((n, name) => n + grantedIn(name).length, 0)
     const canEdit = !readOnly && !isAdmin
-    // Replaces the given modules' actions (others stay as they are)
+    // Replaces the given modules' actions (the others stay as they are)
     const setModules = (next: Record<string, string[]>) =>
       setRolesPerms((rp) => ({ ...rp, [permissionKey]: { ...(rp[permissionKey] || {}), ...next } }))
     // Any action needs "Ver"; without "Ver" the module has nothing
-    const toggle = (mod: string, action: string) => {
-      if (!canEdit) return
+    const withAction = (mod: string, action: string, on: boolean) => {
       const cur = perms[mod] || []
-      const next = cur.includes(action)
-        ? action === "Ver"
-          ? []
-          : cur.filter((a) => a !== action)
-        : [...new Set([...cur, action, "Ver"])]
-      setModules({ [mod]: next })
+      if (on) return [...new Set([...cur, action, "Ver"])]
+      return action === "Ver" ? [] : cur.filter((a) => a !== action)
     }
-    const fill = (mods: readonly string[], level: "all" | "view" | "none") =>
-      canEdit &&
-      setModules(
-        Object.fromEntries(mods.map((m) => [m, level === "all" ? actionsOf(m) : level === "view" ? ["Ver"] : []])),
-      )
-    const allNames = PERMISSION_MODULES.map((m) => m.name)
-    const presetButton = (label: string, level: "all" | "view" | "none") => (
-      <button
-        type="button"
-        onClick={() => fill(allNames, level)}
-        className="cursor-pointer rounded-lg px-2.5 py-1 text-[11px] font-semibold"
-        style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
+    const toggle = (mod: string, action: string) =>
+      canEdit && setModules({ [mod]: withAction(mod, action, !(perms[mod] || []).includes(action)) })
+    // A column: "final" = each module's Anular/Eliminar
+    const columnAction = (mod: string, column: string) => (column === "final" ? actionsOf(mod)[3] : column)
+    const columnAllOn = (column: string) => allNames.every((m) => (perms[m] || []).includes(columnAction(m, column)))
+    const toggleColumn = (column: string) => {
+      if (!canEdit) return
+      const on = !columnAllOn(column)
+      setModules(Object.fromEntries(allNames.map((m) => [m, withAction(m, columnAction(m, column), on)])))
+    }
+    const setAll = (on: boolean) =>
+      canEdit && setModules(Object.fromEntries(allNames.map((m) => [m, on ? actionsOf(m) : []])))
+    const columns = [
+      { key: "Ver", label: "Ver" },
+      { key: "Crear", label: "Crear" },
+      { key: "Editar", label: "Editar" },
+      { key: "final", label: "Anular / Eliminar" },
+    ]
+    const box = (on: boolean, size = 18) => (
+      <span
+        className="flex flex-shrink-0 items-center justify-center rounded-md"
+        style={{
+          width: size,
+          height: size,
+          background: on ? C.mustard : "transparent",
+          border: `1.5px solid ${on ? C.mustard : t.inputB}`,
+          color: "#fff",
+        }}
       >
-        {label}
-      </button>
+        {on && Ico.check}
+      </span>
     )
+    const grid = "minmax(0,1fr) repeat(4, minmax(3.25rem, 4.5rem))"
     return (
       <div className="mt-2 flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -13235,18 +13533,28 @@ function AdminPanel({
             <span className="text-xs font-bold" style={{ color: t.text }}>
               Permisos por módulo
             </span>
-            <span
-              className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-              style={{ background: `${C.mustard}18`, color: C.mustard }}
-            >
+            <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
               {granted} de {totalPermissions}
             </span>
           </div>
           {canEdit && (
-            <div className="flex flex-wrap gap-1.5">
-              {presetButton("Todo", "all")}
-              {presetButton("Solo ver", "view")}
-              {presetButton("Ninguno", "none")}
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => setAll(true)}
+                className="cursor-pointer rounded-lg px-3 py-1.5 text-[11px] font-bold"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                Seleccionar todos
+              </button>
+              <button
+                type="button"
+                onClick={() => setAll(false)}
+                className="cursor-pointer rounded-lg px-3 py-1.5 text-[11px] font-semibold"
+                style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
+              >
+                Quitar todos
+              </button>
             </div>
           )}
         </div>
@@ -13255,84 +13563,87 @@ function AdminPanel({
             El rol Administrador siempre tiene todos los permisos.
           </p>
         )}
-        {canEdit && (
-          <p className="text-[11px]" style={{ color: t.muted }}>
-            Toca una acción para activarla. Crear, Editar o Anular activan también Ver.
-          </p>
-        )}
-        <div className="max-h-[46vh] min-w-0 overflow-y-auto pr-1">
-          {groups.map((group) => (
-            <section key={group.title} className="mb-3 last:mb-0">
-              <div className="mb-1.5 flex items-center justify-between gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
-                  {group.title}
-                </span>
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      fill(group.modules, group.modules.every((m) => grantedIn(m).length === 4) ? "none" : "all")
-                    }
-                    className="cursor-pointer text-[10px] font-semibold"
-                    style={{ color: C.mustard }}
-                  >
-                    {group.modules.every((m) => grantedIn(m).length === 4) ? "Quitar el grupo" : "Todo el grupo"}
-                  </button>
-                )}
-              </div>
-              <div className="flex flex-col gap-1.5">
-                {group.modules.map((mod) => {
-                  const modPerms = grantedIn(mod)
+        <div className="max-h-[46vh] min-w-0 overflow-auto rounded-xl" style={{ border: `1px solid ${t.border}` }}>
+          {/* Header: each column can be selected for every module at once */}
+          <div
+            className="sticky top-0 z-10 grid items-center gap-1 px-3 py-2"
+            style={{ gridTemplateColumns: grid, background: t.cardAlt, borderBottom: `1px solid ${t.border}` }}
+          >
+            <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
+              Módulo
+            </span>
+            {columns.map((column) => {
+              const on = columnAllOn(column.key)
+              return (
+                <button
+                  key={column.key}
+                  type="button"
+                  disabled={!canEdit}
+                  onClick={() => toggleColumn(column.key)}
+                  title={canEdit ? `${on ? "Quitar" : "Seleccionar"} «${column.label}» en todos los módulos` : undefined}
+                  aria-label={`${on ? "Quitar" : "Seleccionar"} ${column.label} en todos los módulos`}
+                  className="flex flex-col items-center gap-1 rounded-lg px-1 py-1 disabled:cursor-default"
+                  style={{ cursor: canEdit ? "pointer" : "default", background: on ? `${C.mustard}14` : "transparent" }}
+                >
+                  <span className="text-center text-[10px] font-bold leading-tight" style={{ color: on ? C.mustard : t.muted }}>
+                    {column.label}
+                  </span>
+                  {canEdit && (
+                    <span className="flex items-center gap-1 text-[9px] font-semibold" style={{ color: on ? C.mustard : t.muted }}>
+                      {box(on, 14)} Todos
+                    </span>
+                  )}
+                </button>
+              )
+            })}
+          </div>
+          {PERMISSION_MODULES.map(({ name }, index) => {
+            const modPerms = grantedIn(name)
+            return (
+              <div
+                key={name}
+                className="grid items-center gap-1 px-3 py-1.5"
+                style={{
+                  gridTemplateColumns: grid,
+                  background: index % 2 ? (dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.015)") : "transparent",
+                  borderBottom: index < PERMISSION_MODULES.length - 1 ? `1px solid ${t.border}` : "none",
+                }}
+              >
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-semibold" style={{ color: t.text }}>{name}</div>
+                  <div className="text-[10px]" style={{ color: modPerms.length ? C.mustard : t.muted }}>
+                    {modPerms.length ? `${modPerms.length}/4` : "Sin acceso"}
+                  </div>
+                </div>
+                {columns.map((column) => {
+                  const action = columnAction(name, column.key)
+                  const on = (perms[name] || []).includes(action)
                   return (
-                    <div
-                      key={mod}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2"
-                      style={{
-                        background: modPerms.length ? `${C.mustard}0D` : t.input,
-                        border: `1px solid ${modPerms.length ? `${C.mustard}40` : t.border}`,
-                      }}
+                    <button
+                      key={column.key}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      aria-label={`${action} en ${name}`}
+                      title={column.key === "final" ? action : undefined}
+                      disabled={!canEdit}
+                      onClick={() => toggle(name, action)}
+                      className="flex justify-center py-1.5 disabled:cursor-default"
+                      style={{ cursor: canEdit ? "pointer" : "default" }}
                     >
-                      <div className="min-w-0">
-                        <div className="text-xs font-semibold break-words" style={{ color: t.text }}>
-                          {mod}
-                        </div>
-                        <div className="text-[10px]" style={{ color: t.muted }}>
-                          {modPerms.length ? `${modPerms.length}/4 permisos` : "Sin acceso"}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {actionsOf(mod).map((action) => {
-                          const on = modPerms.includes(action)
-                          return (
-                            <button
-                              key={action}
-                              type="button"
-                              role="checkbox"
-                              aria-checked={on}
-                              aria-label={`${action} en ${mod}`}
-                              disabled={!canEdit}
-                              onClick={() => toggle(mod, action)}
-                              className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold disabled:cursor-default"
-                              style={{
-                                cursor: canEdit ? "pointer" : "default",
-                                background: on ? C.mustard : t.card,
-                                color: on ? "#fff" : t.muted,
-                                border: `1px solid ${on ? C.mustard : t.inputB}`,
-                              }}
-                            >
-                              {on && Ico.check}
-                              {action}
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
+                      {box(on)}
+                    </button>
                   )
                 })}
               </div>
-            </section>
-          ))}
+            )
+          })}
         </div>
+        {canEdit && (
+          <p className="text-[11px]" style={{ color: t.muted }}>
+            «Todos» marca o quita esa acción en todos los módulos. Crear, Editar o Anular activan también Ver.
+          </p>
+        )}
       </div>
     )
   }
@@ -13620,9 +13931,13 @@ function AdminPanel({
               !(modal.mode === "add" && field.key === "4") &&
               (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
           )
-      : isUser && modal.mode === "add"
-        // The new user receives a provisional password by e-mail (blank on edit = keep it)
-        ? dataFields.filter((field) => field.key !== "6")
+      : isUser
+        ? dataFields.filter(
+            (field) =>
+              // The new user receives a provisional password by e-mail (blank on edit = keep it)
+              !(modal.mode === "add" && field.key === "6") &&
+              (!STAFF_CONTACT_KEYS.includes(field.key) || isStaffRole(isView ? row?.[3] : formData["3"])),
+          )
         : dataFields
     const productMainFields = isProduct
       ? dataFields.filter(
@@ -15085,6 +15400,7 @@ function AdminPanel({
                             String(formData[isSupplier ? "8" : "1"] ?? ""),
                           )
                         : ((modal.section === "clientes" && f.key === "3") ||
+                            (isUser && ["9", "12"].includes(f.key)) ||
                             (isSupplier && ["3", "12"].includes(f.key)))
                           ? normalizePhoneInput(value)
                           : isSupplier && f.key === "1"
@@ -16877,16 +17193,16 @@ function AdminPanel({
   const SidebarContent = () => (
     <>
       <div
-        className="flex items-center justify-between px-4 py-4"
+        className={`flex items-center justify-between px-4 py-4 ${sidebarCollapsed ? "lg:justify-center lg:px-2" : ""}`}
         style={{ borderBottom: `1px solid ${t.sidebarBd}` }}
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <img
             src={logoImg}
             alt="Logo"
-            className="w-11 h-11 object-contain flex-shrink-0"
+            className={`object-contain flex-shrink-0 ${sidebarCollapsed ? "w-11 h-11 lg:w-10 lg:h-10" : "w-11 h-11"}`}
           />
-          <div className="min-w-0">
+          <div className={`min-w-0 ${hideOnMini}`}>
             <div
               className="font-semibold text-sm truncate"
               style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
@@ -16924,9 +17240,15 @@ function AdminPanel({
                 onClick={() => {
                   if (leaf) {
                     setSection(g.key as AdminSection)
+                  } else if (sidebarCollapsed && window.innerWidth >= 1024) {
+                    // Its modules need their names: open the menu with this group expanded
+                    setSidebarCollapsed(false)
+                    if (!open.includes(g.key)) toggleGrp(g.key)
                   } else toggleGrp(g.key)
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer"
+                title={sidebarCollapsed ? g.label : undefined}
+                aria-label={g.label}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
                 style={{
                   background: active
                     ? `${g.color}18`
@@ -16944,12 +17266,12 @@ function AdminPanel({
                   {g.icon}
                 </span>
                 <span
-                  className="flex-1 text-xs font-medium truncate"
+                  className={`flex-1 text-xs font-medium truncate ${hideOnMini}`}
                   style={{ color: active ? g.color : t.sidebarTx }}
                 >
                   {g.label}
                 </span>
-                {!leaf && (
+                {!leaf && !(sidebarCollapsed && window.innerWidth >= 1024) && (
                   <span
                     style={{
                       color: t.sidebarMu,
@@ -16966,7 +17288,7 @@ function AdminPanel({
               </button>
               {!leaf && open.includes(g.key) && (
                 <div
-                  className="ml-5 mt-0.5 flex flex-col gap-0.5 pl-2"
+                  className={`ml-5 mt-0.5 flex flex-col gap-0.5 pl-2 ${hideOnMini}`}
                   style={{ borderLeft: `1.5px solid ${t.sidebarBd}` }}
                 >
                   {g.children.map((item) => (
@@ -17003,19 +17325,21 @@ function AdminPanel({
       >
         <button
           onClick={onSwitchToClient}
-          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80"
+          title={sidebarCollapsed ? (user ? "Vista de cliente" : "Ver sitio") : undefined}
+          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80 ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
           style={{ color: t.sidebarMu }}
         >
           {Ico.globe}
-          <span>{user ? "Vista de cliente" : "Ver sitio"}</span>
+          <span className={hideOnMini}>{user ? "Vista de cliente" : "Ver sitio"}</span>
         </button>
         <button
           onClick={onLogout}
-          className="mt-1 w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80"
+          title={sidebarCollapsed ? "Cerrar sesión" : undefined}
+          className={`mt-1 w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80 ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
           style={{ color: C.red }}
         >
           {Ico.logout}
-          <span>Cerrar sesión</span>
+          <span className={hideOnMini}>Cerrar sesión</span>
         </button>
       </div>
     </>
@@ -17034,11 +17358,10 @@ function AdminPanel({
         />
       )}
       <aside
-        className={`fixed lg:relative inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ${
+        className={`fixed lg:relative inset-y-0 left-0 z-50 flex w-[240px] flex-col transition-[transform,width] duration-300 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        }`}
+        } ${sidebarCollapsed ? "lg:w-[72px]" : ""}`}
         style={{
-          width: "240px",
           background: t.sidebarBg,
           borderRight: `1px solid ${t.sidebarBd}`,
           flexShrink: 0,
@@ -17053,8 +17376,12 @@ function AdminPanel({
           style={{ background: t.hdrBg, borderBottom: `1px solid ${t.hdrBd}` }}
         >
           <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-2 rounded-xl cursor-pointer"
+            onClick={() =>
+              window.innerWidth >= 1024 ? setSidebarCollapsed((collapsed) => !collapsed) : setSidebarOpen(!sidebarOpen)
+            }
+            title={sidebarCollapsed ? "Ver el menú con nombres" : "Ver solo los íconos"}
+            aria-label={sidebarCollapsed ? "Mostrar los nombres del menú" : "Mostrar solo los íconos del menú"}
+            className="p-2 rounded-xl cursor-pointer"
             style={{ color: t.muted, background: t.input }}
           >
             {Ico.menu}
@@ -17355,7 +17682,17 @@ export default function App() {
   const [, setMenuVersion] = useState(0)
   useEffect(() => {
     loadMenu()
-      .then(() => setMenuVersion((v) => v + 1))
+      .then(() => {
+        setMenuVersion((v) => v + 1)
+        // A cart saved before the burgers were renamed ("Sencilla" -> "Hamburguesa Sencilla") gets the current names
+        setCart((items) =>
+          items.map((item) => {
+            if (PRODUCTS.some((product) => product.name === item.name)) return item
+            const renamed = PRODUCTS.find((product) => product.name === `Hamburguesa ${item.name}`)
+            return renamed ? { ...item, name: renamed.name } : item
+          }),
+        )
+      })
       .catch((err) => console.warn("No se pudo cargar el menú del backend:", err))
   }, [])
 
