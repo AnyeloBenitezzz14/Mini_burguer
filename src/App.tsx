@@ -104,45 +104,29 @@ const C = {
 const WA = "573206332670"
 const ITEMS_PER_PAGE = 6
 const STATUS_OPT = ["Activo", "Inactivo"]
-const DOC_TYPES = [
-  "Cédula de Ciudadanía",
-  "Cédula Extranjería",
-  "NIT",
-  "Pasaporte",
-  "Tarjeta de Identidad",
-]
+const DOC_TYPES = ["Cédula de Ciudadanía", "Cédula Extranjería", "NIT", "Pasaporte"]
+// One rule per document type for every form (registro, usuarios, clientes, ventas, proveedores).
+// The backend accepts 6 to 10 characters.
+const DOC_RULES: Record<string, { re: RegExp; msg: string }> = {
+  "Cédula de Ciudadanía": { re: /^\d{6,10}$/, msg: "La cédula debe tener entre 6 y 10 números, sin puntos ni espacios." },
+  "Cédula Extranjería": { re: /^\d{6,10}$/, msg: "La cédula de extranjería debe tener entre 6 y 10 números." },
+  NIT: { re: /^\d{9,10}$/, msg: "El NIT debe tener 9 números, o 10 con el dígito de verificación (sin guion)." },
+  Pasaporte: { re: /^[A-Za-z0-9]{6,10}$/, msg: "El pasaporte debe tener entre 6 y 10 letras o números, sin espacios." },
+}
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const digitsOnly = (value: string) => value.replace(/\D/g, "")
-const normalizeDocumentInput = (value: string, docType: string) => {
-  if (docType === "Pasaporte") return value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)
-  if (docType === "NIT") return value.replace(/[^0-9.-]/g, "").slice(0, 20)
-  return digitsOnly(value).slice(0, 15)
-}
-const normalizeAccountDocumentInput = (value: string, docType: string) =>
-  docType === "NIT"
-    ? value.replace(/[^0-9-]/g, "").slice(0, 10)
-    : docType
-      ? normalizeDocumentInput(value, docType)
-      : value.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 20)
+// While typing: only the characters the type allows, at most 10
+const normalizeDocumentInput = (value: string, docType: string) =>
+  (docType === "Pasaporte" ? value.replace(/[^a-zA-Z0-9]/g, "") : digitsOnly(value)).slice(0, 10)
+const normalizeAccountDocumentInput = normalizeDocumentInput
 const normalizePhoneInput = (value: string) =>
   value.replace(/[^0-9+()\s-]/g, "").slice(0, 20)
 const validateDocumentNumber = (value: string, docType: string) => {
   const document = value.trim()
   if (!document) return "Este campo es obligatorio."
-  if (docType === "Pasaporte") {
-    return /^[A-Za-z0-9]{5,20}$/.test(document)
-      ? ""
-      : "Escribe un número de pasaporte válido."
-  }
-  if (docType === "NIT") {
-    const digits = digitsOnly(document)
-    return /^[\d.-]+$/.test(document) && digits.length >= 8 && digits.length <= 15
-      ? ""
-      : "Escribe un NIT válido."
-  }
-  return /^\d{5,15}$/.test(document)
-    ? ""
-    : "Usa solo números (de 5 a 15 dígitos)."
+  if (!docType) return "Primero elige el tipo de documento."
+  const rule = DOC_RULES[docType]
+  return !rule || rule.re.test(document) ? "" : rule.msg
 }
 const validatePhoneNumber = (value: string) => {
   const digits = digitsOnly(value)
@@ -187,6 +171,13 @@ const BEVERAGE_SIZES = [
   { id: "2.25L", label: "2.25 L", price: 9000 },
   { id: "3L", label: "3 L", price: 12000 },
 ]
+
+// An order's drink line "Gaseosa Coca-Cola (1.5 L)" is the insumo "Gaseosa Coca-Cola 1.5 L"
+// (one per flavor and size, so the stock says which ones are left)
+const drinkSupplyName = (lineName: string) => {
+  const match = /^Gaseosa (.+) \(([^()]+)\)$/.exec(lineName.trim())
+  return match ? `Gaseosa ${match[1]} ${match[2]}` : null
+}
 
 // ── Products ───────────────────────────────────────────────────────────────────
 const PRODUCTS: Product[] = [
@@ -502,16 +493,97 @@ const PRODUCTS: Product[] = [
   },
 ]
 
+// icon: the paths of a line icon (drawn with aboutIcon), no emojis
 const MENU_CATS = [
-  { id: "todos", label: "Todos", emoji: "🍽️" },
-  { id: "hamburguesas", label: "Hamburguesas", emoji: "🍔" },
-  { id: "perros", label: "Perros Cal.", emoji: "🌭" },
-  { id: "perras", label: "Perras", emoji: "🌭" },
-  { id: "salchipapas", label: "Salchipapas", emoji: "🍟" },
-  { id: "chuzos", label: "Chuzos", emoji: "🍢" },
-  { id: "patacones", label: "Patacones", emoji: "🫓" },
-  { id: "arepa-burger", label: "Arepa Burger", emoji: "🫔" },
-  { id: "arepa-rellena", label: "Arepa Rellena", emoji: "🫔" },
+  {
+    id: "todos",
+    label: "Todos",
+    icon: (
+      <>
+        <path d="M3 2v7a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V2" />
+        <path d="M7 2v20" />
+        <path d="M21 15V2a5 5 0 0 0-5 5v6a2 2 0 0 0 2 2h3zm0 0v7" />
+      </>
+    ),
+  },
+  {
+    id: "hamburguesas",
+    label: "Hamburguesas",
+    icon: (
+      <>
+        <path d="M4 11a8 6 0 0 1 16 0z" />
+        <path d="M3 14h18" />
+        <path d="M4 17h16a1 1 0 0 1 0 0 3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z" />
+        <path d="M9 7.5h.01M12 6.5h.01M15 7.5h.01" />
+      </>
+    ),
+  },
+  { id: "perros", label: "Perros Cal.", icon: (
+      <>
+        <rect x="2" y="8" width="20" height="9" rx="4.5" />
+        <path d="M5 12.5h14" />
+        <path d="M7 10.5l1.5 1 1.5-1 1.5 1 1.5-1 1.5 1 1.5-1" />
+      </>
+    ) },
+  { id: "perras", label: "Perras", icon: (
+      <>
+        <rect x="2" y="8" width="20" height="9" rx="4.5" />
+        <path d="M5 12.5h14" />
+        <path d="M7 10.5l1.5 1 1.5-1 1.5 1 1.5-1 1.5 1 1.5-1" />
+      </>
+    ) },
+  {
+    id: "salchipapas",
+    label: "Salchipapas",
+    icon: (
+      <>
+        <path d="M5 11h14l-1.5 10h-11z" />
+        <path d="M8 11V4" />
+        <path d="M11 11V3" />
+        <path d="M14 11V4" />
+        <path d="M17 11V6" />
+      </>
+    ),
+  },
+  {
+    id: "chuzos",
+    label: "Chuzos",
+    icon: (
+      <>
+        <path d="M12 2v20" />
+        <rect x="8" y="5" width="8" height="4" rx="1.5" />
+        <rect x="8" y="11" width="8" height="4" rx="1.5" />
+      </>
+    ),
+  },
+  {
+    id: "patacones",
+    label: "Patacones",
+    icon: (
+      <>
+        <ellipse cx="12" cy="13" rx="9" ry="6" />
+        <ellipse cx="12" cy="12" rx="4.5" ry="2.5" />
+      </>
+    ),
+  },
+  {
+    id: "arepa-burger",
+    label: "Arepa Burger",
+    icon: (
+      <>
+        <path d="M3 9c0-2 4-4 9-4s9 2 9 4z" />
+        <path d="M3 13c2 1 4-1 6 0s4 1 6 0 4-1 6 0" />
+        <path d="M3 16c0 2 4 3 9 3s9-1 9-3z" />
+      </>
+    ),
+  },
+  { id: "arepa-rellena", label: "Arepa Rellena", icon: (
+      <>
+        <path d="M3 15a9 9 0 0 1 18 0z" />
+        <path d="M6.5 15c1.5-2 9.5-2 11 0" />
+        <path d="M9 11.5h.01M12 10.5h.01M15 11.5h.01" />
+      </>
+    ) },
 ]
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
@@ -1202,13 +1274,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "1",
         label: "Tipo de documento",
         type: "select",
-        options: [
-          "Cédula de Ciudadanía",
-          "Cédula Extranjería",
-          "NIT",
-          "Pasaporte",
-          "Tarjeta de Identidad",
-        ],
+        options: DOC_TYPES,
       },
       { key: "2", label: "Número de documento", type: "text" },
       { key: "0", label: "Nombre completo", type: "text" },
@@ -1292,8 +1358,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "2", label: "Correo", type: "email" },
       { key: "3", label: "Teléfono", type: "tel" },
       { key: "5", label: "Dirección", type: "text" },
-      // Comma-separated insumo names; limits what can be bought from this supplier
-      { key: "7", label: "Insumos que suministra", type: "text" },
       { key: "8", label: "Tipo de documento", type: "select", options: DOC_TYPES },
       { key: "9", label: "Número de documento", type: "text" },
       { key: "10", label: "Nombre", type: "text" },
@@ -1301,6 +1365,8 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "12", label: "Teléfono", type: "tel" },
       { key: "13", label: "Correo electrónico", type: "email" },
       { key: "14", label: "Cargo", type: "text" },
+      // Comma-separated insumo names; limits what can be bought from this supplier
+      { key: "7", label: "Insumos que suministra", type: "text" },
     ],
     seed: [],
     // Deletable only while the supplier has no purchases (see getDeleteAssessment)
@@ -1516,20 +1582,13 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "1",
         label: "Tipo de documento",
         type: "select",
-        options: [
-          "Cédula de Ciudadanía",
-          "Cédula Extranjería",
-          "NIT",
-          "Pasaporte",
-          "Tarjeta de Identidad",
-        ],
+        options: DOC_TYPES,
       },
       { key: "2", label: "Número de documento", type: "text" },
       { key: "0", label: "Nombre completo", type: "text" },
       { key: "3", label: "Teléfono", type: "tel" },
       { key: "4", label: "Correo electrónico", type: "email" },
       { key: "5", label: "Dirección", type: "text" },
-      { key: "6", label: "Cliente de local", type: "checkbox" },
     ],
     seed: [],
     statusIndex: 7,
@@ -1806,29 +1865,6 @@ const SIDEBAR_MENU = [
 type FieldErrors = Record<string, string>
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/
 const NAME_RE = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' ]+$/
-const DOC_RULES: Record<string, { re: RegExp; msg: string }> = {
-  "Cédula de Ciudadanía": {
-    re: /^\d{6,10}$/,
-    msg: "La cédula debe tener entre 6 y 10 números, sin puntos ni espacios.",
-  },
-  "Cédula Extranjería": {
-    re: /^\d{6,12}$/,
-    msg: "La cédula de extranjería debe tener entre 6 y 12 números.",
-  },
-  NIT: {
-    re: /^\d{9}(-\d)?$/,
-    msg: "El NIT debe tener 9 números y puede llevar el dígito de verificación (ej: 900123456-7).",
-  },
-  Pasaporte: {
-    re: /^[A-Za-z0-9]{5,12}$/,
-    msg: "El pasaporte debe tener entre 5 y 12 letras o números, sin espacios.",
-  },
-  "Tarjeta de Identidad": {
-    re: /^\d{10,11}$/,
-    msg: "La tarjeta de identidad debe tener 10 u 11 números.",
-  },
-}
-
 function emailError(email: string) {
   if (!email.trim()) return "Ingresa tu correo electrónico."
   if (!EMAIL_RE.test(email.trim()))
@@ -2002,7 +2038,7 @@ function AuthLayout({
       className="min-h-screen flex items-center justify-center px-4 py-8"
       style={{ background: "#FAF3E6", fontFamily: "Poppins, sans-serif" }}
     >
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-lg">
         <div className="flex flex-col items-center mb-5">
           <img
             src={logoImg}
@@ -2087,7 +2123,7 @@ function LoginPage({
       className="min-h-screen flex items-center justify-center px-4 py-8"
       style={{ background: "#F7F2E8", fontFamily: "Poppins, sans-serif" }}
     >
-      <div className="w-full max-w-5xl grid lg:grid-cols-2 gap-8 items-center">
+      <div className="w-full max-w-6xl grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-8 items-center">
         <div className="hidden lg:block px-8">
           <img
             src={logoImg}
@@ -2115,7 +2151,7 @@ function LoginPage({
           </p>
         </div>
         <div
-          className="w-full max-w-md mx-auto p-7 sm:p-9 rounded-3xl"
+          className="w-full max-w-xl mx-auto p-7 sm:p-10 rounded-3xl"
           style={{
             background: "#fff",
             boxShadow: "0 12px 45px rgba(30,30,30,0.10)",
@@ -2292,7 +2328,7 @@ function RegisterPage({
       className="min-h-screen flex items-center justify-center px-3 py-4"
       style={{ background: "#F7F2E8", fontFamily: "Poppins, sans-serif" }}
     >
-      <div className="w-full max-w-5xl grid lg:grid-cols-2 gap-5 items-center">
+      <div className="w-full max-w-6xl grid lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-6 items-center">
         <div className="hidden lg:block px-6">
           <img
             src={logoImg}
@@ -2320,7 +2356,7 @@ function RegisterPage({
           </p>
         </div>
         <div
-          className="w-full max-w-md mx-auto p-5 rounded-3xl"
+          className="w-full max-w-2xl mx-auto p-6 sm:p-8 rounded-3xl"
           style={{
             background: "#fff",
             boxShadow: "0 12px 35px rgba(30,30,30,0.10)",
@@ -2513,7 +2549,6 @@ function ChooseOwnPasswordPage({
   onDone: () => void
   onLogout: () => void
 }) {
-  const [current, setCurrent] = useState("")
   const [pass, setPass] = useState("")
   const [pass2, setPass2] = useState("")
   const [tried, setTried] = useState(false)
@@ -2535,24 +2570,18 @@ function ChooseOwnPasswordPage({
           e.preventDefault()
           setTried(true)
           setServerErr("")
-          if (busy || !current || Object.keys(passwordErrors(pass, pass2)).length) return
+          if (busy || Object.keys(passwordErrors(pass, pass2)).length) return
           setBusy(true)
-          api("/auth/me/contrasena", "PATCH", { actual: current, nueva: pass })
-            .then(onDone)
+          api<{ token: string }>("/auth/me/contrasena-inicial", "PATCH", { nueva: pass })
+            .then(({ token }) => {
+              saveLS("token", token) // the new token no longer carries the "must change" mark
+              onDone()
+            })
             .catch((err) => setServerErr((err as Error).message))
             .finally(() => setBusy(false))
         }}
         className="flex flex-col gap-3"
       >
-        <InputField
-          label="Contraseña provisional (la del correo)"
-          type="password"
-          placeholder="••••••••"
-          value={current}
-          onChange={setCurrent}
-          required
-          error={tried && !current ? "Escribe la contraseña provisional." : ""}
-        />
         <InputField
           label="Nueva contraseña"
           type="password"
@@ -2849,10 +2878,10 @@ function ProductInfoModal({
           )}
           {cat && (
             <span
-              className="absolute bottom-3 left-3 text-xs px-2 py-0.5 rounded-full"
+              className="absolute bottom-3 left-3 flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
               style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
             >
-              {cat.emoji} {cat.label}
+              {aboutIcon(13, cat.icon)} {cat.label}
             </span>
           )}
         </div>
@@ -3359,7 +3388,9 @@ function ProductCatalog({
               minWidth: "72px",
             }}
           >
-            <span className="text-lg leading-none">{cat.emoji}</span>
+            <span className="leading-none" style={{ color: activeCat === cat.id ? "#fff" : C.mustard }}>
+              {aboutIcon(20, cat.icon)}
+            </span>
             <span
               className="text-xs font-semibold whitespace-nowrap"
               style={{ color: activeCat === cat.id ? "#fff" : MUTED }}
@@ -3371,7 +3402,7 @@ function ProductCatalog({
       </div>
       {/* Search in catalog */}
       <div
-        className="flex items-center gap-2 px-3 py-2.5 rounded-xl mb-5"
+        className="flex w-full items-center gap-2 px-3 py-2.5 rounded-xl mb-5 sm:max-w-md"
         style={{
           background: dark ? "rgba(255,255,255,0.07)" : "rgba(30,30,30,0.06)",
           border: `1px solid ${BORDER}`,
@@ -3745,12 +3776,13 @@ type AuthData = {
     telefono: string | null
     direcciones: string[] | null
     roles: string[]
-    debe_cambiar_contrasena?: boolean
+    requiere_cambio_contrasena?: boolean
   }
   permisos: { modulo: string; privilegios: string[] }[]
+  requiere_cambio_contrasena?: boolean
 }
 
-const toUser = ({ token, usuario: u, permisos }: AuthData): User => {
+const toUser = ({ token, usuario: u, permisos, requiere_cambio_contrasena }: AuthData): User => {
   saveLS("token", token)
   return {
     permissions: permisos.filter((p) => p.privilegios.includes("VER")).map((p) => p.modulo),
@@ -3761,7 +3793,7 @@ const toUser = ({ token, usuario: u, permisos }: AuthData): User => {
     cedula: u.documento || undefined,
     phone: u.telefono || undefined,
     addresses: u.direcciones?.length ? u.direcciones : undefined,
-    mustChangePassword: !!u.debe_cambiar_contrasena,
+    mustChangePassword: !!(requiere_cambio_contrasena ?? u.requiere_cambio_contrasena),
   }
 }
 
@@ -3828,6 +3860,92 @@ async function idByName(path: string, nameKey: string, idKey: string, name: stri
 const categoryIdByName = (path: string, name: string | number) =>
   idByName(path, "nombre_categoria", "id_categoria", name, "La categoría")
 
+// ── Dashboard period ─────────────────────────────────────────────────────────
+type DashPeriod = "hoy" | "semana" | "mes" | "año"
+const MONTHS_SHORT = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+const toIsoDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
+
+// Range [start, end) of the chosen day / week (Mon-Sun) / month / year that contains `anchor`,
+// its chart buckets, the previous range of the same kind (for the % change) and a title
+function getDashPeriod(kind: DashPeriod, anchor: Date) {
+  const day = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate())
+  const short = (d: Date) => `${d.getDate()} ${MONTHS_SHORT[d.getMonth()].toLowerCase()}`
+  if (kind === "hoy") {
+    return {
+      start: day,
+      end: addDays(day, 1),
+      prevStart: addDays(day, -1),
+      buckets: [{ label: short(day), start: day, end: addDays(day, 1) }],
+      title: day.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" }),
+    }
+  }
+  if (kind === "semana") {
+    const start = addDays(day, -((day.getDay() + 6) % 7)) // Monday
+    return {
+      start,
+      end: addDays(start, 7),
+      prevStart: addDays(start, -7),
+      buckets: Array.from({ length: 7 }, (_, i) => {
+        const d = addDays(start, i)
+        return { label: `${d.toLocaleDateString("es-CO", { weekday: "short" })} ${d.getDate()}`, start: d, end: addDays(d, 1) }
+      }),
+      title: `Semana del ${short(start)} al ${short(addDays(start, 6))} de ${addDays(start, 6).getFullYear()}`,
+    }
+  }
+  if (kind === "mes") {
+    const start = new Date(day.getFullYear(), day.getMonth(), 1)
+    const end = new Date(day.getFullYear(), day.getMonth() + 1, 1)
+    const buckets = []
+    for (let d = start, n = 1; d < end; d = addDays(d, 7), n++) {
+      const e = addDays(d, 7) < end ? addDays(d, 7) : end
+      buckets.push({ label: `Sem ${n} (${d.getDate()}-${addDays(e, -1).getDate()})`, start: d, end: e })
+    }
+    return {
+      start,
+      end,
+      prevStart: new Date(day.getFullYear(), day.getMonth() - 1, 1),
+      buckets,
+      title: start.toLocaleDateString("es-CO", { month: "long", year: "numeric" }),
+    }
+  }
+  const start = new Date(day.getFullYear(), 0, 1)
+  return {
+    start,
+    end: new Date(day.getFullYear() + 1, 0, 1),
+    prevStart: new Date(day.getFullYear() - 1, 0, 1),
+    buckets: MONTHS_SHORT.map((label, m) => ({
+      label,
+      start: new Date(day.getFullYear(), m, 1),
+      end: new Date(day.getFullYear(), m + 1, 1),
+    })),
+    title: String(day.getFullYear()),
+  }
+}
+// Moves the anchor one period back (-1) or forward (+1)
+const shiftDashAnchor = (kind: DashPeriod, anchor: Date, step: number) =>
+  kind === "hoy"
+    ? addDays(anchor, step)
+    : kind === "semana"
+      ? addDays(anchor, 7 * step)
+      : kind === "mes"
+        ? new Date(anchor.getFullYear(), anchor.getMonth() + step, 1)
+        : new Date(anchor.getFullYear() + step, 0, 1)
+
+// "Cliente mostrador": anonymous client for sales to people who don't give their details.
+// Created by the backend (init.sql); it can't be edited, deactivated or deleted.
+const COUNTER_CLIENT_DOC = "000000000"
+// Clientes row: [0 nombre, 1 tipo doc, 2 documento, 3 teléfono, 4 correo, 5 dirección, 6 de local, 7 estado]
+const isCounterClientRow = (sec: string, row: (string | number)[] | undefined) =>
+  sec === "clientes" && String(row?.[2] ?? "").replace(/\D/g, "") === COUNTER_CLIENT_DOC
+
+// Superadministrador: always this account; nobody can deactivate, delete it, change its role or e-mail
+const SUPER_ADMIN_EMAIL = "admin@minifood.com"
+// Usuarios row: [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, ...]
+const isSuperAdminRow = (sec: string, row: (string | number)[] | undefined) =>
+  sec === "usuarios" && String(row?.[4] ?? "").trim().toLowerCase() === SUPER_ADMIN_EMAIL
+
 // Supplier that is a person, not a company: no NIT nor contact person (row/form key 15)
 const isNaturalSupplier = (tipo: string | number | undefined) => String(tipo ?? "") === "Persona natural"
 const SUPPLIER_COMPANY_ONLY_KEYS = ["1", "10", "11", "12", "13", "14"]
@@ -3839,9 +3957,30 @@ const splitNames = (value: string | number | undefined) =>
 // Ficha técnica of an insumo: "Azúcar (50 g), Limón (2 und)" -> [{ name: "Azúcar", quantity: "50" }, ...]
 const parseMainSupplies = (value: string | number | undefined) =>
   splitNames(value).map((part) => {
-    const match = /^(.*?)\s*\(\s*([\d.]+)[^)]*\)$/.exec(part)
-    return match ? { name: match[1], quantity: match[2] } : { name: part, quantity: "" }
+    const match = /^(.*?)\s*\(\s*([\d.]+)\s*([^)]*)\)$/.exec(part)
+    return match
+      ? { name: match[1], quantity: match[2], unit: match[3].trim() }
+      : { name: part, quantity: "", unit: "" }
   })
+
+// Suggested units for an insumo bought in `base` (the recipe can type any other, e.g. "cucharada")
+const compatibleUnits = (base: string) =>
+  base === "kg" || base === "g" ? ["g", "kg"] : base === "L" || base === "ml" ? ["ml", "L"] : base === "paq" ? ["paq", "und"] : [base || "und"]
+const RECIPE_UNIT_SUGGESTIONS = ["g", "kg", "ml", "L", "und", "paq", "cucharada", "cucharadita", "taza", "pizca", "tajada", "porción"]
+const UNIT_FACTOR: Record<string, { kind: string; factor: number }> = {
+  g: { kind: "masa", factor: 1 },
+  kg: { kind: "masa", factor: 1000 },
+  ml: { kind: "volumen", factor: 1 },
+  L: { kind: "volumen", factor: 1000 },
+}
+// Quantity in the insumo's own unit, to price it (50 g of an insumo bought by kg = 0.05).
+// null when it can't be converted (e.g. "cucharada" of something bought by kg)
+const toBaseQuantity = (quantity: number, unit: string, base: string) => {
+  if (unit.trim().toLowerCase() === base.trim().toLowerCase()) return quantity
+  const from = UNIT_FACTOR[unit.trim()]
+  const to = UNIT_FACTOR[base.trim()]
+  return from && to && from.kind === to.kind ? (quantity * from.factor) / to.factor : null
+}
 
 // Purchase items text: one "insumo | cantidad | costo unitario" per line
 const parsePurchaseLines = (value: string | number | undefined) =>
@@ -3971,6 +4110,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       de_local: text(row[6]).toLowerCase() === "sí",
       estado: estadoOf(row[7]),
     }),
+    reloads: ["usuarios"],
   },
   "cat-insumos": categorySpec("/categorias-insumos"),
   // [0 nombre, 1 categoría, 2 unidad, 3 costo, 4 stock, 5 mínimo, 6 (sin uso), 7 producto de insumo,
@@ -4212,7 +4352,7 @@ const TABLE_FILTERS: Record<string, { label: string; index: number }[]> = {
   producto: [{ label: "Categoría", index: 1 }, { label: "Estado", index: 4 }],
   produccion: [{ label: "Estado", index: 8 }],
   "producto-no-conforme": [{ label: "Estado", index: 8 }],
-  clientes: [{ label: "Cliente de local", index: 6 }, { label: "Estado", index: 7 }],
+  clientes: [{ label: "Estado", index: 7 }],
   ventas: [{ label: "Estado de venta", index: 8 }, { label: "Método de pago", index: 5 }],
   pedidos: [
     { label: "Estado", index: 7 },
@@ -7028,6 +7168,71 @@ function ClientApp({
   )
 }
 
+// Line icons for the "Nosotros" cards (same stroke style as Ico)
+const aboutIcon = (size: number, paths: React.ReactNode) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {paths}
+  </svg>
+)
+const ABOUT_ICONS = {
+  mision: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1.5" />
+    </>
+  ),
+  vision: (
+    <>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  valores: (
+    <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z" />
+  ),
+  familia: (
+    <>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.9" />
+      <path d="M16 3.1a4 4 0 0 1 0 7.8" />
+    </>
+  ),
+  cocina: (
+    <>
+      <path d="M17 21a1 1 0 0 0 1-1v-5.4c0-.5.3-.8.7-1a4 4 0 0 0-2.1-7.6 5 5 0 0 0-9.2 0 4 4 0 0 0-2.1 7.6c.4.2.7.5.7 1V20a1 1 0 0 0 1 1z" />
+      <path d="M6 17h12" />
+    </>
+  ),
+  servicio: (
+    <>
+      <path d="M3 20h18" />
+      <path d="M20 17a8 8 0 0 0-16 0z" />
+      <path d="M12 5v4" />
+      <path d="M10 5h4" />
+    </>
+  ),
+  domicilios: (
+    <>
+      <circle cx="18.5" cy="17.5" r="3.5" />
+      <circle cx="5.5" cy="17.5" r="3.5" />
+      <circle cx="15" cy="5" r="1" />
+      <path d="M12 17.5V14l-3-3 4-3 2 3h2" />
+    </>
+  ),
+}
+
 // ── Landing Page ───────────────────────────────────────────────────────────────
 function LandingPage({
   onLogin,
@@ -7608,17 +7813,17 @@ function LandingPage({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-10">
             {[
               {
-                icon: "🎯",
+                icon: ABOUT_ICONS.mision,
                 title: "Misión",
                 text: "Preparar mini burgers artesanales de alta calidad con ingredientes frescos, llevando sabor y alegría a cada cliente de Bello y sus alrededores.",
               },
               {
-                icon: "🚀",
+                icon: ABOUT_ICONS.vision,
                 title: "Visión",
                 text: "Ser el restaurante de fast food artesanal más querido del norte del Valle de Aburrá para 2026, expandiendo nuestras sedes sin perder la esencia familiar.",
               },
               {
-                icon: "💛",
+                icon: ABOUT_ICONS.valores,
                 title: "Valores",
                 text: "Calidad sin compromisos, honestidad con nuestros clientes, pasión en cada preparación, puntualidad en entregas y servicio cálido y cercano.",
               },
@@ -7633,7 +7838,12 @@ function LandingPage({
                   border: `1px solid ${BORDER}`,
                 }}
               >
-                <div className="text-3xl mb-3">{v.icon}</div>
+                <div
+                  className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl"
+                  style={{ background: `${C.mustard}1F`, color: C.mustard }}
+                >
+                  {aboutIcon(24, v.icon)}
+                </div>
                 <h3
                   className="font-black text-lg mb-2"
                   style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
@@ -7661,19 +7871,19 @@ function LandingPage({
               {
                 name: "La Familia Fundadora",
                 role: "Dirección General",
-                emoji: "👨‍👩‍👧",
+                icon: ABOUT_ICONS.familia,
               },
               {
                 name: "Equipo de Cocina",
                 role: "Preparación & Calidad",
-                emoji: "👨‍🍳",
+                icon: ABOUT_ICONS.cocina,
               },
               {
                 name: "Equipo de Servicio",
                 role: "Atención al cliente",
-                emoji: "🤝",
+                icon: ABOUT_ICONS.servicio,
               },
-              { name: "Repartidores", role: "Domicilios Express", emoji: "🛵" },
+              { name: "Repartidores", role: "Domicilios Express", icon: ABOUT_ICONS.domicilios },
             ].map((m) => (
               <div
                 key={m.name}
@@ -7684,7 +7894,12 @@ function LandingPage({
                     : "rgba(30,30,30,0.04)",
                 }}
               >
-                <div className="text-4xl mb-2">{m.emoji}</div>
+                <div
+                  className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full"
+                  style={{ background: `${C.mustard}1F`, color: C.mustard, border: `1px solid ${C.mustard}40` }}
+                >
+                  {aboutIcon(26, m.icon)}
+                </div>
                 <div className="font-bold text-sm" style={{ color: TEXT }}>
                   {m.name}
                 </div>
@@ -8986,10 +9201,15 @@ function AdminPanel({
     const spec = DB_SYNC[sec]
     const id = spec && row?.[spec.idIndex]
     if (!id) return
-    api(`${spec.path}/${id}`, "DELETE").catch((err) => {
-      window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`)
-      loadModule(sec)
-    })
+    api(`${spec.path}/${id}`, "DELETE")
+      // A deleted insumo also leaves the products' recipes
+      .then(() => {
+        if (sec === "insumos") loadModule("producto")
+      })
+      .catch((err) => {
+        window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`)
+        loadModule(sec)
+      })
   }
   // PANEL_SYNC modules: loaded once, then every created/changed/removed row is saved automatically
   const panelLoaded = useRef<Record<string, boolean>>({})
@@ -9100,7 +9320,7 @@ function AdminPanel({
   const [pedidoProductoSelect, setPedidoProductoSelect] = useState("")
   const [pedidoProductCategory, setPedidoProductCategory] = useState("Todas")
   const [pedidoProductQuantity, setPedidoProductQuantity] = useState("1")
-  const [pedidoParentSelect, setPedidoParentSelect] = useState("")
+  const [pedidoAdditionsFor, setPedidoAdditionsFor] = useState("")
   const [pedidoOrderLines, setPedidoOrderLines] = useState<AdminOrderLine[]>([])
   const [productionItems, setProductionItems] = useState<ProductionItem[]>([])
   const [productionProductSelect, setProductionProductSelect] = useState("")
@@ -9126,6 +9346,11 @@ function AdminPanel({
   const [purchaseNotice, setPurchaseNotice] = useState("")
   // Insumo form: suppliers that sell it (saved in each supplier's "Insumos que suministra")
   const [supplySuppliers, setSupplySuppliers] = useState<string[]>([])
+  // Insumo form: the suppliers dropdown (open + search)
+  const [supplierPickerOpen, setSupplierPickerOpen] = useState(false)
+  const [supplierPickerQuery, setSupplierPickerQuery] = useState("")
+  // Supplier form: search box of "Insumos que suministra"
+  const [supplierSupplySearch, setSupplierSupplySearch] = useState("")
   const resetPurchasePicker = () => {
     setPurchaseItemSelect("")
     setPurchaseItemQty("1")
@@ -9172,8 +9397,9 @@ function AdminPanel({
     section: string
     idx: number
   } | null>(null)
-  const [chartFilter, setChartFilter] =
-    useState<"hoy" | "semana" | "mes" | "año">("semana")
+  const [chartFilter, setChartFilter] = useState<DashPeriod>("semana")
+  // Any day inside the chosen period
+  const [chartAnchor, setChartAnchor] = useState(() => new Date())
   const [rolesPerms, setRolesPerms] =
     useState<Record<string, Record<string, string[]>>>(() =>
       loadLS("adminRolePermissions", {}),
@@ -9525,7 +9751,6 @@ function AdminPanel({
     draft: Record<string, string>,
     mode: ModalMode,
   ) => {
-    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
     const excludedKeys: Record<string, string[]> = {
       insumos: [
         // "Costo unitario" comes from the purchases; "Stock actual" starts at 0
@@ -9551,7 +9776,8 @@ function AdminPanel({
         "1",
         "2",
         "3",
-        ...(clientIsLocal ? [] : ["4", "5"]),
+        "4",
+        "5",
       ],
       // "7" (insumos que suministra) is optional: they can be assigned later, and
       // Compras already warns when a supplier has none
@@ -9579,12 +9805,11 @@ function AdminPanel({
     mode: ModalMode = modal.mode,
   ) => {
     const trimmed = value.trim()
-    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
     const required =
       sec === "usuarios"
         ? ["0", "1", "2", "3", "4"].includes(key)
         : sec === "clientes"
-          ? ["0", "1", "2", "3", ...(clientIsLocal ? [] : ["4", "5"])].includes(key)
+          ? ["0", "1", "2", "3", "4", "5"].includes(key)
           : sec === "proveedores"
             ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14", "15"].includes(key) &&
               !(isNaturalSupplier(draft["15"]) && SUPPLIER_COMPANY_ONLY_KEYS.includes(key))
@@ -9594,6 +9819,13 @@ function AdminPanel({
 
     if (required && !trimmed) return "Este campo es obligatorio."
     if (!trimmed) return ""
+
+    if (mode === "edit" && modal.idx !== null && isSuperAdminRow(sec, rows.usuarios?.[modal.idx])) {
+      if (key === "4" && trimmed.toLowerCase() !== SUPER_ADMIN_EMAIL)
+        return `El correo del superadministrador siempre es ${SUPER_ADMIN_EMAIL}.`
+      if (key === "3" && trimmed.toLowerCase() !== "administrador")
+        return "El superadministrador siempre tiene el rol Administrador."
+    }
 
     if ((sec === "usuarios" && key === "2") || (sec === "clientes" && key === "2")) {
       return validateDocumentNumber(trimmed, String(draft["1"] ?? ""))
@@ -9733,7 +9965,10 @@ function AdminPanel({
       setTechnicalIngredients([])
       setTechnicalSheetError("")
     }
-    if (sec === "proveedores") initialFields["15"] = "Persona jurídica"
+    if (sec === "proveedores") {
+      initialFields["15"] = "Persona jurídica"
+      setSupplierSupplySearch("")
+    }
     if (sec === "ventas") {
       initialFields["8"] = "Sin pedido"
       initialFields["0"] = sellerName
@@ -9742,6 +9977,8 @@ function AdminPanel({
       initialFields["7"] = "No"
       setSupplyFormError("")
       setSupplySuppliers([])
+      setSupplierPickerOpen(false)
+      setSupplierPickerQuery("")
     }
     if (sec === "producto-no-conforme") {
       initialFields["6"] = "und"
@@ -9781,7 +10018,7 @@ function AdminPanel({
       setPedidoOrderLines([])
       setPedidoProductCategory("Todas")
       setPedidoProductQuantity("1")
-      setPedidoParentSelect("")
+      setPedidoAdditionsFor("")
     }
     setPaymentProofDraft("")
     setImgPreview("")
@@ -9791,6 +10028,10 @@ function AdminPanel({
     const cfg = MOD_CFG[sec]
     if (!cfg) return
     const row = rows[sec][idx]
+    if (isCounterClientRow(sec, row)) {
+      window.alert("El cliente mostrador no se edita: es fijo para registrar ventas a personas que no dan sus datos.")
+      return
+    }
     const dataFields = cfg.fields.filter((f) => f.type !== "image")
     const rowOffset = cfg.autoId ? 1 : 0
     const nextForm = Object.fromEntries(
@@ -9807,6 +10048,7 @@ function AdminPanel({
       if (!nextForm["10"]) nextForm["10"] = legacyContactName.shift() ?? ""
       if (!nextForm["11"]) nextForm["11"] = legacyContactName.join(" ")
       if (!nextForm["15"]) nextForm["15"] = "Persona jurídica"
+      setSupplierSupplySearch("")
     }
     setFormValidationAttempted(false)
     setFormFieldErrors({})
@@ -9814,6 +10056,8 @@ function AdminPanel({
     if (sec === "compras") resetPurchasePicker()
     if (sec === "insumos") {
       setSupplyFormError("")
+      setSupplierPickerOpen(false)
+      setSupplierPickerQuery("")
       setSupplySuppliers(
         (rows.proveedores || []).filter((p) => splitNames(p[7]).includes(String(row[0]))).map((p) => String(p[0])),
       )
@@ -9844,7 +10088,7 @@ function AdminPanel({
       setPedidoOrderLines(orderLines)
       setPedidoProductCategory("Todas")
       setPedidoProductQuantity("1")
-      setPedidoParentSelect("")
+      setPedidoAdditionsFor("")
     }
     setFormData(nextForm)
     setFormInitial(nextForm)
@@ -9874,7 +10118,8 @@ function AdminPanel({
     "cat-producto": ["0", "1"],
     insumos: ["0", "1", "2", "3", "5"],
     producto: ["0", "1", "3"],
-    clientes: ["0", "1", "2", "3"], // correo/dirección too unless "Cliente de local"
+    // Correo is required: every client gets an account (it also shows up in Usuarios)
+    clientes: ["0", "1", "2", "3", "4", "5"],
     pedidos: ["0", "2", "3"],
   }
   const getFieldErrors = (): Record<string, string> => {
@@ -9923,7 +10168,6 @@ function AdminPanel({
     }
 
     if (sec === "clientes") {
-      const isLocal = v("6").toLowerCase() === "sí"
       if (!v("1")) e["1"] = "Selecciona el tipo de documento."
       const doc = v("2")
       if (!doc) e["2"] = "Escribe el número de documento."
@@ -9942,13 +10186,11 @@ function AdminPanel({
       const phone = v("3").replace(/[\s-]/g, "")
       if (!phone) e["3"] = "Escribe el teléfono."
       else if (!/^3\d{9}$/.test(phone)) e["3"] = "El celular debe tener 10 números y empezar por 3."
-      if (!v("4")) {
-        if (!isLocal) e["4"] = "Escribe el correo (o marca «Cliente de local»)."
-      } else if (!EMAIL_RE.test(v("4")))
+      if (!v("4")) e["4"] = "Escribe el correo: con él el cliente entra a la app."
+      else if (!EMAIL_RE.test(v("4")))
         e["4"] = "Escribe un correo válido, por ejemplo nombre@correo.com."
-      if (!v("5")) {
-        if (!isLocal) e["5"] = "Escribe la dirección (o marca «Cliente de local»)."
-      } else if (v("5").length < 5) e["5"] = "La dirección debe tener al menos 5 caracteres."
+      if (!v("5")) e["5"] = "Escribe la dirección."
+      else if (v("5").length < 5) e["5"] = "La dirección debe tener al menos 5 caracteres."
     }
 
     if (sec === "pedidos") {
@@ -10453,14 +10695,28 @@ function AdminPanel({
       }
     }
 
+    if (isCounterClientRow(sec, row)) {
+      return {
+        allowed: false,
+        targetLabel: `el cliente «${recordName}»`,
+        reason: "Es el cliente mostrador: se usa para registrar ventas a personas que no quieren dar sus datos, así que no se elimina ni se desactiva.",
+      }
+    }
+
+    if (isSuperAdminRow(sec, row)) {
+      return {
+        allowed: false,
+        targetLabel: `el usuario «${recordName}»`,
+        reason: `Es el superadministrador (${SUPER_ADMIN_EMAIL}): no se puede eliminar, desactivar ni quitarle el rol Administrador.`,
+      }
+    }
+
     if (sec === "insumos") {
       const supplyLabel = `el insumo «${recordName}»`
+      // Only purchases and losses block it (history); recipes just lose it
       const uses = [
         (rows.compras || []).some((p) => parsePurchaseLines(p[6]).some((i) => i.name === recordName)) && "compras",
         (rows.perdidas || []).some((l) => String(l[0]) === recordName) && "pérdidas de insumos",
-        ((rows.producto || []).some((p) => getProductRecipe(p).some((i) => i.name === recordName)) ||
-          (rows.insumos || []).some((i) => parseMainSupplies(i[10]).some((m) => m.name === recordName))) &&
-          "fichas técnicas",
       ].filter(Boolean)
       if (uses.length) {
         return {
@@ -10469,10 +10725,16 @@ function AdminPanel({
           reason: `Está registrado en ${uses.join(" y ")}. Para no perder ese historial no se puede eliminar; si ya no lo usas, desactívalo con el interruptor de estado.`,
         }
       }
+      const recipes = [
+        ...(rows.producto || []).filter((p) => getProductRecipe(p).some((i) => i.name === recordName)).map((p) => String(p[0])),
+        ...(rows.insumos || []).filter((i) => parseMainSupplies(i[10]).some((m) => m.name === recordName)).map((i) => String(i[0])),
+      ]
       return {
         allowed: true,
         targetLabel: supplyLabel,
-        reason: "No tiene compras, pérdidas ni fichas técnicas registradas.",
+        reason: recipes.length
+          ? `No tiene compras ni pérdidas. También se quitará de la ficha técnica de: ${[...new Set(recipes)].join(", ")}.`
+          : "No tiene compras, pérdidas ni fichas técnicas registradas.",
       }
     }
 
@@ -10522,7 +10784,9 @@ function AdminPanel({
   }
 
   const isStatusLocked = (sec: string, row: (string | number)[]) =>
-    sec === "roles" && String(row[0] ?? "").trim().toLowerCase() === "administrador"
+    (sec === "roles" && String(row[0] ?? "").trim().toLowerCase() === "administrador") ||
+    isSuperAdminRow(sec, row) ||
+    isCounterClientRow(sec, row)
 
   const getAnulAssessment = (
     sec: string,
@@ -10958,8 +11222,7 @@ function AdminPanel({
   }
 
   const saveQuickClient = () => {
-    const isLocalClient = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
-    const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
+    const requiredFields = ["0", "1", "2", "3", "4", "5"]
     const errors: Record<string, string> = {}
     requiredFields.forEach((key) => {
       const value = String(quickClientForm[key] ?? "").trim()
@@ -11034,13 +11297,15 @@ function AdminPanel({
       quickClientForm["3"],
       quickClientForm["4"] || "",
       quickClientForm["5"] || "",
-      isLocalClient ? "Sí" : "No",
+      "No",
       "Activo",
     ]
     setRows((current) => ({
       ...current,
       clientes: [newClient, ...(current.clientes || [])],
     }))
+    // It was only kept on screen; now it's saved (and gets its account + provisional password)
+    syncRow("clientes", newClient, true)
     setFormData((current) => ({ ...current, "1": name }))
     setQuickClientForm({})
     setQuickClientErrors({})
@@ -11180,6 +11445,21 @@ function AdminPanel({
     const requiredSupplies = new Map<string, { quantity: number; unit: string }>()
     if (consumeStock) {
       for (const item of getProductionOrderItems(sourceRow)) {
+        // A drink takes its own bottle out of stock (it has no recipe)
+        const drink = drinkSupplyName(item.name)
+        if (drink) {
+          const supply = rows.insumos?.find((candidate) => normalizeName(candidate[0]) === normalizeName(drink))
+          if (!supply) {
+            window.alert(`No se puede iniciar la producción: falta el insumo «${drink}» en Insumos.`)
+            return false
+          }
+          const current = requiredSupplies.get(String(supply[0]))
+          requiredSupplies.set(String(supply[0]), {
+            quantity: (current?.quantity ?? 0) + item.quantity,
+            unit: String(supply[2] || "und"),
+          })
+          continue
+        }
         const product = rows.producto?.find((candidate) => candidate[0] === item.name)
         for (const ingredient of getProductRecipe(product)) {
           const supply = rows.insumos?.find((candidate) => candidate[0] === ingredient.name)
@@ -11495,110 +11775,98 @@ function AdminPanel({
 
   const PAGE_SIZE = 6
 
-  // Dashboard data
-  const now = new Date()
-  const weekLabels = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(now)
-    d.setDate(d.getDate() - (6 - i))
-    return d.toLocaleDateString("es-CO", { weekday: "short" })
-  })
-  const getWeekRanges = () => {
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    const weeks: string[] = []
-    let d = new Date(monthStart)
-    let wn = 1
-    while (d.getMonth() === now.getMonth()) {
-      const start = d.getDate()
-      const end = Math.min(
-        start + 6,
-        new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(),
-      )
-      const mes = now.toLocaleDateString("es-CO", { month: "short" })
-      weeks.push(`Sem ${wn} (${start}-${end} ${mes})`)
-      d.setDate(d.getDate() + 7)
-      wn++
+  // Dashboard data, from the backend rows of the chosen period
+  const period = getDashPeriod(chartFilter, chartAnchor)
+  const dateOf = (v: string | number | undefined) => {
+    const d = new Date(`${String(v ?? "").slice(0, 10)}T00:00:00`)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const within = (v: string | number | undefined, start: Date, end: Date) => {
+    const d = dateOf(v)
+    return !!d && d >= start && d < end
+  }
+  // Ventas row: [0 código, 2 cliente, 3 fecha, 7 total, 8/9 estado, 11/12 líneas]; voided ones don't count
+  const validSales = (rows.ventas || []).filter(
+    (r) => ![r[8], r[9]].some((v) => ["anulada", "anulado"].includes(String(v ?? "").toLowerCase())),
+  )
+  const saleTotal = (r: (string | number)[]) => Number(r[7]) || 0
+  const saleLines = (r: (string | number)[]): { product?: string; quantity?: number; parentId?: string }[] => {
+    for (const v of [r[12], r[11]]) {
+      try {
+        const lines = JSON.parse(String(v ?? ""))
+        if (Array.isArray(lines)) return lines
+      } catch {
+        // not the lines column
+      }
     }
-    return weeks
+    return []
   }
-  const CHART_DATA: Record<string, {
-    labels: string[]
-    values: number[]
-    values2: number[]
-  }> = {
-    hoy: {
-      labels: ["8am", "10am", "12pm", "2pm", "4pm", "6pm", "8pm", "10pm"],
-      values: [12, 28, 65, 87, 54, 92, 74, 38],
-      values2: [5, 8, 12, 15, 9, 18, 11, 6],
-    },
-    semana: {
-      labels: weekLabels,
-      values: [55, 73, 61, 88, 72, 95, 64],
-      values2: [8, 12, 5, 15, 10, 6, 9],
-    },
-    mes: {
-      labels: getWeekRanges(),
-      values: [68, 82, 75, 91],
-      values2: [12, 8, 15, 10],
-    },
-    año: {
-      labels: [
-        "Ene",
-        "Feb",
-        "Mar",
-        "Abr",
-        "May",
-        "Jun",
-        "Jul",
-        "Ago",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dic",
-      ],
-      values: [55, 70, 65, 80, 75, 90, 85, 70, 65, 80, 88, 95],
-      values2: [10, 12, 8, 15, 11, 9, 13, 10, 8, 12, 9, 11],
-    },
+  // Pérdidas row: [0 insumo, 1 "0.5 kg", 4 fecha]; valued at the insumo's unit cost
+  const lossValue = (r: (string | number)[]) =>
+    (parseFloat(String(r[1] ?? "").replace(",", ".")) || 0) *
+    (Number((rows.insumos || []).find((i) => normalizeName(i[0]) === normalizeName(r[0]))?.[3]) || 0)
+  const sumIn = (start: Date, end: Date) => ({
+    sales: validSales.filter((r) => within(r[3], start, end)).reduce((t, r) => t + saleTotal(r), 0),
+    losses: (rows.perdidas || []).filter((r) => within(r[4], start, end)).reduce((t, r) => t + lossValue(r), 0),
+  })
+  const periodSales = validSales.filter((r) => within(r[3], period.start, period.end))
+  const periodReturns = (rows.devoluciones || []).filter((r) => within(r[5], period.start, period.end))
+  const totals = sumIn(period.start, period.end)
+  const prevSales = validSales.filter((r) => within(r[3], period.prevStart, period.start))
+  const prevTotals = sumIn(period.prevStart, period.start)
+  const prevReturns = (rows.devoluciones || []).filter((r) => within(r[5], period.prevStart, period.start)).length
+  const chart = {
+    labels: period.buckets.map((b) => b.label),
+    values: period.buckets.map((b) => sumIn(b.start, b.end).sales),
+    values2: period.buckets.map((b) => sumIn(b.start, b.end).losses),
   }
-  const chart = CHART_DATA[chartFilter]
+  const money = (v: number) =>
+    v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1000 ? `$${Math.round(v / 1000)}K` : fmt(v)
+  // "+12%" against the previous period of the same kind
+  const change = (current: number, previous: number) =>
+    !previous ? (current ? "Nuevo" : "—") : `${current >= previous ? "+" : ""}${Math.round(((current - previous) / previous) * 100)}%`
 
-  const TOP = [
-    { name: "Hamburguesa Mini", units: 284, pct: 100 },
-    { name: "Salchipapa Sencilla", units: 241, pct: 85 },
-    { name: "Perro Mediano", units: 198, pct: 70 },
-    { name: "Salchipapa Super Gourmet", units: 167, pct: 59 },
-    { name: "Salchipapa Mega Gourmet", units: 143, pct: 50 },
-  ]
+  // Best sellers: main products (not additions) of the period's sales
+  const unitsByProduct = new Map<string, number>()
+  periodSales.forEach((r) =>
+    saleLines(r)
+      .filter((l) => l.product && !l.parentId)
+      .forEach((l) => unitsByProduct.set(String(l.product), (unitsByProduct.get(String(l.product)) ?? 0) + (Number(l.quantity) || 0))),
+  )
+  const topUnits = [...unitsByProduct].sort((x, y) => y[1] - x[1]).slice(0, 5)
+  const TOP = topUnits.map(([name, units]) => ({ name, units, pct: Math.round((units / topUnits[0][1]) * 100) }))
   const KPI = [
     {
       icon: Ico.cash,
-      label: "Ventas hoy",
-      val: "$420.000",
-      badge: "+12%",
-      good: true,
+      label: "Ventas",
+      val: fmt(totals.sales),
+      badge: change(totals.sales, prevTotals.sales),
+      good: totals.sales >= prevTotals.sales,
     },
-    { icon: Ico.orders, label: "Pedidos", val: "18", badge: "+8%", good: true },
     {
-      icon: Ico.users,
-      label: "Clientes nuevos",
-      val: "7",
-      badge: "+15%",
-      good: true,
+      icon: Ico.orders,
+      label: "N.º de ventas",
+      val: String(periodSales.length),
+      badge: change(periodSales.length, prevSales.length),
+      good: periodSales.length >= prevSales.length,
     },
     {
       icon: Ico.undo,
       label: "Devoluciones",
-      val: "2",
-      badge: "-2",
-      good: false,
+      val: String(periodReturns.length),
+      badge: change(periodReturns.length, prevReturns),
+      good: periodReturns.length <= prevReturns,
     },
   ]
+  const returnReasons = new Map<string, number>()
+  periodReturns.forEach((r) => {
+    const reason = String(r[4] ?? "").trim() || "Otro"
+    returnReasons.set(reason, (returnReasons.get(reason) ?? 0) + 1)
+  })
+  const RETURN_REASONS = [...returnReasons]
+    .sort((x, y) => y[1] - x[1])
+    .map(([label, n]) => ({ label, pct: Math.round((n / periodReturns.length) * 100) }))
   const ALERTS = notifications
-  const RETURN_REASONS = [
-    { label: "Tiempo superado", pct: 45 },
-    { label: "Pedido incompleto", pct: 30 },
-    { label: "Ingrediente incorrecto", pct: 15 },
-    { label: "Otro", pct: 10 },
-  ]
 
   const Dashboard = () => (
     <div className="min-w-0 space-y-5">
@@ -11619,7 +11887,7 @@ function AdminPanel({
       </div>
 
       {/* KPI */}
-      <div className="grid min-w-0 grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-3">
         {KPI.map(({ icon, label, val, badge, good }) => (
           <div
             key={label}
@@ -11691,32 +11959,106 @@ function AdminPanel({
                 </div>
               </div>
             </div>
-            <div
-              className="flex max-w-full flex-wrap gap-1 rounded-lg p-0.5"
-              style={{ background: t.input, border: `1px solid ${t.border}` }}
-            >
-              {(["hoy", "semana", "mes", "año"] as const).map((f) => (
+            <div className="flex max-w-full flex-col items-end gap-2">
+              <div
+                className="flex max-w-full flex-wrap gap-1 rounded-lg p-0.5"
+                style={{ background: t.input, border: `1px solid ${t.border}` }}
+              >
+                {([["hoy", "Día"], ["semana", "Semana"], ["mes", "Mes"], ["año", "Año"]] as const).map(([f, label]) => (
+                  <button
+                    key={f}
+                    onClick={() => setChartFilter(f)}
+                    className="px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer"
+                    style={{
+                      background: chartFilter === f ? C.mustard : "transparent",
+                      color: chartFilter === f ? "#fff" : t.muted,
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {/* Which day / week / month / year */}
+              <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
                 <button
-                  key={f}
-                  onClick={() => setChartFilter(f)}
-                  className="px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer capitalize"
-                  style={{
-                    background: chartFilter === f ? C.mustard : "transparent",
-                    color: chartFilter === f ? "#fff" : t.muted,
-                  }}
+                  type="button"
+                  onClick={() => setChartAnchor(shiftDashAnchor(chartFilter, chartAnchor, -1))}
+                  aria-label="Periodo anterior"
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-xs font-bold"
+                  style={{ background: t.input, color: t.muted, border: `1px solid ${t.border}` }}
                 >
-                  {f}
+                  ‹
                 </button>
-              ))}
+                {(chartFilter === "hoy" || chartFilter === "semana") && (
+                  <input
+                    type="date"
+                    value={toIsoDate(chartAnchor)}
+                    onChange={(e) => e.target.value && setChartAnchor(new Date(`${e.target.value}T00:00:00`))}
+                    aria-label={chartFilter === "hoy" ? "Elegir día" : "Elegir un día de la semana"}
+                    className="h-7 rounded-md px-2 text-xs outline-none"
+                    style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
+                  />
+                )}
+                {chartFilter === "mes" && (
+                  <select
+                    value={chartAnchor.getMonth()}
+                    onChange={(e) => setChartAnchor(new Date(chartAnchor.getFullYear(), Number(e.target.value), 1))}
+                    aria-label="Elegir mes"
+                    className="h-7 cursor-pointer rounded-md px-2 text-xs outline-none"
+                    style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
+                  >
+                    {MONTHS_SHORT.map((m, i) => (
+                      <option key={m} value={i}>{new Date(2000, i, 1).toLocaleDateString("es-CO", { month: "long" })}</option>
+                    ))}
+                  </select>
+                )}
+                {(chartFilter === "mes" || chartFilter === "año") && (
+                  <select
+                    value={chartAnchor.getFullYear()}
+                    onChange={(e) => setChartAnchor(new Date(Number(e.target.value), chartFilter === "mes" ? chartAnchor.getMonth() : 0, 1))}
+                    aria-label="Elegir año"
+                    className="h-7 cursor-pointer rounded-md px-2 text-xs outline-none"
+                    style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
+                  >
+                    {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 5 + i).map((y) => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setChartAnchor(shiftDashAnchor(chartFilter, chartAnchor, 1))}
+                  aria-label="Periodo siguiente"
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-xs font-bold"
+                  style={{ background: t.input, color: t.muted, border: `1px solid ${t.border}` }}
+                >
+                  ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartAnchor(new Date())}
+                  className="h-7 cursor-pointer rounded-md px-2 text-xs font-semibold"
+                  style={{ color: C.mustard }}
+                >
+                  Hoy
+                </button>
+              </div>
+              <span className="text-[11px] font-semibold capitalize" style={{ color: t.muted }}>
+                {period.title}
+              </span>
             </div>
           </div>
           {/* KPI row */}
           <div className="grid grid-cols-4 gap-2 mb-3">
             {[
-              ["Ventas totales", "$1.2M", "#2E7D60"],
-              ["Pérdidas", "$48K", "#A54131"],
-              ["Margen neto", "96%", "#2E7D60"],
-              ["Promedio en dinero", "$18.2K", C.mustard],
+              ["Ventas totales", money(totals.sales), "#2E7D60"],
+              ["Pérdidas", money(totals.losses), "#A54131"],
+              [
+                "Margen neto",
+                totals.sales ? `${Math.round(((totals.sales - totals.losses) / totals.sales) * 100)}%` : "—",
+                totals.sales >= totals.losses ? "#2E7D60" : "#A54131",
+              ],
+              ["Promedio por venta", periodSales.length ? money(totals.sales / periodSales.length) : "—", C.mustard],
             ].map(([lbl, val, col]) => (
               <div
                 key={String(lbl)}
@@ -11744,15 +12086,11 @@ function AdminPanel({
           <div className="relative" style={{ height: "140px" }}>
             <div className="absolute inset-0 flex items-end gap-1">
               {chart.values.map((v, i) => {
-                const max = Math.max(...chart.values, ...chart.values2) * 1.1
+                const max = Math.max(1, ...chart.values, ...chart.values2) * 1.1
                 const hV = Math.round((v / max) * 120)
                 const hL = Math.round((chart.values2[i] / max) * 120)
-                const valLabel =
-                  v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`
-                const lossLabel =
-                  chart.values2[i] >= 1000
-                    ? `$${Math.round(chart.values2[i] / 1000)}k`
-                    : `$${chart.values2[i]}`
+                const valLabel = v ? money(v) : ""
+                const lossLabel = chart.values2[i] ? money(chart.values2[i]) : ""
                 return (
                   <div
                     key={i}
@@ -11834,6 +12172,9 @@ function AdminPanel({
             </div>
           </div>
           <div className="space-y-3">
+            {!TOP.length && (
+              <p className="text-xs" style={{ color: t.muted }}>No hay ventas en este periodo.</p>
+            )}
             {TOP.map((p, i) => (
               <div key={p.name}>
                 <div className="flex items-center justify-between mb-1">
@@ -11920,6 +12261,9 @@ function AdminPanel({
             </div>
           </div>
           <div className="space-y-2.5">
+            {!RETURN_REASONS.length && (
+              <p className="text-xs" style={{ color: t.muted }}>No hay devoluciones en este periodo.</p>
+            )}
             {RETURN_REASONS.map((r) => (
               <div key={r.label}>
                 <div className="flex justify-between mb-1">
@@ -12521,6 +12865,7 @@ function AdminPanel({
                   const isLocalClient =
                     section === "clientes" &&
                     String(row[6]).toLowerCase() === "sí"
+                  const isSuperAdmin = isSuperAdminRow(section, row)
                   const displayCellIndexes = getDisplayCellIndexes(row)
                   const displayCells = getDisplayCells(row)
                   return (
@@ -12575,11 +12920,11 @@ function AdminPanel({
                           >
                             {rowCellIndex === cfg.statusIndex ? (
                               renderStatusControl(originalIndex, rowCellIndex)
-                            ) : cellIndex === 0 && (isSupplyProduct || isLocalClient) ? (
+                            ) : cellIndex === 0 && (isSupplyProduct || isLocalClient || isSuperAdmin) ? (
                               <div className="min-w-0">
                                 {renderCellValue(cell, true, isLow)}
                                 <span className="mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
-                                  {isLocalClient ? "Cliente de local" : "Producto de insumo"}
+                                  {isSuperAdmin ? "Superadministrador" : isLocalClient ? "Cliente de local" : "Producto de insumo"}
                                 </span>
                               </div>
                             ) : (
@@ -12618,6 +12963,7 @@ function AdminPanel({
                 const isLocalClient =
                   section === "clientes" &&
                   String(row[6]).toLowerCase() === "sí"
+                const isSuperAdmin = isSuperAdminRow(section, row)
                 const displayCellIndexes = getDisplayCellIndexes(row)
                 const displayCells = getDisplayCells(row)
                 return (
@@ -12654,9 +13000,9 @@ function AdminPanel({
                       )}
                       <div className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words [overflow-wrap:anywhere]">
                         {renderCellValue(displayCells[0] ?? "—", true, isLow)}
-                        {(isSupplyProduct || isLocalClient) && (
+                        {(isSupplyProduct || isLocalClient || isSuperAdmin) && (
                           <span className="mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
-                            {isLocalClient ? "Cliente de local" : "Producto de insumo"}
+                            {isSuperAdmin ? "Superadministrador" : isLocalClient ? "Cliente de local" : "Producto de insumo"}
                           </span>
                         )}
                       </div>
@@ -12764,190 +13110,325 @@ function AdminPanel({
         )
       : (rolesPerms[permissionKey] || {})
     const commonActions = ["Ver", "Crear", "Editar"]
+    const groups = [
+      { title: "Configuración", modules: ["Roles y permisos", "Usuarios"] },
+      { title: "Inventario y compras", modules: ["Categoría Insumos", "Insumos", "Proveedores", "Compras", "Pérdida Insumos"] },
+      { title: "Productos y producción", modules: ["Categoría Producto", "Productos", "Producción", "Producto No Conforme"] },
+      { title: "Ventas y clientes", modules: ["Clientes", "Pedidos", "Ventas", "Devoluciones"] },
+    ]
+    const actionsOf = (mod: string) => [
+      ...commonActions,
+      PERMISSION_MODULES.find((m) => m.name === mod)?.finalAction ?? "Anular",
+    ]
+    const totalPermissions = PERMISSION_MODULES.length * 4
+    // Only the module's own 4 actions count (Administrador has Anular and Eliminar everywhere)
+    const grantedIn = (mod: string) => actionsOf(mod).filter((a) => (perms[mod] || []).includes(a))
+    const granted = PERMISSION_MODULES.reduce((n, { name }) => n + grantedIn(name).length, 0)
+    const canEdit = !readOnly && !isAdmin
+    // Replaces the given modules' actions (others stay as they are)
+    const setModules = (next: Record<string, string[]>) =>
+      setRolesPerms((rp) => ({ ...rp, [permissionKey]: { ...(rp[permissionKey] || {}), ...next } }))
+    // Any action needs "Ver"; without "Ver" the module has nothing
     const toggle = (mod: string, action: string) => {
-      if (readOnly || isAdmin) return
-      setRolesPerms((rp) => {
-        const cur = rp[permissionKey]?.[mod] || []
-        const next = cur.includes(action)
-          ? cur.filter((a) => a !== action)
-          : [...cur, action]
-        return { ...rp, [permissionKey]: { ...(rp[permissionKey] || {}), [mod]: next } }
-      })
+      if (!canEdit) return
+      const cur = perms[mod] || []
+      const next = cur.includes(action)
+        ? action === "Ver"
+          ? []
+          : cur.filter((a) => a !== action)
+        : [...new Set([...cur, action, "Ver"])]
+      setModules({ [mod]: next })
     }
-    const setAllPermissions = (select: boolean) => {
-      if (readOnly || isAdmin) return
-      setRolesPerms((rp) => {
-        const nextPerms = Object.fromEntries(
-          PERMISSION_MODULES.map(({ name, finalAction }) => {
-            const actions = [...commonActions, finalAction]
-            return [name, select ? actions : []]
-          }),
-        )
-        return { ...rp, [permissionKey]: nextPerms }
-      })
-    }
-    const setActionForAll = (action: string, select: boolean) => {
-      if (readOnly || isAdmin) return
-      setRolesPerms((rp) => {
-        const current = rp[permissionKey] || {}
-        const nextPerms = Object.fromEntries(
-          PERMISSION_MODULES.map(({ name, finalAction }) => {
-            const targetAction = action === "final" ? finalAction : action
-            const currentActions = current[name] || []
-            const nextActions = select
-              ? currentActions.includes(targetAction)
-                ? currentActions
-                : [...currentActions, targetAction]
-              : currentActions.filter((currentAction) => currentAction !== targetAction)
-            return [name, nextActions]
-          }),
-        )
-        return { ...rp, [permissionKey]: { ...current, ...nextPerms } }
-      })
-    }
-    const columnHeader = (label: string, action: string) => {
-      return (
-        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5">
-          <span className="text-center text-[10px] font-bold leading-tight break-words" style={{ color: t.muted }}>
-            {label}
-          </span>
-          {!readOnly && (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setActionForAll(action, true)}
-                disabled={isAdmin}
-                aria-label={`Seleccionar todo: ${label} en todos los módulos`}
-                title={`Seleccionar todo: ${label} en todos los módulos`}
-                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ background: t.input, color: C.mustard }}
-              >
-                ✓
-              </button>
-              <button
-                type="button"
-                onClick={() => setActionForAll(action, false)}
-                disabled={isAdmin}
-                aria-label={`Quitar todo: ${label} en todos los módulos`}
-                title={`Quitar todo: ${label} en todos los módulos`}
-                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ background: t.input, color: t.muted }}
-              >
-                ×
-              </button>
-            </div>
-          )}
-        </div>
+    const fill = (mods: readonly string[], level: "all" | "view" | "none") =>
+      canEdit &&
+      setModules(
+        Object.fromEntries(mods.map((m) => [m, level === "all" ? actionsOf(m) : level === "view" ? ["Ver"] : []])),
       )
-    }
+    const allNames = PERMISSION_MODULES.map((m) => m.name)
+    const presetButton = (label: string, level: "all" | "view" | "none") => (
+      <button
+        type="button"
+        onClick={() => fill(allNames, level)}
+        className="cursor-pointer rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+        style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
+      >
+        {label}
+      </button>
+    )
     return (
-      <div className="mt-2">
-        <div className="flex items-center justify-between gap-2 mb-1.5">
-          <div className="text-xs font-bold" style={{ color: t.muted }}>
-            Permisos por módulo
+      <div className="mt-2 flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold" style={{ color: t.text }}>
+              Permisos por módulo
+            </span>
+            <span
+              className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+              style={{ background: `${C.mustard}18`, color: C.mustard }}
+            >
+              {granted} de {totalPermissions}
+            </span>
           </div>
-          {!readOnly && (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setAllPermissions(true)}
-                disabled={isAdmin}
-                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
-                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
-                style={{
-                  background: t.input,
-                  color: t.text,
-                  opacity: isAdmin ? 0.5 : 1,
-                  cursor: isAdmin ? "not-allowed" : "pointer",
-                }}
-              >
-                Seleccionar todo
-              </button>
-              <button
-                type="button"
-                onClick={() => setAllPermissions(false)}
-                disabled={isAdmin}
-                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
-                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
-                style={{
-                  background: t.input,
-                  color: t.text,
-                  opacity: isAdmin ? 0.5 : 1,
-                  cursor: isAdmin ? "not-allowed" : "pointer",
-                }}
-              >
-                Quitar todos
-              </button>
+          {canEdit && (
+            <div className="flex flex-wrap gap-1.5">
+              {presetButton("Todo", "all")}
+              {presetButton("Solo ver", "view")}
+              {presetButton("Ninguno", "none")}
             </div>
           )}
         </div>
-        <div
-          className="max-h-[46vh] min-w-0 overflow-auto rounded-xl"
-          style={{ border: `1px solid ${t.border}` }}
-        >
-          <div
-            className="sticky top-0 z-10 grid min-w-0 items-center px-2.5 py-1.5"
-            style={{
-              gridTemplateColumns:
-                "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
-              background: t.cardAlt,
-              borderBottom: `1px solid ${t.border}`,
-            }}
-          >
-            <div
-              className="min-w-0 text-[10px] font-bold break-words"
-              style={{ color: t.muted }}
-            >
-              Módulo
-            </div>
-            {commonActions.map((action) => (
-              <div key={action}>{columnHeader(action, action)}</div>
-            ))}
-            <div>{columnHeader("Anular / Eliminar", "final")}</div>
-          </div>
-          {PERMISSION_MODULES.map(({ name, finalAction }, index) => {
-            const moduleActions = [...commonActions, finalAction]
-            return (
-              <div
-                key={name}
-                className="grid min-w-0 items-center px-2.5 py-1"
-                style={{
-                  gridTemplateColumns:
-                    "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
-                  borderBottom:
-                    index < PERMISSION_MODULES.length - 1
-                      ? `1px solid ${t.border}`
-                      : "none",
-                }}
-              >
-                <div
-                  className="min-w-0 text-xs leading-snug break-words"
-                  style={{ color: t.text }}
-                >
-                  {name}
-                </div>
-                {moduleActions.map((action) => (
-                  <div key={action} className="flex min-w-0 justify-center">
-                    <input
-                      type="checkbox"
-                      title={action}
-                      aria-label={`${action} ${name}`}
-                      checked={(perms[name] || []).includes(action)}
-                      onChange={() => toggle(name, action)}
-                      disabled={readOnly}
-                      className={readOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"}
-                      style={{
-                        accentColor: C.mustard,
-                        width: "14px",
-                        height: "14px",
-                      }}
-                    />
-                  </div>
-                ))}
+        {isAdmin && (
+          <p className="rounded-lg px-3 py-2 text-[11px] font-medium" style={{ background: `${C.mustard}12`, color: C.mustard }}>
+            El rol Administrador siempre tiene todos los permisos.
+          </p>
+        )}
+        {canEdit && (
+          <p className="text-[11px]" style={{ color: t.muted }}>
+            Toca una acción para activarla. Crear, Editar o Anular activan también Ver.
+          </p>
+        )}
+        <div className="max-h-[46vh] min-w-0 overflow-y-auto pr-1">
+          {groups.map((group) => (
+            <section key={group.title} className="mb-3 last:mb-0">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
+                  {group.title}
+                </span>
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fill(group.modules, group.modules.every((m) => grantedIn(m).length === 4) ? "none" : "all")
+                    }
+                    className="cursor-pointer text-[10px] font-semibold"
+                    style={{ color: C.mustard }}
+                  >
+                    {group.modules.every((m) => grantedIn(m).length === 4) ? "Quitar el grupo" : "Todo el grupo"}
+                  </button>
+                )}
               </div>
-            )
-          })}
+              <div className="flex flex-col gap-1.5">
+                {group.modules.map((mod) => {
+                  const modPerms = grantedIn(mod)
+                  return (
+                    <div
+                      key={mod}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2"
+                      style={{
+                        background: modPerms.length ? `${C.mustard}0D` : t.input,
+                        border: `1px solid ${modPerms.length ? `${C.mustard}40` : t.border}`,
+                      }}
+                    >
+                      <div className="min-w-0">
+                        <div className="text-xs font-semibold break-words" style={{ color: t.text }}>
+                          {mod}
+                        </div>
+                        <div className="text-[10px]" style={{ color: t.muted }}>
+                          {modPerms.length ? `${modPerms.length}/4 permisos` : "Sin acceso"}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {actionsOf(mod).map((action) => {
+                          const on = modPerms.includes(action)
+                          return (
+                            <button
+                              key={action}
+                              type="button"
+                              role="checkbox"
+                              aria-checked={on}
+                              aria-label={`${action} en ${mod}`}
+                              disabled={!canEdit}
+                              onClick={() => toggle(mod, action)}
+                              className="flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold disabled:cursor-default"
+                              style={{
+                                cursor: canEdit ? "pointer" : "default",
+                                background: on ? C.mustard : t.card,
+                                color: on ? "#fff" : t.muted,
+                                border: `1px solid ${on ? C.mustard : t.inputB}`,
+                              }}
+                            >
+                              {on && Ico.check}
+                              {action}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
         </div>
+      </div>
+    )
+  }
+
+  // Insumo detail (view): header, stock and cost, suppliers and, if sold as a product, its ficha técnica.
+  // Row: [0 nombre, 1 categoría, 2 unidad, 3 costo, 4 stock, 5 mínimo, 7 producto de insumo,
+  //       8 ficha, 9 versión, 10 insumos principales, 11 preparación, 12 estado]
+  const supplyDetail = (row: (string | number)[]) => {
+    const unit = String(row[2] || "und")
+    const stock = Number(row[4]) || 0
+    const minimum = Number(row[5]) || 0
+    const low = stock <= minimum
+    const isProductSupply = String(row[7]).toLowerCase() === "sí"
+    const suppliers = (rows.proveedores || [])
+      .filter((p) => splitNames(p[7]).includes(String(row[0])))
+      .map((p) => String(p[0]))
+    const recipe = parseMainSupplies(row[10]).map((item) => {
+      const supply = (rows.insumos || []).find((i) => String(i[0]) === item.name)
+      const base = String(supply?.[2] || "")
+      const quantity = Number(item.quantity) || 0
+      const unit = item.unit || base
+      const inBase = toBaseQuantity(quantity, unit, base)
+      return { ...item, quantity, unit, cost: inBase === null ? null : inBase * (Number(supply?.[3]) || 0) }
+    })
+    const recipeCost = recipe.reduce((sum, item) => sum + (item.cost ?? 0), 0)
+    const unpriced = recipe.some((item) => item.cost === null)
+    const steps = String(row[11] ?? "")
+      .split("\n")
+      // "1. Lavar" -> "Lavar" (a quantity like "500 g de azúcar" stays)
+      .map((step) => step.replace(/^\s*\d+\s*[.)-]\s*/, "").trim())
+      .filter(Boolean)
+    const box = { background: t.input, border: `1px solid ${t.border}` }
+    const sectionTitle = (text: string) => (
+      <div className="mb-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted, fontFamily: "Montserrat, sans-serif" }}>
+        {text}
+      </div>
+    )
+    return (
+      <div className="flex flex-col gap-4 sm:col-span-2">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-lg font-black break-words" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+              {String(row[0])}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: t.input, color: t.muted }}>
+                {String(row[1] || "Sin categoría")}
+              </span>
+              {isProductSupply && (
+                <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                  Producto de insumo
+                </span>
+              )}
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                style={
+                  isActiveStatus(row[12])
+                    ? { background: "rgba(58,109,94,0.14)", color: "#2E7D60" }
+                    : { background: `${C.red}14`, color: C.red }
+                }
+              >
+                {String(row[12] || "Activo")}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            ["Stock actual", `${stock.toLocaleString("es-CO")} ${unit}`, low ? C.red : t.text],
+            ["Stock mínimo", `${minimum.toLocaleString("es-CO")} ${unit}`, t.text],
+            ["Costo unitario", Number(row[3]) ? `${fmt(Number(row[3]))} / ${unit}` : "Sin compras", C.mustard],
+            ["Valor en stock", fmt(stock * (Number(row[3]) || 0)), t.text],
+          ].map(([label, value, color]) => (
+            <div key={label} className="rounded-xl px-3 py-2.5" style={box}>
+              <div className="text-[10px] font-semibold" style={{ color: t.muted }}>{label}</div>
+              <div className="mt-0.5 text-sm font-bold break-words" style={{ color }}>{value}</div>
+            </div>
+          ))}
+        </div>
+        {low && (
+          <p className="rounded-lg px-3 py-2 text-xs font-medium" style={{ background: `${C.red}12`, color: C.red }}>
+            El stock está en el mínimo o por debajo: conviene registrar una compra.
+          </p>
+        )}
+        <div>
+          {sectionTitle("Proveedores que lo venden")}
+          {suppliers.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {suppliers.map((name) => (
+                <span key={name} className="rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}>
+                  {name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs" style={{ color: t.muted }}>Ningún proveedor lo tiene asignado.</p>
+          )}
+        </div>
+        {isProductSupply && (
+          <div className="overflow-hidden rounded-xl" style={{ border: `1.5px solid ${C.mustard}55` }}>
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3" style={{ background: `${C.mustard}12` }}>
+              <div className="min-w-0">
+                <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Ficha técnica</div>
+                <div className="text-sm font-semibold break-words" style={{ color: t.text }}>
+                  {String(row[8] || `Ficha técnica - ${String(row[0])}`)}
+                </div>
+              </div>
+              <span className="rounded-full px-2.5 py-1 text-[10px] font-bold" style={{ background: `${C.mustard}22`, color: C.mustard }}>
+                {String(row[9] || "v1.0")}
+              </span>
+            </div>
+            <div className="px-4 py-3">
+              {sectionTitle("Insumos que usa")}
+              {recipe.length ? (
+                <div className="overflow-hidden rounded-lg" style={{ border: `1px solid ${t.border}` }}>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 px-3 py-2 text-[10px] font-bold uppercase" style={{ background: t.input, color: t.muted }}>
+                    <span>Insumo</span>
+                    <span className="text-right">Cantidad</span>
+                    <span className="w-20 text-right">Costo</span>
+                  </div>
+                  {recipe.map((item) => (
+                    <div key={item.name} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-t px-3 py-2 text-xs" style={{ borderColor: t.border }}>
+                      <span className="min-w-0 font-semibold break-words" style={{ color: t.text }}>{item.name}</span>
+                      <span className="text-right" style={{ color: item.quantity ? t.text : C.red }}>
+                        {item.quantity ? `${item.quantity.toLocaleString("es-CO")} ${item.unit}` : "Sin cantidad"}
+                      </span>
+                      <span
+                        className="w-20 text-right"
+                        style={{ color: t.muted }}
+                        title={item.cost === null ? "Esta unidad no se puede convertir a la de compra" : undefined}
+                      >
+                        {item.cost ? fmt(item.cost) : "—"}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between border-t px-3 py-2 text-xs font-bold" style={{ borderColor: t.border, background: t.input }}>
+                    <span style={{ color: t.text }}>
+                      Costo estimado por preparación
+                      {unpriced && <span className="block text-[10px] font-normal" style={{ color: t.muted }}>Sin contar los insumos en unidades que no se pueden convertir</span>}
+                    </span>
+                    <span style={{ color: C.mustard }}>{fmt(recipeCost)}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs" style={{ color: t.muted }}>No tiene insumos en la ficha.</p>
+              )}
+              <div className="mt-4">
+                {sectionTitle("Cómo se prepara")}
+                {steps.length ? (
+                  <ol className="flex flex-col gap-2">
+                    {steps.map((step, i) => (
+                      <li key={i} className="flex gap-2.5 text-xs leading-relaxed" style={{ color: t.text }}>
+                        <span
+                          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                          style={{ background: C.mustard, color: "#fff" }}
+                        >
+                          {i + 1}
+                        </span>
+                        <span className="min-w-0 break-words">{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-xs" style={{ color: t.muted }}>Sin pasos registrados.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -13007,7 +13488,7 @@ function AdminPanel({
     const namesOf = (sec: string) =>
       (rows[sec] || []).map((r) => String(r[0] ?? "")).filter(Boolean)
     // Sections whose first field is a name/main choice that reads better full width
-    const WIDE_FIRST_FIELD = ["cat-insumos", "insumos", "proveedores", "compras", "perdidas", "cat-producto", "clientes", "pedidos"]
+    const WIDE_FIRST_FIELD = ["cat-insumos", "proveedores", "compras", "perdidas", "cat-producto", "clientes", "pedidos"]
     const isWideField = (f: FieldType) =>
       (f.key === "0" && (WIDE_FIRST_FIELD.includes(modal.section) || !isSupplier)) ||
       f.type === "textarea" ||
@@ -13077,7 +13558,9 @@ function AdminPanel({
     const availableItemOptions = isProduction
       ? availableProductionProducts
       : availablePncDamagedItems
-    const clientOptions = (rows.clientes || [])
+    const clientOptions = [...(rows.clientes || [])]
+      .filter((client) => isActiveStatus(client[7]))
+      .sort((a, b) => Number(isCounterClientRow("clientes", b)) - Number(isCounterClientRow("clientes", a)))
       .map((client) => String(client[0] ?? ""))
       .filter(Boolean)
 
@@ -13744,7 +14227,10 @@ function AdminPanel({
                     {productionFormError && <p className="mt-2 text-xs font-medium" style={{ color: C.red }}>{productionFormError}</p>}
                   </section>
                 )}
+                {isView && isSupply && row && supplyDetail(row)}
                 {formDataFields.map((f) => {
+                // Insumo detail has its own layout (supplyDetail)
+                if (isView && isSupply) return null
                 if (isView && isPurchase) return null // the purchase ticket shows everything
                 // Shown in the detail header (with autoId, row[0] is the code, so field "0" stays)
                 if (isView && isPurchaseModule && f.key === "0" && !cfg.autoId) return null
@@ -13793,10 +14279,10 @@ function AdminPanel({
                   }
                   const unitOf = (name: string) => String(supplyInfo(name)?.[2] ?? "und")
                   // Stored as text the backend already keeps: "Azúcar (50 g), Limón (2 und)"
-                  const setMainSupplies = (next: { name: string; quantity: string }[]) =>
+                  const setMainSupplies = (next: { name: string; quantity: string; unit: string }[]) =>
                     setSheet(
                       "10",
-                      next.map((i) => (i.quantity ? `${i.name} (${i.quantity} ${unitOf(i.name)})` : i.name)).join(", "),
+                      next.map((i) => (i.quantity ? `${i.name} (${i.quantity} ${i.unit.trim() || unitOf(i.name)})` : i.name)).join(", "),
                     )
                   // Only plain insumos can be ingredients: not this one, nor others sold as products (e.g. a gaseosa)
                   const ingredientOptions = getAvailableInsumos().filter(
@@ -13868,11 +14354,36 @@ function AdminPanel({
                             </div>
                           ) : (
                             <div className="flex flex-col gap-2">
+                              <div className="flex items-center gap-2 px-1 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
+                                <span className="flex-1">Insumo</span>
+                                <span className="w-[16rem] text-center">Cuánto usas y en qué unidad</span>
+                                <span className="w-7" />
+                              </div>
+                              <datalist id="recipe-unit-options">
+                                {RECIPE_UNIT_SUGGESTIONS.map((u) => (
+                                  <option key={u} value={u} />
+                                ))}
+                              </datalist>
                               {mainSupplies.map((item, index) => (
                                 <div key={item.name} className="flex items-center gap-2">
                                   <span className="min-w-0 flex-1 truncate text-sm font-semibold" style={{ color: t.text }}>
                                     {item.name}
                                   </span>
+                                  <button
+                                    type="button"
+                                    aria-label={`Menos ${item.name}`}
+                                    onClick={() =>
+                                      setMainSupplies(
+                                        mainSupplies.map((m, i) =>
+                                          i === index ? { ...m, quantity: String(Math.max(0, (Number(m.quantity) || 0) - 1)) } : m,
+                                        ),
+                                      )
+                                    }
+                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg font-bold"
+                                    style={sheetControl}
+                                  >
+                                    −
+                                  </button>
                                   <input
                                     type="number"
                                     min="0"
@@ -13883,12 +14394,44 @@ function AdminPanel({
                                         mainSupplies.map((m, i) => (i === index ? { ...m, quantity: e.target.value } : m)),
                                       )
                                     }
-                                    placeholder="Cantidad"
+                                    placeholder="0"
                                     aria-label={`Cantidad de ${item.name}`}
-                                    className="w-24 rounded-xl px-3 py-2 text-sm outline-none"
+                                    className="w-16 rounded-xl px-2 py-2 text-center text-sm outline-none"
+                                    style={{
+                                      ...sheetControl,
+                                      border: `1.5px solid ${Number(item.quantity) > 0 ? t.inputB : C.red}`,
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label={`Más ${item.name}`}
+                                    onClick={() =>
+                                      setMainSupplies(
+                                        mainSupplies.map((m, i) => (i === index ? { ...m, quantity: String((Number(m.quantity) || 0) + 1) } : m)),
+                                      )
+                                    }
+                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg font-bold"
+                                    style={sheetControl}
+                                  >
+                                    +
+                                  </button>
+                                  <input
+                                    list="recipe-unit-options"
+                                    value={item.unit}
+                                    onChange={(e) =>
+                                      setMainSupplies(
+                                        mainSupplies.map((m, i) =>
+                                          // "," and "()" would break the stored text "Azúcar (50 g), ..."
+                                          i === index ? { ...m, unit: e.target.value.replace(/[(),]/g, "").slice(0, 20) } : m,
+                                        ),
+                                      )
+                                    }
+                                    placeholder={unitOf(item.name)}
+                                    aria-label={`Unidad de ${item.name}`}
+                                    title={`Escribe la unidad que usas (se compra en ${unitOf(item.name)})`}
+                                    className="w-24 rounded-xl px-2 py-2 text-xs outline-none"
                                     style={sheetControl}
                                   />
-                                  <span className="w-8 text-xs" style={{ color: t.muted }}>{unitOf(item.name)}</span>
                                   <button
                                     type="button"
                                     aria-label={`Quitar ${item.name} de la ficha`}
@@ -13906,7 +14449,8 @@ function AdminPanel({
                             <select
                               value=""
                               onChange={(e) => {
-                                if (e.target.value) setMainSupplies([...mainSupplies, { name: e.target.value, quantity: "" }])
+                                if (e.target.value)
+                                  setMainSupplies([...mainSupplies, { name: e.target.value, quantity: "", unit: compatibleUnits(unitOf(e.target.value))[0] }])
                               }}
                               aria-invalid={!!formFieldErrors["10"]}
                               className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
@@ -14213,46 +14757,133 @@ function AdminPanel({
                 // Supplier form: pick which insumos this supplier sells
                 if (modal.section === "proveedores" && !isView && f.key === "7") {
                   const selected = splitList(String(formData["7"] ?? ""))
+                  const setSelected = (next: string[]) =>
+                    updateAdminField("proveedores", "7", [...new Set(next)].join(", "))
                   const toggleSupply = (name: string) =>
-                    updateAdminField(
-                      "proveedores",
-                      "7",
-                      (selected.includes(name)
-                        ? selected.filter((item) => item !== name)
-                        : [...selected, name]
-                      ).join(", "),
-                    )
+                    setSelected(selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name])
+                  // Active insumos, plus any already chosen (even if deactivated later), grouped by category
+                  const query = normalizeName(supplierSupplySearch)
+                  const groups = new Map<string, string[]>()
+                  ;(rows.insumos || [])
+                    .filter((r) => isActiveStatus(r[12]) || selected.includes(String(r[0])))
+                    .forEach((r) => {
+                      const name = String(r[0] ?? "").trim()
+                      if (!name || (query && !normalizeName(name).includes(query))) return
+                      const category = String(r[1] ?? "").trim() || "Sin categoría"
+                      groups.set(category, [...(groups.get(category) || []), name])
+                    })
+                  const categories = [...groups.keys()].sort((x, y) => x.localeCompare(y))
                   return (
-                    <div key="7" className="flex flex-col gap-1.5 lg:col-start-1 lg:col-span-2">
-                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                        {f.label}{requiredFormField && " *"}
-                      </span>
-                      <div className="flex flex-wrap gap-2">
-                        {namesOf("insumos").map((name) => {
-                          const on = selected.includes(name)
-                          return (
+                    <div key="7" className="flex flex-col gap-2 sm:col-span-2 lg:col-span-4 lg:col-start-1">
+                      <div className="pt-1">
+                        <div className="mb-1 h-px" style={{ background: t.border }} />
+                        <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                          Insumos que vende{requiredFormField && " *"}
+                        </h4>
+                        <p className="text-[11px]" style={{ color: t.muted }}>
+                          Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div
+                          className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 sm:max-w-xs"
+                          style={{ background: t.input, border: `1.5px solid ${t.inputB}` }}
+                        >
+                          <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
+                          <input
+                            type="search"
+                            value={supplierSupplySearch}
+                            onChange={(e) => setSupplierSupplySearch(e.target.value)}
+                            placeholder="Buscar insumo..."
+                            aria-label="Buscar insumo"
+                            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                            style={{ color: t.text }}
+                          />
+                        </div>
+                        <span className="text-xs font-semibold" style={{ color: selected.length ? C.mustard : t.muted }}>
+                          {selected.length} seleccionado{selected.length === 1 ? "" : "s"}
+                        </span>
+                        {selected.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setSelected([])}
+                            className="cursor-pointer text-xs font-semibold underline"
+                            style={{ color: t.muted }}
+                          >
+                            Quitar todos
+                          </button>
+                        )}
+                      </div>
+                      {selected.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5">
+                          {selected.map((name) => (
                             <button
                               key={name}
                               type="button"
-                              role="checkbox"
-                              aria-checked={on}
                               onClick={() => toggleSupply(name)}
-                              className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold"
-                              style={{
-                                background: on ? `${C.mustard}18` : t.input,
-                                border: `1.5px solid ${on ? C.mustard : t.inputB}`,
-                                color: on ? C.mustard : t.muted,
-                              }}
+                              aria-label={`Quitar ${name}`}
+                              className="flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold"
+                              style={{ background: `${C.mustard}18`, color: C.mustard, border: `1px solid ${C.mustard}40` }}
                             >
-                              {on && Ico.check}
-                              {name}
+                              {name} <span aria-hidden="true">×</span>
                             </button>
-                          )
-                        })}
+                          ))}
+                        </div>
+                      )}
+                      <div
+                        className="max-h-60 overflow-y-auto rounded-xl p-2"
+                        style={{
+                          background: t.input,
+                          border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
+                        }}
+                      >
+                        {!categories.length ? (
+                          <p className="px-2 py-3 text-center text-xs" style={{ color: t.muted }}>
+                            {supplierSupplySearch ? `No hay insumos que coincidan con «${supplierSupplySearch}».` : "No hay insumos registrados."}
+                          </p>
+                        ) : (
+                          categories.map((category) => {
+                            const names = groups.get(category)!.sort((x, y) => x.localeCompare(y))
+                            const allOn = names.every((name) => selected.includes(name))
+                            return (
+                              <div key={category} className="mb-2 last:mb-0">
+                                <div className="flex items-center justify-between gap-2 px-1 py-1">
+                                  <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
+                                    {category}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setSelected(allOn ? selected.filter((n) => !names.includes(n)) : [...selected, ...names])
+                                    }
+                                    className="cursor-pointer text-[10px] font-semibold"
+                                    style={{ color: C.mustard }}
+                                  >
+                                    {allOn ? "Quitar todos" : "Todos"}
+                                  </button>
+                                </div>
+                                <div className="grid gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
+                                  {names.map((name) => (
+                                    <label
+                                      key={name}
+                                      className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs"
+                                      style={{ color: t.text, background: selected.includes(name) ? `${C.mustard}12` : "transparent" }}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={selected.includes(name)}
+                                        onChange={() => toggleSupply(name)}
+                                        style={{ accentColor: C.mustard }}
+                                      />
+                                      <span className="min-w-0 break-words">{name}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          })
+                        )}
                       </div>
-                      <p className="text-[11px]" style={{ color: t.muted }}>
-                        Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
-                      </p>
                       {fieldValidationError && (
                         <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
                           {fieldValidationError}
@@ -14358,44 +14989,120 @@ function AdminPanel({
                 }
                 return (
                   <Fragment key={f.key}>
-                  {isSupply && !isView && f.key === "7" && (
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
-                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                        Proveedores que lo venden
-                      </span>
-                      <div className="flex flex-wrap gap-2">
-                        {(rows.proveedores || [])
-                          .filter((p) => isActiveStatus(p[6]) || supplySuppliers.includes(String(p[0])))
-                          .map((p) => {
-                            const name = String(p[0])
-                            const on = supplySuppliers.includes(name)
-                            return (
+                  {isSupply && !isView && f.key === "7" && (() => {
+                    const toggle = (name: string) =>
+                      setSupplySuppliers(
+                        supplySuppliers.includes(name) ? supplySuppliers.filter((n) => n !== name) : [...supplySuppliers, name],
+                      )
+                    const query = normalizeName(supplierPickerQuery)
+                    const options = (rows.proveedores || [])
+                      .filter((p) => isActiveStatus(p[6]) || supplySuppliers.includes(String(p[0])))
+                      .filter((p) => !query || normalizeName(p[0]).includes(query))
+                    return (
+                      <div className="flex flex-col gap-1.5 sm:col-span-2">
+                        <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                          Proveedores que lo venden <span className="font-normal">(opcional si lo preparan ustedes)</span>
+                        </span>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setSupplierPickerOpen(!supplierPickerOpen)}
+                            aria-expanded={supplierPickerOpen}
+                            className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-left text-sm"
+                            style={{ background: t.input, border: `1.5px solid ${supplierPickerOpen ? C.mustard : t.inputB}` }}
+                          >
+                            <span className="min-w-0 truncate" style={{ color: supplySuppliers.length ? t.text : t.muted }}>
+                              {supplySuppliers.length ? supplySuppliers.join(", ") : "Selecciona proveedores..."}
+                            </span>
+                            <span className="flex flex-shrink-0 items-center gap-1.5" style={{ color: t.muted }}>
+                              {supplySuppliers.length > 0 && (
+                                <span className="rounded-full px-1.5 text-[10px] font-bold" style={{ background: C.mustard, color: "#fff" }}>
+                                  {supplySuppliers.length}
+                                </span>
+                              )}
+                              {Ico.chevDown}
+                            </span>
+                          </button>
+                          {supplierPickerOpen && (
+                            <div
+                              className="absolute left-0 right-0 top-full z-30 mt-1 rounded-xl p-2 shadow-xl"
+                              style={{ background: t.card, border: `1px solid ${t.border}` }}
+                            >
+                              <div
+                                className="mb-1.5 flex items-center gap-2 rounded-lg px-2.5 py-1.5"
+                                style={{ background: t.input, border: `1px solid ${t.inputB}` }}
+                              >
+                                <span style={{ color: t.muted }}>{Ico.search}</span>
+                                <input
+                                  type="search"
+                                  value={supplierPickerQuery}
+                                  onChange={(e) => setSupplierPickerQuery(e.target.value)}
+                                  placeholder="Buscar proveedor..."
+                                  aria-label="Buscar proveedor"
+                                  autoFocus
+                                  className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+                                  style={{ color: t.text }}
+                                />
+                              </div>
+                              <div className="max-h-44 overflow-y-auto">
+                                {options.length ? (
+                                  options.map((p) => {
+                                    const name = String(p[0])
+                                    return (
+                                      <label
+                                        key={name}
+                                        className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs"
+                                        style={{ color: t.text, background: supplySuppliers.includes(name) ? `${C.mustard}12` : "transparent" }}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={supplySuppliers.includes(name)}
+                                          onChange={() => toggle(name)}
+                                          style={{ accentColor: C.mustard }}
+                                        />
+                                        <span className="min-w-0 flex-1 break-words">{name}</span>
+                                        {p[1] && <span className="text-[10px]" style={{ color: t.muted }}>{String(p[1])}</span>}
+                                      </label>
+                                    )
+                                  })
+                                ) : (
+                                  <p className="px-2 py-2 text-center text-xs" style={{ color: t.muted }}>
+                                    {(rows.proveedores || []).length ? "Ningún proveedor coincide." : "No hay proveedores registrados."}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="mt-1.5 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => setSupplierPickerOpen(false)}
+                                  className="cursor-pointer rounded-lg px-3 py-1 text-xs font-bold"
+                                  style={{ background: C.mustard, color: "#fff" }}
+                                >
+                                  Listo
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        {supplySuppliers.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {supplySuppliers.map((name) => (
                               <button
                                 key={name}
                                 type="button"
-                                role="checkbox"
-                                aria-checked={on}
-                                onClick={() =>
-                                  setSupplySuppliers(on ? supplySuppliers.filter((n) => n !== name) : [...supplySuppliers, name])
-                                }
-                                className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold"
-                                style={{
-                                  background: on ? `${C.mustard}18` : t.input,
-                                  border: `1.5px solid ${on ? C.mustard : t.inputB}`,
-                                  color: on ? C.mustard : t.muted,
-                                }}
+                                onClick={() => toggle(name)}
+                                aria-label={`Quitar ${name}`}
+                                className="flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                style={{ background: `${C.mustard}18`, color: C.mustard }}
                               >
-                                {on && Ico.check}
-                                {name}
+                                {name} <span aria-hidden="true">×</span>
                               </button>
-                            )
-                          })}
+                            ))}
+                          </div>
+                        )}
                       </div>
-                      <p className="text-[11px]" style={{ color: t.muted }}>
-                        Así ya aparece en «Insumos comprados» al registrar una compra a ese proveedor. El costo se toma del precio de la compra.
-                      </p>
-                    </div>
-                  )}
+                    )
+                  })()}
                   {isSupplier && (f.key === "15" || f.key === "8") && (
                     <div
                       className={`pt-1 sm:col-span-2 ${
@@ -14479,7 +15186,6 @@ function AdminPanel({
                                 const productRow = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
                                 const quantity = Number(pedidoProductQuantity)
                                 if (!productRow || !Number.isInteger(quantity) || quantity <= 0) return
-                                const parentLine = pedidoOrderLines.find((line) => line.id === pedidoParentSelect)
                                 const id = `order-line-${Date.now()}-${pedidoOrderLines.length}`
                                 const line: AdminOrderLine = {
                                   id,
@@ -14487,12 +15193,12 @@ function AdminPanel({
                                   category: String(productRow[1] ?? ""),
                                   quantity,
                                   unitPrice: Number(productRow[2]) || 0,
-                                  ...(isSelectedAddition && parentLine ? { parentId: parentLine.id } : {}),
                                 }
                                 setPedidoOrderLines((current) => [...current, line])
                                 setPedidoProductoSelect("")
                                 setPedidoProductQuantity("1")
-                                setPedidoParentSelect("")
+                                // Ready to add its additions right away
+                                setPedidoAdditionsFor(isSelectedAddition ? "" : id)
                               }}
                               className="rounded-xl px-3 py-2.5 text-xs font-bold cursor-pointer"
                               style={{ background: C.mustard, color: "#fff" }}
@@ -14500,22 +15206,6 @@ function AdminPanel({
                               Agregar
                             </button>
                           </div>
-                          {isSelectedAddition && (
-                            <label className="mt-2 flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                              Adición de (opcional)
-                              <select
-                                value={pedidoParentSelect}
-                                onChange={(event) => setPedidoParentSelect(event.target.value)}
-                                className="w-full rounded-xl px-3 py-2 text-xs outline-none"
-                                style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                              >
-                                <option value="">Sin producto asociado</option>
-                                {pedidoOrderLines.filter((line) => line.category.toLowerCase() !== "adiciones").map((line) => (
-                                  <option key={line.id} value={line.id}>{line.product} × {line.quantity}</option>
-                                ))}
-                              </select>
-                            </label>
-                          )}
                         </div>
                         {!pedidoOrderLines.length ? (
                           <div className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>
@@ -14523,28 +15213,143 @@ function AdminPanel({
                           </div>
                         ) : (
                           <div className="flex flex-col divide-y rounded-xl px-3" style={{ background: t.input, borderColor: t.border }}>
-                            {pedidoOrderLines.map((line) => (
-                              <div key={line.id} className="flex items-center gap-3 py-2.5 text-xs" style={{ borderColor: t.border }}>
-                                <div className="min-w-0 flex-1">
-                                  <div className="font-semibold" style={{ color: t.text }}>
-                                    {line.product} × {line.quantity}
-                                    {line.category.toLowerCase() === "adiciones" && <span className="ml-1 rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: `${C.amber}18`, color: C.amber }}>Adición</span>}
-                                  </div>
-                                  {line.parentId && <div className="mt-0.5" style={{ color: t.muted }}>Adición de: {pedidoOrderLines.find((parent) => parent.id === line.parentId)?.product ?? "Producto"}</div>}
+                            {(() => {
+                              const additionProducts = (rows.producto || []).filter(
+                                (product) =>
+                                  String(product[1] ?? "").toLowerCase() === "adiciones" &&
+                                  isActiveStatus(product[4]) &&
+                                  Number(product[2]) > 0,
+                              )
+                              const setQuantity = (id: string, quantity: number) =>
+                                setPedidoOrderLines((current) =>
+                                  current.map((item) => (item.id === id ? { ...item, quantity: Math.max(1, quantity) } : item)),
+                                )
+                              // Adds the addition to that product, or one more if it already has it
+                              const addAddition = (parent: AdminOrderLine, product: (string | number)[]) =>
+                                setPedidoOrderLines((current) => {
+                                  const existing = current.find((item) => item.parentId === parent.id && item.product === product[0])
+                                  if (existing)
+                                    return current.map((item) => (item === existing ? { ...item, quantity: item.quantity + 1 } : item))
+                                  return [
+                                    ...current,
+                                    {
+                                      id: `order-line-${Date.now()}-${current.length}`,
+                                      product: String(product[0]),
+                                      category: String(product[1] ?? ""),
+                                      quantity: 1,
+                                      unitPrice: Number(product[2]) || 0,
+                                      parentId: parent.id,
+                                    },
+                                  ]
+                                })
+                              // Each product followed by its additions; an addition never stays without its product
+                              const ordered = [
+                                ...pedidoOrderLines
+                                  .filter((line) => !line.parentId)
+                                  .flatMap((line) => [line, ...pedidoOrderLines.filter((child) => child.parentId === line.id)]),
+                                ...pedidoOrderLines.filter((line) => line.parentId && !pedidoOrderLines.some((p) => p.id === line.parentId)),
+                              ]
+                              const stepper = (line: AdminOrderLine) => (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    aria-label={`Una ${line.product} menos`}
+                                    disabled={line.quantity <= 1}
+                                    onClick={() => setQuantity(line.id, line.quantity - 1)}
+                                    className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                                    style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
+                                  >
+                                    −
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={line.quantity}
+                                    onChange={(event) => setQuantity(line.id, Math.floor(Number(event.target.value)) || 1)}
+                                    aria-label={`Cantidad de ${line.product}`}
+                                    className="h-6 w-10 rounded-lg text-center text-xs outline-none"
+                                    style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label={`Una ${line.product} más`}
+                                    onClick={() => setQuantity(line.id, line.quantity + 1)}
+                                    className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg font-bold"
+                                    style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
+                                  >
+                                    +
+                                  </button>
                                 </div>
-                                <span style={{ color: t.muted }}>{fmt(line.unitPrice)} c/u</span>
-                                <strong style={{ color: C.mustard }}>{fmt(line.unitPrice * line.quantity)}</strong>
-                                <button
-                                  type="button"
-                                  aria-label={`Quitar ${line.product}`}
-                                  onClick={() => setPedidoOrderLines((current) => current.filter((item) => item.id !== line.id).map((item) => item.parentId === line.id ? { ...item, parentId: undefined } : item))}
-                                  className="flex h-6 w-6 items-center justify-center rounded-lg cursor-pointer"
-                                  style={{ color: C.red, background: `${C.red}10` }}
-                                >
-                                  {Ico.x}
-                                </button>
-                              </div>
-                            ))}
+                              )
+                              return ordered.map((line) => {
+                                const isAddition = !!line.parentId || line.category.toLowerCase() === "adiciones"
+                                const open = pedidoAdditionsFor === line.id
+                                return (
+                                  <div key={line.id} className={`py-2.5 text-xs ${line.parentId ? "pl-5" : ""}`} style={{ borderColor: t.border }}>
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                                      <div className="min-w-0 flex-1 font-semibold" style={{ color: t.text }}>
+                                        {line.parentId && <span style={{ color: t.muted }}>↳ </span>}
+                                        {line.product}
+                                        {isAddition && <span className="ml-1 rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: `${C.amber}18`, color: C.amber }}>Adición</span>}
+                                        <div className="text-[10px] font-normal" style={{ color: t.muted }}>{fmt(line.unitPrice)} c/u</div>
+                                      </div>
+                                      {stepper(line)}
+                                      <strong className="w-16 text-right" style={{ color: C.mustard }}>{fmt(line.unitPrice * line.quantity)}</strong>
+                                      {!isAddition && additionProducts.length > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setPedidoAdditionsFor(open ? "" : line.id)}
+                                          aria-expanded={open}
+                                          className="cursor-pointer rounded-lg px-2 py-1 text-[11px] font-semibold"
+                                          style={{
+                                            background: open ? C.mustard : `${C.mustard}18`,
+                                            color: open ? "#fff" : C.mustard,
+                                          }}
+                                        >
+                                          + Adiciones
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        aria-label={`Quitar ${line.product}`}
+                                        onClick={() => setPedidoOrderLines((current) => current.filter((item) => item.id !== line.id && item.parentId !== line.id))}
+                                        className="flex h-6 w-6 items-center justify-center rounded-lg cursor-pointer"
+                                        style={{ color: C.red, background: `${C.red}10` }}
+                                      >
+                                        {Ico.x}
+                                      </button>
+                                    </div>
+                                    {open && (
+                                      <div className="mt-2 flex flex-wrap gap-1.5 rounded-lg p-2" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                                        <span className="w-full text-[10px] font-semibold" style={{ color: t.muted }}>
+                                          Toca una adición para agregarla a {line.product}:
+                                        </span>
+                                        {additionProducts.map((product) => {
+                                          const count = pedidoOrderLines.find((item) => item.parentId === line.id && item.product === product[0])?.quantity ?? 0
+                                          return (
+                                            <button
+                                              key={String(product[0])}
+                                              type="button"
+                                              onClick={() => addAddition(line, product)}
+                                              className="cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                                              style={{
+                                                background: count ? `${C.mustard}18` : t.input,
+                                                color: count ? C.mustard : t.text,
+                                                border: `1px solid ${count ? C.mustard : t.inputB}`,
+                                              }}
+                                            >
+                                              + {String(product[0])} · {fmt(Number(product[2]))}
+                                              {count > 0 && ` (${count})`}
+                                            </button>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })
+                            })()}
                             <div className="flex justify-between py-2 text-xs font-bold" style={{ color: t.text }}>
                               <span>Total del pedido</span>
                               <span style={{ color: C.mustard }}>{fmt(pedidoOrderLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0))}</span>
@@ -15520,7 +16325,6 @@ function AdminPanel({
 
   const QuickClientModal = () => {
     if (!quickClientOpen) return null
-    const quickIsLocal = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
     const updateQuickClientField = (
       key: string,
       rawValue: string,
@@ -15541,10 +16345,7 @@ function AdminPanel({
       }
       setQuickClientForm(nextForm)
       if (validateImmediately || quickClientErrors[key] || quickClientError) {
-        const isLocal = String(nextForm["6"] ?? "").toLowerCase() === "sí"
-        const required =
-          key === "0" || key === "1" || key === "2" || key === "3" ||
-          (!isLocal && (key === "4" || key === "5"))
+        const required = ["0", "1", "2", "3", "4", "5"].includes(key)
         let error = required && !value.trim() ? "Este campo es obligatorio." : ""
         if (!error && key === "2" && value.trim()) {
           error = validateDocumentNumber(value, nextForm["1"] ?? "")
@@ -15564,8 +16365,7 @@ function AdminPanel({
     }
     const field = (key: string, label: string, type = "text", options?: string[]) => (
       <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-        {label}{(key === "0" || key === "1" || key === "2" || key === "3" ||
-          (!quickIsLocal && (key === "4" || key === "5"))) && " *"}
+        {label}
         {options ? (
           <select value={quickClientForm[key] || ""} onBlur={() => updateQuickClientField(key, quickClientForm[key] || "", true)} onChange={(event) => updateQuickClientField(key, event.target.value)} aria-invalid={!!quickClientErrors[key]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${quickClientErrors[key] ? C.red : t.inputB}`, color: t.text }}>
             <option value="">Selecciona...</option>
@@ -15581,36 +16381,16 @@ function AdminPanel({
       <div className="fixed inset-0 z-[75] flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.68)" }} onClick={() => setQuickClientOpen(false)}>
         <div className="flex max-h-[90vh] w-full max-w-lg min-w-0 flex-col overflow-hidden rounded-2xl" style={{ background: t.card, border: `1px solid ${t.border}` }} onClick={(event) => event.stopPropagation()}>
           <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${t.border}` }}>
-            <div><h3 className="text-base font-semibold" style={{ color: t.text }}>Registrar cliente</h3><p className="text-xs" style={{ color: t.muted }}>Correo y dirección obligatorios, excepto para clientes de local.</p></div>
+            <div><h3 className="text-base font-semibold" style={{ color: t.text }}>Registrar cliente</h3><p className="text-xs" style={{ color: t.muted }}>Le llegará al correo una contraseña provisional para entrar a la app. Si no quiere dar sus datos, usa «Cliente mostrador».</p></div>
             <button type="button" onClick={() => setQuickClientOpen(false)} className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl" style={{ background: t.input, color: t.muted }}>{Ico.x}</button>
           </div>
           <div className="grid min-w-0 gap-3 overflow-y-auto px-5 py-4 sm:grid-cols-2">
             <div className="sm:col-span-2">{field("0", "Nombre completo *")}</div>
             <div className="sm:col-span-2">{field("3", "Teléfono *", "tel")}</div>
-            {field("1", "Tipo de documento *", "text", ["Cédula de Ciudadanía", "Cédula Extranjería", "NIT", "Pasaporte", "Tarjeta de Identidad"])}
+            {field("1", "Tipo de documento *", "text", DOC_TYPES)}
             {field("2", "Número de documento *")}
-            {field("4", quickIsLocal ? "Correo electrónico (opcional)" : "Correo electrónico *", "email")}
-            <div className="sm:col-span-2">{field("5", quickIsLocal ? "Dirección (opcional)" : "Dirección *")}</div>
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={quickIsLocal}
-              onClick={() => {
-                setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))
-                setQuickClientErrors((current) => {
-                  const next = { ...current }
-                  if (quickIsLocal) return next
-                  delete next["4"]
-                  delete next["5"]
-                  return next
-                })
-              }}
-              className="flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 text-left sm:col-span-2"
-              style={{ background: t.input, border: `1px solid ${t.inputB}` }}
-            >
-              <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md" style={{ background: quickIsLocal ? C.mustard : "transparent", border: `1.5px solid ${quickIsLocal ? C.mustard : t.inputB}`, color: "#fff" }}>{quickIsLocal ? Ico.check : null}</span>
-              <span><strong className="block text-sm" style={{ color: t.text }}>Cliente de local</strong><span className="block text-xs" style={{ color: t.muted }}>No requiere correo electrónico ni dirección.</span></span>
-            </button>
+            {field("4", "Correo electrónico *", "email")}
+            <div className="sm:col-span-2">{field("5", "Dirección *")}</div>
             {quickClientError && <p className="text-xs font-medium sm:col-span-2" style={{ color: C.red }}>{quickClientError}</p>}
           </div>
           <div className="flex gap-3 px-5 py-4" style={{ borderTop: `1px solid ${t.border}` }}>
@@ -16336,14 +17116,14 @@ export default function App() {
   // Orders come from the backend; the panel opens once they're loaded
   const [ordersLoadedFor, setOrdersLoadedFor] = useState("")
   useEffect(() => {
-    if (!user) return
+    if (!user || user.mustChangePassword) return
     refreshOrders(user.role)
       .catch((err) => console.warn("No se pudieron cargar los pedidos del backend:", err))
       .finally(() => {
         setOrdersLoadedFor(user.email)
         setOrdersVersion((v) => v + 1)
       })
-  }, [user?.email, user?.role])
+  }, [user?.email, user?.role, user?.mustChangePassword])
 
   // Re-read on every render so status changes made in the admin panel show up
   const orders = user
@@ -16370,7 +17150,8 @@ export default function App() {
     // What the backend has wins; the browser copy only fills the gaps (e.g. the photo)
     const fromBackend = Object.fromEntries(Object.entries(u).filter(([, v]) => v !== undefined)) as User
     const authenticatedUser = saved ? { ...saved, ...fromBackend, password: undefined } : u
-    updateUser(authenticatedUser)
+    if (authenticatedUser.mustChangePassword) setUser(authenticatedUser)
+    else updateUser(authenticatedUser)
     setClientView("menu")
     setPage(next)
   }
