@@ -241,28 +241,36 @@ const BEVERAGE_INFO: Record<string, { label: string; color: string }> = {
 }
 const BEVERAGE_ORDER = ["Coca-Cola", "Colombiana", "Pepsi", "Manzana", "Uva", "Naranja"]
 const beverageLabel = (flavor: string) => BEVERAGE_INFO[flavor]?.label ?? flavor
-// Optional photos: src/imports/bebidas/coca-cola.png, colombiana.png, pepsi.png, manzana.png, uva.png, naranja.png
+// Product photos per flavour and bottle size: src/imports/bebidas/<sabor>-<personal|1500|2500|3000>.jpg
+// (a plain <sabor>.jpg still works as a single photo for every size)
 const BEVERAGE_IMAGES = import.meta.glob("/src/imports/bebidas/*.{png,jpg,jpeg,webp}", {
   eager: true,
   import: "default",
 }) as Record<string, string>
-const beverageImage = (flavor: string) => {
+const BEVERAGE_PHOTO_SIZES = [
+  { key: "personal", ml: 400 },
+  { key: "1500", ml: 1500 },
+  { key: "2500", ml: 2500 },
+  { key: "3000", ml: 3000 },
+]
+// Size name from the admin ("Personal", "1.5 L", "2.5 L", "3 L", "400 ml"…) → closest bottle photo
+const beveragePhotoKey = (sizeLabel = "") => {
+  const m = sizeLabel.match(/(\d+(?:[.,]\d+)?)\s*(ml|l)\b/i)
+  if (/personal/i.test(sizeLabel) || !m) return "personal"
+  const ml = parseFloat(m[1].replace(",", ".")) * (m[2].toLowerCase() === "l" ? 1000 : 1)
+  return BEVERAGE_PHOTO_SIZES.reduce((a, b) => (Math.abs(b.ml - ml) < Math.abs(a.ml - ml) ? b : a)).key
+}
+const beverageImage = (flavor: string, sizeLabel?: string) => {
   const slug = normalizeName(flavor).replace(/\s+/g, "-")
-  return Object.entries(BEVERAGE_IMAGES).find(([path]) => path.toLowerCase().includes(`/${slug}.`))?.[1]
+  const find = (name: string) =>
+    Object.entries(BEVERAGE_IMAGES).find(([path]) => path.toLowerCase().includes(`/${name}.`))?.[1]
+  return find(`${slug}-${beveragePhotoKey(sizeLabel)}`) ?? find(slug)
 }
-// Photos from Wikimedia Commons: Manzana and Uva are CC BY-SA, so their author must be credited
-const BEVERAGE_PHOTO_CREDITS: Record<string, string> = {
-  "Coca-Cola": "Foto: Ralf Roletschek, dominio público (Wikimedia Commons)",
-  Pepsi: "Foto: Wikimedia Commons, dominio público",
-  Manzana: "Foto: Yearofthedragon, CC BY-SA 3.0 (Wikimedia Commons), recortada",
-  Uva: "Foto: Yearofthedragon, CC BY-SA 3.0 (Wikimedia Commons), recortada",
-}
-// The flavour's photo, or a bottle drawn in its colour while there is none.
-// "cover" fills the little box (no side gaps); "contain" shows the whole photo when enlarged
-const BeverageArt = ({ flavor, fit = "cover" }: { flavor: string; fit?: "cover" | "contain" }) => {
-  const img = beverageImage(flavor)
+// The bottle photo for that flavour and size, or a bottle drawn in its colour while there is none
+const BeverageArt = ({ flavor, size }: { flavor: string; size?: string }) => {
+  const img = beverageImage(flavor, size)
   if (img)
-    return <img src={img} alt={beverageLabel(flavor)} className={`h-full w-full ${fit === "cover" ? "object-cover" : "object-contain"}`} />
+    return <img src={img} alt={`${beverageLabel(flavor)}${size ? ` ${size}` : ""}`} className="h-full w-full object-contain" />
   const color = BEVERAGE_INFO[flavor]?.color ?? C.mustard
   return (
     <svg viewBox="0 0 40 64" className="h-full w-auto" aria-hidden="true">
@@ -534,7 +542,7 @@ const PRODUCTS: Product[] = [
     price: 14000,
     priceStr: "$14.000",
     img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/48/Chorizo_Arepa.jpg/500px-Chorizo_Arepa.jpg",
-    cat: "arepa-burger",
+    cat: "arepa-rellena",
     badge: "",
   },
   {
@@ -544,7 +552,7 @@ const PRODUCTS: Product[] = [
     price: 15000,
     priceStr: "$15.000",
     img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a7/Bacon_%26_Fried_Onion_Arepa.jpg/500px-Bacon_%26_Fried_Onion_Arepa.jpg",
-    cat: "arepa-burger",
+    cat: "arepa-rellena",
     badge: "",
   },
   {
@@ -554,7 +562,7 @@ const PRODUCTS: Product[] = [
     price: 18000,
     priceStr: "$18.000",
     img: "https://upload.wikimedia.org/wikipedia/commons/d/d9/Colombian_Food%2C_Arepas.jpg",
-    cat: "arepa-burger",
+    cat: "arepa-rellena",
     badge: "Gourmet",
   },
   {
@@ -564,7 +572,7 @@ const PRODUCTS: Product[] = [
     price: 18000,
     priceStr: "$18.000",
     img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d8/Arepa_de_carne_mechada.jpg/500px-Arepa_de_carne_mechada.jpg",
-    cat: "arepa-burger",
+    cat: "arepa-rellena",
     badge: "",
   },
   {
@@ -590,15 +598,17 @@ const PRODUCTS: Product[] = [
 ]
 
 // icon: the paths of a line icon (drawn with aboutIcon), no emojis
+// Category icons: line drawings on a 24×24 grid (stroke from aboutIcon), one per dish
 const MENU_CATS = [
   {
     id: "todos",
     label: "Todos",
     icon: (
       <>
-        <path d="M3 2v7a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2V2" />
-        <path d="M7 2v20" />
-        <path d="M21 15V2a5 5 0 0 0-5 5v6a2 2 0 0 0 2 2h3zm0 0v7" />
+        <rect x="3.5" y="3.5" width="7" height="7" rx="2" />
+        <rect x="13.5" y="3.5" width="7" height="7" rx="2" />
+        <rect x="3.5" y="13.5" width="7" height="7" rx="2" />
+        <rect x="13.5" y="13.5" width="7" height="7" rx="2" />
       </>
     ),
   },
@@ -607,37 +617,45 @@ const MENU_CATS = [
     label: "Hamburguesas",
     icon: (
       <>
-        <path d="M4 11a8 6 0 0 1 16 0z" />
-        <path d="M3 14h18" />
-        <path d="M4 17h16a1 1 0 0 1 0 0 3 3 0 0 1-3 3H7a3 3 0 0 1-3-3z" />
-        <path d="M9 7.5h.01M12 6.5h.01M15 7.5h.01" />
+        <path d="M4 10.5C4 6.9 7.6 4 12 4s8 2.9 8 6.5z" />
+        <path d="M9.5 7h.01M12 6h.01M14.5 7h.01" />
+        <path d="M3.6 13c1.2 0 1.2.9 2.4.9s1.2-.9 2.4-.9 1.2.9 2.4.9 1.2-.9 2.4-.9 1.2.9 2.4.9 1.2-.9 2.4-.9 1.2.9 2.4.9" />
+        <rect x="4" y="15.2" width="16" height="2.4" rx="1.2" />
+        <path d="M4.5 19.4h15v.1a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5z" />
       </>
     ),
   },
-  { id: "perros", label: "Perros Cal.", icon: (
+  {
+    id: "perros",
+    label: "Perros Cal.",
+    icon: (
       <>
-        <rect x="2" y="8" width="20" height="9" rx="4.5" />
-        <path d="M5 12.5h14" />
-        <path d="M7 10.5l1.5 1 1.5-1 1.5 1 1.5-1 1.5 1 1.5-1" />
+        <rect x="2.5" y="8" width="19" height="4.6" rx="2.3" />
+        <path d="M6 10.3l1.4-.9 1.4.9 1.4-.9 1.4.9 1.4-.9 1.4.9 1.4-.9 1.4.9" />
+        <path d="M3.5 13.5c.4 2.7 2.4 4.5 5.2 4.5h6.6c2.8 0 4.8-1.8 5.2-4.5" />
       </>
-    ) },
-  { id: "perras", label: "Perras", icon: (
+    ),
+  },
+  {
+    id: "perras",
+    label: "Perras",
+    icon: (
       <>
-        <rect x="2" y="8" width="20" height="9" rx="4.5" />
-        <path d="M5 12.5h14" />
-        <path d="M7 10.5l1.5 1 1.5-1 1.5 1 1.5-1 1.5 1 1.5-1" />
+        <path d="M3.5 11.5c.4 3.6 2.6 6.5 5.7 6.5h5.6c3.1 0 5.3-2.9 5.7-6.5z" />
+        <path d="M4.5 9.2c1.3-1.4 2.6-1.4 3.9 0s2.6 1.4 3.9 0 2.6-1.4 3.9 0 2.3 1.2 3.3.4" />
+        <path d="M9 11.5v2.2M12.5 11.5v3.2M16 11.5v1.8" />
       </>
-    ) },
+    ),
+  },
   {
     id: "salchipapas",
     label: "Salchipapas",
     icon: (
       <>
-        <path d="M5 11h14l-1.5 10h-11z" />
-        <path d="M8 11V4" />
-        <path d="M11 11V3" />
-        <path d="M14 11V4" />
-        <path d="M17 11V6" />
+        <path d="M5.5 11h13l-1.5 8.7a1.6 1.6 0 0 1-1.6 1.3H8.6A1.6 1.6 0 0 1 7 19.7z" />
+        <path d="M8.2 11l-.9-6.2M11.1 11l-.4-7M14 11l.5-6.6M16.8 11l1-5" />
+        <circle cx="10.2" cy="15.6" r="1.4" />
+        <circle cx="13.9" cy="16.4" r="1.4" />
       </>
     ),
   },
@@ -646,9 +664,10 @@ const MENU_CATS = [
     label: "Chuzos",
     icon: (
       <>
-        <path d="M12 2v20" />
-        <rect x="8" y="5" width="8" height="4" rx="1.5" />
-        <rect x="8" y="11" width="8" height="4" rx="1.5" />
+        <path d="M3.5 20.5L20.5 3.5" />
+        <rect x="6" y="14" width="4" height="4" rx="1" transform="rotate(45 8 16)" />
+        <rect x="10" y="10" width="4" height="4" rx="1" transform="rotate(45 12 12)" />
+        <rect x="14" y="6" width="4" height="4" rx="1" transform="rotate(45 16 8)" />
       </>
     ),
   },
@@ -657,29 +676,22 @@ const MENU_CATS = [
     label: "Patacones",
     icon: (
       <>
-        <ellipse cx="12" cy="13" rx="9" ry="6" />
-        <ellipse cx="12" cy="12" rx="4.5" ry="2.5" />
+        <path d="M12 4.5c3.6-.3 6.9 1.9 7.4 5.2.6 3.5-1.5 7.3-5.3 8.5-3.8 1.3-8.2-.6-9.4-4.2C3.5 10.3 6.6 4.9 12 4.5z" />
+        <path d="M8.8 10.4l2 1.4M13.6 8.8l.9 2M10.4 14.6l2.4.5M15.2 13.4l.4 1.6" />
       </>
     ),
   },
   {
-    id: "arepa-burger",
-    label: "Arepa Burger",
+    id: "arepa-rellena",
+    label: "Arepa Rellena",
     icon: (
       <>
-        <path d="M3 9c0-2 4-4 9-4s9 2 9 4z" />
-        <path d="M3 13c2 1 4-1 6 0s4 1 6 0 4-1 6 0" />
-        <path d="M3 16c0 2 4 3 9 3s9-1 9-3z" />
+        <path d="M4 13.5a8 7 0 0 0 16 0z" />
+        <path d="M5.3 9.6A8 7 0 0 1 18.4 7.5" />
+        <path d="M4.6 11.8c1.4-.9 2.4.8 3.8 0s2.4-.9 3.8 0 2.4.8 3.8 0 2.2-.7 3.4 0" />
       </>
     ),
   },
-  { id: "arepa-rellena", label: "Arepa Rellena", icon: (
-      <>
-        <path d="M3 15a9 9 0 0 1 18 0z" />
-        <path d="M6.5 15c1.5-2 9.5-2 11 0" />
-        <path d="M9 11.5h.01M12 10.5h.01M15 11.5h.01" />
-      </>
-    ) },
 ]
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
@@ -1348,9 +1360,12 @@ const PRODUCT_CAT_LABEL: Record<string, string> = {
   salchipapas: "Salchipapas",
   chuzos: "Chuzos",
   patacones: "Patacones",
-  "arepa-burger": "Arepa Burger",
   "arepa-rellena": "Arepa Rellena",
 }
+// "Arepa Burger" was merged into "Arepa Rellena": products the database still lists under the
+// old category are shown as Arepa Rellena (and saved that way on their next edit)
+const RENAMED_CATEGORIES: Record<string, string> = { "Arepa Burger": "Arepa Rellena" }
+const currentCategory = (name: string) => RENAMED_CATEGORIES[name] ?? name
 
 // ── Admin config ───────────────────────────────────────────────────────────────
 type ModConfig = {
@@ -1578,7 +1593,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       ["Perras", "Versiones especiales", "Activa"],
       ["Chuzos", "Carne en palito con papas", "Activa"],
       ["Patacones", "Patacón relleno", "Activa"],
-      ["Arepa Burger", "Burger en arepa", "Activa"],
       ["Arepa Rellena", "Arepa rellena", "Activa"],
     ],
     noExport: true,
@@ -1601,7 +1615,6 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Perras",
           "Chuzos",
           "Patacones",
-          "Arepa Burger",
           "Arepa Rellena",
           "Salsas",
           "Bebidas",
@@ -2789,12 +2802,12 @@ function ForgotPage({
   const [busy, setBusy] = useState(false)
   if (sent)
     return (
-      <AuthLayout title="Revisa tu correo" sub="Te enviamos un código de 6 dígitos">
+      <AuthLayout title="Revisa tu correo" sub="Si está registrado, te llegará un código">
         <div className="text-center py-2">
           <div className="text-5xl mb-3">📧</div>
           <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.55)" }}>
-            Enviamos el código a <strong>{email}</strong>. Vence en 15 minutos; si no lo ves, revisa también
-            la carpeta de spam.
+            Si <strong>{email}</strong> está registrado, se le enviará un código a su correo. Vence en 15 minutos;
+            si no lo ves, revisa también la carpeta de spam.
           </p>
           <button
             onClick={() => onReset(email)}
@@ -3197,21 +3210,18 @@ function AddToCartModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Photo fills the whole width (cover); tapping it still shows it complete */}
         <div
           className="relative flex-shrink-0 overflow-hidden"
-          style={{ height: "clamp(120px, 26vh, 230px)", background: dark ? "#111" : "#1E1C18" }}
+          style={{ height: "clamp(150px, 30vh, 260px)", background: dark ? "#111" : "#1E1C18" }}
         >
-          <img
-            src={product.img}
-            alt=""
-            aria-hidden="true"
-            className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
-          />
-          <ZoomableImage src={product.img} alt={product.name} className="relative z-10 h-full w-full object-contain" />
+          <ZoomableImage src={product.img} alt={product.name} className="h-full w-full object-cover object-center" />
+          {/* z-20 keeps the close button above the photo so the tap closes instead of zooming */}
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
-            style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
+            aria-label="Cerrar"
+            className="absolute top-3 right-3 z-20 w-9 h-9 rounded-full flex items-center justify-center cursor-pointer hover:opacity-90"
+            style={{ background: "rgba(0,0,0,0.55)", color: "#fff", backdropFilter: "blur(4px)" }}
           >
             {Ico.x}
           </button>
@@ -3361,24 +3371,36 @@ function AddToCartModal({
           )}
           {customizationTab === "beverages" && (
           <div>
-            <div className="mb-1 flex items-center justify-end gap-3">
-              <select
-                aria-label="Tamaño de gaseosa"
-                value={beverageSize}
-                onChange={(event) => setBeverageSize(event.target.value)}
-                className="rounded-lg px-2.5 py-1.5 text-xs font-semibold outline-none"
-                style={{
-                  background: dark ? "#292720" : "#fff",
-                  border: `1px solid ${BORDER}`,
-                  color: TEXT,
-                }}
-              >
-                {BEVERAGE_SIZES.map((size) => (
-                  <option key={size.id} value={size.id}>
-                    {size.label} · {fmt(size.price)}
-                  </option>
-                ))}
-              </select>
+            {/* Size as visible buttons: the bottle photos below change with it */}
+            <div
+              role="radiogroup"
+              aria-label="Tamaño de gaseosa"
+              className="mb-2 grid gap-1.5"
+              style={{ gridTemplateColumns: `repeat(${BEVERAGE_SIZES.length}, minmax(0, 1fr))` }}
+            >
+              {BEVERAGE_SIZES.map((size) => {
+                const on = size.id === beverageSize
+                return (
+                  <button
+                    key={size.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => setBeverageSize(size.id)}
+                    className="flex cursor-pointer flex-col items-center rounded-xl px-1 py-1.5 leading-tight transition-colors"
+                    style={{
+                      background: on ? C.mustard : dark ? "rgba(244,238,220,0.05)" : "#fff",
+                      border: `1px solid ${on ? C.mustard : BORDER}`,
+                      color: on ? "#fff" : TEXT,
+                    }}
+                  >
+                    <span className="text-xs font-bold">{size.label}</span>
+                    <span className="text-[10px] font-semibold" style={{ opacity: on ? 0.9 : 0.6 }}>
+                      {fmt(size.price)}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
             <div className="grid grid-cols-2 gap-1.5">
               {BEVERAGES.map((flavor) => {
@@ -3388,58 +3410,60 @@ function AddToCartModal({
                 return (
                   <div
                     key={flavor}
-                    className="flex min-w-0 items-center justify-between gap-2 rounded-xl py-1 pl-1 pr-2"
+                    className="flex min-w-0 items-center gap-2 rounded-xl p-1.5 transition-colors"
                     style={{
                       border: `1px solid ${quantity > 0 ? C.mustard : BORDER}`,
-                      background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)",
+                      background: quantity > 0 ? `${C.mustard}12` : dark ? "rgba(244,238,220,0.03)" : "#fff",
                     }}
                   >
                     <button
                       type="button"
                       onClick={() => setZoomBeverage(flavor)}
-                      aria-label={`Ver ${beverageLabel(flavor)} más grande`}
-                      className="flex h-11 w-9 flex-shrink-0 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg"
-                      style={{ background: dark ? "rgba(244,238,220,0.06)" : "#fff" }}
+                      aria-label={`Ver ${beverageLabel(flavor)} ${size.label} más grande`}
+                      className="flex h-14 w-11 flex-shrink-0 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg"
+                      style={{ background: "#fff" }}
                     >
-                      <BeverageArt flavor={flavor} />
+                      <BeverageArt flavor={flavor} size={size.label} />
                     </button>
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="text-sm font-semibold leading-tight" style={{ color: TEXT }}>
-                        {beverageLabel(flavor)}
-                      </span>
-                      <span className="text-xs font-semibold leading-tight" style={{ color: quantity > 0 ? C.mustard : MUTED }}>
-                        {quantity > 0 ? `+${fmt(size.price * quantity)}` : fmt(size.price)}
-                      </span>
-                    </div>
-                    <div className="flex flex-shrink-0 items-center gap-1">
-                      <button
-                        onClick={() => changeAdd(key, -1)}
-                        disabled={quantity === 0}
-                        aria-label={`Quitar gaseosa ${flavor} ${size.label}`}
-                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
-                        style={{
-                          background: dark
-                            ? "rgba(244,238,220,0.1)"
-                            : "rgba(30,30,30,0.08)",
-                          color: TEXT,
-                        }}
-                      >
-                        −
-                      </button>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      {/* Flavour only (the brand is on the bottle); nowrap keeps "Coca-Cola" in one piece */}
                       <span
-                        className="w-5 text-center text-sm font-bold"
+                        className="truncate whitespace-nowrap text-[13px] font-semibold leading-tight"
                         style={{ color: TEXT }}
+                        title={beverageLabel(flavor)}
                       >
-                        {quantity}
+                        {flavor}
                       </span>
-                      <button
-                        onClick={() => changeAdd(key, 1)}
-                        aria-label={`Agregar gaseosa ${flavor} ${size.label}`}
-                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
-                        style={{ background: C.mustard, color: "#fff" }}
-                      >
-                        +
-                      </button>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[11px] font-semibold" style={{ color: quantity > 0 ? C.mustard : MUTED }}>
+                          {quantity > 0 ? `+${fmt(size.price * quantity)}` : fmt(size.price)}
+                        </span>
+                        <div className="flex flex-shrink-0 items-center gap-1">
+                          <button
+                            onClick={() => changeAdd(key, -1)}
+                            disabled={quantity === 0}
+                            aria-label={`Quitar gaseosa ${flavor} ${size.label}`}
+                            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
+                            style={{
+                              background: dark ? "rgba(244,238,220,0.1)" : "rgba(30,30,30,0.08)",
+                              color: TEXT,
+                            }}
+                          >
+                            −
+                          </button>
+                          <span className="w-4 text-center text-sm font-bold" style={{ color: TEXT }}>
+                            {quantity}
+                          </span>
+                          <button
+                            onClick={() => changeAdd(key, 1)}
+                            aria-label={`Agregar gaseosa ${flavor} ${size.label}`}
+                            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
+                            style={{ background: C.mustard, color: "#fff" }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )
@@ -3458,12 +3482,12 @@ function AddToCartModal({
                     className="flex h-[min(60vh,420px)] w-[min(70vw,300px)] items-center justify-center overflow-hidden rounded-2xl p-4"
                     style={{ background: "#fff" }}
                   >
-                    <BeverageArt flavor={zoomBeverage} fit="contain" />
+                    <BeverageArt flavor={zoomBeverage} size={selectedBeverageSize.label} />
                   </div>
-                  <span className="text-base font-bold text-white">{beverageLabel(zoomBeverage)}</span>
-                  {beverageImage(zoomBeverage) && BEVERAGE_PHOTO_CREDITS[zoomBeverage] && (
-                    <span className="max-w-xs text-center text-[10px] text-white/60">{BEVERAGE_PHOTO_CREDITS[zoomBeverage]}</span>
-                  )}
+                  <span className="text-base font-bold text-white">
+                    {beverageLabel(zoomBeverage)} · {selectedBeverageSize.label}
+                  </span>
+                  <span className="max-w-xs text-center text-[10px] text-white/60">Imagen de referencia del producto</span>
                   <span className="text-xs text-white/70">Toca para volver</span>
                 </div>
               </div>
@@ -3576,35 +3600,40 @@ function ProductCatalog({
     <div ref={topRef}>
       {/* Category tabs */}
       <div
-        className="flex gap-2 overflow-x-auto pb-2 mb-4"
+        className="flex snap-x gap-2 overflow-x-auto pb-2 mb-4 md:flex-wrap md:overflow-visible"
         style={{ scrollbarWidth: "none" }}
+        role="tablist"
+        aria-label="Categorías del menú"
       >
-        {MENU_CATS.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => switchCat(cat.id)}
-            className="flex-shrink-0 flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl cursor-pointer transition-all"
-            style={{
-              background:
-                activeCat === cat.id
-                  ? C.mustard
-                  : dark
-                    ? "rgba(255,255,255,0.07)"
-                    : "rgba(30,30,30,0.06)",
-              minWidth: "72px",
-            }}
-          >
-            <span className="leading-none" style={{ color: activeCat === cat.id ? "#fff" : C.mustard }}>
-              {aboutIcon(20, cat.icon)}
-            </span>
-            <span
-              className="text-xs font-semibold whitespace-nowrap"
-              style={{ color: activeCat === cat.id ? "#fff" : MUTED }}
+        {MENU_CATS.map((cat) => {
+          const active = activeCat === cat.id
+          return (
+            <button
+              key={cat.id}
+              role="tab"
+              aria-selected={active}
+              onClick={() => switchCat(cat.id)}
+              className="flex flex-shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 text-[13px] font-semibold transition-all hover:-translate-y-px"
+              style={{
+                background: active ? C.mustard : dark ? "rgba(255,255,255,0.05)" : "#fff",
+                border: `1px solid ${active ? C.mustard : BORDER}`,
+                color: active ? "#fff" : dark ? "#F4EEDC" : "#2A2622",
+                boxShadow: active ? `0 6px 16px ${C.mustard}55` : "0 1px 2px rgba(0,0,0,0.04)",
+              }}
             >
-              {cat.label}
-            </span>
-          </button>
-        ))}
+              <span
+                className="flex h-7 w-7 items-center justify-center rounded-full"
+                style={{
+                  background: active ? "rgba(255,255,255,0.22)" : `${C.mustard}1A`,
+                  color: active ? "#fff" : C.mustard,
+                }}
+              >
+                {aboutIcon(18, cat.icon)}
+              </span>
+              <span className="whitespace-nowrap">{cat.label}</span>
+            </button>
+          )
+        })}
       </div>
       {/* Search in catalog */}
       <div
@@ -4332,7 +4361,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
     idOf: (p) => p.id_insumo_producto,
     toRow: (p) =>
       withId(
-        [p.nombre, p.nombre_categoria, p.precio, p.descripcion || "", p.estado === "ACTIVO" ? "Activo" : "Inactivo",
+        [p.nombre, currentCategory(p.nombre_categoria), p.precio, p.descripcion || "", p.estado === "ACTIVO" ? "Activo" : "Inactivo",
           p.ficha?.nombre || `Ficha ${p.nombre}`, p.ficha?.version || "v1.0", p.ficha?.insumos_principales || "",
           p.ficha?.preparacion || "",
           JSON.stringify((p.ficha?.ingredientes || []).map((i: DbRecord) => ({ name: i.insumo, quantity: i.cantidad, unit: i.medida || "" }))),
@@ -4685,7 +4714,7 @@ async function loadMenu() {
       price: p.precio,
       priceStr: fmt(p.precio),
       img: imageUrl(p.imagenes[0]),
-      cat: MENU_CAT_ID[p.categoria] || p.categoria.toLowerCase(),
+      cat: MENU_CAT_ID[currentCategory(p.categoria)] || p.categoria.toLowerCase(),
       badge: p.etiqueta || "",
     })),
   )
@@ -11092,6 +11121,25 @@ function AdminPanel({
     const idIndex = syncIdIndex(sec)
     if (idIndex !== undefined) newRow[idIndex] = previousRow?.[idIndex] ?? ""
 
+    // Suppliers picked in the insumo form get it on their "insumos que suministra" list (row[7])
+    // and the unpicked ones lose it, so it shows in Proveedores and in that supplier's purchases
+    const supplierChanges = new Map<Row, Row>()
+    if (sec === "insumos") {
+      const name = String(newRow[0])
+      const oldName = String(previousRow?.[0] ?? "")
+      const isThisSupply = (n: string) =>
+        normalizeName(n) === normalizeName(name) || (!!oldName && normalizeName(n) === normalizeName(oldName))
+      for (const supplier of rows.proveedores || []) {
+        const list = splitNames(supplier[7])
+        const others = list.filter((n) => !isThisSupply(n))
+        const next = supplySuppliers.includes(String(supplier[0])) ? [...others, name] : others
+        if (next.join(", ") === list.join(", ")) continue
+        const updated = [...supplier]
+        updated[7] = next.join(", ")
+        supplierChanges.set(supplier, updated)
+      }
+    }
+
     setRows((current) => {
       const updated = [...(current[sec] || [])]
       if (modal.mode === "add") updated.unshift(newRow)
@@ -11182,7 +11230,18 @@ function AdminPanel({
       false,
       sec === "producto" && imgPreview && imgPreview !== previousImg
         ? (id) => api(`/productos/${id}/imagen`, "PUT", { imagen: imgPreview })
-        : undefined,
+        : sec === "insumos" && supplierChanges.size
+          ? // only once the insumo is saved: update the suppliers' lists here and in the database
+            async () => {
+              setRows((current) => ({
+                ...current,
+                proveedores: (current.proveedores || []).map((supplier) => supplierChanges.get(supplier) ?? supplier),
+              }))
+              supplierChanges.forEach((updated) => {
+                if (updated[DB_SYNC.proveedores.idIndex]) syncRow("proveedores", updated, false)
+              })
+            }
+          : undefined,
     )
     if (sec === "producto" && imgPreview) {
       const imageIndex = modal.mode === "add" ? 0 : modal.idx!
