@@ -1,5 +1,5 @@
 import { Fragment, useState, useRef, useEffect, useCallback } from "react"
-import logoImg from "@/imports/image.png"
+import logoImg from "@/imports/logo.png"
 import qrImg from "@/imports/image-4.png"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -3642,7 +3642,7 @@ function ProductCatalog({
       </div>
       {/* Search in catalog */}
       <div
-        className="mb-5 flex w-full items-center gap-2 rounded-full px-3 py-2 sm:max-w-md"
+        className="flex w-full items-center gap-2 px-3 py-2.5 rounded-xl mb-5 sm:max-w-md"
         style={{
           background: dark ? "#1E1C18" : "#fff",
           border: `1.5px solid ${C.mustard}`,
