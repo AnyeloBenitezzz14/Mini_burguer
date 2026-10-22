@@ -3607,10 +3607,14 @@ function ProductCatalog({
   onInfoClick,
   onAddClick,
   dark,
+  paginate = true,
+  compact = false,
 }: {
   onInfoClick: (p: Product) => void
   onAddClick: (p: Product) => void
   dark: boolean
+  paginate?: boolean
+  compact?: boolean
 }) {
   const [activeCat, setActiveCat] = useState("todos")
   const [search, setSearch] = useState("")
@@ -3633,11 +3637,12 @@ function ProductCatalog({
         p.name.toLowerCase().includes(search.toLowerCase()) ||
         p.desc.toLowerCase().includes(search.toLowerCase())),
   )
+  const shouldPaginate =
+    paginate && activeCat === "todos" && filtered.length > ITEMS_PER_PAGE && !search
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE)
-  const pageItems = filtered.slice(
-    pg * ITEMS_PER_PAGE,
-    (pg + 1) * ITEMS_PER_PAGE,
-  )
+  const pageItems = shouldPaginate
+    ? filtered.slice(pg * ITEMS_PER_PAGE, (pg + 1) * ITEMS_PER_PAGE)
+    : filtered
   const switchCat = (id: string) => {
     setActiveCat(id)
     setPg(0)
@@ -3685,11 +3690,11 @@ function ProductCatalog({
       <div
         className="flex w-full items-center gap-2 px-3 py-2.5 rounded-xl mb-5 sm:max-w-md"
         style={{
-          background: dark ? "rgba(255,255,255,0.07)" : "rgba(30,30,30,0.06)",
-          border: `1px solid ${BORDER}`,
+          background: dark ? "#1E1C18" : "#fff",
+          border: `1.5px solid ${C.mustard}`,
         }}
       >
-        <span style={{ color: MUTED }}>{Ico.search}</span>
+        <span className="flex-shrink-0" style={{ color: C.mustard }}>{Ico.search}</span>
         <input
           placeholder="Buscar en el menú..."
           value={search}
@@ -3697,17 +3702,19 @@ function ProductCatalog({
             setSearch(e.target.value)
             setPg(0)
           }}
-          className="flex-1 bg-transparent text-sm outline-none"
-          style={{ color: TEXT }}
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+          style={{ color: dark ? TEXT : C.dark }}
         />
         {search && (
           <button
+            type="button"
+            aria-label="Limpiar búsqueda"
             onClick={() => {
               setSearch("")
               setPg(0)
             }}
-            className="text-sm cursor-pointer"
-            style={{ color: MUTED }}
+            className="flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
+            style={{ background: `${C.mustard}18`, color: C.mustard }}
           >
             ×
           </button>
@@ -3715,11 +3722,11 @@ function ProductCatalog({
       </div>
       {/* Count */}
       <p className="text-xs mb-4" style={{ color: MUTED }}>
-        {filtered.length} productos · Página {pg + 1} de{" "}
-        {Math.max(1, totalPages)}
+        {filtered.length} productos
+        {shouldPaginate && <> · Página {pg + 1} de {Math.max(1, totalPages)}</>}
       </p>
       {/* Grid — 3 cols, max 2 rows = 6 items */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+      <div className={`grid grid-cols-2 sm:grid-cols-3 ${compact ? "gap-2" : "gap-3"} mb-5`}>
         {pageItems.length === 0 && (
           <div
             className="col-span-3 text-center py-10 text-sm"
@@ -3733,7 +3740,7 @@ function ProductCatalog({
             key={p.id}
             className="group relative rounded-2xl overflow-hidden cursor-pointer"
             style={{
-              aspectRatio: "4/3",
+              aspectRatio: compact ? "3/2" : "4/3",
               background: CARD,
               boxShadow: dark
                 ? "0 2px 12px rgba(0,0,0,0.3)"
@@ -3748,10 +3755,10 @@ function ProductCatalog({
             />
             {/* Bottom banner — always visible */}
             <div
-              className="absolute bottom-0 left-0 right-0 px-3 py-2.5"
+              className={`absolute bottom-0 left-0 right-0 ${compact ? "px-2 py-1.5" : "px-3 py-2.5"}`}
               style={{ background: C.mustard }}
             >
-              <div className="font-bold text-sm text-white truncate leading-tight">
+              <div className={`font-bold ${compact ? "text-xs" : "text-sm"} text-white truncate leading-tight`}>
                 {p.name}
               </div>
             </div>
@@ -3795,7 +3802,7 @@ function ProductCatalog({
         ))}
       </div>
       {/* Paginator */}
-      {totalPages > 1 && (
+      {shouldPaginate && totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
           <button
             disabled={pg === 0}
@@ -3907,7 +3914,12 @@ function GuestMenuPage({
           >
             ← Volver
           </button>
-          <div className="flex items-center gap-2 ml-2">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Volver a la página de inicio"
+            className="ml-2 flex cursor-pointer items-center gap-2 text-left"
+          >
             <img
               src={logoImg}
               alt="El Parche"
@@ -3927,7 +3939,7 @@ function GuestMenuPage({
                 Menú
               </div>
             </div>
-          </div>
+          </button>
           <button
             onClick={onCheckout}
             className="relative ml-auto w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"
@@ -3960,6 +3972,8 @@ function GuestMenuPage({
         </div>
         <ProductCatalog
           dark={false}
+          paginate={false}
+          compact
           onInfoClick={setInfoProduct}
           onAddClick={setAddProduct}
         />
@@ -7429,7 +7443,15 @@ function ClientApp({
         }}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-4 h-16">
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              setView("menu")
+              window.scrollTo({ top: 0, behavior: "smooth" })
+            }}
+            aria-label="Volver al menú principal"
+            className="flex flex-shrink-0 cursor-pointer items-center gap-2 text-left"
+          >
             <img
               src={logoImg}
               alt="El Parche"
@@ -7449,7 +7471,7 @@ function ClientApp({
                 Mini Burguer
               </div>
             </div>
-          </div>
+          </button>
           <div className="hidden md:flex items-center gap-1 ml-2">
             {(["menu", "orders"] as const).map((v) => (
               <button
@@ -7602,6 +7624,8 @@ function ClientApp({
             </div>
             <ProductCatalog
               dark={dark}
+              paginate={false}
+              compact
               onInfoClick={(p) => setInfoProduct(p)}
               onAddClick={(p) => setAddProduct(p)}
             />
@@ -10017,7 +10041,7 @@ function AdminPanel({
   }, [])
 
   const toggleGrp = (k: string) =>
-    setOpen((g) => (g.includes(k) ? g.filter((x) => x !== k) : [...g, k]))
+    setOpen((groups) => (groups.includes(k) ? [] : [k]))
   const sectionLabel =
     SIDEBAR_MENU.find((item) => item.key === section)?.label ??
     SIDEBAR_MENU.flatMap((item) => item.children).find(
@@ -13627,10 +13651,10 @@ function AdminPanel({
       <div className="min-w-0">
         <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
           <div
-            className="flex w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2 sm:w-72"
-            style={{ background: t.input, border: `1px solid ${t.inputB}` }}
+            className="flex w-full min-w-0 items-center gap-2 rounded-full px-3 py-2 sm:w-72"
+            style={{ background: t.input, border: `1.5px solid ${C.mustard}` }}
           >
-            <span className="flex-shrink-0" style={{ color: t.muted }}>
+            <span className="flex-shrink-0" style={{ color: C.mustard }}>
               {Ico.search}
             </span>
             <input
@@ -13656,8 +13680,8 @@ function AdminPanel({
                   setSearch((current) => ({ ...current, [section]: "" }))
                   setP(0)
                 }}
-                className="flex-shrink-0 cursor-pointer"
-                style={{ color: t.muted }}
+                className="flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
+                style={{ background: `${C.mustard}18`, color: C.mustard }}
               >
                 ×
               </button>
@@ -20411,7 +20435,12 @@ function AdminPanel({
         className={`flex items-center justify-between px-4 py-4 ${sidebarCollapsed ? "lg:justify-center lg:px-2" : ""}`}
         style={{ borderBottom: `1px solid ${t.sidebarBd}` }}
       >
-        <div className="flex items-center gap-2.5 min-w-0">
+        <button
+          type="button"
+          onClick={onSwitchToClient}
+          aria-label="Volver al menú principal"
+          className={`flex min-w-0 cursor-pointer items-center gap-2.5 text-left ${sidebarCollapsed ? "lg:justify-center" : ""}`}
+        >
           <img
             src={logoImg}
             alt="Logo"
@@ -20428,7 +20457,7 @@ function AdminPanel({
               Mini Burguer · Admin
             </div>
           </div>
-        </div>
+        </button>
         <button
           onClick={() => setSidebarOpen(false)}
           className="lg:hidden w-7 h-7 flex items-center justify-center rounded-lg cursor-pointer"
