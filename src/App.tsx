@@ -1,9 +1,9 @@
 import { Fragment, useState, useRef, useEffect, useCallback } from "react"
-import logoImg from "@/imports/Gemini_Generated_Image_ei2okyei2okyei2o-Photoroom.png"
+import logoImg from "@/imports/image.png"
 import qrImg from "@/imports/image-4.png"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
-type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "first-password" | "app" | "admin"
+type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "app" | "admin"
 type AdminSection = "dashboard" | "roles" | "usuarios" | "cat-insumos" | "insumos" | "proveedores" | "compras" | "perdidas" | "cat-producto" | "producto" | "produccion" | "producto-no-conforme" | "clientes" | "ventas" | "pedidos" | "devoluciones"
 type Theme = "light" | "dark"
 type User = {
@@ -18,9 +18,8 @@ type User = {
   password?: string
   // Backend modules this user may see (VER), from the login. Undefined = everything.
   permissions?: string[]
-
-  requiresPasswordChange?: boolean
-
+  // Logged in with the provisional password e-mailed at sign-up: must choose their own first
+  mustChangePassword?: boolean
 }
 type RegisteredClient = Pick<User, "name" | "email" | "cedula" | "docType" | "phone">
 type CartItem = {
@@ -33,6 +32,66 @@ type CartItem = {
   sauces?: string[]
   additions?: { name: string; qty: number; price: number }[]
 }
+// ── Delivery zone ──────────────────────────────────────────────────────────────
+// The shop is in Santa Ana (Bello, Antioquia); deliveries only up to DELIVERY_RADIUS_KM from there
+const SHOP_LOCATION = { lat: 6.3295, lon: -75.5627 }
+const DELIVERY_RADIUS_KM = 5
+const DELIVERY_ESTIMATE = "45 – 65 min"
+const BUILDING_TYPES = ["Departamento", "Edificio residencial", "Urbanización", "Hotel", "Oficinas", "Otro"]
+// Straight-line distance in km between two points (haversine)
+function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
+  const rad = (d: number) => (d * Math.PI) / 180
+  const h =
+    Math.sin(rad(b.lat - a.lat) / 2) ** 2 +
+    Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(rad(b.lon - a.lon) / 2) ** 2
+  return 2 * 6371 * Math.asin(Math.sqrt(h))
+}
+// One text for the order (the backend keeps a single delivery address)
+const composeDeliveryAddress = (d: { calle: string; barrio: string; tipoEdificio: string; nombreEdificio: string; unidad: string }) =>
+  [
+    d.calle.trim(),
+    d.barrio.trim() && `Barrio ${d.barrio.trim()}`,
+    d.tipoEdificio && [d.tipoEdificio, d.nombreEdificio.trim()].filter(Boolean).join(" "),
+    d.unidad.trim(),
+  ]
+    .filter(Boolean)
+    .join(", ")
+// OpenStreetMap search (free). "#" breaks it ("Calle 50 #45-20" -> "Calle 50 45-20")
+async function geocodeAddress(queries: string[], signal: AbortSignal) {
+  for (const q of queries.filter(Boolean)) {
+    const url =
+      "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=co&viewbox=-75.75,6.55,-75.35,6.10&q=" +
+      encodeURIComponent(`${q.replace(/#|No\.|N°/gi, " ").replace(/\s+/g, " ").trim()}, Antioquia, Colombia`)
+    const res = await fetch(url, { signal, headers: { "Accept-Language": "es" } })
+    if (!res.ok) throw new Error(`Mapa no disponible (${res.status})`)
+    const [hit] = (await res.json()) as { lat: string; lon: string }[]
+    if (hit) return { lat: Number(hit.lat), lon: Number(hit.lon) }
+  }
+  return null
+}
+
+// A long address shown one part per line ("Calle 50 # 45-20" / "Barrio Santa Ana" / "Torre 2 apto 301")
+const AddressLines = ({ address }: { address: string }) => (
+  <>
+    {address.split(/,\s*/).filter(Boolean).map((part, i) => (
+      <span key={i} className="block">{part}</span>
+    ))}
+  </>
+)
+
+// Adds an item to the cart; if the same product with the same sauces and additions is
+// already there, only its quantity goes up
+function addCartItem(items: CartItem[], item: CartItem): CartItem[] {
+  const key = (i: CartItem) =>
+    JSON.stringify([
+      i.name,
+      [...(i.sauces ?? [])].sort(),
+      [...(i.additions ?? [])].map((a) => `${a.name}x${a.qty}`).sort(),
+    ])
+  const same = items.find((i) => key(i) === key(item))
+  return same ? items.map((i) => (i === same ? { ...i, qty: i.qty + item.qty } : i)) : [...items, item]
+}
+
 type DeliveryInfo = {
   nombre: string
   telefono: string
@@ -89,11 +148,13 @@ type AdminOrderLine = {
 type ProductionItem = {
   name: string
   quantity: number
-
   unit?: string
-
   category?: string
   parentId?: string
+  // Order remade after a producto no conforme: reused as is (takes nothing out of stock)…
+  reuse?: boolean
+  // …or only these damaged insumos are replaced (instead of the whole ficha técnica)
+  onlySupplies?: { name: string; quantity: number; unit: string }[]
 }
 
 // ── Brand ──────────────────────────────────────────────────────────────────────
@@ -108,45 +169,29 @@ const C = {
 const WA = "573206332670"
 const ITEMS_PER_PAGE = 6
 const STATUS_OPT = ["Activo", "Inactivo"]
-const DOC_TYPES = [
-  "Cédula de Ciudadanía",
-  "Cédula Extranjería",
-  "NIT",
-  "Pasaporte",
-  "Tarjeta de Identidad",
-]
+const DOC_TYPES = ["Cédula de Ciudadanía", "Cédula Extranjería", "NIT", "Pasaporte"]
+// One rule per document type for every form (registro, usuarios, clientes, ventas, proveedores).
+// The backend accepts 6 to 10 characters.
+const DOC_RULES: Record<string, { re: RegExp; msg: string }> = {
+  "Cédula de Ciudadanía": { re: /^\d{6,10}$/, msg: "La cédula debe tener entre 6 y 10 números, sin puntos ni espacios." },
+  "Cédula Extranjería": { re: /^\d{6,10}$/, msg: "La cédula de extranjería debe tener entre 6 y 10 números." },
+  NIT: { re: /^\d{9,10}$/, msg: "El NIT debe tener 9 números, o 10 con el dígito de verificación (sin guion)." },
+  Pasaporte: { re: /^[A-Za-z0-9]{6,10}$/, msg: "El pasaporte debe tener entre 6 y 10 letras o números, sin espacios." },
+}
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 const digitsOnly = (value: string) => value.replace(/\D/g, "")
-const normalizeDocumentInput = (value: string, docType: string) => {
-  if (docType === "Pasaporte") return value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 20)
-  if (docType === "NIT") return value.replace(/[^0-9.-]/g, "").slice(0, 20)
-  return digitsOnly(value).slice(0, 15)
-}
-const normalizeAccountDocumentInput = (value: string, docType: string) =>
-  docType === "NIT"
-    ? value.replace(/[^0-9-]/g, "").slice(0, 10)
-    : docType
-      ? normalizeDocumentInput(value, docType).slice(0, 10)
-      : value.replace(/[^a-zA-Z0-9-]/g, "").slice(0, 10)
+// While typing: only the characters the type allows, at most 10
+const normalizeDocumentInput = (value: string, docType: string) =>
+  (docType === "Pasaporte" ? value.replace(/[^a-zA-Z0-9]/g, "") : digitsOnly(value)).slice(0, 10)
+const normalizeAccountDocumentInput = normalizeDocumentInput
 const normalizePhoneInput = (value: string) =>
   value.replace(/[^0-9+()\s-]/g, "").slice(0, 20)
 const validateDocumentNumber = (value: string, docType: string) => {
   const document = value.trim()
   if (!document) return "Este campo es obligatorio."
-  if (docType === "Pasaporte") {
-    return /^[A-Za-z0-9]{5,20}$/.test(document)
-      ? ""
-      : "Escribe un número de pasaporte válido."
-  }
-  if (docType === "NIT") {
-    const digits = digitsOnly(document)
-    return /^[\d.-]+$/.test(document) && digits.length >= 8 && digits.length <= 15
-      ? ""
-      : "Escribe un NIT válido."
-  }
-  return /^\d{5,15}$/.test(document)
-    ? ""
-    : "Usa solo números (de 5 a 15 dígitos)."
+  if (!docType) return "Primero elige el tipo de documento."
+  const rule = DOC_RULES[docType]
+  return !rule || rule.re.test(document) ? "" : rule.msg
 }
 const validatePhoneNumber = (value: string) => {
   const digits = digitsOnly(value)
@@ -177,20 +222,66 @@ const ADDITIONS = [
   { name: "1 Huevo", price: 900 },
   { name: "5 Huevos", price: 4000 },
 ]
-const BEVERAGES = [
-  "Coca-Cola",
-  "Manzana",
-  "Colombiana",
-  "Uva",
-  "Pepsi",
-  "Naranja",
-]
+const BEVERAGES = ["Coca-Cola", "Colombiana", "Pepsi", "Manzana", "Uva", "Naranja"]
 const BEVERAGE_SIZES = [
   { id: "personal", label: "Personal", price: 3000 },
   { id: "1.5L", label: "1.5 L", price: 7000 },
   { id: "2.25L", label: "2.25 L", price: 9000 },
   { id: "3L", label: "3 L", price: 12000 },
 ]
+
+// How each flavour is shown in the menu (the order line keeps the plain flavour, e.g. "Gaseosa Manzana (1.5 L)")
+const BEVERAGE_INFO: Record<string, { label: string; color: string }> = {
+  "Coca-Cola": { label: "Coca-Cola", color: "#D7202C" },
+  Colombiana: { label: "Colombiana Postobón", color: "#E39A27" },
+  Pepsi: { label: "Pepsi", color: "#1E4FA0" },
+  Manzana: { label: "Manzana Postobón", color: "#C8263A" },
+  Uva: { label: "Uva Postobón", color: "#6B2C91" },
+  Naranja: { label: "Naranja Postobón", color: "#F07C12" },
+}
+const BEVERAGE_ORDER = ["Coca-Cola", "Colombiana", "Pepsi", "Manzana", "Uva", "Naranja"]
+const beverageLabel = (flavor: string) => BEVERAGE_INFO[flavor]?.label ?? flavor
+// Product photos per flavour and bottle size: src/imports/bebidas/<sabor>-<personal|1500|2500|3000>.jpg
+// (a plain <sabor>.jpg still works as a single photo for every size)
+const BEVERAGE_IMAGES = import.meta.glob("/src/imports/bebidas/*.{png,jpg,jpeg,webp}", {
+  eager: true,
+  import: "default",
+}) as Record<string, string>
+const BEVERAGE_PHOTO_SIZES = [
+  { key: "personal", ml: 400 },
+  { key: "1500", ml: 1500 },
+  { key: "2500", ml: 2500 },
+  { key: "3000", ml: 3000 },
+]
+// Size name from the admin ("Personal", "1.5 L", "2.5 L", "3 L", "400 ml"…) → closest bottle photo
+const beveragePhotoKey = (sizeLabel = "") => {
+  const m = sizeLabel.match(/(\d+(?:[.,]\d+)?)\s*(ml|l)\b/i)
+  if (/personal/i.test(sizeLabel) || !m) return "personal"
+  const ml = parseFloat(m[1].replace(",", ".")) * (m[2].toLowerCase() === "l" ? 1000 : 1)
+  return BEVERAGE_PHOTO_SIZES.reduce((a, b) => (Math.abs(b.ml - ml) < Math.abs(a.ml - ml) ? b : a)).key
+}
+const beverageImage = (flavor: string, sizeLabel?: string) => {
+  const slug = normalizeName(flavor).replace(/\s+/g, "-")
+  const find = (name: string) =>
+    Object.entries(BEVERAGE_IMAGES).find(([path]) => path.toLowerCase().includes(`/${name}.`))?.[1]
+  return find(`${slug}-${beveragePhotoKey(sizeLabel)}`) ?? find(slug)
+}
+// The bottle photo for that flavour and size, or a bottle drawn in its colour while there is none
+const BeverageArt = ({ flavor, size }: { flavor: string; size?: string }) => {
+  const img = beverageImage(flavor, size)
+  if (img)
+    return <img src={img} alt={`${beverageLabel(flavor)}${size ? ` ${size}` : ""}`} className="h-full w-full object-contain" />
+  const color = BEVERAGE_INFO[flavor]?.color ?? C.mustard
+  return (
+    <svg viewBox="0 0 40 64" className="h-full w-auto" aria-hidden="true">
+      <rect x="15" y="2" width="10" height="7" rx="2" fill={color} />
+      <path d="M14 9h12l3 10c2 3 4 6 4 11v28a4 4 0 0 1-4 4H11a4 4 0 0 1-4-4V30c0-5 2-8 4-11z" fill={color} />
+      <rect x="7" y="32" width="26" height="12" fill="#fff" opacity="0.92" />
+      <path d="M10 38c5-3 15 3 20 0" stroke={color} strokeWidth="2" fill="none" strokeLinecap="round" />
+      <path d="M12 14h3l-2 8" stroke="#fff" strokeWidth="1.5" fill="none" opacity="0.5" strokeLinecap="round" />
+    </svg>
+  )
+}
 
 // ── Products ───────────────────────────────────────────────────────────────────
 const PRODUCTS: Product[] = [
@@ -451,7 +542,7 @@ const PRODUCTS: Product[] = [
     price: 14000,
     priceStr: "$14.000",
     img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/48/Chorizo_Arepa.jpg/500px-Chorizo_Arepa.jpg",
-    cat: "arepa-burger",
+    cat: "arepa-rellena",
     badge: "",
   },
   {
@@ -461,7 +552,7 @@ const PRODUCTS: Product[] = [
     price: 15000,
     priceStr: "$15.000",
     img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a7/Bacon_%26_Fried_Onion_Arepa.jpg/500px-Bacon_%26_Fried_Onion_Arepa.jpg",
-    cat: "arepa-burger",
+    cat: "arepa-rellena",
     badge: "",
   },
   {
@@ -471,7 +562,7 @@ const PRODUCTS: Product[] = [
     price: 18000,
     priceStr: "$18.000",
     img: "https://upload.wikimedia.org/wikipedia/commons/d/d9/Colombian_Food%2C_Arepas.jpg",
-    cat: "arepa-burger",
+    cat: "arepa-rellena",
     badge: "Gourmet",
   },
   {
@@ -481,7 +572,7 @@ const PRODUCTS: Product[] = [
     price: 18000,
     priceStr: "$18.000",
     img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d8/Arepa_de_carne_mechada.jpg/500px-Arepa_de_carne_mechada.jpg",
-    cat: "arepa-burger",
+    cat: "arepa-rellena",
     badge: "",
   },
   {
@@ -506,16 +597,101 @@ const PRODUCTS: Product[] = [
   },
 ]
 
+// icon: the paths of a line icon (drawn with aboutIcon), no emojis
+// Category icons: line drawings on a 24×24 grid (stroke from aboutIcon), one per dish
 const MENU_CATS = [
-  { id: "todos", label: "Todos", icon: "dashboard" },
-  { id: "hamburguesas", label: "Hamburguesas", icon: "burger" },
-  { id: "perros", label: "Perros Cal.", icon: "chef" },
-  { id: "perras", label: "Perras", icon: "chef" },
-  { id: "salchipapas", label: "Salchipapas", icon: "shopping" },
-  { id: "chuzos", label: "Chuzos", icon: "chef" },
-  { id: "patacones", label: "Patacones", icon: "star" },
-  { id: "arepa-burger", label: "Arepa Burger", icon: "burger" },
-  { id: "arepa-rellena", label: "Arepa Rellena", icon: "shopping" },
+  {
+    id: "todos",
+    label: "Todos",
+    icon: (
+      <>
+        <rect x="3.5" y="3.5" width="7" height="7" rx="2" />
+        <rect x="13.5" y="3.5" width="7" height="7" rx="2" />
+        <rect x="3.5" y="13.5" width="7" height="7" rx="2" />
+        <rect x="13.5" y="13.5" width="7" height="7" rx="2" />
+      </>
+    ),
+  },
+  {
+    id: "hamburguesas",
+    label: "Hamburguesas",
+    icon: (
+      <>
+        <path d="M4 10.5C4 6.9 7.6 4 12 4s8 2.9 8 6.5z" />
+        <path d="M9.5 7h.01M12 6h.01M14.5 7h.01" />
+        <path d="M3.6 13c1.2 0 1.2.9 2.4.9s1.2-.9 2.4-.9 1.2.9 2.4.9 1.2-.9 2.4-.9 1.2.9 2.4.9 1.2-.9 2.4-.9 1.2.9 2.4.9" />
+        <rect x="4" y="15.2" width="16" height="2.4" rx="1.2" />
+        <path d="M4.5 19.4h15v.1a1.5 1.5 0 0 1-1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5z" />
+      </>
+    ),
+  },
+  {
+    id: "perros",
+    label: "Perros Cal.",
+    icon: (
+      <>
+        <rect x="2.5" y="8" width="19" height="4.6" rx="2.3" />
+        <path d="M6 10.3l1.4-.9 1.4.9 1.4-.9 1.4.9 1.4-.9 1.4.9 1.4-.9 1.4.9" />
+        <path d="M3.5 13.5c.4 2.7 2.4 4.5 5.2 4.5h6.6c2.8 0 4.8-1.8 5.2-4.5" />
+      </>
+    ),
+  },
+  {
+    id: "perras",
+    label: "Perras",
+    icon: (
+      <>
+        <path d="M3.5 11.5c.4 3.6 2.6 6.5 5.7 6.5h5.6c3.1 0 5.3-2.9 5.7-6.5z" />
+        <path d="M4.5 9.2c1.3-1.4 2.6-1.4 3.9 0s2.6 1.4 3.9 0 2.6-1.4 3.9 0 2.3 1.2 3.3.4" />
+        <path d="M9 11.5v2.2M12.5 11.5v3.2M16 11.5v1.8" />
+      </>
+    ),
+  },
+  {
+    id: "salchipapas",
+    label: "Salchipapas",
+    icon: (
+      <>
+        <path d="M5.5 11h13l-1.5 8.7a1.6 1.6 0 0 1-1.6 1.3H8.6A1.6 1.6 0 0 1 7 19.7z" />
+        <path d="M8.2 11l-.9-6.2M11.1 11l-.4-7M14 11l.5-6.6M16.8 11l1-5" />
+        <circle cx="10.2" cy="15.6" r="1.4" />
+        <circle cx="13.9" cy="16.4" r="1.4" />
+      </>
+    ),
+  },
+  {
+    id: "chuzos",
+    label: "Chuzos",
+    icon: (
+      <>
+        <path d="M3.5 20.5L20.5 3.5" />
+        <rect x="6" y="14" width="4" height="4" rx="1" transform="rotate(45 8 16)" />
+        <rect x="10" y="10" width="4" height="4" rx="1" transform="rotate(45 12 12)" />
+        <rect x="14" y="6" width="4" height="4" rx="1" transform="rotate(45 16 8)" />
+      </>
+    ),
+  },
+  {
+    id: "patacones",
+    label: "Patacones",
+    icon: (
+      <>
+        <path d="M12 4.5c3.6-.3 6.9 1.9 7.4 5.2.6 3.5-1.5 7.3-5.3 8.5-3.8 1.3-8.2-.6-9.4-4.2C3.5 10.3 6.6 4.9 12 4.5z" />
+        <path d="M8.8 10.4l2 1.4M13.6 8.8l.9 2M10.4 14.6l2.4.5M15.2 13.4l.4 1.6" />
+      </>
+    ),
+  },
+  {
+    id: "arepa-rellena",
+    label: "Arepa Rellena",
+    icon: (
+      <>
+        <path d="M4 13.5a8 7 0 0 0 16 0z" />
+        <path d="M5.3 9.6A8 7 0 0 1 18.4 7.5" />
+        <path d="M4.6 11.8c1.4-.9 2.4.8 3.8 0s2.4-.9 3.8 0 2.4.8 3.8 0 2.2-.7 3.4 0" />
+      </>
+    ),
+  },
 ]
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
@@ -1078,15 +1254,6 @@ const Ico = {
   ),
 }
 
-const getMenuCategoryIcon = (name: string) => {
-  switch (name) {
-    case "burger": return Ico.burger
-    case "chef": return Ico.chef
-    case "shopping": return Ico.shopping
-    case "star": return Ico.star
-    default: return Ico.dashboard
-  }
-}
 
 // ── Theme tokens ───────────────────────────────────────────────────────────────
 function tk(dark: boolean) {
@@ -1193,9 +1360,12 @@ const PRODUCT_CAT_LABEL: Record<string, string> = {
   salchipapas: "Salchipapas",
   chuzos: "Chuzos",
   patacones: "Patacones",
-  "arepa-burger": "Arepa Burger",
   "arepa-rellena": "Arepa Rellena",
 }
+// "Arepa Burger" was merged into "Arepa Rellena": products the database still lists under the
+// old category are shown as Arepa Rellena (and saved that way on their next edit)
+const RENAMED_CATEGORIES: Record<string, string> = { "Arepa Burger": "Arepa Rellena" }
+const currentCategory = (name: string) => RENAMED_CATEGORIES[name] ?? name
 
 // ── Admin config ───────────────────────────────────────────────────────────────
 type ModConfig = {
@@ -1255,13 +1425,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "1",
         label: "Tipo de documento",
         type: "select",
-        options: [
-          "Cédula de Ciudadanía",
-          "Cédula Extranjería",
-          "NIT",
-          "Pasaporte",
-          "Tarjeta de Identidad",
-        ],
+        options: DOC_TYPES,
       },
       { key: "2", label: "Número de documento", type: "text" },
       { key: "0", label: "Nombre completo", type: "text" },
@@ -1272,16 +1436,19 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Empleado", "Domiciliario", "Cliente", "Administrador"],
       },
       { key: "4", label: "Correo electrónico", type: "email" },
-
+      // Only for staff (not Cliente)
+      { key: "9", label: "Teléfono", type: "tel" },
+      { key: "12", label: "Teléfono de emergencia (opcional)", type: "tel" },
+      { key: "13", label: "Correo personal (opcional)", type: "email" },
+      { key: "10", label: "Barrio", type: "text" },
+      { key: "11", label: "Dirección", type: "text" },
       { key: "6", label: "Contraseña", type: "password" },
-
-      { key: "6", label: "Contraseña", type: "text" },
-
     ],
     seed: [],
     noExport: true,
     statusIndex: 5,
-    hiddenCellIndexes: [6, 8],
+    // 7 id, 8 superadmin mark, 9-13 staff contact
+    hiddenCellIndexes: [6, 8, 9, 10, 11, 12, 13],
   },
   "cat-insumos": {
     columns: ["Nombre Categoría", "Descripción", "Estado"],
@@ -1327,27 +1494,26 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "11", label: "Cómo se prepara", type: "textarea" },
     ],
     seed: [],
-    noDelete: true,
+    // Deletable only while no other module has records of it (see getDeleteAssessment)
     statusIndex: 12,
     hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11],
   },
   proveedores: {
     columns: [
       "Nombre",
-      "NIT",
+      "NIT / Documento",
       "Correo",
       "Teléfono",
       "Contacto",
       "Estado",
     ],
     fields: [
+      { key: "15", label: "Tipo de persona", type: "select", options: ["Persona jurídica", "Persona natural"] },
       { key: "1", label: "NIT", type: "text" },
       { key: "0", label: "Nombre empresa", type: "text" },
       { key: "2", label: "Correo", type: "email" },
       { key: "3", label: "Teléfono", type: "tel" },
       { key: "5", label: "Dirección", type: "text" },
-      // Comma-separated insumo names; limits what can be bought from this supplier
-      { key: "7", label: "Insumos que suministra", type: "text" },
       { key: "8", label: "Tipo de documento", type: "select", options: DOC_TYPES },
       { key: "9", label: "Número de documento", type: "text" },
       { key: "10", label: "Nombre", type: "text" },
@@ -1355,11 +1521,13 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "12", label: "Teléfono", type: "tel" },
       { key: "13", label: "Correo electrónico", type: "email" },
       { key: "14", label: "Cargo", type: "text" },
+      // Comma-separated insumo names; limits what can be bought from this supplier
+      { key: "7", label: "Insumos que suministra", type: "text" },
     ],
     seed: [],
     // Deletable only while the supplier has no purchases (see getDeleteAssessment)
     statusIndex: 6,
-    hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14],
+    hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   },
   compras: {
     columns: ["Proveedor", "Fecha", "Subtotal", "Total", "Estado"],
@@ -1387,7 +1555,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     hiddenCellIndexes: [2, 6],
   },
   perdidas: {
-    columns: ["Insumo", "Cantidad", "Motivo", "Responsable", "Fecha"],
+    columns: ["Insumo", "Cantidad", "Motivo", "Responsable", "Fecha", "Estado"],
     fields: [
       {
         key: "0",
@@ -1402,7 +1570,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         type: "select",
         options: ["Deterioro", "Vencimiento", "Accidente", "Horno", "Otro"],
       },
-      { key: "3", label: "Responsable", type: "text" },
+      { key: "3", label: "Persona responsable", type: "select", options: [] },
       { key: "4", label: "Fecha", type: "date" },
       // Filled when the loss is sent from a purchase ("Compra a X del <fecha>")
       { key: "5", label: "Origen", type: "text" },
@@ -1410,14 +1578,12 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [],
     noExport: true,
     noDelete: true,
-    hiddenCellIndexes: [5],
+    hiddenCellIndexes: [5, 7, 8],
   },
   "cat-producto": {
-    columns: ["Nombre Categoría", "Descripción", "Estado"],
-    fields: [
-      { key: "0", label: "Nombre categoría", type: "text" },
-      { key: "1", label: "Descripción", type: "textarea" },
-    ],
+    // No description: its cell (row[1]) shows how many products use the category
+    columns: ["Nombre Categoría", "Productos asociados", "Estado"],
+    fields: [{ key: "0", label: "Nombre categoría", type: "text" }],
     seed: [
       ["Hamburguesas", "Burgers artesanales de la casa", "Activa"],
       ["Adiciones", "Extras para agregar a los productos", "Activa"],
@@ -1427,7 +1593,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       ["Perras", "Versiones especiales", "Activa"],
       ["Chuzos", "Carne en palito con papas", "Activa"],
       ["Patacones", "Patacón relleno", "Activa"],
-      ["Arepa Burger", "Burger en arepa", "Activa"],
       ["Arepa Rellena", "Arepa rellena", "Activa"],
     ],
     noExport: true,
@@ -1450,7 +1615,6 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Perras",
           "Chuzos",
           "Patacones",
-          "Arepa Burger",
           "Arepa Rellena",
           "Salsas",
           "Bebidas",
@@ -1464,12 +1628,6 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "6", label: "Versión de la ficha", type: "text" },
       { key: "7", label: "Insumos principales", type: "textarea" },
       { key: "8", label: "Cómo se prepara", type: "textarea" },
-      {
-        key: "10",
-        label: "Disponibilidad",
-        type: "select",
-        options: ["Disponible", "No disponible"],
-      },
     ],
     // Every menu product (so each category has its products in the order picker) + additions
     seed: [
@@ -1496,33 +1654,6 @@ const MOD_CFG: Record<string, ModConfig> = {
         "",
       ]),
     ],
-
-    // Every menu product (so each category has its products in the order picker) + additions
-    seed: [
-      ...PRODUCTS.map((p) => [
-        p.name,
-        PRODUCT_CAT_LABEL[p.cat] ?? p.cat,
-        p.price,
-        p.desc,
-        "Activo",
-        `Ficha ${p.name}`,
-        "v1.0",
-        "",
-        "",
-      ]),
-      ...ADDITIONS.map((a) => [
-        a.name,
-        "Adiciones",
-        a.price,
-        "Adición para agregar a los productos.",
-        "Activo",
-        "",
-        "",
-        "",
-        "",
-      ]),
-    ],
-
     noExport: true,
     noDelete: true,
     statusIndex: 4,
@@ -1554,8 +1685,6 @@ const MOD_CFG: Record<string, ModConfig> = {
     statusIndex: 8,
     // 14 = stock already consumed, 15 = source order code, 16 = comment
     hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13, 14, 15, 16],
-    // 14 = stock already consumed (Sí/No), 15 = order code it came from (internal data)
-    hiddenCellIndexes: [6, 7, 9, 10, 11, 12, 13, 14, 15],
   },
   "producto-no-conforme": {
     columns: ["Orden", "Productos o insumos dañados", "Cantidad", "Motivo", "Fecha", "Estado"],
@@ -1599,24 +1728,17 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "1",
         label: "Tipo de documento",
         type: "select",
-        options: [
-          "Cédula de Ciudadanía",
-          "Cédula Extranjería",
-          "NIT",
-          "Pasaporte",
-          "Tarjeta de Identidad",
-        ],
+        options: DOC_TYPES,
       },
       { key: "2", label: "Número de documento", type: "text" },
-      { key: "0", label: "Nombre completo", type: "text" },
+      { key: "0", label: "Nombres y apellidos", type: "text" },
       { key: "3", label: "Teléfono", type: "tel" },
       { key: "4", label: "Correo electrónico", type: "email" },
-      { key: "5", label: "Dirección", type: "text" },
-      { key: "6", label: "Cliente de local", type: "checkbox" },
+      { key: "5", label: "Dirección principal", type: "text" },
     ],
     seed: [],
     statusIndex: 7,
-    hiddenCellIndexes: [1, 5, 6],
+    hiddenCellIndexes: [1, 5, 6, 9, 10, 11],
   },
   ventas: {
     columns: [
@@ -1624,16 +1746,9 @@ const MOD_CFG: Record<string, ModConfig> = {
       "Cliente",
       "Fecha",
       "Total",
-      "Estado de venta",
       "Estado del pedido",
     ],
     fields: [
-      {
-        key: "0",
-        label: "Usuario (vendedor)",
-        type: "select",
-        options: [],
-      },
       {
         key: "1",
         label: "Cliente",
@@ -1642,25 +1757,24 @@ const MOD_CFG: Record<string, ModConfig> = {
       },
       { key: "2", label: "Fecha", type: "date" },
       {
+        key: "0",
+        label: "Usuario (vendedor)",
+        type: "select",
+        options: [],
+      },
+      {
         key: "3",
         label: "Tipo de venta",
         type: "select",
-        options: ["Local", "Domicilio", "WhatsApp", "Online"],
+        options: ["Local", "Domicilio", "Para recoger"],
       },
       {
         key: "4",
         label: "Método de pago",
         type: "select",
-        options: ["Efectivo", "Nequi", "Daviplata", "Tarjeta"],
+        options: ["Transferencia", "Efectivo"],
       },
-      { key: "5", label: "Subtotal", type: "number" },
       { key: "6", label: "Total", type: "number" },
-      {
-        key: "7",
-        label: "Estado de venta",
-        type: "select",
-        options: ["Completada", "Pendiente", "Cancelada"],
-      },
       { key: "8", label: "Pedido asociado", type: "text" },
       {
         key: "9",
@@ -1672,7 +1786,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [],
     noDelete: true,
     autoId: true,
-    hiddenCellIndexes: [1, 4, 5, 6, 9, 11, 12],
+    hiddenCellIndexes: [1, 4, 5, 6, 8, 9, 11, 12],
   },
   pedidos: {
     columns: [
@@ -1690,7 +1804,6 @@ const MOD_CFG: Record<string, ModConfig> = {
         type: "select",
         options: [],
       },
-      { key: "1", label: "Productos solicitados", type: "textarea" },
       {
         key: "2",
         label: "Tipo de pedido",
@@ -1722,26 +1835,21 @@ const MOD_CFG: Record<string, ModConfig> = {
         ],
       },
       { key: "9", label: "Comprobante de pago", type: "image" },
+      { key: "1", label: "Productos solicitados", type: "textarea" },
+      { key: "11", label: "Comentario (especificaciones)", type: "textarea" },
     ],
     seed: [],
     noDelete: true,
     autoId: true,
     // 10 = order lines JSON saved by admin-created orders (was showing as "Dato 7")
-    // 11 = payment rejection reason
-    hiddenCellIndexes: [2, 3, 4, 5, 10, 11],
+    // 11 = payment rejection reason, 12 = comment (also goes to its production order)
+    hiddenCellIndexes: [2, 3, 4, 5, 10, 11, 12],
   },
   devoluciones: {
     columns: ["Código", "Cliente", "Motivo", "Fecha"],
+    // [0 código (automático), 1 venta asociada, 2 cliente (de la venta), 3 sin uso, 4 motivo, 5 fecha]
     fields: [
-      { key: "0", label: "Código devolución", type: "text" },
-      { key: "1", label: "ID Venta asociada", type: "text" },
-      {
-        key: "2",
-        label: "Cliente",
-        type: "select",
-        options: [],
-      },
-      { key: "3", label: "Nombre cliente (texto libre)", type: "text" },
+      { key: "1", label: "Venta asociada", type: "text" },
       {
         key: "4",
         label: "Motivo de devolución",
@@ -1753,7 +1861,8 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [],
     noDelete: true,
     noExport: true,
-    hiddenCellIndexes: [1, 3],
+    // 6 = returned products (JSON), shown in the detail
+    hiddenCellIndexes: [1, 3, 6],
   },
 }
 
@@ -1780,51 +1889,74 @@ function derivePedidoPayment(method: string, hasProof: boolean) {
   return { modalidad: "", estadoPago: "" }
 }
 
-// One production order per order line (same format "Confirmar pedido y enviar a
-// producción" always used). Returns the production rows with the new ones on top.
+// "Hamburguesa Tradicional ×2, Perro Mediano + 1 adición": what a production order makes, in one line
+function productionLabel(lines: AdminOrderLine[]) {
+  const products = lines.filter((line) => !line.parentId)
+  const additions = lines.length - products.length
+  // The same product in two lines shows once with the total
+  const totals = new Map<string, number>()
+  products.forEach((line) => totals.set(line.product, (totals.get(line.product) ?? 0) + line.quantity))
+  return (
+    [...totals].map(([product, quantity]) => (quantity > 1 ? `${product} ×${quantity}` : product)).join(", ") +
+    (additions ? ` + ${additions} ${additions === 1 ? "adición" : "adiciones"}` : "")
+  )
+}
+
+// Next automatic sale code: VTA-AUTO-NN after the highest one there is
+const nextAutoSaleCode = (sales: Row[]) =>
+  `VTA-AUTO-${String(Math.max(0, ...sales.map((sale) => Number(/^VTA-AUTO-(\d+)$/.exec(String(sale[0] ?? ""))?.[1] ?? 0))) + 1).padStart(2, "0")}`
+
+// Sale type of an order's sale: shop orders ("Online") are deliveries
+const saleTypeOf = (orderType: string | number | undefined) => (String(orderType ?? "") === "Online" ? "Domicilio" : String(orderType ?? ""))
+
+// Order payment moves forward only (as production statuses); "Pagado" creates the order's sale
+const PAYMENT_NEXT: Record<string, string> = {
+  Pendiente: "Pagado",
+  "Pendiente de verificación": "Pagado",
+  Rechazado: "Pendiente de verificación",
+}
+
+// One production order per customer order, with all its products (and their additions) inside.
+// Returns the production rows with the new one on top.
 function buildProductionRows(
   lines: AdminOrderLine[],
   productionRows: (string | number)[][],
   orderCode: string,
+  comment = "",
 ) {
+  if (!lines.length) return productionRows
   const now = new Date()
   const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-")
   const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
-  const result = [...productionRows]
-  let priority = Math.max(0, ...result.map((row) => Number(row[3]) || 0))
-  let lastCode = Math.max(0, ...result.map((row) => Number(/^OP-(\d+)$/i.exec(String(row[0] ?? ""))?.[1] ?? 0)))
-  lines.slice().reverse().forEach((item) => {
-    priority += 1
-    lastCode += 1
-    const parent = lines.find((candidate) => candidate.id === item.parentId)
-    result.unshift([
-      `OP-${String(lastCode).padStart(4, "0")}`,
-      parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
-      item.quantity,
+  const priority = Math.max(0, ...productionRows.map((row) => Number(row[3]) || 0)) + 1
+  const lastCode = Math.max(0, ...productionRows.map((row) => Number(/^OP-(\d+)$/i.exec(String(row[0] ?? ""))?.[1] ?? 0)))
+  return [
+    [
+      `OP-${String(lastCode + 1).padStart(4, "0")}`,
+      productionLabel(lines),
+      lines.filter((line) => !line.parentId).reduce((sum, line) => sum + line.quantity, 0),
       priority,
       date,
       time,
       date,
       time,
-      "Iniciada",
+      "Recibida",
       "",
       0,
       "Sí",
-      JSON.stringify([{ status: "Iniciada", date, time }]),
-      JSON.stringify([{
-        name: item.product,
-        quantity: item.quantity,
-        category: item.category,
-        ...(item.parentId ? { parentId: item.parentId } : {}),
-      }]),
+      JSON.stringify([{ status: "Recibida", date, time }]),
+      JSON.stringify(lines.map((line) => ({
+        name: line.product,
+        quantity: line.quantity,
+        category: line.category,
+        ...(line.parentId ? { parentId: line.parentId } : {}),
+      }))),
       "No",
       orderCode,
-
-      "",
-
-    ])
-  })
-  return result
+      comment,
+    ],
+    ...productionRows,
+  ]
 }
 
 const SIDEBAR_MENU = [
@@ -1892,71 +2024,9 @@ const SIDEBAR_MENU = [
 type FieldErrors = Record<string, string>
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/
 const NAME_RE = /^[A-Za-zÁÉÍÓÚÜÑáéíóúüñ' ]+$/
-const DEMO_CODE = "841736"
-const DOC_RULES: Record<string, { re: RegExp; msg: string }> = {
-  "Cédula de Ciudadanía": {
-    re: /^\d{6,10}$/,
-
-    msg: "El documento debe tener entre 6 y 10 caracteres, sin espacios.",
-  },
-  "Cédula Extranjería": {
-    re: /^\d{6,10}$/,
-    msg: "El documento debe tener entre 6 y 10 caracteres, sin espacios.",
-  },
-  NIT: {
-    re: /^\d{6,9}(-\d)?$/,
-    msg: "El documento debe tener entre 6 y 10 caracteres, sin espacios.",
-  },
-  Pasaporte: {
-    re: /^[A-Za-z0-9]{6,10}$/,
-    msg: "El documento debe tener entre 6 y 10 caracteres, sin espacios.",
-  },
-  "Tarjeta de Identidad": {
-    re: /^\d{6,10}$/,
-    msg: "El documento debe tener entre 6 y 10 caracteres, sin espacios.",
-  },
-}
-const validateAccountDocumentNumber = (value: string, docType: string) => {
-  if (value.length < 6 || value.length > 10) {
-    return "El documento debe tener entre 6 y 10 caracteres."
-  }
-  return docType && DOC_RULES[docType] && !DOC_RULES[docType].re.test(value)
-    ? DOC_RULES[docType].msg
-    : ""
-}
-
-const getPasswordError = (password: string) => {
-  if (!password) return "Crea una contraseña."
-  const missing = [
-    password.length < 8 && "mínimo 8 caracteres",
-    !/[A-Z]/.test(password) && "una mayúscula",
-    !/[a-z]/.test(password) && "una minúscula",
-    !/\d/.test(password) && "un número",
-  ].filter(Boolean)
-  return missing.length ? `La contraseña necesita ${missing.join(", ")}.` : ""
-}
-
-    msg: "La cédula debe tener entre 6 y 10 números, sin puntos ni espacios.",
-  },
-  "Cédula Extranjería": {
-    re: /^\d{6,12}$/,
-    msg: "La cédula de extranjería debe tener entre 6 y 12 números.",
-  },
-  NIT: {
-    re: /^\d{9}(-\d)?$/,
-    msg: "El NIT debe tener 9 números y puede llevar el dígito de verificación (ej: 900123456-7).",
-  },
-  Pasaporte: {
-    re: /^[A-Za-z0-9]{5,12}$/,
-    msg: "El pasaporte debe tener entre 5 y 12 letras o números, sin espacios.",
-  },
-  "Tarjeta de Identidad": {
-    re: /^\d{10,11}$/,
-    msg: "La tarjeta de identidad debe tener 10 u 11 números.",
-  },
-}
-
-
+// Same rules under the names the production/registro code uses
+const getPasswordError = (password: string) => passwordErrors(password, password).pass ?? ""
+const validateAccountDocumentNumber = (value: string, docType: string) => validateDocumentNumber(value, docType)
 function emailError(email: string) {
   if (!email.trim()) return "Ingresa tu correo electrónico."
   if (!EMAIL_RE.test(email.trim()))
@@ -2020,31 +2090,26 @@ function validateRegister(f: {
   if (em) e.email = em
   else if (loadLS(`profile:${f.email.trim().toLowerCase()}`, null))
     e.email = "Ya existe una cuenta con este correo. Inicia sesión."
+  return { ...e, ...passwordErrors(f.pass, f.pass2) }
+}
 
-  const passError = getPasswordError(f.pass)
-  if (passError) e.pass = passError
-=======
-  if (!f.pass) e.pass = "Crea una contraseña."
+function passwordErrors(pass: string, pass2: string): FieldErrors {
+  const e: FieldErrors = {}
+  if (!pass) e.pass = "Crea una contraseña."
   else {
     const missing = [
-      f.pass.length < 8 && "mínimo 8 caracteres",
-      !/[A-Z]/.test(f.pass) && "una mayúscula",
-      !/[a-z]/.test(f.pass) && "una minúscula",
-      !/\d/.test(f.pass) && "un número",
+      pass.length < 8 && "mínimo 8 caracteres",
+      !/[A-Z]/.test(pass) && "una mayúscula",
+      !/[a-z]/.test(pass) && "una minúscula",
+      !/\d/.test(pass) && "un número",
     ].filter(Boolean)
     if (missing.length) e.pass = `La contraseña necesita ${missing.join(", ")}.`
   }
-
-  if (!f.pass2) e.pass2 = "Confirma tu contraseña."
-  else if (f.pass2 !== f.pass) e.pass2 = "Las contraseñas no coinciden."
+  if (!pass2) e.pass2 = "Confirma tu contraseña."
+  else if (pass2 !== pass) e.pass2 = "Las contraseñas no coinciden."
   return e
 }
 
-function codeError(code: string) {
-  if (code.length < 6) return "El código tiene 6 números."
-  if (code !== DEMO_CODE) return "El código no es correcto. Revisa el que te enviamos."
-  return ""
-}
 
 function FieldError({ msg }: { msg?: string }) {
   if (!msg) return null
@@ -2135,7 +2200,7 @@ function AuthLayout({
       className="min-h-screen flex items-center justify-center px-4 py-8"
       style={{ background: "#FAF3E6", fontFamily: "Poppins, sans-serif" }}
     >
-      <div className="w-full max-w-md">
+      <div className="w-full max-w-lg">
         <div className="flex flex-col items-center mb-5">
           <img
             src={logoImg}
@@ -2182,91 +2247,6 @@ function AuthLayout({
   )
 }
 
-function FirstPasswordPage({
-  onComplete,
-}: {
-  onComplete: (password: string) => Promise<void>
-}) {
-  const [password, setPassword] = useState("")
-  const [confirmation, setConfirmation] = useState("")
-  const [error, setError] = useState("")
-  const [busy, setBusy] = useState(false)
-
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault()
-    const passwordError = getPasswordError(password)
-    if (passwordError) {
-      setError(passwordError)
-      return
-    }
-    if (password !== confirmation) {
-      setError("Las contraseñas no coinciden.")
-      return
-    }
-    setBusy(true)
-    setError("")
-    try {
-      await onComplete(password)
-    } catch (err) {
-      setError((err as Error).message)
-      setBusy(false)
-    }
-  }
-
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f7f4ee] px-4 py-10">
-      <form
-        onSubmit={submit}
-        className="w-full max-w-lg rounded-3xl bg-white p-6 shadow-xl sm:p-10"
-      >
-        <h1 className="text-2xl font-bold text-[#26231f] sm:text-3xl">
-          Cambia tu contraseña
-        </h1>
-        <p className="mt-3 text-sm leading-relaxed text-[#6f6a62]">
-          Por seguridad, crea una contraseña personal para continuar.
-        </p>
-        <label className="mt-7 block text-sm font-semibold text-[#39352f]">
-          Nueva contraseña
-          <input
-            autoComplete="new-password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="mt-2 w-full rounded-xl border border-[#ddd7cd] px-4 py-3 outline-none focus:border-[#b68c1c]"
-            required
-          />
-        </label>
-        <label className="mt-4 block text-sm font-semibold text-[#39352f]">
-          Confirmar contraseña
-          <input
-            autoComplete="new-password"
-            type="password"
-            value={confirmation}
-            onChange={(event) => setConfirmation(event.target.value)}
-            className="mt-2 w-full rounded-xl border border-[#ddd7cd] px-4 py-3 outline-none focus:border-[#b68c1c]"
-            required
-          />
-        </label>
-        <p className="mt-3 text-xs leading-relaxed text-[#777168]">
-          Debe tener al menos 8 caracteres, una mayúscula, una minúscula y un número.
-        </p>
-        {error && (
-          <p role="alert" className="mt-3 text-sm font-medium text-red-700">
-            {error}
-          </p>
-        )}
-        <button
-          type="submit"
-          disabled={busy}
-          className="mt-6 w-full rounded-xl bg-[#a54131] px-4 py-3 font-bold text-white hover:opacity-90 disabled:opacity-60"
-        >
-          {busy ? "Guardando..." : "Guardar contraseña"}
-        </button>
-      </form>
-    </main>
-  )
-}
-
 function LoginPage({
   onLogin,
   onRegister,
@@ -2305,7 +2285,7 @@ function LoginPage({
       className="min-h-screen flex items-center justify-center px-4 py-8"
       style={{ background: "#F7F2E8", fontFamily: "Poppins, sans-serif" }}
     >
-      <div className="w-full max-w-5xl grid lg:grid-cols-2 gap-8 items-center">
+      <div className="w-full max-w-6xl grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-8 items-center">
         <div className="hidden lg:block px-8">
           <img
             src={logoImg}
@@ -2333,7 +2313,7 @@ function LoginPage({
           </p>
         </div>
         <div
-          className="w-full max-w-md mx-auto p-7 sm:p-9 rounded-3xl"
+          className="w-full max-w-xl mx-auto p-7 sm:p-10 rounded-3xl"
           style={{
             background: "#fff",
             boxShadow: "0 12px 45px rgba(30,30,30,0.10)",
@@ -2457,9 +2437,7 @@ function RegisterPage({
   onLoginLink: () => void
   onBack: () => void
 }) {
-  const [step, setStep] = useState<"form" | "verifying">("form")
   const [tried, setTried] = useState(false)
-  const [codeTried, setCodeTried] = useState(false)
   const [form, setForm] = useState({
     name: "",
     lastname: "",
@@ -2470,9 +2448,7 @@ function RegisterPage({
     pass: "",
     pass2: "",
   })
-  const [code, setCode] = useState("")
   const errors = tried ? validateRegister(form) : {}
-  const err = codeTried ? codeError(code) : ""
   const upd = (k: keyof typeof form) => (v: string) =>
     setForm((current) => ({
       ...current,
@@ -2483,108 +2459,38 @@ function RegisterPage({
             ? digitsOnly(v).slice(0, 10)
             : v,
     }))
-  const submitForm = (e: React.FormEvent) => {
-    e.preventDefault()
-    setTried(true)
-    if (Object.keys(validateRegister(form)).length) return
-    setStep("verifying")
-  }
+
+  const newUser = (): User => ({
+    name: `${form.name.trim()} ${form.lastname.trim()}`.trim(),
+    email: form.email.trim().toLowerCase(),
+    role: "user",
+    docType: form.docType,
+    phone: form.phone.replace(/\s/g, ""),
+    cedula: form.docNum.trim(),
+  })
   const [serverErr, setServerErr] = useState("")
   const [busy, setBusy] = useState(false)
-  const submitCode = async (e: React.FormEvent) => {
+  const submitForm = async (e: React.FormEvent) => {
     e.preventDefault()
-    setCodeTried(true)
+    setTried(true)
     setServerErr("")
-    if (busy || codeError(code)) return
-    const u: User = {
-      name: `${form.name.trim()} ${form.lastname.trim()}`.trim(),
-      email: form.email.trim().toLowerCase(),
-      role: "user",
-      docType: form.docType,
-      phone: form.phone.replace(/\s/g, ""),
-      cedula: form.docNum.trim(),
-    }
+    if (busy || Object.keys(validateRegister(form)).length) return
     setBusy(true)
     try {
-      await apiRegister({ ...u, password: form.pass })
-      onVerify(u)
+      await apiRegister(newUser(), form.pass)
+      onVerify(newUser())
     } catch (err) {
       setServerErr((err as Error).message)
     } finally {
       setBusy(false)
     }
   }
-  if (step === "verifying")
-    return (
-      <AuthLayout
-        title="Verifica tu correo"
-        sub={
-          <>
-            Código enviado a <strong>{form.email}</strong>
-          </>
-        }
-      >
-        <form onSubmit={submitCode} className="flex flex-col gap-4">
-          <div className="text-center text-5xl py-2">📧</div>
-          <p
-            className="text-xs text-center"
-            style={{ color: "rgba(30,30,30,0.5)" }}
-          >
-            Ingresa el código de 6 dígitos que enviamos a tu correo. (Demo:{" "}
-            <strong>{DEMO_CODE}</strong>)
-          </p>
-          <input
-            maxLength={6}
-            placeholder="000000"
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            inputMode="numeric"
-            aria-invalid={!!err}
-            className="w-full px-4 py-4 rounded-xl text-center text-2xl font-bold tracking-widest outline-none"
-            style={{
-              background: "rgba(30,30,30,0.05)",
-              border: `1.5px solid ${err ? C.red : "rgba(30,30,30,0.12)"}`,
-              color: "#1A1714",
-              letterSpacing: "0.3em",
-            }}
-          />
-          <FieldError msg={err || serverErr} />
-          <button
-            type="submit"
-            disabled={busy}
-            className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
-            style={{ background: C.mustard, color: "#fff" }}
-          >
-            {busy ? "Creando cuenta..." : "Verificar y continuar"}
-          </button>
-          <button
-            type="button"
-            onClick={() => setStep("form")}
-            className="text-xs text-center cursor-pointer"
-            style={{ color: "rgba(30,30,30,0.4)" }}
-          >
-            ← Volver
-          </button>
-          <button
-            type="button"
-            onClick={onBack}
-            className="w-full py-2 rounded-xl font-medium text-sm cursor-pointer"
-            style={{
-              background: "rgba(30,30,30,0.05)",
-              color: "rgba(30,30,30,0.5)",
-            }}
-          >
-            ← Volver al inicio
-          </button>
-        </form>
-      </AuthLayout>
-    )
   return (
     <div
       className="min-h-screen flex items-center justify-center px-4 py-8"
       style={{ background: "#F7F2E8", fontFamily: "Poppins, sans-serif" }}
     >
-      <div className="w-full max-w-6xl grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-8 lg:gap-12 items-center">
+      <div className="w-full max-w-6xl grid lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-6 items-center">
         <div className="hidden lg:block px-6">
           <img
             src={logoImg}
@@ -2612,7 +2518,7 @@ function RegisterPage({
           </p>
         </div>
         <div
-          className="w-full max-w-2xl mx-auto p-6 sm:p-9 rounded-3xl"
+          className="w-full max-w-2xl mx-auto p-6 sm:p-8 rounded-3xl"
           style={{
             background: "#fff",
             boxShadow: "0 12px 35px rgba(30,30,30,0.10)",
@@ -2724,10 +2630,7 @@ function RegisterPage({
                 error={errors.lastname}
               />
             </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-            <div className="grid grid-cols-2 gap-2 items-start">
-
               <InputField
                 label="Teléfono"
                 type="tel"
@@ -2746,11 +2649,7 @@ function RegisterPage({
                 error={errors.email}
               />
             </div>
-
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
-
-            <div className="grid grid-cols-2 gap-2 items-start">
-
               <InputField
                 label="Contraseña *"
                 type="password"
@@ -2775,12 +2674,14 @@ function RegisterPage({
                 Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
               </p>
             )}
+            <FieldError msg={serverErr} />
             <button
               type="submit"
-              className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+              disabled={busy}
+              className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
               style={{ background: C.mustard, color: "#fff" }}
             >
-              Continuar →
+              {busy ? "Creando cuenta..." : "Crear cuenta →"}
             </button>
             <button
               type="button"
@@ -2800,6 +2701,94 @@ function RegisterPage({
   )
 }
 
+// After logging in with the provisional password from the sign-up e-mail
+function ChooseOwnPasswordPage({
+  user,
+  onDone,
+  onLogout,
+}: {
+  user: User
+  onDone: () => void
+  onLogout: () => void
+}) {
+  const [pass, setPass] = useState("")
+  const [pass2, setPass2] = useState("")
+  const [tried, setTried] = useState(false)
+  const [serverErr, setServerErr] = useState("")
+  const [busy, setBusy] = useState(false)
+  const errors = tried ? passwordErrors(pass, pass2) : {}
+  return (
+    <AuthLayout
+      title="Crea tu contraseña"
+      sub={
+        <>
+          Hola <strong>{user.name}</strong>, cambia la contraseña provisional por una propia
+        </>
+      }
+    >
+      <form
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault()
+          setTried(true)
+          setServerErr("")
+          if (busy || Object.keys(passwordErrors(pass, pass2)).length) return
+          setBusy(true)
+          api<{ token: string }>("/auth/me/contrasena-inicial", "PATCH", { nueva: pass })
+            .then(({ token }) => {
+              saveLS("token", token) // the new token no longer carries the "must change" mark
+              onDone()
+            })
+            .catch((err) => setServerErr((err as Error).message))
+            .finally(() => setBusy(false))
+        }}
+        className="flex flex-col gap-3"
+      >
+        <InputField
+          label="Nueva contraseña"
+          type="password"
+          placeholder="••••••••"
+          value={pass}
+          onChange={setPass}
+          required
+          error={errors.pass}
+        />
+        <InputField
+          label="Confirmar"
+          type="password"
+          placeholder="••••••••"
+          value={pass2}
+          onChange={setPass2}
+          required
+          error={errors.pass2}
+        />
+        {!errors.pass && (
+          <p className="text-[11px]" style={{ color: "rgba(30,30,30,0.45)" }}>
+            Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
+          </p>
+        )}
+        <FieldError msg={serverErr} />
+        <button
+          type="submit"
+          disabled={busy}
+          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
+          style={{ background: C.mustard, color: "#fff" }}
+        >
+          {busy ? "Guardando..." : "Guardar y continuar"}
+        </button>
+        <button
+          type="button"
+          onClick={onLogout}
+          className="w-full py-2 rounded-xl text-sm cursor-pointer"
+          style={{ background: "rgba(30,30,30,0.05)", color: "rgba(30,30,30,0.5)" }}
+        >
+          Cerrar sesión
+        </button>
+      </form>
+    </AuthLayout>
+  )
+}
+
 function ForgotPage({
   onReset,
   onBack,
@@ -2810,13 +2799,15 @@ function ForgotPage({
   const [email, setEmail] = useState("")
   const [sent, setSent] = useState(false)
   const [emailErr, setEmailErr] = useState("")
+  const [busy, setBusy] = useState(false)
   if (sent)
     return (
-      <AuthLayout title="Correo enviado" sub="Revisa tu bandeja de entrada">
+      <AuthLayout title="Revisa tu correo" sub="Si está registrado, te llegará un código">
         <div className="text-center py-2">
           <div className="text-5xl mb-3">📧</div>
           <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.55)" }}>
-            Enlace enviado a <strong>{email}</strong>
+            Si <strong>{email}</strong> está registrado, se le enviará un código a su correo. Vence en 15 minutos;
+            si no lo ves, revisa también la carpeta de spam.
           </p>
           <button
             onClick={() => onReset(email)}
@@ -2841,14 +2832,19 @@ function ForgotPage({
   return (
     <AuthLayout
       title="Recuperar contraseña"
-      sub="Ingresa tu correo y te enviamos el enlace"
+      sub="Ingresa tu correo y te enviamos un código"
     >
       <form
         onSubmit={(e) => {
           e.preventDefault()
           const error = emailError(email)
           setEmailErr(error)
-          if (!error) setSent(true)
+          if (error || busy) return
+          setBusy(true)
+          api("/auth/recuperar", "POST", { correo: email.trim() })
+            .then(() => setSent(true))
+            .catch((err) => setEmailErr((err as Error).message))
+            .finally(() => setBusy(false))
         }}
         className="flex flex-col gap-3"
       >
@@ -2866,10 +2862,11 @@ function ForgotPage({
         />
         <button
           type="submit"
-          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+          disabled={busy}
+          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
           style={{ background: C.mustard, color: "#fff" }}
         >
-          Enviar enlace
+          {busy ? "Enviando..." : "Enviar código"}
         </button>
         <button
           type="button"
@@ -2888,10 +2885,12 @@ function ForgotPage({
 }
 
 function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
+  const [code, setCode] = useState("")
   const [pass, setPass] = useState("")
   const [pass2, setPass2] = useState("")
   const [err, setErr] = useState("")
   const [ok, setOk] = useState(false)
+  const [busy, setBusy] = useState(false)
   if (ok)
     return (
       <AuthLayout title="¡Listo!" sub="Contraseña actualizada">
@@ -2919,19 +2918,36 @@ function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
       <form
         onSubmit={(e) => {
           e.preventDefault()
+          if (!/^\d{6}$/.test(code.trim())) {
+            setErr("Escribe el código de 6 dígitos que te llegó al correo.")
+            return
+          }
           if (pass !== pass2) {
             setErr("No coinciden.")
             return
           }
-          const passwordError = getPasswordError(pass)
-          if (passwordError) {
-            setErr(passwordError)
+          if (pass.length < 8) {
+            setErr("Mínimo 8 caracteres.")
             return
           }
-          setOk(true)
+          if (busy) return
+          setBusy(true)
+          setErr("")
+          api("/auth/restablecer", "POST", { correo: email.trim(), codigo: code.trim(), nueva: pass })
+            .then(() => setOk(true))
+            .catch((error) => setErr((error as Error).message))
+            .finally(() => setBusy(false))
         }}
         className="flex flex-col gap-3"
       >
+        <InputField
+          label="Código del correo"
+          type="text"
+          placeholder="123456"
+          value={code}
+          onChange={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
+          required
+        />
         <InputField
           label="Nueva contraseña"
           type="password"
@@ -2955,13 +2971,42 @@ function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
         )}
         <button
           type="submit"
-          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+          disabled={busy}
+          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
           style={{ background: C.mustard, color: "#fff" }}
         >
-          Guardar
+          {busy ? "Guardando..." : "Guardar"}
         </button>
       </form>
     </AuthLayout>
+  )
+}
+
+// Product picture: a click shows it big and complete; another click puts it back
+function ZoomableImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [zoomed, setZoomed] = useState(false)
+  return (
+    <>
+      <img
+        src={src}
+        alt={alt}
+        onClick={() => setZoomed(true)}
+        title="Toca para ver más grande"
+        className={`${className ?? ""} cursor-zoom-in`}
+      />
+      {zoomed && (
+        <div
+          className="fixed inset-0 z-[90] flex cursor-zoom-out flex-col items-center justify-center gap-3 p-4"
+          style={{ background: "rgba(0,0,0,0.85)" }}
+          onClick={() => setZoomed(false)}
+          role="dialog"
+          aria-label={alt}
+        >
+          <img src={src} alt={alt} className="max-h-[80vh] max-w-[92vw] rounded-2xl object-contain shadow-2xl" />
+          <span className="text-xs text-white/70">Toca para volver</span>
+        </div>
+      )}
+    </>
   )
 }
 
@@ -2994,11 +3039,7 @@ function ProductInfoModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="relative" style={{ height: "200px" }}>
-          <img
-            src={product.img}
-            alt={product.name}
-            className="w-full h-full object-cover"
-          />
+          <ZoomableImage src={product.img} alt={product.name} className="w-full h-full object-cover" />
           <div
             className="absolute inset-0"
             style={{
@@ -3023,11 +3064,10 @@ function ProductInfoModal({
           )}
           {cat && (
             <span
-              className="absolute bottom-3 left-3 text-xs px-2 py-0.5 rounded-full"
+              className="absolute bottom-3 left-3 flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
               style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
             >
-              <span className="mr-1 inline-flex align-middle">{getMenuCategoryIcon(cat.icon)}</span>
-              {cat.label}
+              {aboutIcon(13, cat.icon)} {cat.label}
             </span>
           )}
         </div>
@@ -3091,6 +3131,8 @@ function AddToCartModal({
   const [selSauces, setSelSauces] = useState<string[]>([])
   const [addQtys, setAddQtys] = useState<Record<string, number>>({})
   const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0].id)
+  // Drink whose picture is shown big (click again to close)
+  const [zoomBeverage, setZoomBeverage] = useState<string | null>(null)
   const [customizationTab, setCustomizationTab] = useState<"sauces" | "additions" | "beverages">("sauces")
   const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
@@ -3168,25 +3210,18 @@ function AddToCartModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Photo fills the whole width (cover); tapping it still shows it complete */}
         <div
           className="relative flex-shrink-0 overflow-hidden"
-          style={{ height: "clamp(120px, 26vh, 230px)", background: dark ? "#111" : "#1E1C18" }}
+          style={{ height: "clamp(150px, 30vh, 260px)", background: dark ? "#111" : "#1E1C18" }}
         >
-          <img
-            src={product.img}
-            alt=""
-            aria-hidden="true"
-            className="absolute inset-0 h-full w-full scale-110 object-cover opacity-60 blur-xl"
-          />
-          <img
-            src={product.img}
-            alt={product.name}
-            className="relative z-10 h-full w-full object-contain"
-          />
+          <ZoomableImage src={product.img} alt={product.name} className="h-full w-full object-cover object-center" />
+          {/* z-20 keeps the close button above the photo so the tap closes instead of zooming */}
           <button
             onClick={onClose}
-            className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
-            style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
+            aria-label="Cerrar"
+            className="absolute top-3 right-3 z-20 w-9 h-9 rounded-full flex items-center justify-center cursor-pointer hover:opacity-90"
+            style={{ background: "rgba(0,0,0,0.55)", color: "#fff", backdropFilter: "blur(4px)" }}
           >
             {Ico.x}
           </button>
@@ -3336,26 +3371,38 @@ function AddToCartModal({
           )}
           {customizationTab === "beverages" && (
           <div>
-            <div className="mb-1 flex items-center justify-end gap-3">
-              <select
-                aria-label="Tamaño de gaseosa"
-                value={beverageSize}
-                onChange={(event) => setBeverageSize(event.target.value)}
-                className="rounded-lg px-2.5 py-1.5 text-xs font-semibold outline-none"
-                style={{
-                  background: dark ? "#292720" : "#fff",
-                  border: `1px solid ${BORDER}`,
-                  color: TEXT,
-                }}
-              >
-                {BEVERAGE_SIZES.map((size) => (
-                  <option key={size.id} value={size.id}>
-                    {size.label} · {fmt(size.price)}
-                  </option>
-                ))}
-              </select>
+            {/* Size as visible buttons: the bottle photos below change with it */}
+            <div
+              role="radiogroup"
+              aria-label="Tamaño de gaseosa"
+              className="mb-2 grid gap-1.5"
+              style={{ gridTemplateColumns: `repeat(${BEVERAGE_SIZES.length}, minmax(0, 1fr))` }}
+            >
+              {BEVERAGE_SIZES.map((size) => {
+                const on = size.id === beverageSize
+                return (
+                  <button
+                    key={size.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={on}
+                    onClick={() => setBeverageSize(size.id)}
+                    className="flex cursor-pointer flex-col items-center rounded-xl px-1 py-1.5 leading-tight transition-colors"
+                    style={{
+                      background: on ? C.mustard : dark ? "rgba(244,238,220,0.05)" : "#fff",
+                      border: `1px solid ${on ? C.mustard : BORDER}`,
+                      color: on ? "#fff" : TEXT,
+                    }}
+                  >
+                    <span className="text-xs font-bold">{size.label}</span>
+                    <span className="text-[10px] font-semibold" style={{ opacity: on ? 0.9 : 0.6 }}>
+                      {fmt(size.price)}
+                    </span>
+                  </button>
+                )
+              })}
             </div>
-            <div className="grid grid-cols-2 gap-1">
+            <div className="grid grid-cols-2 gap-1.5">
               {BEVERAGES.map((flavor) => {
                 const size = selectedBeverageSize
                 const key = `Gaseosa ${flavor} ${size.id}`
@@ -3363,51 +3410,88 @@ function AddToCartModal({
                 return (
                   <div
                     key={flavor}
-                    className="flex min-w-0 items-center justify-between gap-1 rounded-xl px-2 py-1"
-                    style={{ border: `1px solid ${BORDER}`, background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
+                    className="flex min-w-0 items-center gap-2 rounded-xl p-1.5 transition-colors"
+                    style={{
+                      border: `1px solid ${quantity > 0 ? C.mustard : BORDER}`,
+                      background: quantity > 0 ? `${C.mustard}12` : dark ? "rgba(244,238,220,0.03)" : "#fff",
+                    }}
                   >
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="text-xs leading-tight" style={{ color: TEXT }}>
+                    <button
+                      type="button"
+                      onClick={() => setZoomBeverage(flavor)}
+                      aria-label={`Ver ${beverageLabel(flavor)} ${size.label} más grande`}
+                      className="flex h-14 w-11 flex-shrink-0 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg"
+                      style={{ background: "#fff" }}
+                    >
+                      <BeverageArt flavor={flavor} size={size.label} />
+                    </button>
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      {/* Flavour only (the brand is on the bottle); nowrap keeps "Coca-Cola" in one piece */}
+                      <span
+                        className="truncate whitespace-nowrap text-[13px] font-semibold leading-tight"
+                        style={{ color: TEXT }}
+                        title={beverageLabel(flavor)}
+                      >
                         {flavor}
                       </span>
-                      <span className="text-[11px] font-semibold leading-tight" style={{ color: quantity > 0 ? C.mustard : MUTED }}>
-                        {quantity > 0 ? `+${fmt(size.price * quantity)}` : fmt(size.price)}
-                      </span>
-                    </div>
-                    <div className="flex flex-shrink-0 items-center gap-1">
-                      <button
-                        onClick={() => changeAdd(key, -1)}
-                        disabled={quantity === 0}
-                        aria-label={`Quitar gaseosa ${flavor} ${size.label}`}
-                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
-                        style={{
-                          background: dark
-                            ? "rgba(244,238,220,0.1)"
-                            : "rgba(30,30,30,0.08)",
-                          color: TEXT,
-                        }}
-                      >
-                        −
-                      </button>
-                      <span
-                        className="w-5 text-center text-sm font-bold"
-                        style={{ color: TEXT }}
-                      >
-                        {quantity}
-                      </span>
-                      <button
-                        onClick={() => changeAdd(key, 1)}
-                        aria-label={`Agregar gaseosa ${flavor} ${size.label}`}
-                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
-                        style={{ background: C.mustard, color: "#fff" }}
-                      >
-                        +
-                      </button>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-[11px] font-semibold" style={{ color: quantity > 0 ? C.mustard : MUTED }}>
+                          {quantity > 0 ? `+${fmt(size.price * quantity)}` : fmt(size.price)}
+                        </span>
+                        <div className="flex flex-shrink-0 items-center gap-1">
+                          <button
+                            onClick={() => changeAdd(key, -1)}
+                            disabled={quantity === 0}
+                            aria-label={`Quitar gaseosa ${flavor} ${size.label}`}
+                            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
+                            style={{
+                              background: dark ? "rgba(244,238,220,0.1)" : "rgba(30,30,30,0.08)",
+                              color: TEXT,
+                            }}
+                          >
+                            −
+                          </button>
+                          <span className="w-4 text-center text-sm font-bold" style={{ color: TEXT }}>
+                            {quantity}
+                          </span>
+                          <button
+                            onClick={() => changeAdd(key, 1)}
+                            aria-label={`Agregar gaseosa ${flavor} ${size.label}`}
+                            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
+                            style={{ background: C.mustard, color: "#fff" }}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )
               })}
             </div>
+            {zoomBeverage && (
+              <div
+                className="fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center p-6"
+                style={{ background: "rgba(0,0,0,0.75)" }}
+                onClick={() => setZoomBeverage(null)}
+                role="dialog"
+                aria-label={beverageLabel(zoomBeverage)}
+              >
+                <div className="flex flex-col items-center gap-3">
+                  <div
+                    className="flex h-[min(60vh,420px)] w-[min(70vw,300px)] items-center justify-center overflow-hidden rounded-2xl p-4"
+                    style={{ background: "#fff" }}
+                  >
+                    <BeverageArt flavor={zoomBeverage} size={selectedBeverageSize.label} />
+                  </div>
+                  <span className="text-base font-bold text-white">
+                    {beverageLabel(zoomBeverage)} · {selectedBeverageSize.label}
+                  </span>
+                  <span className="max-w-xs text-center text-[10px] text-white/60">Imagen de referencia del producto</span>
+                  <span className="text-xs text-white/70">Toca para volver</span>
+                </div>
+              </div>
+            )}
           </div>
           )}
         </div>
@@ -3477,10 +3561,14 @@ function ProductCatalog({
   onInfoClick,
   onAddClick,
   dark,
+  paginate = true,
+  compact = false,
 }: {
   onInfoClick: (p: Product) => void
   onAddClick: (p: Product) => void
   dark: boolean
+  paginate?: boolean
+  compact?: boolean
 }) {
   const [activeCat, setActiveCat] = useState("todos")
   const [search, setSearch] = useState("")
@@ -3503,11 +3591,12 @@ function ProductCatalog({
         p.name.toLowerCase().includes(search.toLowerCase()) ||
         p.desc.toLowerCase().includes(search.toLowerCase())),
   )
+  const shouldPaginate =
+    paginate && activeCat === "todos" && filtered.length > ITEMS_PER_PAGE && !search
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE)
-  const pageItems = filtered.slice(
-    pg * ITEMS_PER_PAGE,
-    (pg + 1) * ITEMS_PER_PAGE,
-  )
+  const pageItems = shouldPaginate
+    ? filtered.slice(pg * ITEMS_PER_PAGE, (pg + 1) * ITEMS_PER_PAGE)
+    : filtered
   const switchCat = (id: string) => {
     setActiveCat(id)
     setPg(0)
@@ -3516,43 +3605,50 @@ function ProductCatalog({
     <div ref={topRef}>
       {/* Category tabs */}
       <div
-        className="flex gap-2 overflow-x-auto pb-2 mb-4"
+        className="flex snap-x gap-2 overflow-x-auto pb-2 mb-4 md:flex-wrap md:overflow-visible"
         style={{ scrollbarWidth: "none" }}
+        role="tablist"
+        aria-label="Categorías del menú"
       >
-        {MENU_CATS.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => switchCat(cat.id)}
-            className="flex-shrink-0 flex flex-col items-center gap-1 px-4 py-2.5 rounded-xl cursor-pointer transition-all"
-            style={{
-              background:
-                activeCat === cat.id
-                  ? C.mustard
-                  : dark
-                    ? "rgba(255,255,255,0.07)"
-                    : "rgba(30,30,30,0.06)",
-              minWidth: "72px",
-            }}
-          >
-            <span className="flex h-5 items-center justify-center">{getMenuCategoryIcon(cat.icon)}</span>
-            <span
-              className="text-xs font-semibold whitespace-nowrap"
-              style={{ color: activeCat === cat.id ? "#fff" : MUTED }}
+        {MENU_CATS.map((cat) => {
+          const active = activeCat === cat.id
+          return (
+            <button
+              key={cat.id}
+              role="tab"
+              aria-selected={active}
+              onClick={() => switchCat(cat.id)}
+              className="flex flex-shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 text-[13px] font-semibold transition-all hover:-translate-y-px"
+              style={{
+                background: active ? C.mustard : dark ? "rgba(255,255,255,0.05)" : "#fff",
+                border: `1px solid ${active ? C.mustard : BORDER}`,
+                color: active ? "#fff" : dark ? "#F4EEDC" : "#2A2622",
+                boxShadow: active ? `0 6px 16px ${C.mustard}55` : "0 1px 2px rgba(0,0,0,0.04)",
+              }}
             >
-              {cat.label}
-            </span>
-          </button>
-        ))}
+              <span
+                className="flex h-7 w-7 items-center justify-center rounded-full"
+                style={{
+                  background: active ? "rgba(255,255,255,0.22)" : `${C.mustard}1A`,
+                  color: active ? "#fff" : C.mustard,
+                }}
+              >
+                {aboutIcon(18, cat.icon)}
+              </span>
+              <span className="whitespace-nowrap">{cat.label}</span>
+            </button>
+          )
+        })}
       </div>
       {/* Search in catalog */}
       <div
-        className="mb-5 flex w-full max-w-sm items-center gap-2 rounded-xl px-3 py-2"
+        className="mb-5 flex w-full items-center gap-2 rounded-full px-3 py-2 sm:max-w-md"
         style={{
-          background: dark ? "rgba(255,255,255,0.07)" : "rgba(30,30,30,0.06)",
-          border: `1px solid ${BORDER}`,
+          background: dark ? "#1E1C18" : "#fff",
+          border: `1.5px solid ${C.mustard}`,
         }}
       >
-        <span style={{ color: MUTED }}>{Ico.search}</span>
+        <span className="flex-shrink-0" style={{ color: C.mustard }}>{Ico.search}</span>
         <input
           placeholder="Buscar en el menú..."
           value={search}
@@ -3560,17 +3656,19 @@ function ProductCatalog({
             setSearch(e.target.value)
             setPg(0)
           }}
-          className="flex-1 bg-transparent text-sm outline-none"
-          style={{ color: TEXT }}
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+          style={{ color: dark ? TEXT : C.dark }}
         />
         {search && (
           <button
+            type="button"
+            aria-label="Limpiar búsqueda"
             onClick={() => {
               setSearch("")
               setPg(0)
             }}
-            className="text-sm cursor-pointer"
-            style={{ color: MUTED }}
+            className="flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
+            style={{ background: `${C.mustard}18`, color: C.mustard }}
           >
             ×
           </button>
@@ -3578,11 +3676,11 @@ function ProductCatalog({
       </div>
       {/* Count */}
       <p className="text-xs mb-4" style={{ color: MUTED }}>
-        {filtered.length} productos · Página {pg + 1} de{" "}
-        {Math.max(1, totalPages)}
+        {filtered.length} productos
+        {shouldPaginate && <> · Página {pg + 1} de {Math.max(1, totalPages)}</>}
       </p>
       {/* Grid — 3 cols, max 2 rows = 6 items */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+      <div className={`grid grid-cols-2 sm:grid-cols-3 ${compact ? "gap-2" : "gap-3"} mb-5`}>
         {pageItems.length === 0 && (
           <div
             className="col-span-3 text-center py-10 text-sm"
@@ -3596,7 +3694,7 @@ function ProductCatalog({
             key={p.id}
             className="group relative rounded-2xl overflow-hidden cursor-pointer"
             style={{
-              aspectRatio: "4/3",
+              aspectRatio: compact ? "3/2" : "4/3",
               background: CARD,
               boxShadow: dark
                 ? "0 2px 12px rgba(0,0,0,0.3)"
@@ -3611,10 +3709,10 @@ function ProductCatalog({
             />
             {/* Bottom banner — always visible */}
             <div
-              className="absolute bottom-0 left-0 right-0 px-3 py-2.5"
+              className={`absolute bottom-0 left-0 right-0 ${compact ? "px-2 py-1.5" : "px-3 py-2.5"}`}
               style={{ background: C.mustard }}
             >
-              <div className="font-bold text-sm text-white truncate leading-tight">
+              <div className={`font-bold ${compact ? "text-xs" : "text-sm"} text-white truncate leading-tight`}>
                 {p.name}
               </div>
             </div>
@@ -3658,7 +3756,7 @@ function ProductCatalog({
         ))}
       </div>
       {/* Paginator */}
-      {totalPages > 1 && (
+      {shouldPaginate && totalPages > 1 && (
         <div className="flex items-center justify-center gap-2">
           <button
             disabled={pg === 0}
@@ -3730,9 +3828,8 @@ function GuestMenuPage({
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
   ) => {
-    setCart((items) => [
-      ...items,
-      {
+    setCart((items) =>
+      addCartItem(items, {
         id: Date.now(),
         name: product.name,
         description: product.desc,
@@ -3741,8 +3838,8 @@ function GuestMenuPage({
         img: product.img,
         sauces,
         additions,
-      },
-    ])
+      }),
+    )
     setAddProduct(null)
   }
 
@@ -3771,7 +3868,12 @@ function GuestMenuPage({
           >
             ← Volver
           </button>
-          <div className="flex items-center gap-2 ml-2">
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Volver a la página de inicio"
+            className="ml-2 flex cursor-pointer items-center gap-2 text-left"
+          >
             <img
               src={logoImg}
               alt="El Parche"
@@ -3791,7 +3893,7 @@ function GuestMenuPage({
                 Menú
               </div>
             </div>
-          </div>
+          </button>
           <button
             onClick={onCheckout}
             className="relative ml-auto w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"
@@ -3824,6 +3926,8 @@ function GuestMenuPage({
         </div>
         <ProductCatalog
           dark={false}
+          paginate={false}
+          compact
           onInfoClick={setInfoProduct}
           onAddClick={setAddProduct}
         />
@@ -3884,15 +3988,7 @@ function saveLS(key: string, value: unknown) {
 }
 
 // ── Backend (parche-backend) ───────────────────────────────────────────────────
-
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api"
-// VITE_API_URL wins; otherwise the local backend on this PC and the Render one when published
-const API_URL =
-  import.meta.env.VITE_API_URL ||
-  (["localhost", "127.0.0.1"].includes(window.location.hostname)
-    ? "http://localhost:3000/api"
-    : "https://backend-parche.onrender.com/api")
-
 // Uploaded photos come as "/imagenes/<id>" (served by the API); other images are full URLs
 const imageUrl = (u: string | undefined) => (u?.startsWith("/imagenes/") ? API_URL + u : u || "")
 
@@ -3915,12 +4011,10 @@ async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> 
   const json = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(json.detalles?.[0]?.mensaje || json.mensaje || "Ocurrió un error. Intenta de nuevo.")
   return json.data
-
 }
 
 type AuthData = {
   token: string
-  requiere_cambio_contrasena?: boolean
   usuario: {
     correo: string
     nombre: string | null
@@ -3932,27 +4026,21 @@ type AuthData = {
     requiere_cambio_contrasena?: boolean
   }
   permisos: { modulo: string; privilegios: string[] }[]
+  requiere_cambio_contrasena?: boolean
 }
 
-const toUser = ({
-  token,
-  usuario: u,
-  permisos,
-  requiere_cambio_contrasena,
-}: AuthData): User => {
+const toUser = ({ token, usuario: u, permisos, requiere_cambio_contrasena }: AuthData): User => {
   saveLS("token", token)
   return {
     permissions: permisos.filter((p) => p.privilegios.includes("VER")).map((p) => p.modulo),
     name: u.nombre || u.correo,
     email: u.correo.toLowerCase(),
     role: u.roles.includes("CLIENTE") ? "user" : "admin",
-    requiresPasswordChange: Boolean(
-      requiere_cambio_contrasena ?? u.requiere_cambio_contrasena,
-    ),
     docType: u.tipo_documento || undefined,
     cedula: u.documento || undefined,
     phone: u.telefono || undefined,
     addresses: u.direcciones?.length ? u.direcciones : undefined,
+    mustChangePassword: !!(requiere_cambio_contrasena ?? u.requiere_cambio_contrasena),
   }
 }
 
@@ -4019,6 +4107,188 @@ async function idByName(path: string, nameKey: string, idKey: string, name: stri
 const categoryIdByName = (path: string, name: string | number) =>
   idByName(path, "nombre_categoria", "id_categoria", name, "La categoría")
 
+// ── Dashboard period ─────────────────────────────────────────────────────────
+type DashPeriod = "hoy" | "semana" | "mes" | "año"
+const MONTHS_SHORT = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"]
+const toIsoDate = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
+
+// Range [start, end) of the chosen day / week (Mon-Sun) / month / year that contains `anchor`,
+// its chart buckets, the previous range of the same kind (for the % change) and a title
+function getDashPeriod(kind: DashPeriod, anchor: Date) {
+  const day = new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate())
+  const short = (d: Date) => `${d.getDate()} ${MONTHS_SHORT[d.getMonth()].toLowerCase()}`
+  if (kind === "hoy") {
+    return {
+      start: day,
+      end: addDays(day, 1),
+      prevStart: addDays(day, -1),
+      buckets: [{ label: short(day), start: day, end: addDays(day, 1) }],
+      title: day.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", year: "numeric" }),
+    }
+  }
+  if (kind === "semana") {
+    const start = addDays(day, -((day.getDay() + 6) % 7)) // Monday
+    return {
+      start,
+      end: addDays(start, 7),
+      prevStart: addDays(start, -7),
+      buckets: Array.from({ length: 7 }, (_, i) => {
+        const d = addDays(start, i)
+        return { label: `${d.toLocaleDateString("es-CO", { weekday: "short" })} ${d.getDate()}`, start: d, end: addDays(d, 1) }
+      }),
+      title: `Semana del ${short(start)} al ${short(addDays(start, 6))} de ${addDays(start, 6).getFullYear()}`,
+    }
+  }
+  if (kind === "mes") {
+    const start = new Date(day.getFullYear(), day.getMonth(), 1)
+    const end = new Date(day.getFullYear(), day.getMonth() + 1, 1)
+    const buckets = []
+    for (let d = start, n = 1; d < end; d = addDays(d, 7), n++) {
+      const e = addDays(d, 7) < end ? addDays(d, 7) : end
+      buckets.push({ label: `Sem ${n} (${d.getDate()}-${addDays(e, -1).getDate()})`, start: d, end: e })
+    }
+    return {
+      start,
+      end,
+      prevStart: new Date(day.getFullYear(), day.getMonth() - 1, 1),
+      buckets,
+      title: start.toLocaleDateString("es-CO", { month: "long", year: "numeric" }),
+    }
+  }
+  const start = new Date(day.getFullYear(), 0, 1)
+  return {
+    start,
+    end: new Date(day.getFullYear() + 1, 0, 1),
+    prevStart: new Date(day.getFullYear() - 1, 0, 1),
+    buckets: MONTHS_SHORT.map((label, m) => ({
+      label,
+      start: new Date(day.getFullYear(), m, 1),
+      end: new Date(day.getFullYear(), m + 1, 1),
+    })),
+    title: String(day.getFullYear()),
+  }
+}
+// Moves the anchor one period back (-1) or forward (+1)
+const shiftDashAnchor = (kind: DashPeriod, anchor: Date, step: number) =>
+  kind === "hoy"
+    ? addDays(anchor, step)
+    : kind === "semana"
+      ? addDays(anchor, 7 * step)
+      : kind === "mes"
+        ? new Date(anchor.getFullYear(), anchor.getMonth() + step, 1)
+        : new Date(anchor.getFullYear() + step, 0, 1)
+
+// "Cliente mostrador": anonymous client for sales to people who don't give their details.
+// Created by the backend (init.sql); it can't be edited, deactivated or deleted.
+const COUNTER_CLIENT_DOC = "000000000"
+// Clientes row: [0 nombre, 1 tipo doc, 2 documento, 3 teléfono, 4 correo, 5 dirección, 6 de local, 7 estado]
+const isCounterClientRow = (sec: string, row: (string | number)[] | undefined) =>
+  sec === "clientes" && String(row?.[2] ?? "").replace(/\D/g, "") === COUNTER_CLIENT_DOC
+
+// Usuarios form: staff (any role except Cliente) also gives contact details (row/form keys 9-12)
+const isStaffRole = (rol: string | number | undefined) => !!String(rol ?? "").trim() && String(rol).trim().toLowerCase() !== "cliente"
+const STAFF_CONTACT_KEYS = ["9", "10", "11", "12", "13"]
+
+// Superadministrador: always this account; nobody can deactivate, delete it, change its role or e-mail
+const SUPER_ADMIN_EMAIL = "admin@minifood.com"
+// Usuarios row: [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, ...]
+const isSuperAdminRow = (sec: string, row: (string | number)[] | undefined) =>
+  sec === "usuarios" && String(row?.[4] ?? "").trim().toLowerCase() === SUPER_ADMIN_EMAIL
+
+// Supplier that is a person, not a company: no NIT nor contact person (row/form key 15)
+const isNaturalSupplier = (tipo: string | number | undefined) => String(tipo ?? "") === "Persona natural"
+// "CC 1020304050" from the supplier row's document type (8) and number (9)
+const DOC_SHORT: Record<string, string> = { "Cédula de Ciudadanía": "CC", "Cédula Extranjería": "CE", NIT: "NIT", Pasaporte: "PA" }
+const supplierDocument = (row: Row) =>
+  [DOC_SHORT[String(row[8] ?? "")] ?? row[8], row[9]].map((v) => String(v ?? "").trim()).filter(Boolean).join(" ") || "—"
+// Natural person form, in display order (the view shows the saved full name, key 0)
+const NATURAL_SUPPLIER_KEYS = ["15", "8", "9", "10", "11", "3", "2", "5", "7"]
+const NATURAL_SUPPLIER_VIEW_KEYS = ["15", "0", "8", "9", "3", "2", "5", "7"]
+// "7" (insumos que vende) is optional: Compras already warns when a supplier has none
+const supplierRequiredKeys = (draft: Record<string, string>) =>
+  isNaturalSupplier(draft["15"])
+    ? ["15", "8", "9", "10", "11", "3", "2", "5"]
+    : ["15", "0", "1", "2", "3", "5", "8", "9", "10", "11", "12", "13", "14"]
+
+// "Cebolla, Tomate" -> ["Cebolla", "Tomate"] (insumos a supplier sells)
+const splitNames = (value: string | number | undefined) =>
+  String(value ?? "").split(",").map((name) => name.trim()).filter(Boolean)
+
+// Ficha técnica of an insumo: "Azúcar (50 g), Limón (2 und)" -> [{ name: "Azúcar", quantity: "50" }, ...]
+const parseMainSupplies = (value: string | number | undefined) =>
+  splitNames(value).map((part) => {
+    const match = /^(.*?)\s*\(\s*([\d.]+)\s*([^)]*)\)$/.exec(part)
+    return match
+      ? { name: match[1], quantity: match[2], unit: match[3].trim() }
+      : { name: part, quantity: "", unit: "" }
+  })
+
+// Suggested units for an insumo bought in `base` (the recipe can type any other, e.g. "cucharada")
+const compatibleUnits = (base: string) =>
+  base === "kg" || base === "g" ? ["g", "kg"] : base === "L" || base === "ml" ? ["ml", "L"] : base === "paq" ? ["paq", "und"] : [base || "und"]
+const RECIPE_UNIT_SUGGESTIONS = ["g", "kg", "ml", "L", "und", "paq", "cucharada", "cucharadita", "taza", "pizca", "tajada", "porción"]
+const UNIT_FACTOR: Record<string, { kind: string; factor: number }> = {
+  g: { kind: "masa", factor: 1 },
+  kg: { kind: "masa", factor: 1000 },
+  ml: { kind: "volumen", factor: 1 },
+  L: { kind: "volumen", factor: 1000 },
+}
+// Quantity in the insumo's own unit, to price it (50 g of an insumo bought by kg = 0.05).
+// null when it can't be converted (e.g. "cucharada" of something bought by kg)
+const toBaseQuantity = (quantity: number, unit: string, base: string) => {
+  if (unit.trim().toLowerCase() === base.trim().toLowerCase()) return quantity
+  const from = UNIT_FACTOR[unit.trim()]
+  const to = UNIT_FACTOR[base.trim()]
+  return from && to && from.kind === to.kind ? (quantity * from.factor) / to.factor : null
+}
+// Units a product recipe can use for an insumo stocked in `base` (only ones that convert: g ↔ kg, ml ↔ L)
+const convertibleUnits = (base: string) => compatibleUnits(base).filter((unit) => toBaseQuantity(1, unit, base) !== null)
+// Same as toBaseQuantity, NaN when it can't be converted
+const convertQty = (quantity: number, from: string, to: string) => toBaseQuantity(quantity, from, to) ?? NaN
+
+// Colombian address: "Carrera 45A # 12 Sur - 08, Interior 2, Apartamento (Torre 3, Apto 402)".
+// Housing details are optional; "named" types put the first one after the type ("Edificio Torres del Sol")
+const ADDRESS_VIAS = ["Calle", "Carrera", "Avenida", "Diagonal", "Transversal", "Circular"]
+const HOUSING: Record<string, { named: boolean; prefixes: string[]; labels: string[] }> = {
+  Casa: { named: false, prefixes: ["Casa", "Conjunto"], labels: ["Número de casa", "Conjunto o urbanización"] },
+  Apartamento: { named: false, prefixes: ["Torre", "Apto", "Conjunto"], labels: ["Torre o bloque", "Apartamento", "Conjunto"] },
+  Edificio: { named: true, prefixes: ["", "Piso", "Oficina"], labels: ["Nombre del edificio", "Piso", "Oficina o local"] },
+  Empresa: { named: true, prefixes: ["", "Piso/Oficina"], labels: ["Nombre de la empresa", "Piso u oficina"] },
+}
+type AddressParts = Record<string, string>
+const composeAddress = (p: AddressParts) => {
+  if (!p.via || !p.num || !p.cruce || !p.placa) return ""
+  let text = `${p.via} ${p.num} # ${p.cruce} - ${p.placa}`
+  if (p.interior) text += `, Interior ${p.interior}`
+  const housing = HOUSING[p.tipo]
+  if (housing) {
+    const details = housing.prefixes
+      .map((prefix, i) => ((i === 0 && housing.named) || !p[`d${i}`] ? "" : `${prefix} ${p[`d${i}`]}`))
+      .filter(Boolean)
+    text += `, ${p.tipo}${housing.named && p.d0 ? ` ${p.d0}` : ""}${details.length ? ` (${details.join(", ")})` : ""}`
+  }
+  return text
+}
+// Back to its parts; null when the text has another format (e.g. typed by hand)
+const parseAddress = (text: string): AddressParts | null => {
+  const m = /^(\S+)\s+(.+?)\s*#\s*(.+?)\s*-\s*([^,]+?)(?:,\s*Interior\s+([^,]+?))?(?:,\s*(Casa|Apartamento|Edificio|Empresa)(?:\s+([^(]+?))?(?:\s*\((.*)\))?)?$/.exec(text.trim())
+  if (!m || !ADDRESS_VIAS.includes(m[1])) return null
+  const parts: AddressParts = { via: m[1], num: m[2], cruce: m[3], placa: m[4], interior: m[5] ?? "", tipo: m[6] ?? "" }
+  const housing = HOUSING[parts.tipo]
+  const details = (m[8] ?? "").split(/,\s*/)
+  housing?.prefixes.forEach((prefix, i) => {
+    if (i === 0 && housing.named) parts.d0 = m[7] ?? ""
+    else parts[`d${i}`] = details.find((d) => d.startsWith(`${prefix} `))?.slice(prefix.length + 1) ?? ""
+  })
+  return parts
+}
+
+// A loss sent back to its purchase (its quantity went back to stock)
+const RETURNED_LOSS = "Devuelta a compra"
+const isReturnedLoss = (row?: Row) => String(row?.[6] ?? "") === RETURNED_LOSS
+
 // Purchase items text: one "insumo | cantidad | costo unitario" per line
 const parsePurchaseLines = (value: string | number | undefined) =>
   String(value ?? "")
@@ -4056,8 +4326,6 @@ const DB_SYNC: Record<string, SyncSpec> = {
     path: "/usuarios",
     update: "PATCH",
     idIndex: 7,
-    // Customers are managed in Clientes
-    shows: (u) => !u.roles?.includes("CLIENTE"),
     idOf: (u) => u.id_usuario,
     toRow: (u) => {
       const row = withId(
@@ -4067,6 +4335,11 @@ const DB_SYNC: Record<string, SyncSpec> = {
         u.id_usuario,
       )
       row[8] = u.es_administrador_principal ? "Principal" : ""
+      row[9] = u.telefono || ""
+      row[10] = u.barrio || ""
+      row[11] = u.direccion || ""
+      row[12] = u.telefono_emergencia || ""
+      row[13] = u.correo_personal || ""
       return row
     },
     toBody: (row) => {
@@ -4080,6 +4353,16 @@ const DB_SYNC: Record<string, SyncSpec> = {
         correo: text(row[4]),
         estado: estadoOf(row[5]),
         contrasena: text(row[6]) || undefined,
+        // Staff contact (clients keep theirs in Clientes)
+        ...(rol !== "CLIENTE"
+          ? {
+              telefono: text(row[9]),
+              barrio: text(row[10]),
+              direccion: text(row[11]),
+              telefono_emergencia: text(row[12]),
+              correo_personal: text(row[13]),
+            }
+          : {}),
       }
     },
   },
@@ -4092,7 +4375,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
     idOf: (p) => p.id_insumo_producto,
     toRow: (p) =>
       withId(
-        [p.nombre, p.nombre_categoria, p.precio, p.descripcion || "", p.estado === "ACTIVO" ? "Activo" : "Inactivo",
+        [p.nombre, currentCategory(p.nombre_categoria), p.precio, p.descripcion || "", p.estado === "ACTIVO" ? "Activo" : "Inactivo",
           p.ficha?.nombre || `Ficha ${p.nombre}`, p.ficha?.version || "v1.0", p.ficha?.insumos_principales || "",
           p.ficha?.preparacion || "",
           JSON.stringify((p.ficha?.ingredientes || []).map((i: DbRecord) => ({ name: i.insumo, quantity: i.cantidad, unit: i.medida || "" }))),
@@ -4137,7 +4420,8 @@ const DB_SYNC: Record<string, SyncSpec> = {
     toRow: (c) =>
       withId(
         [c.nombre, c.tipo_documento || "", c.documento || "", c.telefono || "", c.correo || "", c.direccion || "",
-          c.de_local ? "Sí" : "No", c.estado === "ACTIVO" ? "Activo" : "Inactivo"],
+          c.de_local ? "Sí" : "No", c.estado === "ACTIVO" ? "Activo" : "Inactivo", "",
+          JSON.stringify(c.direcciones || []), "", c.id_usuario ? "Sí" : "No"],
         8,
         c.id_persona,
       ),
@@ -4151,6 +4435,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       de_local: text(row[6]).toLowerCase() === "sí",
       estado: estadoOf(row[7]),
     }),
+    reloads: ["usuarios"],
   },
   "cat-insumos": categorySpec("/categorias-insumos"),
   // [0 nombre, 1 categoría, 2 unidad, 3 costo, 4 stock, 5 mínimo, 6 (sin uso), 7 producto de insumo,
@@ -4180,6 +4465,8 @@ const DB_SYNC: Record<string, SyncSpec> = {
       tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
       estado: estadoOf(row[12]),
     }),
+    // Cost and stock come back from the backend (they don't change when editing)
+    reloads: ["insumos"],
     afterSave: (id, row) =>
       text(row[7]).toLowerCase() === "sí"
         ? api(`/insumos/${id}/ficha`, "PUT", {
@@ -4227,12 +4514,14 @@ const DB_SYNC: Record<string, SyncSpec> = {
   perdidas: {
     path: "/perdidas-insumos",
     update: "PUT",
-    idIndex: 6,
+    idIndex: 9,
     idOf: (p) => p.id_perdida,
     toRow: (p) =>
       withId(
-        [p.insumo, `${p.cantidad} ${p.medida || ""}`.trim(), p.motivo || "", p.responsable || "", p.fecha, p.observacion || ""],
-        6,
+        [p.insumo, `${p.cantidad} ${p.medida || ""}`.trim(), p.motivo || "", p.responsable || "", p.fecha, p.observacion || "",
+          p.estado === "DEVUELTA" ? RETURNED_LOSS : p.cantidad_devuelta > 0 ? "Devuelta en parte" : "Registrada",
+          p.motivo_devolucion || "", p.cantidad_devuelta ? `${p.cantidad_devuelta} ${p.medida || ""}`.trim() : ""],
+        9,
         p.id_perdida,
       ),
     toBody: async (row) => {
@@ -4247,22 +4536,24 @@ const DB_SYNC: Record<string, SyncSpec> = {
         observacion: text(row[5]),
       }
     },
-    reloads: ["insumos"],
+    // perdidas too: the new row gets its estado from the backend
+    reloads: ["insumos", "perdidas"],
   },
   // [0 nombre, 1 NIT, 2 correo, 3 teléfono, 4 contacto, 5 dirección, 6 estado, 7 insumos,
   //  8-14 contacto: tipo doc, nº doc, nombre, apellido, teléfono, correo, cargo]
   proveedores: {
     path: "/proveedores",
     update: "PATCH",
-    idIndex: 15,
+    idIndex: 16,
     idOf: (p) => p.id_proveedor,
     // Nombre/apellido (10, 11) stay empty: the edit form splits them from "contacto"
     toRow: (p) =>
       withId(
         [p.nombre, p.nit || "", p.correo || "", p.telefono || "", p.contacto || "", p.direccion || "",
           p.estado === "ACTIVO" ? "Activo" : "Inactivo", p.insumos || "", p.contacto_tipo_documento || "",
-          p.contacto_documento || "", "", "", p.contacto_telefono || "", p.contacto_correo || "", p.contacto_cargo || ""],
-        15,
+          p.contacto_documento || "", "", "", p.contacto_telefono || "", p.contacto_correo || "", p.contacto_cargo || "",
+          p.tipo || "Persona jurídica"],
+        16,
         p.id_proveedor,
       ),
     toBody: (row) => ({
@@ -4279,6 +4570,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       contacto_telefono: text(row[12]),
       contacto_correo: optionalEmail(row[13]),
       contacto_cargo: text(row[14]),
+      tipo: text(row[15]) || "Persona jurídica",
     }),
   },
 }
@@ -4365,608 +4657,42 @@ const PANEL_SYNC: Record<string, PanelSyncSpec> = {
     path: "/ordenes-produccion",
     idIndex: 17,
     keepLocal: (row, dbRows) =>
-      !dbRows.some((r) => r[0] === row[0]) && !MOD_CFG.produccion.seed.some((r) => r[0] === row[0]),
+      !dbRows.some((r) => r[0] === row[0] || (!!row[15] && r[15] === row[15] && String(r[8]) !== "Producto no conforme")) &&
+      !MOD_CFG.produccion.seed.some((r) => r[0] === row[0]),
   },
   "producto-no-conforme": { path: "/productos-no-conformes", idIndex: 9 },
   ventas: { path: "/ventas", idIndex: 13 },
-  devoluciones: { path: "/devoluciones", idIndex: 6 },
+  // 6 = returned products (JSON); older records have none
+  devoluciones: { path: "/devoluciones", idIndex: 7 },
   // Orders created by hand in the panel; web store orders are saved through /pedidos
   pedidos: {
     path: "/pedidos-panel",
-    idIndex: 12,
-    owns: (row) => !loadOrders().some((order) => order.id === row[0]),
-  },
-}
-const syncIdIndex = (sec: string) => (DB_SYNC[sec] ?? PANEL_SYNC[sec])?.idIndex
-// Pads the row so the id never leaves empty gaps before it
-const withPanelId = (row: Row, idIndex: number, id: string | number) => {
-  const padded = Array.from({ length: Math.max(row.length, idIndex) }, (_, i) => row[i] ?? "")
-  padded[idIndex] = id
-  return padded
-}
-
-// Backend categories that feed the customization options instead of the menu
-const EXTRA_CATS = ["Adiciones", "Salsas", "Bebidas", "Sabores de bebida"]
-
-// shortcut: replaces the menu arrays in place so every screen reading them shows the backend data;
-// move them into state/context when the admin panel edits them live.
-async function loadMenu() {
-  const items = await api<CatalogItem[]>("/catalogo")
-  const inCat = (cat: string) => items.filter((p) => p.categoria === cat)
-  ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio })))
-  SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
-  BEVERAGES.splice(0, BEVERAGES.length, ...inCat("Sabores de bebida").map((p) => p.nombre))
-  // The customizer always needs at least one size, so keep the built-in ones if none are active
-  const sizes = inCat("Bebidas").map((p) => ({ id: p.nombre, label: p.nombre, price: p.precio }))
-  if (sizes.length) BEVERAGE_SIZES.splice(0, BEVERAGE_SIZES.length, ...sizes)
-  PRODUCTS.splice(
-    0,
-    PRODUCTS.length,
-    ...items.filter((p) => !EXTRA_CATS.includes(p.categoria)).map((p) => ({
-      id: p.id,
-      name: p.nombre,
-      desc: p.descripcion || "",
-      price: p.precio,
-      priceStr: fmt(p.precio),
-      img: imageUrl(p.imagenes[0]),
-      cat: MENU_CAT_ID[p.categoria] || p.categoria.toLowerCase(),
-      badge: p.etiqueta || "",
-    })),
-  )
-}
-
-const apiRegister = async (u: User) =>
-  toUser(
-    await api<AuthData>("/auth/registro", "POST", {
-      correo: u.email,
-      contrasena: u.password,
-      nombre: u.name,
-      tipo_documento: u.docType || undefined,
-      documento: u.cedula || undefined,
-    }),
-  )
-
-function getAdminAccountStatus(email: string): string | undefined {
-  const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
-  return statuses[email.trim().toLowerCase()]
-}
-
-// ponytail: all orders live in this browser's localStorage (client + admin
-// share it); move to a backend when the shop needs multiple devices.
-const loadOrders = () => loadLS<Order[]>("orders", [])
-const saveOrders = (orders: Order[]) => saveLS("orders", orders)
-
-// ── Pedidos ↔ backend: the "orders" cache above is refreshed from the backend on login,
-// so client and admin see the same orders from any device.
-const orderDbId = (id: string) => Number(id.replace("PED-", ""))
-const orderFromDb = (p: DbRecord): Order => ({
-  id: `PED-${p.id_pedido}`,
-  email: p.correo,
-  cliente: p.cliente,
-  date: new Date(p.creado_en).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }),
-  nombre: p.nombre_contacto || p.cliente,
-  telefono: p.telefono_contacto || "",
-  direccion: p.direccion_entrega || "",
-  notas: p.observacion || "",
-  pago: p.metodo_pago || "Efectivo",
-  voucher: p.comprobante || undefined,
-  items: p.items.map((it: DbRecord, i: number) => {
-    const product = PRODUCTS.find((x) => x.name === it.producto)
-    return {
-      id: i + 1,
-      name: it.producto,
-      description: product?.desc,
-      price: it.precio_unitario,
-      qty: it.cantidad,
-      img: product?.img || "",
-      sauces: it.detalle?.salsas || [],
-      additions: (it.detalle?.adiciones || []).map((a: DbRecord) => ({ name: a.nombre, qty: a.cantidad, price: a.precio })),
-    }
-  }),
-  total: p.total,
-  status: p.estado,
-  paymentStatus: p.estado_pago,
-  paymentRejectionReason: p.motivo_rechazo_pago || undefined,
-  productionAuthorized: p.produccion_autorizada,
-  productionRecords: p.registros_produccion,
-})
-// Staff get every order; clients only their own
-const refreshOrders = async (role: User["role"]) =>
-  saveOrders((await api<DbRecord[]>(role === "admin" ? "/pedidos" : "/pedidos/mios")).map(orderFromDb))
-// Saves the panel's changes to a client order (status, payment, production)
-const pushOrder = (id: string) => {
-  const o = loadOrders().find((order) => order.id === id)
-  if (!o) return
-  api(`/pedidos/${orderDbId(o.id)}`, "PATCH", {
-    estado: o.status,
-    estado_pago: o.paymentStatus,
-    motivo_rechazo_pago: o.paymentRejectionReason ?? null,
-    produccion_autorizada: !!o.productionAuthorized,
-    registros_produccion: o.productionRecords ?? [],
-  }).catch((err) => window.alert(`El pedido ${o.id} no se guardó en la base de datos: ${(err as Error).message}`))
-}
-const loadRegisteredClients = () =>
-  loadLS<RegisteredClient[]>("registeredClients", [])
-const saveRegisteredClient = (user: User) => {
-  if (user.role !== "user" || !user.email.trim()) return
-  const registeredClient: RegisteredClient = {
-    name: user.name.trim(),
-    email: user.email.trim().toLowerCase(),
-    cedula: user.cedula?.trim(),
-    docType: user.docType?.trim(),
-    phone: user.phone?.trim(),
-  }
-  const clients = loadRegisteredClients().filter(
-    (client) => client.email.toLowerCase() !== registeredClient.email,
-  )
-  saveLS("registeredClients", [registeredClient, ...clients])
-}
-
-// Downscale to keep vouchers small enough for localStorage
-function readVoucher(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => {
-      const s = Math.min(1, 1000 / Math.max(img.width, img.height))
-      const c = document.createElement("canvas")
-      c.width = img.width * s
-      c.height = img.height * s
-      c.getContext("2d")!.drawImage(img, 0, 0, c.width, c.height)
-      URL.revokeObjectURL(img.src)
-      resolve(c.toDataURL("image/jpeg", 0.8))
-    }
-    img.onerror = reject
-    img.src = URL.createObjectURL(file)
-  })
-
-}
-
-type AuthData = {
-  token: string
-  usuario: {
-    correo: string
-    nombre: string | null
-    tipo_documento: string | null
-    documento: string | null
-    telefono: string | null
-    direcciones: string[] | null
-    roles: string[]
-  }
-  permisos: { modulo: string; privilegios: string[] }[]
-}
-
-const toUser = ({ token, usuario: u, permisos }: AuthData): User => {
-  saveLS("token", token)
-  return {
-    permissions: permisos.filter((p) => p.privilegios.includes("VER")).map((p) => p.modulo),
-    name: u.nombre || u.correo,
-    email: u.correo.toLowerCase(),
-    role: u.roles.includes("CLIENTE") ? "user" : "admin",
-    docType: u.tipo_documento || undefined,
-    cedula: u.documento || undefined,
-    phone: u.telefono || undefined,
-    addresses: u.direcciones?.length ? u.direcciones : undefined,
-  }
-}
-
-const apiLogin = async (email: string, pass: string) =>
-  toUser(await api<AuthData>("/auth/login", "POST", { correo: email.trim(), contrasena: pass }))
-
-type CatalogItem = {
-  id: number
-  nombre: string
-  descripcion: string | null
-  etiqueta: string | null
-  precio: number
-  categoria: string
-  imagenes: string[]
-}
-
-// Backend category name → menu category id (inverse of PRODUCT_CAT_LABEL)
-const MENU_CAT_ID = Object.fromEntries(
-  Object.entries(PRODUCT_CAT_LABEL).map(([id, label]) => [label, id]),
-)
-
-// ── Admin tables ↔ backend ─────────────────────────────────────────────────────
-// Each synced admin module maps a backend record to its table row and back. The row
-// keeps the record id at `idIndex` (never shown) so edits update the same record.
-type Row = (string | number)[]
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type DbRecord = Record<string, any>
-type SyncSpec = {
-  path: string
-  update: "PATCH" | "PUT"
-  idIndex: number
-  idOf: (r: DbRecord) => number
-  toRow: (r: DbRecord) => Row
-  toBody: (row: Row) => Promise<DbRecord> | DbRecord
-  // Rows that live only in the browser (not sent to the backend)
-  localOnly?: (row: Row) => boolean
-  // Backend records this module shows (default: all)
-  shows?: (r: DbRecord) => boolean
-  // Status changes that use their own route instead of a full update
-  setStatus?: (id: string | number, row: Row) => Promise<unknown>
-  // Modules to reload after a save (e.g. stock changes in Insumos)
-  reloads?: string[]
-  // Saves what lives in other tables once the record has its id (e.g. the ficha técnica)
-  afterSave?: (id: number, row: Row) => Promise<unknown>
-}
-
-const isActiveStatus = (v: string | number | undefined) =>
-  !["Inactivo", "Inactiva", "Anulado", "Anulada"].includes(String(v ?? ""))
-const estadoOf = (v: string | number | undefined) => (isActiveStatus(v) ? "ACTIVO" : "INACTIVO")
-const text = (v: string | number | undefined) => String(v ?? "").trim()
-// Optional e-mails must be omitted (not "") or the backend rejects them
-const optionalEmail = (v: string | number | undefined) => text(v) || undefined
-const withId = (row: Row, idIndex: number, id: number) => {
-  row[idIndex] = id
-  return row
-}
-
-// Finds a backend record id by its name (same name matching as the admin: no accents/case)
-async function idByName(path: string, nameKey: string, idKey: string, name: string | number, what: string) {
-  const record = (await api<DbRecord[]>(path)).find((r) => normalizeName(r[nameKey]) === normalizeName(name))
-  if (!record) throw new Error(`${what} «${name}» no existe en la base de datos.`)
-  return record[idKey] as number
-}
-const categoryIdByName = (path: string, name: string | number) =>
-  idByName(path, "nombre_categoria", "id_categoria", name, "La categoría")
-
-// Purchase items text: one "insumo | cantidad | costo unitario" per line
-const parsePurchaseLines = (value: string | number | undefined) =>
-  String(value ?? "")
-    .split(/\n|;/)
-    .map((line) => line.split("|").map((part) => part.trim()))
-    .filter(([name]) => name)
-    .map(([name, quantity, unitPrice]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0 }))
-
-const categorySpec = (path: string): SyncSpec => ({
-  path,
-  update: "PUT",
-  idIndex: 3,
-  idOf: (c) => c.id_categoria,
-  toRow: (c) =>
-    withId([c.nombre_categoria, c.descripcion || "", c.estado === "ACTIVO" ? "Activa" : "Inactiva"], 3, c.id_categoria),
-  toBody: (row) => ({ nombre_categoria: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
-})
-
-// Backend role names are uppercase (ADMINISTRADOR); the admin shows them as "Administrador"
-const roleLabel = (name: string) => name.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
-
-const DB_SYNC: Record<string, SyncSpec> = {
-  // [0 nombre, 1 descripción, 2 estado]. The permissions matrix is still kept in the browser.
-  roles: {
-    path: "/roles",
-    update: "PUT",
-    idIndex: 3,
-    idOf: (r) => r.id_rol,
-    toRow: (r) =>
-      withId([roleLabel(r.nombre_rol), r.descripcion || "", r.estado === "ACTIVO" ? "Activo" : "Inactivo"], 3, r.id_rol),
-    toBody: (row) => ({ nombre_rol: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
-  },
-  // [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, 6 contraseña (only to create/change it)]
-  usuarios: {
-    path: "/usuarios",
-    update: "PATCH",
-    idIndex: 7,
-    // Customers are managed in Clientes
-    shows: (u) => !u.roles?.includes("CLIENTE"),
-    idOf: (u) => u.id_usuario,
-    toRow: (u) =>
-      withId(
-        [u.nombre || "", u.tipo_documento || "", u.documento || "", roleLabel(u.roles?.[0] || ""), u.correo,
-          u.estado === "ACTIVO" ? "Activo" : "Inactivo", ""],
-        7,
-        u.id_usuario,
-      ),
-    toBody: (row) => {
-      const rol = text(row[3]).toUpperCase()
-      return {
-        nombre: text(row[0]),
-        tipo_documento: text(row[1]),
-        documento: text(row[2]),
-        roles: [rol],
-        tipo: rol === "CLIENTE" ? "CLIENTE" : "EMPLEADO",
-        correo: text(row[4]),
-        estado: estadoOf(row[5]),
-        // Blank on edit = keep the current password
-        contrasena: text(row[6]) || undefined,
-      }
-    },
-  },
-  // [0 nombre, 1 categoría, 2 precio, 3 descripción, 4 estado, 5-9 ficha técnica, 10 disponibilidad]
-  // Ficha técnica and disponibilidad are not in the backend yet.
-  producto: {
-    path: "/productos",
-    update: "PATCH",
-    idIndex: 11,
-    idOf: (p) => p.id_insumo_producto,
-    toRow: (p) =>
-      withId(
-        [p.nombre, p.nombre_categoria, p.precio, p.descripcion || "", p.estado === "ACTIVO" ? "Activo" : "Inactivo",
-          p.ficha?.nombre || `Ficha ${p.nombre}`, p.ficha?.version || "v1.0", p.ficha?.insumos_principales || "",
-          p.ficha?.preparacion || "",
-          JSON.stringify((p.ficha?.ingredientes || []).map((i: DbRecord) => ({ name: i.insumo, quantity: i.cantidad, unit: i.medida || "" }))),
-          "Disponible"],
-        11,
-        p.id_insumo_producto,
-      ),
-    toBody: async (row) => ({
-      nombre: text(row[0]),
-      id_categoria: await categoryIdByName("/categorias-productos", row[1]),
-      precio: Number(row[2]),
-      descripcion: text(row[3]),
-      estado: estadoOf(row[4]),
-    }),
-    localOnly: (row) => row[1] === "Producto de insumo",
-    afterSave: (id, row) => {
-      let recipe: TechnicalIngredient[] = []
-      try {
-        recipe = JSON.parse(String(row[9] || "[]"))
-      } catch {
-        // unreadable recipe: saved without ingredients
-      }
-      return api(`/productos/${id}/ficha`, "PUT", {
-        nombre: text(row[5]),
-        version: text(row[6]),
-        insumos_principales: text(row[7]),
-        preparacion: text(row[8]),
-        ingredientes: recipe
-          .filter((i) => Number(i.quantity) > 0)
-          .map((i) => ({ insumo: i.name, cantidad: Number(i.quantity), medida: i.unit || undefined })),
-      })
-    },
-  },
-  "cat-producto": categorySpec("/categorias-productos"),
-  // [0 nombre, 1 tipo doc, 2 documento, 3 teléfono, 4 correo, 5 dirección, 6 de local (Sí/No), 7 estado]
-  // Customers who registered in the app also show up here (their e-mail is their login).
-  clientes: {
-    path: "/clientes",
-    update: "PATCH",
-    idIndex: 8,
-    idOf: (c) => c.id_persona,
-    toRow: (c) =>
-      withId(
-        [c.nombre, c.tipo_documento || "", c.documento || "", c.telefono || "", c.correo || "", c.direccion || "",
-          c.de_local ? "Sí" : "No", c.estado === "ACTIVO" ? "Activo" : "Inactivo"],
-        8,
-        c.id_persona,
-      ),
-    toBody: (row) => ({
-      nombre: text(row[0]),
-      tipo_documento: text(row[1]),
-      documento: text(row[2]),
-      telefono: text(row[3]),
-      correo: optionalEmail(row[4]),
-      direccion: text(row[5]),
-      de_local: text(row[6]).toLowerCase() === "sí",
-      estado: estadoOf(row[7]),
-    }),
-  },
-  "cat-insumos": categorySpec("/categorias-insumos"),
-  // [0 nombre, 1 categoría, 2 unidad, 3 costo, 4 stock, 5 mínimo, 6 (sin uso), 7 producto de insumo,
-  //  8-11 ficha técnica, 12 estado]. The ficha técnica texts are not in the backend yet.
-  insumos: {
-    path: "/insumos",
-    update: "PATCH",
+    // 12 is the comment; older records have no comment and get it empty
     idIndex: 13,
-    idOf: (i) => i.id_insumo_producto,
-    toRow: (i) =>
-      withId(
-        [i.nombre, i.nombre_categoria, i.medida || "und", i.costo, i.stock, i.minimo, "",
-          i.tiene_ficha_tecnica ? "Sí" : "No",
-          i.tiene_ficha_tecnica ? i.ficha?.nombre || `Ficha técnica - ${i.nombre}` : "",
-          i.tiene_ficha_tecnica ? i.ficha?.version || "v1.0" : "",
-          i.ficha?.insumos_principales || "", i.ficha?.preparacion || "", i.estado === "ACTIVO" ? "Activo" : "Inactivo"],
-        13,
-        i.id_insumo_producto,
-      ),
-    toBody: async (row) => ({
-      nombre: text(row[0]),
-      id_categoria: await categoryIdByName("/categorias-insumos", row[1]),
-      medida: text(row[2]),
-      costo: Number(row[3]) || 0,
-      stock: Number(row[4]) || 0,
-      minimo: Number(row[5]) || 0,
-      tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
-      estado: estadoOf(row[12]),
-    }),
-    afterSave: (id, row) =>
-      text(row[7]).toLowerCase() === "sí"
-        ? api(`/insumos/${id}/ficha`, "PUT", {
-            nombre: text(row[8]),
-            version: text(row[9]),
-            insumos_principales: text(row[10]),
-            preparacion: text(row[11]),
-            // no recipe lines in the insumo form: the backend keeps the saved ones
-          })
-        : Promise.resolve(),
-  },
-  // [0 proveedor, 1 fecha compra, 2 fecha registro, 3 subtotal, 4 total, 5 estado (Activo/Anulado), 6 insumos]
-  // The backend adds the insumos to stock (and takes them back when the purchase is anulada).
-  compras: {
-    path: "/compras",
-    update: "PUT",
-    idIndex: 7,
-    idOf: (c) => c.id_compra,
-    toRow: (c) =>
-      withId(
-        [c.proveedor, c.fecha, c.fecha_registro, c.subtotal, c.total, c.estado === "REGISTRADA" ? "Activo" : "Anulado",
-          c.detalles.map((d: DbRecord) => `${d.insumo} | ${d.cantidad} | ${d.costo_unitario}`).join("\n")],
-        7,
-        c.id_compra,
-      ),
-    toBody: async (row) => {
-      const insumos = await api<DbRecord[]>("/insumos")
-      const items = parsePurchaseLines(row[6]).map((line) => {
-        const insumo = insumos.find((i) => normalizeName(i.nombre) === normalizeName(line.name))
-        if (!insumo) throw new Error(`El insumo «${line.name}» no existe en la base de datos.`)
-        return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice }
-      })
-      return {
-        id_proveedor: await idByName("/proveedores", "nombre", "id_proveedor", row[0], "El proveedor"),
-        fecha: text(row[1]),
-        iva: Math.max(0, Number(row[4]) - Number(row[3]) || 0),
-        items,
-      }
-    },
-    setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", { estado: isActiveStatus(row[5]) ? "REGISTRADA" : "ANULADA" }),
-    reloads: ["insumos"],
-  },
-  // [0 insumo, 1 cantidad con unidad ("0.5 kg"), 2 motivo, 3 responsable, 4 fecha, 5 origen]
-  // The backend takes the quantity out of the insumo's stock.
-  perdidas: {
-    path: "/perdidas-insumos",
-    update: "PUT",
-    idIndex: 6,
-    idOf: (p) => p.id_perdida,
-    toRow: (p) =>
-      withId(
-        [p.insumo, `${p.cantidad} ${p.medida || ""}`.trim(), p.motivo || "", p.responsable || "", p.fecha, p.observacion || ""],
-        6,
-        p.id_perdida,
-      ),
-    toBody: async (row) => {
-      const cantidad = parseFloat(String(row[1]).replace(",", "."))
-      if (!(cantidad > 0)) throw new Error(`La cantidad «${row[1]}» no es válida.`)
-      return {
-        id_insumo_producto: await idByName("/insumos", "nombre", "id_insumo_producto", row[0], "El insumo"),
-        cantidad,
-        motivo: text(row[2]),
-        responsable: text(row[3]),
-        fecha: text(row[4]) || undefined,
-        observacion: text(row[5]),
-      }
-    },
-    reloads: ["insumos"],
-  },
-  // [0 nombre, 1 NIT, 2 correo, 3 teléfono, 4 contacto, 5 dirección, 6 estado, 7 insumos,
-  //  8-14 contacto: tipo doc, nº doc, nombre, apellido, teléfono, correo, cargo]
-  proveedores: {
-    path: "/proveedores",
-    update: "PATCH",
-    idIndex: 15,
-    idOf: (p) => p.id_proveedor,
-    // Nombre/apellido (10, 11) stay empty: the edit form splits them from "contacto"
-    toRow: (p) =>
-      withId(
-        [p.nombre, p.nit || "", p.correo || "", p.telefono || "", p.contacto || "", p.direccion || "",
-          p.estado === "ACTIVO" ? "Activo" : "Inactivo", p.insumos || "", p.contacto_tipo_documento || "",
-          p.contacto_documento || "", "", "", p.contacto_telefono || "", p.contacto_correo || "", p.contacto_cargo || ""],
-        15,
-        p.id_proveedor,
-      ),
-    toBody: (row) => ({
-      nombre: text(row[0]),
-      nit: text(row[1]),
-      correo: optionalEmail(row[2]),
-      telefono: text(row[3]),
-      contacto: text(row[4]),
-      direccion: text(row[5]),
-      estado: estadoOf(row[6]),
-      insumos: text(row[7]),
-      contacto_tipo_documento: text(row[8]),
-      contacto_documento: text(row[9]),
-      contacto_telefono: text(row[12]),
-      contacto_correo: optionalEmail(row[13]),
-      contacto_cargo: text(row[14]),
-    }),
-  },
-}
-
-// Creates (no id yet) or updates the row's record in the backend; returns its id
-async function saveRowToDb(spec: SyncSpec, row: Row) {
-  const body = await spec.toBody(row)
-  const id = row[spec.idIndex]
-  const saved = id
-    ? await api<DbRecord>(`${spec.path}/${id}`, spec.update, body)
-    : await api<DbRecord>(spec.path, "POST", body)
-  return spec.idOf(saved)
-}
-
-// ── Permissions ↔ backend ──────────────────────────────────────────────────────
-// Panel section -> backend module (also the names of the permissions matrix)
-const SECTION_MODULE: Record<string, string> = {
-  roles: "ROLES_PERMISOS",
-  usuarios: "USUARIOS",
-  "cat-insumos": "CATEGORIAS_INSUMOS",
-  insumos: "INSUMOS",
-  proveedores: "PROVEEDORES",
-  compras: "COMPRAS",
-  perdidas: "PERDIDA_INSUMOS",
-  "cat-producto": "CATEGORIAS_PRODUCTO",
-  producto: "PRODUCTOS",
-  produccion: "ORDENES_PRODUCCION",
-  "producto-no-conforme": "PRODUCTO_NO_CONFORME",
-  clientes: "CLIENTES",
-  pedidos: "PEDIDOS",
-  ventas: "VENTAS",
-  devoluciones: "DEVOLUCIONES",
-}
-const PERM_MODULE: Record<string, string> = {
-  "Roles y permisos": "ROLES_PERMISOS",
-  Usuarios: "USUARIOS",
-  "Categoría Insumos": "CATEGORIAS_INSUMOS",
-  Insumos: "INSUMOS",
-  Proveedores: "PROVEEDORES",
-  Compras: "COMPRAS",
-  "Pérdida Insumos": "PERDIDA_INSUMOS",
-  "Categoría Producto": "CATEGORIAS_PRODUCTO",
-  Productos: "PRODUCTOS",
-  Producción: "ORDENES_PRODUCCION",
-  "Producto No Conforme": "PRODUCTO_NO_CONFORME",
-  Clientes: "CLIENTES",
-  Pedidos: "PEDIDOS",
-  Ventas: "VENTAS",
-  Devoluciones: "DEVOLUCIONES",
-}
-// The backend has one privilege for both "Anular" and "Eliminar" (each module shows one of them)
-const PERM_ACTION: Record<string, string> = { Ver: "VER", Crear: "CREAR", Editar: "EDITAR", Anular: "ELIMINAR", Eliminar: "ELIMINAR" }
-type RolePerms = Record<string, string[]>
-const permsToDb = (perms: RolePerms) =>
-  PERMISSION_MODULES.map(({ name }) => ({
-    modulo: PERM_MODULE[name],
-    privilegios: [...new Set((perms[name] || []).map((a) => PERM_ACTION[a]).filter(Boolean))].sort(),
-  })).filter((p) => p.privilegios.length)
-const permsFromDb = (permisos: { modulo: string; privilegios: string[] }[]): RolePerms =>
-  Object.fromEntries(
-    PERMISSION_MODULES.map(({ name, finalAction }) => [
-      name,
-      (permisos.find((p) => p.modulo === PERM_MODULE[name])?.privilegios || []).map((p) =>
-        p === "ELIMINAR" ? finalAction : p[0] + p.slice(1).toLowerCase(),
-      ),
-    ]),
-  )
-
-// ── Panel modules stored as whole rows ─────────────────────────────────────────
-// Their logic lives in the panel (status history, order lines, stock already used...), so the
-// backend stores each row as-is (plus its main columns). AdminPanel saves any change automatically.
-type PanelSyncSpec = {
-  path: string
-  // Position of the backend id in the row (right after the panel's own cells; never shown)
-  idIndex: number
-  // Rows built in the browser before loading that must still be saved (default: none)
-  keepLocal?: (row: Row, dbRows: Row[]) => boolean
-  // Rows this module saves (default: all); the others are kept as they are and never sent
-  owns?: (row: Row) => boolean
-}
-const PANEL_SYNC: Record<string, PanelSyncSpec> = {
-  // Production orders rebuilt from client orders (not the demo seed) are saved if the backend doesn't have them
-  produccion: {
-    path: "/ordenes-produccion",
-    idIndex: 16,
-    keepLocal: (row, dbRows) =>
-      !dbRows.some((r) => r[0] === row[0]) && !MOD_CFG.produccion.seed.some((r) => r[0] === row[0]),
-  },
-  "producto-no-conforme": { path: "/productos-no-conformes", idIndex: 9 },
-  ventas: { path: "/ventas", idIndex: 13 },
-  devoluciones: { path: "/devoluciones", idIndex: 6 },
-  // Orders created by hand in the panel; web store orders are saved through /pedidos
-  pedidos: {
-    path: "/pedidos-panel",
-    idIndex: 12,
     owns: (row) => !loadOrders().some((order) => order.id === row[0]),
   },
+}
+// Short filter next to "Buscar": the specific columns (row index) each module can be filtered by
+const TABLE_FILTERS: Record<string, { label: string; index: number }[]> = {
+  roles: [{ label: "Estado", index: 2 }],
+  usuarios: [{ label: "Rol", index: 3 }, { label: "Estado", index: 5 }],
+  "cat-insumos": [{ label: "Estado", index: 2 }],
+  insumos: [{ label: "Categoría", index: 1 }, { label: "Estado", index: 12 }],
+  proveedores: [{ label: "Tipo de persona", index: 15 }, { label: "Estado", index: 6 }],
+  compras: [{ label: "Proveedor", index: 0 }, { label: "Estado", index: 5 }],
+  perdidas: [{ label: "Motivo", index: 2 }],
+  "cat-producto": [{ label: "Estado", index: 2 }],
+  producto: [{ label: "Categoría", index: 1 }, { label: "Estado", index: 4 }],
+  produccion: [{ label: "Estado", index: 8 }],
+  "producto-no-conforme": [{ label: "Estado", index: 8 }],
+  clientes: [{ label: "Estado", index: 7 }],
+  ventas: [{ label: "Método de pago", index: 5 }, { label: "Estado del pedido", index: 10 }],
+  pedidos: [
+    { label: "Estado", index: 7 },
+    { label: "Estado de pago", index: 8 },
+    { label: "Tipo de pedido", index: 3 },
+  ],
+  devoluciones: [{ label: "Motivo", index: 4 }],
 }
 const syncIdIndex = (sec: string) => (DB_SYNC[sec] ?? PANEL_SYNC[sec])?.idIndex
 // Pads the row so the id never leaves empty gaps before it
@@ -4986,7 +4712,9 @@ async function loadMenu() {
   const inCat = (cat: string) => items.filter((p) => p.categoria === cat)
   ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio })))
   SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
-  BEVERAGES.splice(0, BEVERAGES.length, ...inCat("Sabores de bebida").map((p) => p.nombre))
+  const flavors = inCat("Sabores de bebida").map((p) => p.nombre)
+  const rank = (f: string) => (BEVERAGE_ORDER.indexOf(f) + 1 || 99)
+  BEVERAGES.splice(0, BEVERAGES.length, ...flavors.sort((a, b) => rank(a) - rank(b)))
   // The customizer always needs at least one size, so keep the built-in ones if none are active
   const sizes = inCat("Bebidas").map((p) => ({ id: p.nombre, label: p.nombre, price: p.precio }))
   if (sizes.length) BEVERAGE_SIZES.splice(0, BEVERAGE_SIZES.length, ...sizes)
@@ -5000,20 +4728,21 @@ async function loadMenu() {
       price: p.precio,
       priceStr: fmt(p.precio),
       img: imageUrl(p.imagenes[0]),
-      cat: MENU_CAT_ID[p.categoria] || p.categoria.toLowerCase(),
+      cat: MENU_CAT_ID[currentCategory(p.categoria)] || p.categoria.toLowerCase(),
       badge: p.etiqueta || "",
     })),
   )
 }
 
-const apiRegister = async (u: User) =>
+const apiRegister = async (u: User, password: string) =>
   toUser(
     await api<AuthData>("/auth/registro", "POST", {
       correo: u.email,
-      contrasena: u.password,
+      contrasena: password,
       nombre: u.name,
       tipo_documento: u.docType || undefined,
       documento: u.cedula || undefined,
+      telefono: u.phone || undefined,
     }),
   )
 
@@ -5604,7 +5333,6 @@ function CheckoutPage({
   setCart,
   user,
   onLogin,
-  onRegisterVerified,
   onBack,
   onPlaceOrder,
   onComplete,
@@ -5613,13 +5341,11 @@ function CheckoutPage({
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
   user: User | null
   onLogin: (u: User) => void
-  onRegisterVerified: (u: User) => void
   onBack: () => void
   onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<void>
   onComplete: () => void
 }) {
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
-  const [regStep, setRegStep] = useState<"form" | "verifying">("form")
   const [loginForm, setLoginForm] = useState({ email: "", pass: "" })
   const [regForm, setRegForm] = useState({
     name: "",
@@ -5637,9 +5363,48 @@ function CheckoutPage({
     notas: "",
     pago: "Efectivo",
   })
+  // Address typed in parts; `direccion` is built from them (see composeDeliveryAddress)
+  const [addressParts, setAddressParts] = useState({ barrio: "", calle: "", tipoEdificio: "", nombreEdificio: "", unidad: "" })
+  const setAddressPart = (key: keyof typeof addressParts, value: string) =>
+    setAddressParts((current) => {
+      const next = { ...current, [key]: value, ...(key === "tipoEdificio" && !value ? { nombreEdificio: "" } : {}) }
+      setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(next) }))
+      return next
+    })
+  // Where the address is on the map and whether it's inside the delivery zone
+  const [geo, setGeo] = useState<{ status: "idle" | "loading" | "ok" | "far" | "notfound" | "error"; lat?: number; lon?: number; km?: number }>({ status: "idle" })
   const [editingAddress, setEditingAddress] = useState(
     () => !(user?.addresses?.length),
   )
+  // Locate the address (1 s after the last change: OpenStreetMap allows ~1 search per second)
+  const geoQueries = editingAddress
+    ? [addressParts.calle && addressParts.barrio && `${addressParts.calle}, ${addressParts.barrio}`, addressParts.barrio]
+    : [delivForm.direccion, /Barrio ([^,]+)/.exec(delivForm.direccion)?.[1] ?? ""]
+  const geoKey = geoQueries.join("|")
+  useEffect(() => {
+    if (!geoQueries.some(Boolean)) {
+      setGeo({ status: "idle" })
+      return
+    }
+    const controller = new AbortController()
+    setGeo({ status: "loading" })
+    const timer = setTimeout(() => {
+      geocodeAddress(geoQueries as string[], controller.signal)
+        .then((point) => {
+          if (!point) return setGeo({ status: "notfound" })
+          const km = distanceKm(SHOP_LOCATION, point)
+          setGeo({ status: km <= DELIVERY_RADIUS_KM ? "ok" : "far", ...point, km })
+        })
+        .catch((err) => {
+          if ((err as Error).name !== "AbortError") setGeo({ status: "error" })
+        })
+    }, 1000)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [geoKey])
   const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(false)
   const [saveAddress, setSaveAddress] = useState(
     () => !(user?.addresses?.length),
@@ -5668,11 +5433,11 @@ function CheckoutPage({
     setEditingAddress(!hasSavedAddress)
     setSaveAddress(!hasSavedAddress)
   }, [user])
-  const [code, setCode] = useState("")
   const [voucher, setVoucher] = useState("")
   const [ordered, setOrdered] = useState(false)
   const [placedTotal, setPlacedTotal] = useState(0)
-  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(user ? 2 : 1)
+  // Everybody (guest, client, admin, employee) starts by reviewing the cart
+  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(1)
   // Guests see only their cart until they press "Hacer pedido"
   const [showAuth, setShowAuth] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -5711,19 +5476,19 @@ function CheckoutPage({
   const delivFilled =
     !!delivForm.nombre.trim() &&
     !validatePhoneNumber(delivForm.telefono) &&
-    !!delivForm.direccion.trim()
+    !!delivForm.direccion.trim() &&
+    (!editingAddress || (!!addressParts.barrio.trim() && !!addressParts.calle.trim())) &&
+    (geo.status === "ok" || geo.status === "error")
   const canOrder = user && delivFilled
 
   // Errors show after the first submit of each form and update while typing
   const [loginTried, setLoginTried] = useState(false)
   const [regTried, setRegTried] = useState(false)
-  const [codeTried, setCodeTried] = useState(false)
   const [serverErr, setServerErr] = useState("")
   const [busy, setBusy] = useState(false)
   // Password, account existence and status are checked by the backend
   const loginErrors = loginTried ? validateLogin(loginForm.email, loginForm.pass) : {}
   const regErrors = regTried ? validateRegister(regForm) : {}
-  const codeErr = codeTried ? codeError(code) : ""
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoginTried(true)
@@ -5739,17 +5504,11 @@ function CheckoutPage({
       setBusy(false)
     }
   }
-  const handleRegisterForm = (e: React.FormEvent) => {
+  const handleRegisterForm = async (e: React.FormEvent) => {
     e.preventDefault()
     setRegTried(true)
-    if (Object.keys(validateRegister(regForm)).length) return
-    setRegStep("verifying")
-  }
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setCodeTried(true)
     setServerErr("")
-    if (busy || codeError(code)) return
+    if (busy || Object.keys(validateRegister(regForm)).length) return
     const u: User = {
       name: regForm.name.trim(),
       email: regForm.email.trim().toLowerCase(),
@@ -5761,8 +5520,8 @@ function CheckoutPage({
     setBusy(true)
     try {
       // Registering returns a token, so the client is logged in right away
-      await apiRegister({ ...u, password: regForm.pass })
-      onRegisterVerified(u)
+      onLogin(await apiRegister(u, regForm.pass))
+      saveRegisteredClient(u)
       setCheckoutStep(2)
     } catch (err) {
       setServerErr((err as Error).message)
@@ -5789,6 +5548,12 @@ function CheckoutPage({
       : {
           label: "Hacer pedido",
           onClick: () => setShowAuth(true),
+          disabled: !hasActiveItems,
+        }
+    : checkoutStep === 1
+      ? {
+          label: "Hacer pedido",
+          onClick: () => setCheckoutStep(2),
           disabled: !hasActiveItems,
         }
     : checkoutStep === 2
@@ -5851,9 +5616,9 @@ function CheckoutPage({
               ["Método de pago", delivForm.pago],
             ].map(([k, v]) => (
               <div key={k} className="flex justify-between gap-4">
-                <span style={{ color: MUTED }}>{k}</span>
-                <span className="font-semibold text-right" style={{ color: C.dark }}>
-                  {v}
+                <span className="flex-shrink-0" style={{ color: MUTED }}>{k}</span>
+                <span className="min-w-0 break-words font-semibold text-right" style={{ color: C.dark }}>
+                  {k === "Entrega en" ? <AddressLines address={v} /> : v}
                 </span>
               </div>
             ))}
@@ -5922,7 +5687,7 @@ function CheckoutPage({
         <ol className="flex items-center max-w-xl mx-auto mb-10">
           {["Identificación", "Entrega", "Revisión"].map((label, i) => {
             const step = (i + 1) as 1 | 2 | 3
-            const done = checkoutStep > step || (step === 1 && !!user)
+            const done = checkoutStep > step
             const active = checkoutStep === step && !done
             const reachable =
               (step === 1 && !user) ||
@@ -5970,7 +5735,7 @@ function CheckoutPage({
         <div className="grid lg:grid-cols-[1fr_380px] gap-6 items-start">
           {/* LEFT: current step */}
           <div className="flex flex-col gap-6 min-w-0">
-            {!user && !showAuth && (
+            {checkoutStep === 1 && !showAuth && (
               <section className="p-6 rounded-2xl" style={CARD_ST}>
                 <div className="flex items-center justify-between gap-3 mb-1">
                   <h2 className="font-bold text-lg" style={{ color: C.dark }}>
@@ -6022,7 +5787,7 @@ function CheckoutPage({
                       key={tab}
                       onClick={() => {
                         setAuthTab(tab)
-                        setRegStep("form")
+                        setServerErr("")
                       }}
                       className="flex-1 py-2 rounded-lg text-sm font-semibold cursor-pointer"
                       style={{
@@ -6069,7 +5834,7 @@ function CheckoutPage({
                     </button>
                   </form>
                 )}
-                {authTab === "register" && regStep === "form" && (
+                {authTab === "register" && (
                   <form
                     onSubmit={handleRegisterForm}
                     noValidate
@@ -6120,22 +5885,8 @@ function CheckoutPage({
                         ...current,
                         docNum: normalizeAccountDocumentInput(v, current.docType),
                       }))}
-
                       required
                       error={regErrors.docNum}
-                    />
-                    </div>
-                    <InputField
-                      label="Nombre *"
-                      placeholder="Tu nombre"
-                      value={regForm.name}
-                      onChange={(v) => setRegForm((f) => ({ ...f, name: v }))}
-                      required
-                      error={regErrors.name}
-
-                      required
-                      error={regErrors.docNum}
-
                     />
                     </div>
                     <InputField
@@ -6186,56 +5937,14 @@ function CheckoutPage({
                       required
                       error={regErrors.pass2}
                     />
-                    <button
-                      type="submit"
-                      className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
-                      style={{ background: C.mustard, color: "#fff" }}
-                    >
-                      Crear cuenta →
-                    </button>
-                  </form>
-                )}
-                {authTab === "register" && regStep === "verifying" && (
-                  <form onSubmit={handleVerify} noValidate className="flex flex-col gap-4">
-                    <p
-                      className="text-xs text-center"
-                      style={{ color: "rgba(30,30,30,0.5)" }}
-                    >
-                      Código enviado a <strong>{regForm.email}</strong>. (Demo:{" "}
-                      {DEMO_CODE})
-                    </p>
-                    <input
-                      maxLength={6}
-                      placeholder="000000"
-                      inputMode="numeric"
-                      value={code}
-                      onChange={(e) =>
-                        setCode(e.target.value.replace(/\D/g, ""))
-                      }
-                      aria-invalid={!!codeErr}
-                      className="w-full px-4 py-4 rounded-xl text-center text-2xl font-bold tracking-widest outline-none"
-                      style={{
-                        background: "rgba(30,30,30,0.05)",
-                        border: `1.5px solid ${codeErr ? C.red : "rgba(30,30,30,0.12)"}`,
-                        color: "#1A1714",
-                      }}
-                    />
-                    <FieldError msg={codeErr || serverErr} />
+                    <FieldError msg={serverErr} />
                     <button
                       type="submit"
                       disabled={busy}
-                      className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+                      className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
                       style={{ background: C.mustard, color: "#fff" }}
                     >
-                      {busy ? "Creando cuenta..." : "Verificar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRegStep("form")}
-                      className="text-xs text-center cursor-pointer"
-                      style={{ color: "rgba(30,30,30,0.45)" }}
-                    >
-                      ← Corregir mis datos
+                      {busy ? "Creando cuenta..." : "Crear cuenta →"}
                     </button>
                   </form>
                 )}
@@ -6245,18 +5954,15 @@ function CheckoutPage({
             {user && checkoutStep === 2 && (
               <>
                 <section className="p-6 rounded-2xl" style={CARD_ST}>
-                  <h2 className="font-bold text-lg mb-1" style={{ color: C.dark }}>
+                  <h2 className="font-bold text-lg mb-3" style={{ color: C.dark }}>
                     Datos de entrega
                   </h2>
-                  <p className="text-sm mb-5" style={{ color: MUTED }}>
-                    ¿A dónde llevamos tu pedido?
-                  </p>
                   <button
                     type="button"
                     role="switch"
                     aria-checked={deliverToOtherPerson}
                     onClick={toggleDeliveryRecipient}
-                    className="mb-4 flex w-full items-center justify-between gap-3 rounded-xl px-4 py-3 text-left transition-colors"
+                    className="mb-3 flex w-full items-center justify-between gap-3 rounded-xl px-3.5 py-2 text-left transition-colors"
                     style={{
                       background: deliverToOtherPerson ? `${C.mustard}12` : "rgba(30,30,30,0.03)",
                       border: `1px solid ${deliverToOtherPerson ? `${C.mustard}70` : LINE}`,
@@ -6266,11 +5972,6 @@ function CheckoutPage({
                       <strong className="block text-sm" style={{ color: C.dark }}>
                         El pedido lo recibe otra persona
                       </strong>
-                      <span className="mt-0.5 block text-xs" style={{ color: MUTED }}>
-                        {deliverToOtherPerson
-                          ? "Ingresa los datos de quien recibirá el pedido."
-                          : "Activa esta opción para indicar otro destinatario."}
-                      </span>
                     </span>
                     <span
                       aria-hidden="true"
@@ -6283,16 +5984,12 @@ function CheckoutPage({
                       />
                     </span>
                   </button>
-                  <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="grid sm:grid-cols-2 gap-3">
                     {[
                       ["nombre", deliverToOtherPerson ? "Nombre de quien recibe *" : "Nombre completo *", "text", "Quién recibe"],
                       ["telefono", deliverToOtherPerson ? "Teléfono de quien recibe *" : "Teléfono *", "tel", "3XX XXX XXXX"],
-                      ["notas", "Notas para el pedido", "text", "Ej: sin cebolla, timbre dañado"],
                     ].map(([k, lbl, t, ph]) => (
-                      <div
-                        key={k}
-                        className={k === "notas" ? "sm:col-span-2" : ""}
-                      >
+                      <div key={k}>
                         <InputField
                           label={lbl}
                           type={t}
@@ -6315,8 +6012,8 @@ function CheckoutPage({
                       </div>
                     ))}
                   </div>
-                  <div className="mt-4">
-                    <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between gap-3 mb-1">
                       <button
                         type="button"
                         onClick={() => setEditingAddress((editing) => !editing)}
@@ -6327,20 +6024,54 @@ function CheckoutPage({
                       </button>
                     </div>
                     {editingAddress ? (
-                      <InputField
-                        label="Dirección de entrega *"
-                        placeholder="Calle, número, barrio y ciudad"
-                        value={delivForm.direccion}
-                        onChange={(direccion) =>
-                          setDelivForm((form) => ({ ...form, direccion }))
-                        }
-                        required
-                        error={
-                          deliveryTried && !delivForm.direccion.trim()
-                            ? "La dirección de entrega es obligatoria."
-                            : undefined
-                        }
-                      />
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <InputField
+                          label="Barrio *"
+                          placeholder="Ej: Santa Ana, Niquía"
+                          value={addressParts.barrio}
+                          onChange={(v) => setAddressPart("barrio", v)}
+                          required
+                          error={deliveryTried && !addressParts.barrio.trim() ? "El barrio es obligatorio." : undefined}
+                        />
+                        <InputField
+                          label="Dirección *"
+                          placeholder="Ej: Calle 50 # 45-20"
+                          value={addressParts.calle}
+                          onChange={(v) => setAddressPart("calle", v)}
+                          required
+                          error={deliveryTried && !addressParts.calle.trim() ? "La dirección es obligatoria." : undefined}
+                        />
+                        <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
+                          Tipo de edificio
+                          <select
+                            value={addressParts.tipoEdificio}
+                            onChange={(e) => setAddressPart("tipoEdificio", e.target.value)}
+                            className="w-full rounded-xl px-3.5 py-3 text-sm outline-none"
+                            style={{ background: "rgba(30,30,30,0.05)", border: "1.5px solid rgba(30,30,30,0.12)", color: "#1A1714" }}
+                          >
+                            <option value="">Casa / ninguno</option>
+                            {BUILDING_TYPES.map((type) => (
+                              <option key={type} value={type}>{type}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <InputField
+                          label="Apartamento, unidad, piso, casa y torre"
+                          placeholder="Ej: Torre 2, apto 301"
+                          value={addressParts.unidad}
+                          onChange={(v) => setAddressPart("unidad", v)}
+                        />
+                        {addressParts.tipoEdificio && (
+                          <div className="sm:col-span-2">
+                            <InputField
+                              label="Nombre del edificio"
+                              placeholder="Ej: Torres de Santa Ana"
+                              value={addressParts.nombreEdificio}
+                              onChange={(v) => setAddressPart("nombreEdificio", v)}
+                            />
+                          </div>
+                        )}
+                      </div>
                     ) : (
                       <div
                         className="px-4 py-3 rounded-xl text-sm"
@@ -6372,7 +6103,36 @@ function CheckoutPage({
                         ))}
                       </div>
                     )}
-                    <label className="flex items-start gap-2 mt-3 text-xs cursor-pointer" style={{ color: MUTED }}>
+                    {/* Map of the address + delivery zone (up to DELIVERY_RADIUS_KM from Santa Ana, Bello) */}
+                    {geo.status !== "idle" && (
+                      <div className="mt-3 overflow-hidden rounded-xl" style={{ border: `1px solid ${LINE}` }}>
+                        {geo.lat !== undefined && geo.lon !== undefined && (
+                          <iframe
+                            title="Ubicación de la dirección de entrega"
+                            className="block h-32 w-full"
+                            loading="lazy"
+                            src={`https://www.openstreetmap.org/export/embed.html?bbox=${geo.lon - 0.012}%2C${geo.lat - 0.008}%2C${geo.lon + 0.012}%2C${geo.lat + 0.008}&layer=mapnik&marker=${geo.lat}%2C${geo.lon}`}
+                          />
+                        )}
+                        {geo.status !== "ok" && (
+                        <p
+                          className="px-3 py-2 text-xs font-medium"
+                          role="status"
+                          style={{
+                            background: geo.status === "loading" || geo.status === "error" ? "rgba(30,30,30,0.04)" : `${C.red}12`,
+                            color: geo.status === "loading" || geo.status === "error" ? MUTED : C.red,
+                          }}
+                        >
+                          {geo.status === "loading" && "Ubicando la dirección en el mapa..."}
+                          {geo.status === "far" &&
+                            `Esta dirección está fuera de nuestra zona de domicilio (hasta ${DELIVERY_RADIUS_KM} km de Santa Ana, Bello), así que no podemos llevar este pedido.`}
+                          {geo.status === "notfound" && "No encontramos esta dirección en el mapa. Revisa el barrio y la dirección (ej: Calle 50 # 45-20)."}
+                          {geo.status === "error" && "No pudimos cargar el mapa en este momento; el local confirmará la zona al recibir tu pedido."}
+                        </p>
+                        )}
+                      </div>
+                    )}
+                    <label className="flex items-start gap-2 mt-2 text-xs cursor-pointer" style={{ color: MUTED }}>
                       <input
                         type="checkbox"
                         checked={saveAddress}
@@ -6510,9 +6270,9 @@ function CheckoutPage({
                     </div>
                     {g.rows.map(([k, v]) => (
                       <div key={k} className="flex justify-between gap-4 text-sm py-0.5">
-                        <span style={{ color: MUTED }}>{k}</span>
-                        <span className="font-medium text-right" style={{ color: C.dark }}>
-                          {v}
+                        <span className="flex-shrink-0" style={{ color: MUTED }}>{k}</span>
+                        <span className="min-w-0 break-words font-medium text-right" style={{ color: C.dark }}>
+                          {k === "Dirección" ? <AddressLines address={v} /> : v}
                         </span>
                       </div>
                     ))}
@@ -6585,6 +6345,10 @@ function CheckoutPage({
                 <span>Domicilio</span>
                 <span style={{ color: MUTED }}>Costo según zona</span>
               </div>
+              <div className="flex justify-between" style={{ color: MUTED }}>
+                <span>Tiempo estimado</span>
+                <span className="font-semibold" style={{ color: C.dark }}>{DELIVERY_ESTIMATE}</span>
+              </div>
             </div>
             <div
               className="flex justify-between items-baseline font-black text-lg pt-4 mt-4"
@@ -6597,6 +6361,24 @@ function CheckoutPage({
               <span>Total</span>
               <span style={{ color: C.mustard }}>{fmt(subtotal)}</span>
             </div>
+            {user && checkoutStep >= 2 && (
+              <label className="mt-4 block">
+                <span className="mb-1.5 flex items-baseline justify-between gap-2">
+                  <span className="text-xs font-semibold" style={{ color: C.dark }}>
+                    Notas para el pedido <span className="font-normal" style={{ color: MUTED }}>(opcional)</span>
+                  </span>
+                  <span className="text-[10px]" style={{ color: MUTED }}>{delivForm.notas.length}/200</span>
+                </span>
+                <textarea
+                  value={delivForm.notas}
+                  onChange={(e) => setDelivForm((f) => ({ ...f, notas: e.target.value.slice(0, 200) }))}
+                  rows={2}
+                  placeholder="Ej: sin cebolla, el timbre no sirve, llamar al llegar"
+                  className="w-full resize-none rounded-xl px-3 py-2 text-sm outline-none"
+                  style={{ background: "rgba(30,30,30,0.04)", border: `1px solid ${LINE}`, color: C.dark }}
+                />
+              </label>
+            )}
             <FieldError msg={orderError} />
             {cta ? (
               <button
@@ -6618,7 +6400,13 @@ function CheckoutPage({
             {user && checkoutStep >= 2 && (!delivFilled || !payReady) && (
               <p className="mt-3 text-xs text-center" style={{ color: MUTED }}>
                 {!delivFilled
-                  ? "Completa nombre, teléfono y dirección para continuar."
+                  ? geo.status === "far"
+                    ? `Tu dirección está fuera de la zona de domicilio (máximo ${DELIVERY_RADIUS_KM} km).`
+                    : geo.status === "notfound"
+                      ? "Revisa el barrio y la dirección: no la encontramos en el mapa."
+                      : geo.status === "loading"
+                        ? "Ubicando tu dirección..."
+                        : "Completa nombre, teléfono, barrio y dirección para continuar."
                   : `Sube el comprobante de ${delivForm.pago} para continuar.`}
               </p>
             )}
@@ -6665,9 +6453,8 @@ function CheckoutPage({
           product={addProduct}
           onClose={() => setAddProduct(null)}
           onAdd={(product, qty, sauces, additions) => {
-            setCart((items) => [
-              ...items,
-              {
+            setCart((items) =>
+              addCartItem(items, {
                 id: Date.now(),
                 name: product.name,
                 description: product.desc,
@@ -6676,8 +6463,8 @@ function CheckoutPage({
                 img: product.img,
                 sauces,
                 additions,
-              },
-            ])
+              }),
+            )
             setAddProduct(null)
             setPickerOpen(false)
           }}
@@ -6718,14 +6505,9 @@ function ChangePasswordForm({
     }
 
     // Validate new password
-
     const passwordError = getPasswordError(newPass)
     if (passwordError) {
       setError(passwordError.replace("Crea una contraseña.", "Escribe una nueva contraseña."))
-
-    if (newPass.length < 8) {
-      setError("La nueva contraseña debe tener al menos 8 caracteres.")
-
       return
     }
     if (newPass !== confirmPass) {
@@ -7532,9 +7314,8 @@ function ClientApp({
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
   ) => {
-    setCart((c) => [
-      ...c,
-      {
+    setCart((c) =>
+      addCartItem(c, {
         id: Date.now(),
         name: p.name,
         description: p.desc,
@@ -7543,8 +7324,8 @@ function ClientApp({
         img: p.img,
         sauces,
         additions,
-      },
-    ])
+      }),
+    )
     setAddProduct(null)
   }
   const quickAdd = (p: Product) =>
@@ -7577,7 +7358,15 @@ function ClientApp({
         }}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-4 h-16">
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => {
+              setView("menu")
+              window.scrollTo({ top: 0, behavior: "smooth" })
+            }}
+            aria-label="Volver al menú principal"
+            className="flex flex-shrink-0 cursor-pointer items-center gap-2 text-left"
+          >
             <img
               src={logoImg}
               alt="El Parche"
@@ -7597,7 +7386,7 @@ function ClientApp({
                 Mini Burguer
               </div>
             </div>
-          </div>
+          </button>
           <div className="hidden md:flex items-center gap-1 ml-2">
             {(["menu", "orders"] as const).map((v) => (
               <button
@@ -7627,12 +7416,10 @@ function ClientApp({
               {dark ? Ico.sun : Ico.moon}
             </button>
             <button
-              onClick={() => setView("cart")}
+              onClick={onCheckout}
+              aria-label="Ver mi carrito"
               className="relative w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
-              style={{
-                background: view === "cart" ? `${C.mustard}20` : BORDER,
-                color: view === "cart" ? C.mustard : TEXT,
-              }}
+              style={{ background: BORDER, color: TEXT }}
             >
               {Ico.cart}
               {cartCount > 0 && (
@@ -7752,6 +7539,8 @@ function ClientApp({
             </div>
             <ProductCatalog
               dark={dark}
+              paginate={false}
+              compact
               onInfoClick={(p) => setInfoProduct(p)}
               onAddClick={(p) => setAddProduct(p)}
             />
@@ -7768,37 +7557,6 @@ function ClientApp({
                 con tu pedido.
               </span>
             </div>
-          </div>
-        )}
-        {view === "cart" && (
-          <div className="max-w-lg mx-auto">
-            <h2
-              className="font-black text-2xl mb-5"
-              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
-            >
-              Carrito
-            </h2>
-            <CartSummary cart={cart} setCart={setCart} dark={dark} />
-            {cart.length > 0 && (
-              <button
-                onClick={onCheckout}
-                className="w-full mt-4 py-4 rounded-2xl font-bold text-sm cursor-pointer hover:opacity-90"
-                style={{ background: C.mustard, color: "#fff" }}
-              >
-                Confirmar pedido →
-              </button>
-            )}
-            {cart.length === 0 && (
-              <div className="text-center mt-4">
-                <button
-                  onClick={() => setView("menu")}
-                  className="px-8 py-3 rounded-full font-bold text-sm cursor-pointer"
-                  style={{ background: C.mustard, color: "#fff" }}
-                >
-                  Ver menú
-                </button>
-              </div>
-            )}
           </div>
         )}
         {view === "orders" && (
@@ -7849,6 +7607,71 @@ function ClientApp({
   )
 }
 
+// Line icons for the "Nosotros" cards (same stroke style as Ico)
+const aboutIcon = (size: number, paths: React.ReactNode) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    {paths}
+  </svg>
+)
+const ABOUT_ICONS = {
+  mision: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1.5" />
+    </>
+  ),
+  vision: (
+    <>
+      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  valores: (
+    <path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.7l-1-1.1a5.5 5.5 0 0 0-7.8 7.8l1 1.1L12 21l7.8-7.5 1-1.1a5.5 5.5 0 0 0 0-7.8z" />
+  ),
+  familia: (
+    <>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.9" />
+      <path d="M16 3.1a4 4 0 0 1 0 7.8" />
+    </>
+  ),
+  cocina: (
+    <>
+      <path d="M17 21a1 1 0 0 0 1-1v-5.4c0-.5.3-.8.7-1a4 4 0 0 0-2.1-7.6 5 5 0 0 0-9.2 0 4 4 0 0 0-2.1 7.6c.4.2.7.5.7 1V20a1 1 0 0 0 1 1z" />
+      <path d="M6 17h12" />
+    </>
+  ),
+  servicio: (
+    <>
+      <path d="M3 20h18" />
+      <path d="M20 17a8 8 0 0 0-16 0z" />
+      <path d="M12 5v4" />
+      <path d="M10 5h4" />
+    </>
+  ),
+  domicilios: (
+    <>
+      <circle cx="18.5" cy="17.5" r="3.5" />
+      <circle cx="5.5" cy="17.5" r="3.5" />
+      <circle cx="15" cy="5" r="1" />
+      <path d="M12 17.5V14l-3-3 4-3 2 3h2" />
+    </>
+  ),
+}
+
 // ── Landing Page ───────────────────────────────────────────────────────────────
 function LandingPage({
   onLogin,
@@ -7891,9 +7714,8 @@ function LandingPage({
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
   ) => {
-    setCart((c) => [
-      ...c,
-      {
+    setCart((c) =>
+      addCartItem(c, {
         id: Date.now(),
         name: p.name,
         description: p.desc,
@@ -7902,8 +7724,8 @@ function LandingPage({
         img: p.img,
         sauces,
         additions,
-      },
-    ])
+      }),
+    )
     setAddProduct(null)
   }
   const NAVLINKS = [
@@ -8430,17 +8252,17 @@ function LandingPage({
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mb-10">
             {[
               {
-                icon: Ico.target,
+                icon: ABOUT_ICONS.mision,
                 title: "Misión",
                 text: "Preparar mini burgers artesanales de alta calidad con ingredientes frescos, llevando sabor y alegría a cada cliente de Bello y sus alrededores.",
               },
               {
-                icon: Ico.trending,
+                icon: ABOUT_ICONS.vision,
                 title: "Visión",
                 text: "Ser el restaurante de fast food artesanal más querido del norte del Valle de Aburrá para 2026, expandiendo nuestras sedes sin perder la esencia familiar.",
               },
               {
-                icon: Ico.star,
+                icon: ABOUT_ICONS.valores,
                 title: "Valores",
                 text: "Calidad sin compromisos, honestidad con nuestros clientes, pasión en cada preparación, puntualidad en entregas y servicio cálido y cercano.",
               },
@@ -8455,7 +8277,12 @@ function LandingPage({
                   border: `1px solid ${BORDER}`,
                 }}
               >
-                <div className="mb-3 flex h-9 items-center [&_svg]:h-8 [&_svg]:w-8" style={{ color: C.mustard }}>{v.icon}</div>
+                <div
+                  className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl"
+                  style={{ background: `${C.mustard}1F`, color: C.mustard }}
+                >
+                  {aboutIcon(24, v.icon)}
+                </div>
                 <h3
                   className="font-black text-lg mb-2"
                   style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
@@ -8483,19 +8310,19 @@ function LandingPage({
               {
                 name: "La Familia Fundadora",
                 role: "Dirección General",
-                icon: Ico.users,
+                icon: ABOUT_ICONS.familia,
               },
               {
                 name: "Equipo de Cocina",
                 role: "Preparación & Calidad",
-                icon: Ico.chef,
+                icon: ABOUT_ICONS.cocina,
               },
               {
                 name: "Equipo de Servicio",
                 role: "Atención al cliente",
-                icon: Ico.user,
+                icon: ABOUT_ICONS.servicio,
               },
-              { name: "Repartidores", role: "Domicilios Express", icon: Ico.mapPin },
+              { name: "Repartidores", role: "Domicilios Express", icon: ABOUT_ICONS.domicilios },
             ].map((m) => (
               <div
                 key={m.name}
@@ -8506,7 +8333,12 @@ function LandingPage({
                     : "rgba(30,30,30,0.04)",
                 }}
               >
-                <div className="mb-2 flex h-10 items-center justify-center [&_svg]:h-8 [&_svg]:w-8" style={{ color: C.mustard }}>{m.icon}</div>
+                <div
+                  className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full"
+                  style={{ background: `${C.mustard}1F`, color: C.mustard, border: `1px solid ${C.mustard}40` }}
+                >
+                  {aboutIcon(26, m.icon)}
+                </div>
                 <div className="font-bold text-sm" style={{ color: TEXT }}>
                   {m.name}
                 </div>
@@ -8721,12 +8553,8 @@ function LandingPage({
                     borderTop: "1px solid rgba(250,243,224,0.06)",
                   }}
                 >
-
                   <span className="mr-1 inline-flex align-middle">{Ico.mapPin}</span>
                   Domicilios disponibles en toda la zona
-
-                  🚀 Domicilios disponibles en toda la zona
-
                 </div>
               </div>
             </div>
@@ -9557,6 +9385,11 @@ function AdminPanel({
   )
   const [open, setOpen] = useState<string[]>(["ventas-g"])
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  // Desktop: menu with icons only (☰ in the header switches it); remembered in this browser
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadLS("adminSidebarCollapsed", false))
+  useEffect(() => saveLS("adminSidebarCollapsed", sidebarCollapsed), [sidebarCollapsed])
+  // Labels hide only on large screens (on a phone the menu is a full drawer)
+  const hideOnMini = sidebarCollapsed ? "lg:hidden" : ""
   const [profileOpen, setProfileOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [readNotifications, setReadNotifications] = useState<Set<number>>(
@@ -9692,10 +9525,6 @@ function AdminPanel({
         saveOrders(loadOrders().map((o) => (o.id === order[0] ? { ...o, productionRecords: created } : o)))
         pushOrder(String(order[0]))
       })
-    initialRows.produccion = [
-      ...clientOrders.flatMap((order) => order.productionRecords ?? []),
-      ...(initialRows.produccion || []),
-    ]
     const supplyProducts = (initialRows.insumos || [])
       .filter((row) => String(row[7]).toLowerCase() === "sí")
       .map(supplyAsProduct)
@@ -9719,27 +9548,6 @@ function AdminPanel({
         "Activo",
       ])
     initialRows.clientes = [...registeredClientRows, ...(initialRows.clientes || [])]
-    const duplicatedSales = (initialRows.pedidos || [])
-      .filter(
-        (order) =>
-          String(order[8]).toLowerCase() === "pagado" &&
-          !["En camino", "Entregado"].includes(String(order[7])),
-      )
-      .map((order, index) => [
-        `VTA-AUTO-${String(index + 1).padStart(2, "0")}`,
-        sellerName,
-        order[1],
-        clientOrders.find((clientOrder) => clientOrder.id === order[0])?.date ?? "",
-        order[3],
-        order[4],
-        order[6],
-        order[6],
-        "Pendiente",
-        order[0],
-        order[7],
-        order[10] ?? "[]",
-      ])
-    initialRows.ventas = [...duplicatedSales, ...(initialRows.ventas || [])]
     return initialRows
   })
   const [anulled, setAnulled] = useState<Record<string, Set<number>>>({})
@@ -9796,7 +9604,6 @@ function AdminPanel({
     }
     const saved =
       statusOnly && spec.setStatus
-
         ? spec.setStatus(row[spec.idIndex], row).then(() => ({
             id: Number(row[spec.idIndex]),
             saved: undefined,
@@ -9815,24 +9622,6 @@ function AdminPanel({
             return updated
           }),
         }))
-        if (
-          sec === "usuarios" &&
-          isNew &&
-          savedRecord?.contrasena_temporal
-        ) {
-          window.alert(
-            `Usuario creado. Entrega esta contraseña temporal al usuario; deberá cambiarla al iniciar sesión:\n\n${savedRecord.contrasena_temporal}`,
-          )
-        }
-
-        ? spec.setStatus(row[spec.idIndex], row).then(() => Number(row[spec.idIndex]))
-        : saveRowToDb(spec, row)
-    saved
-      .then((id) => {
-        setRows((current) => ({
-          ...current,
-          [sec]: (current[sec] || []).map((r) => (r === row ? withId([...r], spec.idIndex, id) : r)),
-        }))
         spec.reloads?.forEach(loadModule)
         if (statusOnly) return
         return Promise.all([spec.afterSave?.(id, row), alsoSave?.(id)])
@@ -9846,10 +9635,15 @@ function AdminPanel({
     const spec = DB_SYNC[sec]
     const id = spec && row?.[spec.idIndex]
     if (!id) return
-    api(`${spec.path}/${id}`, "DELETE").catch((err) => {
-      window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`)
-      loadModule(sec)
-    })
+    api(`${spec.path}/${id}`, "DELETE")
+      .then(() => {
+        // The backend also takes it off the suppliers' lists
+        if (sec === "insumos") loadModule("proveedores")
+      })
+      .catch((err) => {
+        window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`)
+        loadModule(sec)
+      })
   }
   // PANEL_SYNC modules: loaded once, then every created/changed/removed row is saved automatically
   const panelLoaded = useRef<Record<string, boolean>>({})
@@ -9875,6 +9669,8 @@ function AdminPanel({
         .catch((err) => console.warn(`No se pudo cargar «${sec}» del backend:`, err)),
     )
   }, [])
+  // Panel rows the server refused to create (skipped until they change)
+  const failedCreates = useRef(new WeakSet<Row>())
   useEffect(() => {
     Object.entries(PANEL_SYNC).forEach(([sec, spec]) => {
       if (!panelLoaded.current[sec]) return
@@ -9884,7 +9680,13 @@ function AdminPanel({
       for (const row of rows[sec] || []) {
         if (spec.owns?.(row) === false) continue
         const id = row[spec.idIndex]
-        if (!id) created.push(row)
+        if (!id) {
+          const orderCode = sec === "ventas" ? String(row[9] ?? "") : ""
+          const orderHasSale =
+            !!orderCode && orderCode !== "Sin pedido" &&
+            (rows.ventas || []).some((other) => other !== row && String(other[9] ?? "") === orderCode)
+          if (!failedCreates.current.has(row) && !orderHasSale) created.push(row)
+        }
         else if (String(id).startsWith("guardando-")) continue
         else {
           present.add(id)
@@ -9923,11 +9725,18 @@ function AdminPanel({
             }))
           })
           .catch((err) => {
-            window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
-            // Back to "new" so it is retried on the next change
+            const moduleName =
+              SIDEBAR_MENU.flatMap((item) => item.children).find((item) => item.key === sec)?.label ?? sec
+            window.alert(`No se pudo crear «${String(row[0] ?? "")}» en ${moduleName}: ${(err as Error).message}`)
+            // Back to "new", but not retried until the record changes
             setRows((current) => ({
               ...current,
-              [sec]: (current[sec] || []).map((r) => (r[spec.idIndex] === tempId ? withPanelId(r, spec.idIndex, "") : r)),
+              [sec]: (current[sec] || []).map((r) => {
+                if (r[spec.idIndex] !== tempId) return r
+                const back = withPanelId(r, spec.idIndex, "")
+                failedCreates.current.add(back)
+                return back
+              }),
             }))
           })
       })
@@ -9941,6 +9750,7 @@ function AdminPanel({
   )
   const [paymentProofDraft, setPaymentProofDraft] = useState("")
   const [search, setSearch] = useState<Record<string, string>>({})
+  const [tableFilter, setTableFilter] = useState<Record<string, string>>({})
   const [pg, setPg] = useState<Record<string, number>>({})
   const [modal, setModal] = useState<{
     mode: ModalMode
@@ -9953,21 +9763,35 @@ function AdminPanel({
   const [imgPreview, setImgPreview] = useState("")
   const [technicalSheetOpen, setTechnicalSheetOpen] = useState(false)
   const [technicalIngredients, setTechnicalIngredients] = useState<TechnicalIngredient[]>([])
-
   const [technicalSteps, setTechnicalSteps] = useState<string[]>([])
   const [technicalStepDraft, setTechnicalStepDraft] = useState("")
-
-
+  const [technicalStepEdit, setTechnicalStepEdit] = useState<{ index: number; text: string } | null>(null)
+  const [technicalIngredientUnit, setTechnicalIngredientUnit] = useState("")
+  // Search box of the insumo picker in the product's ficha técnica (null = list closed)
+  const [technicalIngredientSearch, setTechnicalIngredientSearch] = useState<string | null>(null)
   const [technicalIngredientSelect, setTechnicalIngredientSelect] = useState("")
   const [technicalIngredientQuantity, setTechnicalIngredientQuantity] = useState("1")
   const [technicalSheetError, setTechnicalSheetError] = useState("")
   const [pedidoProductoSelect, setPedidoProductoSelect] = useState("")
   const [pedidoProductCategory, setPedidoProductCategory] = useState("Todas")
   const [pedidoProductQuantity, setPedidoProductQuantity] = useState("1")
-  const [pedidoParentSelect, setPedidoParentSelect] = useState("")
+  const [pedidoAdditionsFor, setPedidoAdditionsFor] = useState("")
   const [pedidoOrderLines, setPedidoOrderLines] = useState<AdminOrderLine[]>([])
   const [productionItems, setProductionItems] = useState<ProductionItem[]>([])
   const [productionProductSelect, setProductionProductSelect] = useState("")
+  // Nuevo producto no conforme: production order chosen to register it from
+  const [pncOrderPick, setPncOrderPick] = useState("")
+  // Order detail: products whose additions and drinks are shown ("Más detalles")
+  const [orderDetailOpen, setOrderDetailOpen] = useState<string[]>([])
+  // ...or "sin orden": only then the manual form shows (keeps the window short)
+  const [pncManual, setPncManual] = useState(false)
+  // New production order: product search (null = list closed) and the line being edited
+  const [productionSearch, setProductionSearch] = useState<string | null>(null)
+  const [productionItemEdit, setProductionItemEdit] = useState<{ index: number; qty: string } | null>(null)
+  // Which list the search shows: menu products or additions
+  const [productionKind, setProductionKind] = useState<"productos" | "adiciones" | "gaseosas">("productos")
+  // Unit of measure of the line being added (singular word: "unidad", "bolsita", "kg"...)
+  const [productionItemUnit, setProductionItemUnit] = useState("")
   const [productionItemQuantity, setProductionItemQuantity] = useState("1")
   const [productionFormError, setProductionFormError] = useState("")
   // "Nueva compra" item picker (limited to the selected supplier's insumos)
@@ -9988,7 +9812,33 @@ function AdminPanel({
   } | null>(null)
   const [lossError, setLossError] = useState("")
   const [purchaseNotice, setPurchaseNotice] = useState("")
+  // Insumo form: suppliers that sell it (saved in each supplier's "Insumos que suministra")
+  const [supplySuppliers, setSupplySuppliers] = useState<string[]>([])
+  // Insumo form: the suppliers dropdown (open + search)
+  const [supplierPickerOpen, setSupplierPickerOpen] = useState(false)
+  const [supplierPickerQuery, setSupplierPickerQuery] = useState("")
+  // Supplier form: search box of "Insumos que suministra"
+  const [supplierSupplySearch, setSupplierSupplySearch] = useState("")
+  // Where the insumos list opens (the search box's position); null = closed
+  const [supplierSupplyOpen, setSupplierSupplyOpen] = useState<DOMRect | null>(null)
+  // A form left open to create something in another module (supplier -> insumo, purchase -> supplier);
+  // it comes back when that other form closes, with what was created already chosen
+  const [formReturn, setFormReturn] = useState<{
+    section: string
+    child: string
+    mode: ModalMode
+    idx: number | null
+    form: Record<string, string>
+  } | null>(null)
+  const [purchaseConfirmOpen, setPurchaseConfirmOpen] = useState(false)
+  // Reason typed when a loss goes back to its purchase (null = dialog closed)
+  const [lossReturnReason, setLossReturnReason] = useState<string | null>(null)
+  const [lossReturnError, setLossReturnError] = useState("")
+  const [lossReturnQty, setLossReturnQty] = useState("")
+  const [lossReturnSaving, setLossReturnSaving] = useState(false)
+  const [purchaseItemEdit, setPurchaseItemEdit] = useState<{ index: number; qty: string; price: string } | null>(null)
   const resetPurchasePicker = () => {
+    setPurchaseItemEdit(null)
     setPurchaseItemSelect("")
     setPurchaseItemQty("1")
     setPurchaseItemPrice("")
@@ -10034,8 +9884,9 @@ function AdminPanel({
     section: string
     idx: number
   } | null>(null)
-  const [chartFilter, setChartFilter] =
-    useState<"hoy" | "semana" | "mes" | "año">("semana")
+  const [chartFilter, setChartFilter] = useState<DashPeriod>("semana")
+  // Any day inside the chosen period
+  const [chartAnchor, setChartAnchor] = useState(() => new Date())
   const [rolesPerms, setRolesPerms] =
     useState<Record<string, Record<string, string[]>>>(() =>
       loadLS("adminRolePermissions", {}),
@@ -10091,7 +9942,7 @@ function AdminPanel({
   }, [])
 
   const toggleGrp = (k: string) =>
-    setOpen((g) => (g.includes(k) ? g.filter((x) => x !== k) : [...g, k]))
+    setOpen((groups) => (groups.includes(k) ? [] : [k]))
   const sectionLabel =
     SIDEBAR_MENU.find((item) => item.key === section)?.label ??
     SIDEBAR_MENU.flatMap((item) => item.children).find(
@@ -10160,7 +10011,6 @@ function AdminPanel({
     [...new Set((rows.insumos || []).map((row) => String(row[0] ?? "").trim()).filter(Boolean))].sort((a, b) =>
       a.localeCompare(b),
     )
-
 
   const getPreparationSteps = (preparation: string | number | undefined): string[] => {
     const value = String(preparation ?? "").trim()
@@ -10298,6 +10148,9 @@ function AdminPanel({
           .map((item) => ({
             name: String(item.name ?? item.product ?? "").trim(),
             quantity: Math.max(1, Number(item.quantity) || 1),
+            ...(item.unit ? { unit: String(item.unit) } : {}),
+            ...(item.reuse ? { reuse: true } : {}),
+            ...(Array.isArray(item.onlySupplies) && item.onlySupplies.length ? { onlySupplies: item.onlySupplies } : {}),
             ...(item.category ? { category: String(item.category) } : {}),
             ...(item.parentId ? { parentId: String(item.parentId) } : {}),
           }))
@@ -10320,7 +10173,6 @@ function AdminPanel({
     return [...new Set([...products, ...supplies])].sort((a, b) => a.localeCompare(b))
   }
 
-
   const getNonconformingItemUnit = (name: string) => {
     const supply = (rows.insumos || []).find((item) => String(item[0] ?? "").trim() === name)
     if (supply) return String(supply[2] ?? "").trim() || "Sin unidad"
@@ -10336,9 +10188,7 @@ function AdminPanel({
           .map((item) => ({
             name: String(item.name ?? "").trim(),
             quantity: Math.max(1, Number(item.quantity) || 1),
-
             unit: String(item.unit ?? "").trim() || getNonconformingItemUnit(String(item.name ?? "").trim()),
-
           }))
           .filter((item) => item.name)
       }
@@ -10349,24 +10199,12 @@ function AdminPanel({
       .split(",")
       .map((name) => name.trim())
       .filter(Boolean)
-
       .map((name) => ({
         name,
         quantity: Math.max(1, Number(row[3]) || 1),
         unit: getNonconformingItemUnit(name),
       }))
-
-      .map((name) => ({ name, quantity: Math.max(1, Number(row[3]) || 1) }))
-
   }
-
-  const getProductSupplyOptions = () =>
-    [...new Set(
-      (rows.producto || [])
-        .filter((product) => product[1] === "Producto de insumo")
-        .map((product) => String(product[0] ?? ""))
-        .filter(Boolean),
-    )].sort((a, b) => a.localeCompare(b))
 
   const getCurrentDateTimeParts = () => {
     const now = new Date()
@@ -10421,7 +10259,6 @@ function AdminPanel({
     draft: Record<string, string>,
     mode: ModalMode,
   ) => {
-    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
     const excludedKeys: Record<string, string[]> = {
       insumos: [
         // "Stock actual" isn't shown when creating (a new insumo starts at 0)
@@ -10431,41 +10268,19 @@ function AdminPanel({
           : ["8", "9", "10", "11"]),
       ],
       producto: ["5", "6", "7", "8", "10", ...(mode === "add" ? ["2"] : [])],
-
       produccion: ["0", "1", "15"],
       "producto-no-conforme": ["0", "1", "2", "5", "6"],
       compras: ["2", "3", "4"],
-
-      produccion: ["0", "1"],
-      "producto-no-conforme": ["0", "1", "2", "5", "6"],
-      compras: ["3", "4"],
-
       // "Origen" is only filled when the loss is sent from a purchase
       perdidas: ["5"],
       // 4 (modalidad) and 7 (estado de pago) are derived from the payment method
-      pedidos: ["1", "4", "5", "7", "9"],
+      pedidos: ["1", "4", "5", "7", "9", "11"],
+      ventas: ["8"],
     }
     const managedRequiredKeys: Record<string, string[]> = {
-
-      usuarios: [
-        "0", "1", "2", "3", "4",
-        ...(mode === "add" && String(draft["3"] ?? "") === "Cliente" ? ["6"] : []),
-      ],
-
-      usuarios: ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])],
-
-      clientes: [
-        "0",
-        "1",
-        "2",
-        "3",
-        ...(clientIsLocal ? [] : ["4", "5"]),
-      ],
-      // "7" (insumos que suministra) is optional: they can be assigned later, and
-      // Compras already warns when a supplier has none
-      proveedores: [
-        "0", "1", "2", "3", "5", "8", "9", "10", "11", "12", "13", "14",
-      ],
+      usuarios: ["0", "1", "2", "3", "4", ...(isStaffRole(draft["3"]) ? ["9", "10", "11"] : [])],
+      clientes: ["0", "1", "2", "3", "4", "5"],
+      proveedores: supplierRequiredKeys(draft),
       roles: ["0", "1"],
     }
 
@@ -10479,6 +10294,43 @@ function AdminPanel({
       .map((field) => field.key)
   }
 
+  // A loss sent from a purchase ("Compra a X del 17 de octubre de 2026") can't exceed what that
+  // purchase brought, minus its other losses of the same insumo; null when it isn't from a purchase
+  const purchaseLossMax = (origin: string, insumo: string, exceptIdx: number | null) => {
+    if (!origin.trim()) return null
+    const purchase = (rows.compras || []).find((p) => {
+      const date = new Date(`${String(p[1] ?? "").slice(0, 10)}T00:00:00`)
+      const label = Number.isNaN(date.getTime())
+        ? String(p[1] ?? "")
+        : date.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
+      return `Compra a ${String(p[0])} del ${label}` === origin.trim() &&
+        parsePurchaseLines(p[6]).some((i) => i.name === insumo)
+    })
+    if (!purchase) return null
+    const bought = parsePurchaseLines(purchase[6])
+      .filter((i) => i.name === insumo)
+      .reduce((sum, i) => sum + i.quantity, 0)
+    const lostElsewhere = (rows.perdidas || [])
+      .filter((l, idx) => idx !== exceptIdx && !isReturnedLoss(l) && String(l[5] ?? "") === origin && String(l[0]) === insumo)
+      .reduce((sum, l) => sum + (parseFloat(String(l[1])) || 0), 0)
+    return Math.max(0, bought - lostElsewhere)
+  }
+
+  // Why a sale can't have a return yet ("" = it can): its order must have finished production
+  const saleReturnBlock = (sale: Row | undefined) => {
+    if (!sale) return "Elige una venta de la lista."
+    const orderCode = String(sale[9] ?? "").trim()
+    if (!orderCode || orderCode === "Sin pedido") return ""
+    const orders = (rows.produccion || []).filter(
+      (order) => String(order[15] ?? "") === orderCode && String(order[8]) !== "Producto no conforme",
+    )
+    if (!orders.length) return `El pedido ${orderCode} no tiene orden de producción terminada.`
+    const pending = orders.find((order) => String(order[8]) !== "Terminado")
+    return pending
+      ? `La orden de producción ${String(pending[0])} del pedido ${orderCode} está en «${String(pending[8] || "Recibida")}»: solo se puede devolver cuando esté «Terminado».`
+      : ""
+  }
+
   const getManagedFieldError = (
     sec: string,
     key: string,
@@ -10487,21 +10339,13 @@ function AdminPanel({
     mode: ModalMode = modal.mode,
   ) => {
     const trimmed = value.trim()
-    const clientIsLocal = String(draft["6"] ?? "").toLowerCase() === "sí"
     const required =
       sec === "usuarios"
-
-        ? [
-            "0", "1", "2", "3", "4",
-            ...(mode === "add" && String(draft["3"] ?? "") === "Cliente" ? ["6"] : []),
-          ].includes(key)
-
-        ? ["0", "1", "2", "3", "4", ...(mode === "add" ? ["6"] : [])].includes(key)
-
+        ? ["0", "1", "2", "3", "4", ...(isStaffRole(draft["3"]) ? ["9", "10", "11"] : [])].includes(key)
         : sec === "clientes"
-          ? ["0", "1", "2", "3", ...(clientIsLocal ? [] : ["4", "5"])].includes(key)
+          ? ["0", "1", "2", "3", "4", "5"].includes(key)
           : sec === "proveedores"
-            ? ["0", "1", "2", "3", "5", "7", "8", "9", "10", "11", "12", "13", "14"].includes(key)
+            ? supplierRequiredKeys(draft).includes(key)
             : sec === "roles"
               ? ["0", "1"].includes(key)
               : false
@@ -10509,21 +10353,19 @@ function AdminPanel({
     if (required && !trimmed) return "Este campo es obligatorio."
     if (!trimmed) return ""
 
-
-    if (sec === "usuarios" && key === "2") {
-      return validateAccountDocumentNumber(trimmed, String(draft["1"] ?? ""))
-    }
-    if (sec === "clientes" && key === "2") {
-      return validateDocumentNumber(trimmed, String(draft["1"] ?? ""))
-    }
-    if (sec === "usuarios" && key === "6" && mode === "add") {
-      return getPasswordError(trimmed)
+    if (mode === "edit" && modal.idx !== null && isSuperAdminRow(sec, rows.usuarios?.[modal.idx])) {
+      if (key === "4" && trimmed.toLowerCase() !== SUPER_ADMIN_EMAIL)
+        return `El correo del superadministrador siempre es ${SUPER_ADMIN_EMAIL}.`
+      if (key === "3" && trimmed.toLowerCase() !== "administrador")
+        return "El superadministrador siempre tiene el rol Administrador."
     }
 
     if ((sec === "usuarios" && key === "2") || (sec === "clientes" && key === "2")) {
       return validateDocumentNumber(trimmed, String(draft["1"] ?? ""))
     }
-
+    if (sec === "usuarios" && key === "6" && mode === "add") {
+      return getPasswordError(trimmed)
+    }
     if (sec === "proveedores" && key === "1") {
       const digits = digitsOnly(trimmed)
       return /^[\d.-]+$/.test(trimmed) && digits.length >= 8 && digits.length <= 15
@@ -10533,12 +10375,13 @@ function AdminPanel({
     if (sec === "proveedores" && key === "9") {
       return validateDocumentNumber(trimmed, String(draft["8"] ?? ""))
     }
-    if ((sec === "usuarios" && key === "4") ||
+    if ((sec === "usuarios" && ["4", "13"].includes(key)) ||
         (sec === "clientes" && key === "4") ||
         (sec === "proveedores" && ["2", "13"].includes(key))) {
       return EMAIL_PATTERN.test(trimmed) ? "" : "Escribe un correo electrónico válido."
     }
     if ((sec === "clientes" && key === "3") ||
+        (sec === "usuarios" && ["9", "12"].includes(key)) ||
         (sec === "proveedores" && ["3", "12"].includes(key))) {
       return validatePhoneNumber(trimmed)
     }
@@ -10550,11 +10393,36 @@ function AdminPanel({
       })
       return sameNameExists ? "Ya existe un rol con este nombre." : ""
     }
-
+    if (sec === "devoluciones" && key === "1") {
+      const block = saleReturnBlock((rows.ventas || []).find((v) => String(v[0]) === trimmed))
+      if (block) return block
+      try {
+        if (!JSON.parse(draft["6"] || "[]").length) return "Marca los productos que se devuelven."
+      } catch {
+        return "Marca los productos que se devuelven."
+      }
+    }
+    if (sec === "produccion" && key === "3" && trimmed > getCurrentDateTimeParts().date) {
+      return "La fecha de creación no puede ser posterior a hoy."
+    }
+    if (sec === "perdidas" && key === "4" && trimmed > getCurrentDateTimeParts().date) {
+      return "La fecha de la pérdida no puede ser posterior a hoy."
+    }
+    if (sec === "perdidas" && key === "1") {
+      const qty = parseFloat(trimmed.replace(",", "."))
+      if (!(qty > 0)) return "Escribe cuánto se perdió."
+      const supply = (rows.insumos || []).find((r) => String(r[0]) === String(draft["0"] ?? ""))
+      const stock = Number(supply?.[4] ?? 0)
+      const fromPurchase = purchaseLossMax(String(draft["5"] ?? ""), String(draft["0"] ?? ""), mode === "edit" ? modal.idx : null)
+      if (fromPurchase !== null && qty > fromPurchase)
+        return `Viene de una compra: no puede ser más de ${fromPurchase.toLocaleString("es-CO")} ${String(supply?.[2] ?? "und")} (lo comprado menos lo ya perdido).`
+      // On edit the loss was already taken out of stock
+      if (mode === "add" && supply && qty > stock)
+        return `No hay tanto en stock: quedan ${stock.toLocaleString("es-CO")} ${String(supply[2] ?? "und")}.`
+    }
     if (sec === "compras" && key === "1" && trimmed > getCurrentDateTimeParts().date) {
       return "La fecha de compra no puede ser posterior a hoy."
     }
-
     return ""
   }
 
@@ -10639,7 +10507,6 @@ function AdminPanel({
           ? "2"
           : ""
     if (documentKey) {
-
       currentDraft[documentKey] =
         sec === "usuarios"
           ? normalizeAccountDocumentInput(currentDraft[documentKey] ?? "", value)
@@ -10650,12 +10517,6 @@ function AdminPanel({
     }
     if (sec === "usuarios" && key === "3" && value !== "Cliente" && currentDraft["1"] === "Tarjeta de Identidad") {
       currentDraft["1"] = ""
-
-      currentDraft[documentKey] = normalizeDocumentInput(
-        currentDraft[documentKey] ?? "",
-        value,
-      )
-
     }
     setFormData(currentDraft)
     // Recompute while any error is shown: a change in one field (e.g. "Cliente de local")
@@ -10675,22 +10536,36 @@ function AdminPanel({
       initialFields["6"] = getAutoTechVersion(rows.producto || [])
       initialFields["10"] = "Disponible"
       setTechnicalIngredients([])
-
       setTechnicalSteps([])
       setTechnicalStepDraft("")
-
       setTechnicalSheetError("")
     }
+    if (sec === "proveedores") {
+      setSupplierSupplySearch("")
+      setSupplierSupplyOpen(null)
+    }
     if (sec === "ventas") {
-      initialFields["8"] = "Sin pedido"
       initialFields["0"] = sellerName
     }
+    if (sec === "devoluciones") initialFields["5"] = getCurrentDateTimeParts().date
     if (sec === "insumos") {
       initialFields["7"] = "No"
       setSupplyFormError("")
+      setSupplySuppliers([])
+      setSupplierPickerOpen(false)
+      setSupplierPickerQuery("")
     }
     if (sec === "producto-no-conforme") {
       initialFields["6"] = "und"
+      setPncManual(false)
+      setPncOrderPick("")
+      setProductionKind("productos")
+      setProductionItemUnit("")
+      setProductionItemEdit(null)
+    }
+    if (sec === "perdidas") {
+      initialFields["3"] = sellerName
+      initialFields["4"] = getCurrentDateTimeParts().date
     }
     if (sec === "clientes") {
       initialFields["6"] = "No"
@@ -10704,22 +10579,15 @@ function AdminPanel({
       setProductionProductSelect("")
       setProductionItemQuantity("1")
       setProductionFormError("")
+      setProductionSearch(null)
+      setProductionItemEdit(null)
+      setProductionKind("productos")
+      setProductionItemUnit("")
       initialFields["3"] = currentDateTime.date
       initialFields["4"] = currentDateTime.time
     }
     if (sec === "compras") {
-
       initialFields["1"] = getCurrentDateTimeParts().date
-
-      const today = new Date()
-      const registrationDate = [
-        today.getFullYear(),
-        String(today.getMonth() + 1).padStart(2, "0"),
-        String(today.getDate()).padStart(2, "0"),
-      ].join("-")
-      initialFields["1"] = registrationDate
-      initialFields["2"] = registrationDate
-
       resetPurchasePicker()
     }
     setFormData(initialFields)
@@ -10731,7 +10599,7 @@ function AdminPanel({
       setPedidoOrderLines([])
       setPedidoProductCategory("Todas")
       setPedidoProductQuantity("1")
-      setPedidoParentSelect("")
+      setPedidoAdditionsFor("")
     }
     setPaymentProofDraft("")
     setImgPreview("")
@@ -10741,6 +10609,10 @@ function AdminPanel({
     const cfg = MOD_CFG[sec]
     if (!cfg) return
     const row = rows[sec][idx]
+    if (isCounterClientRow(sec, row)) {
+      window.alert("El cliente mostrador no se edita: es fijo para registrar ventas a personas que no dan sus datos.")
+      return
+    }
     const dataFields = cfg.fields.filter((f) => f.type !== "image")
     const rowOffset = cfg.autoId ? 1 : 0
     const nextForm = Object.fromEntries(
@@ -10752,16 +10624,32 @@ function AdminPanel({
         return [field.key, String(row[rowIndex] ?? "")]
       }),
     )
+    if (sec === "devoluciones") nextForm["6"] = String(row[6] || "[]")
+    if (sec === "clientes") {
+      // Address builder: fill its parts from the saved text when it has that format
+      const parts = parseAddress(String(row[5] ?? ""))
+      if (parts) for (const [key, value] of Object.entries(parts)) nextForm[`a_${key}`] = value
+    }
     if (sec === "proveedores") {
       const legacyContactName = String(row[4] ?? "").trim().split(/\s+/)
       if (!nextForm["10"]) nextForm["10"] = legacyContactName.shift() ?? ""
       if (!nextForm["11"]) nextForm["11"] = legacyContactName.join(" ")
+      if (!nextForm["15"]) nextForm["15"] = "Persona jurídica"
+      setSupplierSupplySearch("")
+      setSupplierSupplyOpen(null)
     }
     setFormValidationAttempted(false)
     setFormFieldErrors({})
     if (sec === "clientes") setClientFormError("")
     if (sec === "compras") resetPurchasePicker()
-    if (sec === "insumos") setSupplyFormError("")
+    if (sec === "insumos") {
+      setSupplyFormError("")
+      setSupplierPickerOpen(false)
+      setSupplierPickerQuery("")
+      setSupplySuppliers(
+        (rows.proveedores || []).filter((p) => splitNames(p[7]).includes(String(row[0]))).map((p) => String(p[0])),
+      )
+    }
     if (sec === "produccion") {
       setProductionItems(getProductionOrderItems(row))
       setProductionProductSelect("")
@@ -10779,10 +10667,8 @@ function AdminPanel({
     }
     if (sec === "producto") {
       setTechnicalIngredients(getProductRecipe(row))
-
       setTechnicalSteps(getPreparationSteps(row[8]))
       setTechnicalStepDraft("")
-
       nextForm["9"] = String(row[9] ?? "[]")
       nextForm["10"] = String(row[10] ?? "Disponible")
       setTechnicalSheetError("")
@@ -10792,7 +10678,7 @@ function AdminPanel({
       setPedidoOrderLines(orderLines)
       setPedidoProductCategory("Todas")
       setPedidoProductQuantity("1")
-      setPedidoParentSelect("")
+      setPedidoAdditionsFor("")
     }
     setFormData(nextForm)
     setFormInitial(nextForm)
@@ -10806,14 +10692,10 @@ function AdminPanel({
   const openView = (sec: string, idx: number) => {
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
-
     if (sec === "producto") {
       setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
       setTechnicalSteps(getPreparationSteps(rows.producto?.[idx]?.[8]))
     }
-
-    if (sec === "producto") setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
-
     if (sec === "produccion") {
       setProductionItems(getProductionOrderItems(rows.produccion?.[idx]))
       setProductionFormError("")
@@ -10826,10 +10708,11 @@ function AdminPanel({
   const VALIDATED_SECTIONS = ["cat-insumos", "cat-producto", "insumos", "producto", "clientes", "pedidos"]
   const REQUIRED_KEYS: Record<string, string[]> = {
     "cat-insumos": ["0", "1"],
-    "cat-producto": ["0", "1"],
+    "cat-producto": ["0"],
     insumos: ["0", "1", "2", "3", "5"],
     producto: ["0", "1", "3"],
-    clientes: ["0", "1", "2", "3"], // correo/dirección too unless "Cliente de local"
+    // Correo is required: every client gets an account (it also shows up in Usuarios)
+    clientes: ["0", "1", "2", "3", "4", "5"],
     pedidos: ["0", "2", "3"],
   }
   const getFieldErrors = (): Record<string, string> => {
@@ -10855,7 +10738,7 @@ function AdminPanel({
         e["0"] = "Usa solo letras, números y espacios."
       const dup = !e["0"] && duplicateOf(sec, v("0"))
       if (dup) e["0"] = `Ya existe la categoría «${String(dup[0])}».`
-      checkText("1", "La descripción", 5, 150, "Escribe una descripción.")
+      if (sec === "cat-insumos") checkText("1", "La descripción", 5, 150, "Escribe una descripción.")
     }
 
     if (sec === "insumos") {
@@ -10877,7 +10760,6 @@ function AdminPanel({
     }
 
     if (sec === "clientes") {
-      const isLocal = v("6").toLowerCase() === "sí"
       if (!v("1")) e["1"] = "Selecciona el tipo de documento."
       const doc = v("2")
       if (!doc) e["2"] = "Escribe el número de documento."
@@ -10891,18 +10773,16 @@ function AdminPanel({
         )
         if (dup) e["2"] = `Ya existe un cliente con este número de documento: «${String(dup[0])}».`
       }
-      checkText("0", "El nombre", 3, 80, "Escribe el nombre del cliente.")
+      checkText("0", "El nombre", 3, 80, "Escribe los nombres y apellidos del cliente.")
       if (!e["0"] && !NAME_RE.test(v("0"))) e["0"] = "El nombre solo puede tener letras y espacios."
       const phone = v("3").replace(/[\s-]/g, "")
       if (!phone) e["3"] = "Escribe el teléfono."
       else if (!/^3\d{9}$/.test(phone)) e["3"] = "El celular debe tener 10 números y empezar por 3."
-      if (!v("4")) {
-        if (!isLocal) e["4"] = "Escribe el correo (o marca «Cliente de local»)."
-      } else if (!EMAIL_RE.test(v("4")))
+      if (!v("4")) e["4"] = "Escribe el correo: con él el cliente entra a la app."
+      else if (!EMAIL_RE.test(v("4")))
         e["4"] = "Escribe un correo válido, por ejemplo nombre@correo.com."
-      if (!v("5")) {
-        if (!isLocal) e["5"] = "Escribe la dirección (o marca «Cliente de local»)."
-      } else if (v("5").length < 5) e["5"] = "La dirección debe tener al menos 5 caracteres."
+      if (!v("5")) e["5"] = "Escribe la dirección."
+      else if (v("5").length < 5) e["5"] = "La dirección debe tener al menos 5 caracteres."
     }
 
     if (sec === "pedidos") {
@@ -10946,6 +10826,63 @@ function AdminPanel({
       target?.scrollIntoView({ block: "center", behavior: "smooth" })
       if (target?.matches("input, select, textarea")) target.focus({ preventScroll: true })
     }, 60)
+
+  const openChildForm = (child: string) => {
+    setFormReturn({ section: modal.section, child, mode: modal.mode, idx: modal.idx, form: formData })
+    setSupplierSupplyOpen(null)
+    setSection(child as AdminSection)
+    openAdd(child)
+  }
+
+  // Back to the form that opened the child one; false if none did
+  const returnToParent = (created?: string, createdRow?: Row) => {
+    if (!formReturn || modal.section !== formReturn.child) return false
+    const { section, mode, idx, form } = formReturn
+    // A supplier adds the new insumo to its list; a sale takes the new order (client and total);
+    // a purchase picks the new supplier
+    const next = !created
+      ? form
+      : section === "proveedores"
+        ? { ...form, "7": [...new Set([...String(form["7"] ?? "").split(",").map((item) => item.trim()).filter(Boolean), created])].join(", ") }
+        : section === "ventas"
+          ? { ...form, "8": created, "1": String(createdRow?.[1] ?? form["1"] ?? ""), "6": String(createdRow?.[6] ?? form["6"] ?? "") }
+          : { ...form, "0": created }
+    setFormReturn(null)
+    setSection(section as AdminSection)
+    setFormData(next)
+    setFormInitial(form)
+    setTouchedFields({})
+    setFormFieldErrors({})
+    setModal({ mode, section, idx })
+    return true
+  }
+
+  const returnLossToPurchase = () => {
+    const row = modal.idx !== null ? rows.perdidas?.[modal.idx] : undefined
+    const id = row?.[DB_SYNC.perdidas.idIndex]
+    const reason = String(lossReturnReason ?? "").trim()
+    const lost = parseFloat(String(row?.[1] ?? "")) || 0
+    const qty = Number(lossReturnQty)
+    if (!(qty > 0)) return setLossReturnError("Escribe cuánto se devuelve a la compra.")
+    if (qty > lost) return setLossReturnError(`No puedes devolver más de lo perdido: máximo ${lost.toLocaleString("es-CO")}.`)
+    if (reason.length < 3) return setLossReturnError("Escribe por qué se devuelve a la compra.")
+    if (!id) return setLossReturnError("Esta pérdida aún no está guardada en la base de datos.")
+    setLossReturnSaving(true)
+    api(`/perdidas-insumos/${id}/devolver`, "PATCH", { cantidad: qty, motivo: reason })
+      .then(() => {
+        loadModule("perdidas")
+        loadModule("insumos")
+        setLossReturnReason(null)
+        setModal({ mode: null, section: "", idx: null })
+      })
+      .catch((err) => setLossReturnError((err as Error).message))
+      .finally(() => setLossReturnSaving(false))
+  }
+
+  const closeModal = () => {
+    if (returnToParent()) return
+    setModal({ mode: null, section: "", idx: null })
+  }
 
   const saveModal = () => {
     const sec = modal.section
@@ -10993,7 +10930,7 @@ function AdminPanel({
           !Number.isFinite(ingredient.quantity) ||
           ingredient.quantity <= 0 ||
           !ingredient.unit ||
-          String(supply[2] ?? "").trim().toLowerCase() !== ingredient.unit.trim().toLowerCase()
+          toBaseQuantity(1, ingredient.unit, String(supply[2] ?? "")) === null
         )
       })
       if (invalidIngredient) {
@@ -11001,10 +10938,6 @@ function AdminPanel({
         return
       }
     }
-    if (
-      sec === "producto-no-conforme" &&
-      !getProductSupplyOptions().includes(String(formData["1"] ?? ""))
-    ) return
     if (sec === "insumos" && String(formData["7"] ?? "").toLowerCase() === "sí") {
       // A producto de insumo must be saved together with its technical sheet
       if (!String(formData["0"] ?? "").trim())
@@ -11036,8 +10969,19 @@ function AdminPanel({
     })
     if (sec === "proveedores") {
       newRow[4] = `${String(formData["10"] ?? "").trim()} ${String(formData["11"] ?? "").trim()}`.trim()
+      if (isNaturalSupplier(formData["15"])) {
+        newRow[0] = newRow[4]
+        for (const key of [1, 12, 13, 14]) newRow[key] = ""
+      }
     }
     if (sec === "cat-producto") newRow[0] = String(newRow[0] ?? "").trim()
+    if (sec === "clientes") {
+      newRow[0] = String(formData["0"] ?? "").trim()
+      newRow[8] = previousRow?.[8] ?? ""
+      newRow[9] = previousRow?.[9] ?? "[]"
+      newRow[10] = ""
+      newRow[11] = previousRow?.[11] ?? "No"
+    }
 
     if (sec === "producto") {
       newRow[6] =
@@ -11045,7 +10989,17 @@ function AdminPanel({
         getAutoTechVersion(rows.producto || [])
       newRow[7] = technicalIngredients.map((ingredient) => ingredient.name).join(", ")
       newRow[8] = String(formData["8"] || "").trim()
-      const serializedRecipe = JSON.stringify(technicalIngredients)
+      // Stock is discounted in the insumo's unit: 500 ml of an insumo in L is saved as 0.5 L
+      const serializedRecipe = JSON.stringify(
+        technicalIngredients.map((ingredient) => {
+          const stockUnit = String(rows.insumos?.find((item) => item[0] === ingredient.name)?.[2] ?? ingredient.unit)
+          return {
+            ...ingredient,
+            quantity: Math.round(convertQty(ingredient.quantity, ingredient.unit, stockUnit) * 1000) / 1000,
+            unit: stockUnit,
+          }
+        }),
+      )
       newRow[9] = serializedRecipe
       newRow[10] = String(formData["10"] || "Disponible")
       if (previousRow && String(previousRow[9] ?? "[]") !== serializedRecipe) {
@@ -11073,6 +11027,25 @@ function AdminPanel({
       newRow[4] = total
     }
 
+    if (sec === "devoluciones") {
+      const sale = (rows.ventas || []).find((v) => String(v[0]) === String(formData["1"] ?? ""))
+      newRow[0] =
+        modal.mode === "edit" && previousRow
+          ? previousRow[0]
+          : `DEV-${String(Math.max(0, ...(rows.devoluciones || []).map((d) => Number(/^DEV-(\d+)$/.exec(String(d[0] ?? ""))?.[1] ?? 0))) + 1).padStart(4, "0")}`
+      newRow[2] = String(sale?.[2] ?? previousRow?.[2] ?? "")
+      newRow[3] = ""
+      newRow[6] = String(formData["6"] || "[]")
+    }
+
+    if (sec === "ventas") {
+      newRow[8] = String(formData["8"] ?? "").trim() || "Sin pedido"
+      // With an order, the sale takes its total
+      const order = (rows.pedidos || []).find((p) => String(p[0]) === newRow[8])
+      if (order) newRow[6] = Number(order[6]) || 0
+      newRow[5] = Number(newRow[6] ?? formData["6"]) || 0
+    }
+
     if (sec === "pedidos") {
       const total = pedidoOrderLines.reduce(
         (sum, line) => sum + line.unitPrice * line.quantity,
@@ -11083,17 +11056,14 @@ function AdminPanel({
         .join(", ")
       newRow[5] = total
       newRow[6] = "Recibido"
-      // Modality and payment status follow the payment method (not chosen by hand)
+      // Modality follows the payment method; payment status too when creating (editing moves it forward)
       const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
       newRow[4] = payment.modalidad
-      newRow[7] = payment.estadoPago
-      // Big orders wait for the owner; the rest go straight to production on save
-      newRow[8] =
-        modal.mode === "edit" && previousRow
-          ? previousRow[9] // editing never re-sends an order
-          : total >= APPROVAL_MIN
-            ? "Pendiente admin"
-            : "Enviada a producción"
+      newRow[7] = modal.mode === "edit" && formData["7"] ? formData["7"] : payment.estadoPago
+      // Orders created in the panel go to production on save (it starts at "Recibida");
+      // a shop order keeps its approval flow
+      const shopOrder = !!previousRow && loadOrders().some((order) => order.id === previousRow[0])
+      newRow[8] = shopOrder ? previousRow![9] : "Enviada a producción"
       newRow[9] = JSON.stringify(pedidoOrderLines)
     }
 
@@ -11126,16 +11096,15 @@ function AdminPanel({
       newRow[4] = formData["3"] ?? ""
       newRow[5] = formData["4"] ?? ""
       newRow[6] = formData["5"] ?? ""
-
       newRow[7] = productionItems[0]?.unit ?? "und"
-
-      newRow[7] = formData["6"] ?? "und"
-
     }
 
     if (sec === "produccion") {
       const currentDateTime = getCurrentDateTimeParts()
-      newRow[1] = productionItems.map((item) => item.name).join(", ")
+      // Same summary as orders sent from Pedidos: "Hamburguesa Pollo ×2 + 1 adición"
+      newRow[1] = productionLabel(
+        productionItems.map((item) => ({ id: "", product: item.name, category: item.category ?? "", quantity: item.quantity, unitPrice: 0, parentId: item.parentId })),
+      )
       newRow[2] = productionItems.reduce(
         (total, item) => total + item.quantity,
         0,
@@ -11176,6 +11145,24 @@ function AdminPanel({
     const idIndex = syncIdIndex(sec)
     if (idIndex !== undefined) newRow[idIndex] = previousRow?.[idIndex] ?? ""
 
+    // Suppliers picked in the insumo form get it on their "insumos que suministra" list (row[7])
+    // and the unpicked ones lose it, so it shows in Proveedores and in that supplier's purchases
+    const supplierChanges = new Map<Row, Row>()
+    if (sec === "insumos") {
+      const name = String(newRow[0])
+      const oldName = String(previousRow?.[0] ?? "")
+      const isThisSupply = (n: string) =>
+        normalizeName(n) === normalizeName(name) || (!!oldName && normalizeName(n) === normalizeName(oldName))
+      for (const supplier of rows.proveedores || []) {
+        const list = splitNames(supplier[7])
+        const others = list.filter((n) => !isThisSupply(n))
+        const next = supplySuppliers.includes(String(supplier[0])) ? [...others, name] : others
+        if (next.join(", ") === list.join(", ")) continue
+        const updated = [...supplier]
+        updated[7] = next.join(", ")
+        supplierChanges.set(supplier, updated)
+      }
+    }
 
     setRows((current) => {
       const updated = [...(current[sec] || [])]
@@ -11183,32 +11170,44 @@ function AdminPanel({
       else if (modal.mode === "edit" && modal.idx !== null)
         updated[modal.idx] = newRow
 
+      if (sec === "pedidos" && modal.mode === "edit") {
+        const items = pedidoOrderLines.map((line) => ({
+          name: line.product,
+          quantity: line.quantity,
+          category: line.category,
+          ...(line.parentId ? { parentId: line.parentId } : {}),
+        }))
+        // No production order yet (e.g. it was waiting for approval): it gets one now
+        if (
+          newRow[9] === "Enviada a producción" &&
+          !(current.produccion || []).some((order) => String(order[15] ?? "") === String(newRow[0]))
+        )
+          return {
+            ...current,
+            pedidos: updated,
+            produccion: buildProductionRows(pedidoOrderLines, current.produccion || [], String(newRow[0]), String(newRow[12] ?? "")),
+          }
+        const produccion = (current.produccion || []).map((order) => {
+          if (
+            String(order[15] ?? "") !== String(newRow[0]) ||
+            ["Terminado", "Producto no conforme"].includes(String(order[8]))
+          ) return order
+          const updatedOrder = [...order]
+          updatedOrder[1] = productionLabel(pedidoOrderLines)
+          updatedOrder[2] = pedidoOrderLines.filter((line) => !line.parentId).reduce((sum, line) => sum + line.quantity, 0)
+          updatedOrder[13] = JSON.stringify(items)
+          updatedOrder[16] = String(newRow[12] ?? "")
+          return updatedOrder
+        })
+        return { ...current, pedidos: updated, produccion }
+      }
+
       if (sec === "pedidos" && modal.mode === "add" && newRow[9] === "Enviada a producción") {
         // New order that needs no owner approval → its production orders are created now
         return {
           ...current,
           pedidos: updated,
-          produccion: buildProductionRows(pedidoOrderLines, current.produccion || [], String(newRow[0])),
-        }
-      }
-
-
-      if (sec === "compras") {
-        // Stock: undo what the previous version of this purchase added, then add the new items
-        let insumoRows = current.insumos || []
-        if (modal.mode === "edit" && previousRow && String(previousRow[5]) !== "Anulado")
-          insumoRows = withStockChange(insumoRows, previousRow[6], -1)
-        if (String(newRow[5]) !== "Anulado")
-          insumoRows = withStockChange(insumoRows, newRow[6], 1)
-        return { ...current, compras: updated, insumos: insumoRows }
-      }
-
-      if (sec === "pedidos" && modal.mode === "add" && newRow[9] === "Enviada a producción") {
-        // New order that needs no owner approval → its production orders are created now
-        return {
-          ...current,
-          pedidos: updated,
-          produccion: buildProductionRows(pedidoOrderLines, current.produccion || [], String(newRow[0])),
+          produccion: buildProductionRows(pedidoOrderLines, current.produccion || [], String(newRow[0]), String(newRow[12] ?? "")),
         }
       }
 
@@ -11255,7 +11254,18 @@ function AdminPanel({
       false,
       sec === "producto" && imgPreview && imgPreview !== previousImg
         ? (id) => api(`/productos/${id}/imagen`, "PUT", { imagen: imgPreview })
-        : undefined,
+        : sec === "insumos" && supplierChanges.size
+          ? // only once the insumo is saved: update the suppliers' lists here and in the database
+            async () => {
+              setRows((current) => ({
+                ...current,
+                proveedores: (current.proveedores || []).map((supplier) => supplierChanges.get(supplier) ?? supplier),
+              }))
+              supplierChanges.forEach((updated) => {
+                if (updated[DB_SYNC.proveedores.idIndex]) syncRow("proveedores", updated, false)
+              })
+            }
+          : undefined,
     )
     if (sec === "producto" && imgPreview) {
       const imageIndex = modal.mode === "add" ? 0 : modal.idx!
@@ -11280,12 +11290,12 @@ function AdminPanel({
         const salesRows = [...(current.ventas || [])]
         if (salesRows.some((sale) => sale[9] === newRow[0])) return current
         salesRows.unshift([
-          `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
+          nextAutoSaleCode(salesRows),
           sellerName,
           newRow[1],
           getCurrentDateTimeParts().date,
           newRow[2],
-          newRow[3],
+          saleTypeOf(newRow[3]),
           newRow[4],
           newRow[6],
           newRow[6],
@@ -11312,6 +11322,7 @@ function AdminPanel({
     }
     if (sec === "clientes") setClientFormError("")
     if (sec === "produccion") setProductionFormError("")
+    if (modal.mode === "add" && returnToParent(String(newRow[0] ?? "").trim(), newRow)) return
     setModal({ mode: null, section: "", idx: null })
   }
 
@@ -11361,6 +11372,26 @@ function AdminPanel({
       }
     }
 
+    if (sec === "clientes") {
+      const name = normalizeName(String(row[0] ?? ""))
+      const purchases =
+        (rows.pedidos || []).filter((order) => normalizeName(String(order[1] ?? "")) === name).length +
+        (rows.ventas || []).filter((sale) => normalizeName(String(sale[2] ?? "")) === name).length
+      if (isCounterClientRow(sec, row))
+        return { allowed: false, targetLabel, reason: "El cliente mostrador se usa en las ventas sin datos del cliente: no se puede eliminar." }
+      if (purchases)
+        return {
+          allowed: false,
+          targetLabel,
+          reason: `Tiene ${purchases} compra${purchases === 1 ? "" : "s"} registrada${purchases === 1 ? "" : "s"} (pedidos o ventas). Para conservar el historial no se puede eliminar; anúlalo en su lugar.`,
+        }
+      return {
+        allowed: true,
+        targetLabel,
+        reason: "No tiene compras registradas: se puede eliminar. Si tiene cuenta en la app, también se borra su cuenta.",
+      }
+    }
+
     if (sec === "produccion") {
       const status = String(row[8] ?? "Recibida")
       const authorized = String(row[11] ?? "No").toLowerCase() === "sí"
@@ -11407,68 +11438,50 @@ function AdminPanel({
       }
     }
 
-    if (sec === "cat-insumos" || sec === "cat-producto") {
-      const categoryLabel = `la categoría «${recordName}»`
-      const normalizedCategoryName = recordName
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .trim()
-        .toLowerCase()
-      if (sec === "cat-producto" && normalizedCategoryName === "adiciones") {
-        return {
-          allowed: false,
-          targetLabel: categoryLabel,
-          reason: "La categoría «Adiciones» es necesaria para los productos y no se puede eliminar.",
-        }
-      }
-      const records = getCategoryRecords(sec, recordName)
-      if (records.length) {
-        const recordType = sec === "cat-insumos" ? "insumo" : "producto"
-        return {
-          allowed: false,
-          targetLabel: categoryLabel,
-          reason: `Tiene ${records.length} ${records.length === 1 ? recordType : `${recordType}s`} asociados. Primero reasigna o elimina esos registros para poder eliminar la categoría.`,
-        }
-      }
+    if (isCounterClientRow(sec, row)) {
       return {
-        allowed: true,
-        targetLabel: categoryLabel,
-        reason: "No tiene registros asociados.",
+        allowed: false,
+        targetLabel: `el cliente «${recordName}»`,
+        reason: "Es el cliente mostrador: se usa para registrar ventas a personas que no quieren dar sus datos, así que no se elimina ni se desactiva.",
       }
     }
 
-    if (sec === "proveedores") {
-      const supplierLabel = `el proveedor «${recordName}»`
-      const purchases = getSupplierPurchases(recordName)
-      if (purchases.length) {
-        const n = purchases.length
+    if (isSuperAdminRow(sec, row)) {
+      return {
+        allowed: false,
+        targetLabel: `el usuario «${recordName}»`,
+        reason: `Es el superadministrador (${SUPER_ADMIN_EMAIL}): no se puede eliminar, desactivar ni quitarle el rol Administrador.`,
+      }
+    }
+
+    if (sec === "insumos") {
+      const supplyLabel = `el insumo «${recordName}»`
+      // Deletable only while no other module has records of it
+      const recipes = [
+        ...(rows.producto || []).filter((p) => getProductRecipe(p).some((i) => i.name === recordName)).map((p) => String(p[0])),
+        ...(rows.insumos || []).filter((i) => parseMainSupplies(i[10]).some((m) => m.name === recordName)).map((i) => String(i[0])),
+      ]
+      const uses = [
+        (rows.compras || []).some((p) => parsePurchaseLines(p[6]).some((i) => i.name === recordName)) && "compras",
+        (rows.perdidas || []).some((l) => String(l[0]) === recordName) && "pérdidas de insumos",
+        recipes.length > 0 && `la ficha técnica de ${[...new Set(recipes)].join(", ")}`,
+      ].filter(Boolean)
+      if (uses.length) {
         return {
           allowed: false,
-          targetLabel: supplierLabel,
-          reason: `Tiene ${n} ${n === 1 ? "compra" : "compras"} de insumos ${n === 1 ? "registrada" : "registradas"}. Para no perder el historial de compras no se puede eliminar; si ya no trabajas con él, desactívalo con el interruptor de estado.`,
+          targetLabel: supplyLabel,
+          reason: `Está registrado en ${uses.join(", ")}. Solo se puede eliminar un insumo que ningún otro módulo use; si ya no lo usas, desactívalo con el interruptor de estado.`,
         }
       }
       return {
         allowed: true,
-        targetLabel: supplierLabel,
-        reason: "No tiene compras de insumos registradas.",
+        targetLabel: supplyLabel,
+        reason: "Ningún otro módulo lo usa: no tiene compras, pérdidas ni fichas técnicas. También se quitará de los proveedores que lo vendían.",
       }
     }
 
     if (sec === "cat-insumos" || sec === "cat-producto") {
       const categoryLabel = `la categoría «${recordName}»`
-      const normalizedCategoryName = recordName
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .trim()
-        .toLowerCase()
-      if (sec === "cat-producto" && normalizedCategoryName === "adiciones") {
-        return {
-          allowed: false,
-          targetLabel: categoryLabel,
-          reason: "La categoría «Adiciones» es necesaria para los productos y no se puede eliminar.",
-        }
-      }
       const records = getCategoryRecords(sec, recordName)
       if (records.length) {
         const recordType = sec === "cat-insumos" ? "insumo" : "producto"
@@ -11501,7 +11514,9 @@ function AdminPanel({
   }
 
   const isStatusLocked = (sec: string, row: (string | number)[]) =>
-    sec === "roles" && String(row[0] ?? "").trim().toLowerCase() === "administrador"
+    (sec === "roles" && String(row[0] ?? "").trim().toLowerCase() === "administrador") ||
+    isSuperAdminRow(sec, row) ||
+    isCounterClientRow(sec, row)
 
   const getAnulAssessment = (
     sec: string,
@@ -11578,10 +11593,7 @@ function AdminPanel({
     const currentRow = currentRows[rowIndex]
     if (
       !currentRow ||
-      isStatusLocked(sec, currentRow) ||
-      (sec === "cat-producto" &&
-        normalizeName(String(currentRow[0] ?? "")) === "adiciones" &&
-        isStatusActive(currentRow[statusIndex] ?? "Activa"))
+      isStatusLocked(sec, currentRow)
     ) return
 
     const currentValue = String(
@@ -11655,70 +11667,6 @@ function AdminPanel({
     }
   }
 
-  const StatusSwitch = ({
-    sec,
-    rowIndex,
-    statusIndex,
-    entityName,
-  }: {
-    sec: string
-    rowIndex: number
-    statusIndex: number
-    entityName: string
-  }) => {
-    const row = rows[sec]?.[rowIndex]
-    if (!row) return null
-    const value = row[statusIndex] ?? "Activo"
-    const active = isStatusActive(value)
-    const label = String(value)
-    const locked = isStatusLocked(sec, row)
-    const handleStatusAction = () => {
-      if (locked || active) setAnulTarget({ section: sec, idx: rowIndex })
-      else toggleStatus(sec, rowIndex, statusIndex)
-    }
-
-    return (
-      <div className="flex max-w-full flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={active}
-          aria-label={
-            locked
-              ? "Ver motivo por el que no se puede anular"
-              : active
-                ? `Anular ${entityName}`
-                : `Reactivar ${entityName}`
-          }
-          aria-haspopup={locked || active ? "dialog" : undefined}
-          title={
-            locked
-              ? "El estado del administrador está protegido"
-              : active
-                ? `Anular ${entityName}`
-                : `Reactivar ${entityName}`
-          }
-          onClick={handleStatusAction}
-          className={`relative h-5 w-9 flex-shrink-0 rounded-full transition-colors ${
-            locked ? "cursor-help opacity-75" : "cursor-pointer"
-          }`}
-          style={{ background: active ? "#3A6D5E" : dark ? "#4A4E57" : "#C7C4BD" }}
-        >
-          <span
-            className="absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform"
-            style={{ transform: active ? "translateX(16px)" : "translateX(0)" }}
-          />
-        </button>
-        <span
-          className="cursor-pointer text-[10px] font-semibold"
-          style={{ color: active ? "#2E7D60" : C.red }}
-          onClick={handleStatusAction}
-        >
-          {label}
-        </span>
-      </div>
-    )
-  }
 
   const approveOrderForProduction = (orderIndex: number) => {
     const order = rows.pedidos?.[orderIndex]
@@ -11745,46 +11693,8 @@ function AdminPanel({
     const storedOrder = storedOrders.find((item) => item.id === order[0])
     if (storedOrder?.productionAuthorized) return
     const currentDateTime = getCurrentDateTimeParts()
-    const productionRecords: (string | number)[][] = []
-    const existingProductionRows = [...(rows.produccion || [])]
-    let priority = Math.max(
-      0,
-      ...existingProductionRows.map((row) => Number(row[3]) || 0),
-    )
-    requestedItems.slice().reverse().forEach((item) => {
-      priority += 1
-      const parent = requestedItems.find((candidate) => candidate.id === item.parentId)
-      const productionRecord: (string | number)[] = [
-        getNextProductionCode(existingProductionRows),
-        parent ? `↳ ${item.product} (adición de ${parent.product})` : item.product,
-        item.quantity,
-        priority,
-        currentDateTime.date,
-        currentDateTime.time,
-        currentDateTime.date,
-        currentDateTime.time,
-        "Iniciada",
-        "",
-        0,
-        "Sí",
-        JSON.stringify([
-          {
-            status: "Iniciada",
-            date: currentDateTime.date,
-            time: currentDateTime.time,
-          },
-        ]),
-        JSON.stringify([{
-          name: item.product,
-          quantity: item.quantity,
-          category: item.category,
-          ...(item.parentId ? { parentId: item.parentId } : {}),
-        }]),
-        "No",
-      ]
-      existingProductionRows.unshift(productionRecord)
-      productionRecords.unshift(productionRecord)
-    })
+    // One production order with every product of the order
+    const productionRecords = buildProductionRows(requestedItems, rows.produccion || [], String(order[0])).slice(0, 1)
     saveOrders(
       storedOrders.map((item) =>
         item.id === order[0]
@@ -11830,11 +11740,11 @@ function AdminPanel({
       )
       if (notShipped && !alreadyDuplicated) {
         salesRows.unshift([
-          `VTA-AUTO-${String(salesRows.length + 1).padStart(2, "0")}`,
+          nextAutoSaleCode(salesRows),
           sellerName,
           updatedOrder[1],
           currentDateTime.date,
-          updatedOrder[3],
+          saleTypeOf(updatedOrder[3]),
           updatedOrder[4],
           updatedOrder[6],
           updatedOrder[6],
@@ -11862,6 +11772,43 @@ function AdminPanel({
     Entregado: "Terminado",
   }
   // Choosing the current status again still catches up production that fell behind
+  const setOrderPayment = (orderIndex: number, status: string) => {
+    const order = rows.pedidos?.[orderIndex]
+    if (!order || PAYMENT_NEXT[String(order[8] || "Pendiente")] !== status) return
+    const orderId = String(order[0])
+    // Shop orders also keep it on the order the client sees
+    if (loadOrders().some((o) => o.id === orderId)) {
+      saveOrders(loadOrders().map((o) => (o.id === orderId ? { ...o, paymentStatus: status as Order["paymentStatus"] } : o)))
+      pushOrder(orderId)
+    }
+    setRows((current) => {
+      const pedidos = [...(current.pedidos || [])]
+      const updated = [...pedidos[orderIndex]]
+      updated[8] = status
+      pedidos[orderIndex] = updated
+      if (status !== "Pagado" || (current.ventas || []).some((sale) => sale[9] === updated[0])) return { ...current, pedidos }
+      const ventas = [
+        [
+          nextAutoSaleCode(current.ventas || []),
+          sellerName,
+          updated[1],
+          getCurrentDateTimeParts().date,
+          updated[2],
+          saleTypeOf(updated[3]),
+          updated[4],
+          updated[6],
+          updated[6],
+          "Pendiente",
+          updated[0],
+          updated[7],
+          updated[10] ?? "[]",
+        ],
+        ...(current.ventas || []),
+      ]
+      return { ...current, pedidos, ventas }
+    })
+  }
+
   const setClientOrderStatus = async (orderIndex: number, status: string) => {
     const order = rows.pedidos?.[orderIndex]
     if (!order) return
@@ -11943,8 +11890,7 @@ function AdminPanel({
   }
 
   const saveQuickClient = () => {
-    const isLocalClient = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
-    const requiredFields = ["0", "1", "2", "3", ...(isLocalClient ? [] : ["4", "5"])]
+    const requiredFields = ["0", "1", "2", "3", "4", "5"]
     const errors: Record<string, string> = {}
     requiredFields.forEach((key) => {
       const value = String(quickClientForm[key] ?? "").trim()
@@ -12019,13 +11965,15 @@ function AdminPanel({
       quickClientForm["3"],
       quickClientForm["4"] || "",
       quickClientForm["5"] || "",
-      isLocalClient ? "Sí" : "No",
+      "No",
       "Activo",
     ]
     setRows((current) => ({
       ...current,
       clientes: [newClient, ...(current.clientes || [])],
     }))
+    // It was only kept on screen; now it's saved (and gets its account + provisional password)
+    syncRow("clientes", newClient, true)
     setFormData((current) => ({ ...current, "1": name }))
     setQuickClientForm({})
     setQuickClientErrors({})
@@ -12038,35 +11986,45 @@ function AdminPanel({
     if (!order) return
     const currentDateTime = getCurrentDateTimeParts()
     const orderItems = getProductionOrderItems(order)
+    const firstProduct = orderItems.find((item) => !item.parentId) ?? orderItems[0]
     setPncForm({
       "0": String(order[0] ?? ""),
-      "1": orderItems[0]?.name ?? String(order[1] ?? ""),
-      "2": orderItems[0]?.name ?? String(order[1] ?? ""),
-      "3": String(orderItems[0]?.quantity ?? order[2] ?? 1),
+      "1": firstProduct?.name ?? String(order[1] ?? ""),
+      "3": "1",
       "4": "Producto perdido",
       "5": currentDateTime.date,
+      entries: "[]",
     })
     setPncError("")
     setPncFieldErrors({})
     setPncTarget(rowIndex)
   }
 
+  // Damaged products of one record: the whole product (quantity) or only some of its insumos (parts)
+  type PncEntry = { product: string; whole: boolean; quantity: number; unit?: string; parts: { name: string; quantity: number; unit: string }[] }
+  // Measures for a damaged product (an addition can be "2 tajadas", a salsa "1 bolsita"...)
+  const PNC_UNITS = ["und", "porción", "tajada", "bolsita", "botella", "paq", "kg", "g", "L", "ml"]
+  const parsePncEntries = (value: string | undefined): PncEntry[] => {
+    try {
+      const entries = JSON.parse(value || "[]")
+      return Array.isArray(entries) ? entries : []
+    } catch {
+      return []
+    }
+  }
   const saveProductionPnc = () => {
     if (pncTarget === null) return
     const order = rows.produccion?.[pncTarget]
     if (!order) return
     const availableProducts = getNonconformingProductOptions()
-    const affectedProduct = String(pncForm["1"] ?? "").trim()
-    const damagedDescription = String(pncForm["2"] ?? "").trim()
-    const quantity = Number(pncForm["3"])
+    const entries = parsePncEntries(pncForm.entries)
+    const affectedProduct = [...new Set(entries.map((entry) => entry.product))].join(", ")
+    const wholeProducts = new Set(entries.filter((entry) => entry.whole).map((entry) => entry.product))
+    const quantity =
+      entries.filter((entry) => entry.whole).reduce((sum, entry) => sum + entry.quantity, 0) +
+      new Set(entries.filter((entry) => !entry.whole && !wholeProducts.has(entry.product)).map((entry) => entry.product)).size
     const validationErrors: Record<string, string> = {}
-    if (!affectedProduct) validationErrors["1"] = "Selecciona un producto."
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      validationErrors["3"] = "Ingresa una cantidad mayor que cero."
-    }
-    if (!damagedDescription) {
-      validationErrors["2"] = "Describe el producto o los productos que se dañaron."
-    }
+    if (!entries.length) validationErrors.items = "Agrega al menos un producto dañado."
     if (!String(pncForm["4"] ?? "").trim()) {
       validationErrors["4"] = "Selecciona el motivo."
     }
@@ -12078,7 +12036,7 @@ function AdminPanel({
       setPncError("Completa los campos indicados antes de registrar.")
       return
     }
-    if (!availableProducts.includes(affectedProduct)) {
+    if (entries.some((entry) => !availableProducts.includes(entry.product))) {
       setPncFieldErrors({ "1": "Solo puedes registrar productos que estén en producción." })
       setPncError("Solo puedes registrar productos que estén en producción.")
       return
@@ -12086,13 +12044,22 @@ function AdminPanel({
 
     const currentDateTime = getCurrentDateTimeParts()
     const nextStatus = "Producto no conforme"
+    // row[2]: what went bad, as JSON: each whole product, or each insumo (with the product it belongs to)
+    const damaged = entries.flatMap((entry) =>
+      entry.whole
+        ? [{ name: entry.product, quantity: entry.quantity, unit: entry.unit || "und" }]
+        : entry.parts.map((part) => ({ ...part, product: entry.product })),
+    )
     const pncRecord: (string | number)[] = [
       pncForm["0"] || order[0],
       affectedProduct,
-      damagedDescription,
+      JSON.stringify(damaged),
       quantity,
       String(pncForm["4"]).trim(),
       String(pncForm["5"]).trim(),
+      "",
+      "und",
+      "Activo",
     ]
 
     setRows((current) => {
@@ -12117,6 +12084,32 @@ function AdminPanel({
 
       const nextPriority =
         Math.max(0, ...productionRows.map((row) => Number(row[3]) || 0)) + 1
+      // Every product of the order comes back: damaged ones are made again (whole recipe, or only the
+      // damaged insumos); the rest is reused and takes nothing out of stock
+      const wholeLeft = new Map<string, number>()
+      const partsLeft = new Map<string, PncEntry[]>()
+      for (const entry of entries) {
+        if (entry.whole) wholeLeft.set(entry.product, (wholeLeft.get(entry.product) ?? 0) + entry.quantity)
+        else partsLeft.set(entry.product, [...(partsLeft.get(entry.product) ?? []), entry])
+      }
+      const remadeItems: ProductionItem[] = getProductionOrderItems(updatedOrder).flatMap((item) => {
+        if (item.parentId) return [{ ...item, reuse: true }]
+        const lines: ProductionItem[] = []
+        let quantity = item.quantity
+        const whole = Math.min(quantity, wholeLeft.get(item.name) ?? 0)
+        if (whole) {
+          lines.push({ ...item, quantity: whole })
+          wholeLeft.set(item.name, (wholeLeft.get(item.name) ?? 0) - whole)
+          quantity -= whole
+        }
+        const partEntries = partsLeft.get(item.name) ?? []
+        while (quantity > 0 && partEntries.length) {
+          lines.push({ ...item, quantity: 1, onlySupplies: partEntries.shift()!.parts })
+          quantity -= 1
+        }
+        if (quantity > 0) lines.push({ ...item, quantity, reuse: true })
+        return lines
+      })
       const restartedOrder: (string | number)[] = [
         getNextProductionCode(productionRows),
         updatedOrder[1],
@@ -12126,18 +12119,12 @@ function AdminPanel({
         currentDateTime.time,
         currentDateTime.date,
         currentDateTime.time,
-        "Iniciada",
+        "Recibida",
         "",
         0,
         "Sí",
-        JSON.stringify([
-          {
-            status: "Iniciada",
-            date: currentDateTime.date,
-            time: currentDateTime.time,
-          },
-        ]),
-        updatedOrder[13],
+        JSON.stringify([{ status: "Recibida", date: currentDateTime.date, time: currentDateTime.time }]),
+        JSON.stringify(remadeItems),
         "No",
         String(updatedOrder[15] ?? ""),
         "",
@@ -12170,6 +12157,21 @@ function AdminPanel({
     const requiredSupplies = new Map<string, { quantity: number; unit: string }>()
     if (consumeStock) {
       for (const item of getProductionOrderItems(sourceRow)) {
+        if (item.reuse) continue
+        if (item.onlySupplies) {
+          for (const part of item.onlySupplies) {
+            const supply = rows.insumos?.find((candidate) => candidate[0] === part.name)
+            const unit = String(supply?.[2] ?? "").trim()
+            const quantity = toBaseQuantity(Number(part.quantity), part.unit || unit, unit)
+            if (!supply || quantity === null) {
+              window.alert(`No se puede iniciar la producción: revisa que «${part.name}» exista en inventario y su unidad.`)
+              return false
+            }
+            const current = requiredSupplies.get(part.name)
+            requiredSupplies.set(part.name, { quantity: (current?.quantity ?? 0) + quantity * item.quantity, unit })
+          }
+          continue
+        }
         const product = rows.producto?.find((candidate) => candidate[0] === item.name)
         for (const ingredient of getProductRecipe(product)) {
           const supply = rows.insumos?.find((candidate) => candidate[0] === ingredient.name)
@@ -12345,7 +12347,17 @@ function AdminPanel({
             fontFamily: "Poppins, sans-serif",
           }}
         >
-          {PRODUCTION_STATUSES.map((status) => (
+          {/* Recibida → Iniciada → En cocina → Terminado: the current one and the next (the earlier ones are gone) */}
+          {(value === "Producto no conforme"
+            ? [value]
+            : [
+                value,
+                ...(PRODUCTION_STATUSES[PRODUCTION_STATUSES.indexOf(value) + 1] && value !== "Terminado"
+                  ? [PRODUCTION_STATUSES[PRODUCTION_STATUSES.indexOf(value) + 1]]
+                  : []),
+                ...(value !== "Recibida" ? ["Producto no conforme" as const] : []),
+              ]
+          ).map((status) => (
             <option key={status} value={status}>{status}</option>
           ))}
         </select>
@@ -12482,110 +12494,98 @@ function AdminPanel({
 
   const PAGE_SIZE = 6
 
-  // Dashboard data
-  const now = new Date()
-  const weekLabels = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(now)
-    d.setDate(d.getDate() - (6 - i))
-    return d.toLocaleDateString("es-CO", { weekday: "short" })
-  })
-  const getWeekRanges = () => {
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-    const weeks: string[] = []
-    let d = new Date(monthStart)
-    let wn = 1
-    while (d.getMonth() === now.getMonth()) {
-      const start = d.getDate()
-      const end = Math.min(
-        start + 6,
-        new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate(),
-      )
-      const mes = now.toLocaleDateString("es-CO", { month: "short" })
-      weeks.push(`Sem ${wn} (${start}-${end} ${mes})`)
-      d.setDate(d.getDate() + 7)
-      wn++
+  // Dashboard data, from the backend rows of the chosen period
+  const period = getDashPeriod(chartFilter, chartAnchor)
+  const dateOf = (v: string | number | undefined) => {
+    const d = new Date(`${String(v ?? "").slice(0, 10)}T00:00:00`)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  const within = (v: string | number | undefined, start: Date, end: Date) => {
+    const d = dateOf(v)
+    return !!d && d >= start && d < end
+  }
+  // Ventas row: [0 código, 2 cliente, 3 fecha, 7 total, 8/9 estado, 11/12 líneas]; voided ones don't count
+  const validSales = (rows.ventas || []).filter(
+    (r) => ![r[8], r[9]].some((v) => ["anulada", "anulado"].includes(String(v ?? "").toLowerCase())),
+  )
+  const saleTotal = (r: (string | number)[]) => Number(r[7]) || 0
+  const saleLines = (r: (string | number)[]): { product?: string; quantity?: number; parentId?: string }[] => {
+    for (const v of [r[12], r[11]]) {
+      try {
+        const lines = JSON.parse(String(v ?? ""))
+        if (Array.isArray(lines)) return lines
+      } catch {
+        // not the lines column
+      }
     }
-    return weeks
+    return []
   }
-  const CHART_DATA: Record<string, {
-    labels: string[]
-    values: number[]
-    values2: number[]
-  }> = {
-    hoy: {
-      labels: ["8am", "10am", "12pm", "2pm", "4pm", "6pm", "8pm", "10pm"],
-      values: [12, 28, 65, 87, 54, 92, 74, 38],
-      values2: [5, 8, 12, 15, 9, 18, 11, 6],
-    },
-    semana: {
-      labels: weekLabels,
-      values: [55, 73, 61, 88, 72, 95, 64],
-      values2: [8, 12, 5, 15, 10, 6, 9],
-    },
-    mes: {
-      labels: getWeekRanges(),
-      values: [68, 82, 75, 91],
-      values2: [12, 8, 15, 10],
-    },
-    año: {
-      labels: [
-        "Ene",
-        "Feb",
-        "Mar",
-        "Abr",
-        "May",
-        "Jun",
-        "Jul",
-        "Ago",
-        "Sep",
-        "Oct",
-        "Nov",
-        "Dic",
-      ],
-      values: [55, 70, 65, 80, 75, 90, 85, 70, 65, 80, 88, 95],
-      values2: [10, 12, 8, 15, 11, 9, 13, 10, 8, 12, 9, 11],
-    },
+  // Pérdidas row: [0 insumo, 1 "0.5 kg", 4 fecha]; valued at the insumo's unit cost
+  const lossValue = (r: (string | number)[]) =>
+    (parseFloat(String(r[1] ?? "").replace(",", ".")) || 0) *
+    (Number((rows.insumos || []).find((i) => normalizeName(i[0]) === normalizeName(r[0]))?.[3]) || 0)
+  const sumIn = (start: Date, end: Date) => ({
+    sales: validSales.filter((r) => within(r[3], start, end)).reduce((t, r) => t + saleTotal(r), 0),
+    losses: (rows.perdidas || []).filter((r) => within(r[4], start, end)).reduce((t, r) => t + lossValue(r), 0),
+  })
+  const periodSales = validSales.filter((r) => within(r[3], period.start, period.end))
+  const periodReturns = (rows.devoluciones || []).filter((r) => within(r[5], period.start, period.end))
+  const totals = sumIn(period.start, period.end)
+  const prevSales = validSales.filter((r) => within(r[3], period.prevStart, period.start))
+  const prevTotals = sumIn(period.prevStart, period.start)
+  const prevReturns = (rows.devoluciones || []).filter((r) => within(r[5], period.prevStart, period.start)).length
+  const chart = {
+    labels: period.buckets.map((b) => b.label),
+    values: period.buckets.map((b) => sumIn(b.start, b.end).sales),
+    values2: period.buckets.map((b) => sumIn(b.start, b.end).losses),
   }
-  const chart = CHART_DATA[chartFilter]
+  const money = (v: number) =>
+    v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(1)}M` : v >= 1000 ? `$${Math.round(v / 1000)}K` : fmt(v)
+  // "+12%" against the previous period of the same kind
+  const change = (current: number, previous: number) =>
+    !previous ? (current ? "Nuevo" : "—") : `${current >= previous ? "+" : ""}${Math.round(((current - previous) / previous) * 100)}%`
 
-  const TOP = [
-    { name: "Mini", units: 284, pct: 100 },
-    { name: "Salchipapa Sencilla", units: 241, pct: 85 },
-    { name: "Perro Mediano", units: 198, pct: 70 },
-    { name: "Salchipapa Super Gourmet", units: 167, pct: 59 },
-    { name: "Salchipapa Mega Gourmet", units: 143, pct: 50 },
-  ]
+  // Best sellers: main products (not additions) of the period's sales
+  const unitsByProduct = new Map<string, number>()
+  periodSales.forEach((r) =>
+    saleLines(r)
+      .filter((l) => l.product && !l.parentId)
+      .forEach((l) => unitsByProduct.set(String(l.product), (unitsByProduct.get(String(l.product)) ?? 0) + (Number(l.quantity) || 0))),
+  )
+  const topUnits = [...unitsByProduct].sort((x, y) => y[1] - x[1]).slice(0, 5)
+  const TOP = topUnits.map(([name, units]) => ({ name, units, pct: Math.round((units / topUnits[0][1]) * 100) }))
   const KPI = [
     {
       icon: Ico.cash,
-      label: "Ventas hoy",
-      val: "$420.000",
-      badge: "+12%",
-      good: true,
+      label: "Ventas",
+      val: fmt(totals.sales),
+      badge: change(totals.sales, prevTotals.sales),
+      good: totals.sales >= prevTotals.sales,
     },
-    { icon: Ico.orders, label: "Pedidos", val: "18", badge: "+8%", good: true },
     {
-      icon: Ico.users,
-      label: "Clientes nuevos",
-      val: "7",
-      badge: "+15%",
-      good: true,
+      icon: Ico.orders,
+      label: "N.º de ventas",
+      val: String(periodSales.length),
+      badge: change(periodSales.length, prevSales.length),
+      good: periodSales.length >= prevSales.length,
     },
     {
       icon: Ico.undo,
       label: "Devoluciones",
-      val: "2",
-      badge: "-2",
-      good: false,
+      val: String(periodReturns.length),
+      badge: change(periodReturns.length, prevReturns),
+      good: periodReturns.length <= prevReturns,
     },
   ]
+  const returnReasons = new Map<string, number>()
+  periodReturns.forEach((r) => {
+    const reason = String(r[4] ?? "").trim() || "Otro"
+    returnReasons.set(reason, (returnReasons.get(reason) ?? 0) + 1)
+  })
+  const RETURN_REASONS = [...returnReasons]
+    .sort((x, y) => y[1] - x[1])
+    .map(([label, n]) => ({ label, pct: Math.round((n / periodReturns.length) * 100) }))
   const ALERTS = notifications
-  const RETURN_REASONS = [
-    { label: "Tiempo superado", pct: 45 },
-    { label: "Pedido incompleto", pct: 30 },
-    { label: "Ingrediente incorrecto", pct: 15 },
-    { label: "Otro", pct: 10 },
-  ]
 
   const Dashboard = () => (
     <div className="min-w-0 space-y-5">
@@ -12606,7 +12606,7 @@ function AdminPanel({
       </div>
 
       {/* KPI */}
-      <div className="grid min-w-0 grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-3">
         {KPI.map(({ icon, label, val, badge, good }) => (
           <div
             key={label}
@@ -12678,32 +12678,106 @@ function AdminPanel({
                 </div>
               </div>
             </div>
-            <div
-              className="flex max-w-full flex-wrap gap-1 rounded-lg p-0.5"
-              style={{ background: t.input, border: `1px solid ${t.border}` }}
-            >
-              {(["hoy", "semana", "mes", "año"] as const).map((f) => (
+            <div className="flex max-w-full flex-col items-end gap-2">
+              <div
+                className="flex max-w-full flex-wrap gap-1 rounded-lg p-0.5"
+                style={{ background: t.input, border: `1px solid ${t.border}` }}
+              >
+                {([["hoy", "Día"], ["semana", "Semana"], ["mes", "Mes"], ["año", "Año"]] as const).map(([f, label]) => (
+                  <button
+                    key={f}
+                    onClick={() => setChartFilter(f)}
+                    className="px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer"
+                    style={{
+                      background: chartFilter === f ? C.mustard : "transparent",
+                      color: chartFilter === f ? "#fff" : t.muted,
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {/* Which day / week / month / year */}
+              <div className="flex max-w-full flex-wrap items-center justify-end gap-1.5">
                 <button
-                  key={f}
-                  onClick={() => setChartFilter(f)}
-                  className="px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer capitalize"
-                  style={{
-                    background: chartFilter === f ? C.mustard : "transparent",
-                    color: chartFilter === f ? "#fff" : t.muted,
-                  }}
+                  type="button"
+                  onClick={() => setChartAnchor(shiftDashAnchor(chartFilter, chartAnchor, -1))}
+                  aria-label="Periodo anterior"
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-xs font-bold"
+                  style={{ background: t.input, color: t.muted, border: `1px solid ${t.border}` }}
                 >
-                  {f}
+                  ‹
                 </button>
-              ))}
+                {(chartFilter === "hoy" || chartFilter === "semana") && (
+                  <input
+                    type="date"
+                    value={toIsoDate(chartAnchor)}
+                    onChange={(e) => e.target.value && setChartAnchor(new Date(`${e.target.value}T00:00:00`))}
+                    aria-label={chartFilter === "hoy" ? "Elegir día" : "Elegir un día de la semana"}
+                    className="h-7 rounded-md px-2 text-xs outline-none"
+                    style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
+                  />
+                )}
+                {chartFilter === "mes" && (
+                  <select
+                    value={chartAnchor.getMonth()}
+                    onChange={(e) => setChartAnchor(new Date(chartAnchor.getFullYear(), Number(e.target.value), 1))}
+                    aria-label="Elegir mes"
+                    className="h-7 cursor-pointer rounded-md px-2 text-xs outline-none"
+                    style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
+                  >
+                    {MONTHS_SHORT.map((m, i) => (
+                      <option key={m} value={i}>{new Date(2000, i, 1).toLocaleDateString("es-CO", { month: "long" })}</option>
+                    ))}
+                  </select>
+                )}
+                {(chartFilter === "mes" || chartFilter === "año") && (
+                  <select
+                    value={chartAnchor.getFullYear()}
+                    onChange={(e) => setChartAnchor(new Date(Number(e.target.value), chartFilter === "mes" ? chartAnchor.getMonth() : 0, 1))}
+                    aria-label="Elegir año"
+                    className="h-7 cursor-pointer rounded-md px-2 text-xs outline-none"
+                    style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
+                  >
+                    {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 5 + i).map((y) => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setChartAnchor(shiftDashAnchor(chartFilter, chartAnchor, 1))}
+                  aria-label="Periodo siguiente"
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-xs font-bold"
+                  style={{ background: t.input, color: t.muted, border: `1px solid ${t.border}` }}
+                >
+                  ›
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartAnchor(new Date())}
+                  className="h-7 cursor-pointer rounded-md px-2 text-xs font-semibold"
+                  style={{ color: C.mustard }}
+                >
+                  Hoy
+                </button>
+              </div>
+              <span className="text-[11px] font-semibold capitalize" style={{ color: t.muted }}>
+                {period.title}
+              </span>
             </div>
           </div>
           {/* KPI row */}
           <div className="grid grid-cols-4 gap-2 mb-3">
             {[
-              ["Ventas totales", "$1.2M", "#2E7D60"],
-              ["Pérdidas", "$48K", "#A54131"],
-              ["Margen neto", "96%", "#2E7D60"],
-              ["Promedio en dinero", "$18.2K", C.mustard],
+              ["Ventas totales", money(totals.sales), "#2E7D60"],
+              ["Pérdidas", money(totals.losses), "#A54131"],
+              [
+                "Margen neto",
+                totals.sales ? `${Math.round(((totals.sales - totals.losses) / totals.sales) * 100)}%` : "—",
+                totals.sales >= totals.losses ? "#2E7D60" : "#A54131",
+              ],
+              ["Promedio por venta", periodSales.length ? money(totals.sales / periodSales.length) : "—", C.mustard],
             ].map(([lbl, val, col]) => (
               <div
                 key={String(lbl)}
@@ -12731,15 +12805,11 @@ function AdminPanel({
           <div className="relative" style={{ height: "140px" }}>
             <div className="absolute inset-0 flex items-end gap-1">
               {chart.values.map((v, i) => {
-                const max = Math.max(...chart.values, ...chart.values2) * 1.1
+                const max = Math.max(1, ...chart.values, ...chart.values2) * 1.1
                 const hV = Math.round((v / max) * 120)
                 const hL = Math.round((chart.values2[i] / max) * 120)
-                const valLabel =
-                  v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`
-                const lossLabel =
-                  chart.values2[i] >= 1000
-                    ? `$${Math.round(chart.values2[i] / 1000)}k`
-                    : `$${chart.values2[i]}`
+                const valLabel = v ? money(v) : ""
+                const lossLabel = chart.values2[i] ? money(chart.values2[i]) : ""
                 return (
                   <div
                     key={i}
@@ -12821,6 +12891,9 @@ function AdminPanel({
             </div>
           </div>
           <div className="space-y-3">
+            {!TOP.length && (
+              <p className="text-xs" style={{ color: t.muted }}>No hay ventas en este periodo.</p>
+            )}
             {TOP.map((p, i) => (
               <div key={p.name}>
                 <div className="flex items-center justify-between mb-1">
@@ -12907,6 +12980,9 @@ function AdminPanel({
             </div>
           </div>
           <div className="space-y-2.5">
+            {!RETURN_REASONS.length && (
+              <p className="text-xs" style={{ color: t.muted }}>No hay devoluciones en este periodo.</p>
+            )}
             {RETURN_REASONS.map((r) => (
               <div key={r.label}>
                 <div className="flex justify-between mb-1">
@@ -13056,9 +13132,22 @@ function AdminPanel({
     const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))
     const sRows = indexedRows
     const q = (search[section] || "").toLowerCase()
+    const filterGroups = (TABLE_FILTERS[section] || [])
+      .map(({ label, index }) => ({
+        label,
+        index,
+        values: [
+          ...new Set(indexedRows.map(({ row }) => String(row[index] ?? "").trim()).filter(Boolean)),
+        ].sort((x, y) => x.localeCompare(y)),
+      }))
+      .filter(({ values }) => values.length > 0)
+    // Stored as "<cell index>::<value>"
+    const filterValue = tableFilter[section] || ""
+    const [filterCell, filterText] = filterValue ? filterValue.split("::") : []
     const filtered = sRows.filter(
         ({ row }) =>
-          !q || row.some((cell) => String(cell).toLowerCase().includes(q)),
+          (!q || row.some((cell) => String(cell).toLowerCase().includes(q))) &&
+          (!filterValue || String(row[Number(filterCell)] ?? "").trim() === filterText),
       )
     const cur = pg[section] || 0
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -13157,7 +13246,11 @@ function AdminPanel({
     const formatDisplayCell = (
       cell: string | number,
       rowCellIndex: number,
+      row?: Row,
     ): string | number => {
+      if (section === "proveedores" && rowCellIndex === 1 && row && isNaturalSupplier(row[15])) {
+        return supplierDocument(row)
+      }
       if (section === "producto" && rowCellIndex === 2 && !(Number(cell) > 0)) {
         return "Sin precio"
       }
@@ -13170,65 +13263,43 @@ function AdminPanel({
       return cell
     }
 
-    const formatSalesDate = (value: string | number) => {
-      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value))
-      if (!match) return "—"
-      const [, year, month, day] = match
-      const date = new Date(Number(year), Number(month) - 1, Number(day))
-      if (
-        date.getFullYear() !== Number(year) ||
-        date.getMonth() !== Number(month) - 1 ||
-        date.getDate() !== Number(day)
-      ) return "—"
-      return date.toLocaleDateString("es-CO", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-      })
-    }
-
-    const formatDisplayCell = (
-      cell: string | number,
-      rowCellIndex: number,
-    ): string | number => {
-      if (section === "producto" && rowCellIndex === 2 && !(Number(cell) > 0)) {
-        return "Sin precio"
-      }
-      if (section !== "ventas") return cell
-      if (rowCellIndex === 3) return formatSalesDate(cell)
-      if (rowCellIndex === 7) {
-        const total = Number(cell)
-        return Number.isFinite(total) ? fmt(total) : "—"
-      }
-      return cell
+    // Product categories: how many products belong to each one (in place of the old description)
+    const renderCategoryProductCount = (row: Row) => {
+      const count = getCategoryRecords("cat-producto", String(row[0] ?? "")).length
+      return (
+        <span className="inline-flex items-center gap-2">
+          <span
+            className="inline-flex h-6 min-w-6 items-center justify-center rounded-full px-2 text-[11px] font-semibold"
+            style={count ? { background: `${C.mustard}18`, color: C.mustard } : { background: t.input, color: t.muted }}
+          >
+            {count}
+          </span>
+          <span style={{ color: t.muted }}>
+            {count === 0 ? "Ningún producto en esta categoría" : count === 1 ? "producto en esta categoría" : "productos en esta categoría"}
+          </span>
+        </span>
+      )
     }
 
     const renderStatusControl = (rowIndex: number, rowCellIndex: number) => {
       if (cfg.statusIndex === undefined || rowCellIndex !== cfg.statusIndex) {
         return null
       }
-      const row = rows[section]?.[rowIndex]
-      if (
-        section === "cat-producto" &&
-        normalizeName(String(row?.[0] ?? "")) === "adiciones" &&
-        isStatusActive(row?.[cfg.statusIndex] ?? "Activa")
-      ) {
-        return (
-          <span className="text-[10px] font-semibold" style={{ color: "#2E7D60" }}>
-            {String(row?.[cfg.statusIndex] ?? "Activa")} · Protegida
-          </span>
-        )
-      }
       if (section === "produccion") {
         return <ProductionStatusSelect rowIndex={rowIndex} />
       }
+      // Only the word; anular / reactivar is with the row's actions
+      const row = rows[section]?.[rowIndex]
+      // A record saved without state counts as active
+      const value = String(row?.[cfg.statusIndex] || "Activo")
+      const active = isStatusActive(value)
       return (
-        <StatusSwitch
-          sec={section}
-          rowIndex={rowIndex}
-          statusIndex={cfg.statusIndex}
-          entityName={String(rows[section]?.[rowIndex]?.[0] ?? "registro")}
-        />
+        <span
+          className="inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold"
+          style={active ? { background: "rgba(46,125,96,0.12)", color: "#2E7D60" } : { background: `${C.red}12`, color: C.red }}
+        >
+          {value}
+        </span>
       )
     }
 
@@ -13253,9 +13324,6 @@ function AdminPanel({
       const isPrincipalAdmin =
         section === "usuarios" &&
         String(rows.usuarios?.[rowIndex]?.[8] ?? "") === "Principal"
-      const isProtectedAdditionCategory =
-        section === "cat-producto" &&
-        normalizeName(String(rows[section]?.[rowIndex]?.[0] ?? "")) === "adiciones"
       const deleteBlocked = !deleteAssessment.allowed
       const deleteButton = (
         <button
@@ -13280,7 +13348,7 @@ function AdminPanel({
       )
 
       return (
-        <div className="flex flex-shrink-0 items-center justify-end gap-1">
+        <div className="flex flex-shrink-0 flex-nowrap items-center justify-end gap-1.5">
           <button
             type="button"
             title={detailActionLabel}
@@ -13291,7 +13359,7 @@ function AdminPanel({
           >
             {Ico.eye}
           </button>
-          {!isAnulled && (
+          {!isAnulled && !(section === "perdidas" && isReturnedLoss(rows.perdidas?.[rowIndex])) && (
             <button
               type="button"
               title="Editar"
@@ -13303,46 +13371,47 @@ function AdminPanel({
               {Ico.edit}
             </button>
           )}
+          {cfg.statusIndex !== undefined && section !== "produccion" && (() => {
+            const statusRow = rows[section]?.[rowIndex]
+            const entity = String(statusRow?.[0] ?? "registro")
+            const active = isStatusActive(statusRow?.[cfg.statusIndex!] ?? "Activo")
+            // Protected (administrador role, superadmin): the window explains why
+            const locked = !!statusRow && (isStatusLocked(section, statusRow) || isPrincipalAdmin)
+            return active || locked ? (
+              <button
+                type="button"
+                title={locked ? "No se puede anular: ver motivo" : "Anular"}
+                aria-label={locked ? `Ver por qué no se puede anular ${entity}` : `Anular ${entity}`}
+                aria-haspopup="dialog"
+                onClick={() => setAnulTarget({ section, idx: rowIndex })}
+                className={`flex h-7 w-7 items-center justify-center rounded-lg ${
+                  locked ? "cursor-help opacity-50 hover:opacity-90" : "cursor-pointer hover:opacity-80"
+                }`}
+                style={{ color: C.red, background: `${C.red}12` }}
+              >
+                {Ico.ban}
+              </button>
+            ) : (
+              <button
+                type="button"
+                title="Reactivar"
+                aria-label={`Reactivar ${entity}`}
+                onClick={() => toggleStatus(section, rowIndex, cfg.statusIndex!)}
+                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+              >
+                {Ico.undo}
+              </button>
+            )
+          })()}
           {cfg.statusIndex !== undefined ? (
             section === "producto" ? (
-
               null
             ) : (
               !isPrincipalAdmin &&
-              !isProtectedAdditionCategory &&
               !noDelete &&
               canShowProductionDelete &&
               deleteButton
-
-              isAnulled ? (
-                <button
-                  type="button"
-                  title="Reactivar producto"
-                  aria-label="Reactivar producto"
-                  onClick={() =>
-                    toggleStatus(section, rowIndex, cfg.statusIndex!)
-                  }
-                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
-                  style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
-                >
-                  {Ico.undo}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  title="Anular producto"
-                  aria-label="Anular producto"
-                  aria-haspopup="dialog"
-                  onClick={() => setAnulTarget({ section, idx: rowIndex })}
-                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
-                  style={{ color: C.red, background: `${C.red}12` }}
-                >
-                  {Ico.ban}
-                </button>
-              )
-            ) : (
-              !noDelete && deleteButton
-
             )
           ) : noDelete ? (
             isAnulled ? (
@@ -13369,7 +13438,7 @@ function AdminPanel({
                 {Ico.ban}
               </button>
             )
-          ) : !isPrincipalAdmin && !isProtectedAdditionCategory ? (
+          ) : !isPrincipalAdmin ? (
             deleteButton
           ) : null
           }
@@ -13381,10 +13450,10 @@ function AdminPanel({
       <div className="min-w-0">
         <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
           <div
-            className="flex w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2 sm:w-72"
-            style={{ background: t.input, border: `1px solid ${t.inputB}` }}
+            className="flex w-full min-w-0 items-center gap-2 rounded-full px-3 py-2 sm:w-72"
+            style={{ background: t.input, border: `1.5px solid ${C.mustard}` }}
           >
-            <span className="flex-shrink-0" style={{ color: t.muted }}>
+            <span className="flex-shrink-0" style={{ color: C.mustard }}>
               {Ico.search}
             </span>
             <input
@@ -13410,13 +13479,40 @@ function AdminPanel({
                   setSearch((current) => ({ ...current, [section]: "" }))
                   setP(0)
                 }}
-                className="flex-shrink-0 cursor-pointer"
-                style={{ color: t.muted }}
+                className="flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
+                style={{ background: `${C.mustard}18`, color: C.mustard }}
               >
                 ×
               </button>
             )}
           </div>
+          {filterGroups.length > 0 && (
+            <select
+              value={filterValue}
+              onChange={(event) => {
+                setTableFilter((current) => ({ ...current, [section]: event.target.value }))
+                setP(0)
+              }}
+              aria-label="Filtrar la lista"
+              className="cursor-pointer rounded-xl px-3 py-2 text-xs outline-none"
+              style={{
+                background: filterValue ? `${C.mustard}18` : t.input,
+                border: `1px solid ${filterValue ? C.mustard : t.inputB}`,
+                color: filterValue ? C.mustard : t.muted,
+              }}
+            >
+              <option value="">Filtrar: todos</option>
+              {filterGroups.map((group) => (
+                <optgroup key={group.index} label={group.label}>
+                  {group.values.map((value) => (
+                    <option key={value} value={`${group.index}::${value}`}>
+                      {value}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          )}
           {/* Short search on the left, action buttons pushed to the right */}
           <div className="hidden sm:block sm:flex-1" />
           {!noExp && (
@@ -13431,20 +13527,6 @@ function AdminPanel({
               }}
             >
               {Ico.download} Exportar
-            </button>
-          )}
-          {section === "ventas" && (
-            <button
-              type="button"
-              onClick={() => {
-                setSection("devoluciones")
-                setSidebarOpen(false)
-                openAdd("devoluciones")
-              }}
-              className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold cursor-pointer"
-              style={{ background: `${C.red}12`, color: C.red }}
-            >
-              {Ico.undo} Nueva devolución
             </button>
           )}
           <button
@@ -13468,7 +13550,8 @@ function AdminPanel({
                 {Array.from({ length: columnCount }, (_, index) => (
                   <col key={index} />
                 ))}
-                <col style={{ width: "108px" }} />
+                {/* Ver, Editar, (Anular), Eliminar: 32 px per button so they fit in one row */}
+                <col style={{ width: cfg.statusIndex !== undefined && section !== "produccion" ? "152px" : "116px" }} />
               </colgroup>
               <thead>
                 <tr
@@ -13530,6 +13613,7 @@ function AdminPanel({
                   const isLocalClient =
                     section === "clientes" &&
                     String(row[6]).toLowerCase() === "sí"
+                  const isSuperAdmin = isSuperAdminRow(section, row)
                   const displayCellIndexes = getDisplayCellIndexes(row)
                   const displayCells = getDisplayCells(row)
                   return (
@@ -13576,7 +13660,7 @@ function AdminPanel({
                       )}
                       {displayCells.map((cell, cellIndex) => {
                         const rowCellIndex = displayCellIndexes[cellIndex]
-                        const displayCell = formatDisplayCell(cell, rowCellIndex)
+                        const displayCell = formatDisplayCell(cell, rowCellIndex, row)
                         return (
                           <td
                             key={rowCellIndex}
@@ -13584,24 +13668,22 @@ function AdminPanel({
                           >
                             {rowCellIndex === cfg.statusIndex && !isPrincipalAdmin ? (
                               renderStatusControl(originalIndex, rowCellIndex)
-                            ) : cellIndex === 0 && (isSupplyProduct || isLocalClient) ? (
+                            ) : section === "cat-producto" && rowCellIndex === 1 ? (
+                              renderCategoryProductCount(row)
+                            ) : cellIndex === 0 && (isSupplyProduct || isLocalClient || isSuperAdmin) ? (
                               <div className="min-w-0">
                                 {renderCellValue(cell, true, isLow)}
                                 <span className="mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
-                                  {isLocalClient ? "Cliente de local" : "Producto de insumo"}
+                                  {isSuperAdmin ? "Superadministrador" : isLocalClient ? "Cliente de local" : "Producto de insumo"}
                                 </span>
                               </div>
                             ) : (
-
                               renderCellValue(
                                 displayCell,
                                 cellIndex === 0,
                                 isLow,
                                 section === "usuarios" && rowCellIndex === 0 && isPrincipalAdmin,
                               )
-
-                              renderCellValue(displayCell, cellIndex === 0, isLow)
-
                             )}
                           </td>
                         )
@@ -13638,6 +13720,7 @@ function AdminPanel({
                 const isLocalClient =
                   section === "clientes" &&
                   String(row[6]).toLowerCase() === "sí"
+                const isSuperAdmin = isSuperAdminRow(section, row)
                 const displayCellIndexes = getDisplayCellIndexes(row)
                 const displayCells = getDisplayCells(row)
                 return (
@@ -13673,15 +13756,10 @@ function AdminPanel({
                         </div>
                       )}
                       <div className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words [overflow-wrap:anywhere]">
-                        {renderCellValue(
-                          displayCells[0] ?? "—",
-                          true,
-                          isLow,
-                          section === "usuarios" && displayCellIndexes[0] === 0 && isPrincipalAdmin,
-                        )}
-                        {(isSupplyProduct || isLocalClient) && (
+                        {renderCellValue(displayCells[0] ?? "—", true, isLow)}
+                        {(isSupplyProduct || isLocalClient || isSuperAdmin) && (
                           <span className="mt-1 inline-block rounded-full px-2 py-0.5 text-[9px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
-                            {isLocalClient ? "Cliente de local" : "Producto de insumo"}
+                            {isSuperAdmin ? "Superadministrador" : isLocalClient ? "Cliente de local" : "Producto de insumo"}
                           </span>
                         )}
                       </div>
@@ -13706,9 +13784,11 @@ function AdminPanel({
                             >
                               {rowCellIndex === cfg.statusIndex && !isPrincipalAdmin ? (
                                 renderStatusControl(originalIndex, rowCellIndex)
+                              ) : section === "cat-producto" && rowCellIndex === 1 ? (
+                                renderCategoryProductCount(row)
                               ) : (
                                 renderCellValue(
-                                  formatDisplayCell(cell, rowCellIndex),
+                                  formatDisplayCell(cell, rowCellIndex, row),
                                 )
                               )}
                             </dd>
@@ -13789,323 +13869,345 @@ function AdminPanel({
         )
       : (rolesPerms[permissionKey] || {})
     const commonActions = ["Ver", "Crear", "Editar"]
-    const toggle = (mod: string, action: string) => {
-      if (readOnly || isAdmin) return
-      setRolesPerms((rp) => {
-        const cur = rp[permissionKey]?.[mod] || []
-        const next = cur.includes(action)
-          ? cur.filter((a) => a !== action)
-          : [...cur, action]
-        return { ...rp, [permissionKey]: { ...(rp[permissionKey] || {}), [mod]: next } }
-
-      })
-    }
-    const setAllPermissions = (select: boolean) => {
-      if (readOnly || isAdmin) return
-      setRolesPerms((rp) => {
-        const nextPerms = Object.fromEntries(
-          PERMISSION_MODULES.map(({ name, finalAction }) => {
-            const actions = [...commonActions, finalAction]
-            return [name, select ? actions : []]
-          }),
-        )
-        return { ...rp, [permissionKey]: nextPerms }
-      })
-    }
-    const setActionForAll = (action: string, select: boolean) => {
-      if (readOnly || isAdmin) return
-      setRolesPerms((rp) => {
-        const current = rp[permissionKey] || {}
-        const nextPerms = Object.fromEntries(
-          PERMISSION_MODULES.map(({ name, finalAction }) => {
-            const targetAction = action === "final" ? finalAction : action
-            const currentActions = current[name] || []
-            const nextActions = select
-              ? currentActions.includes(targetAction)
-                ? currentActions
-                : [...currentActions, targetAction]
-              : currentActions.filter((currentAction) => currentAction !== targetAction)
-            return [name, nextActions]
-          }),
-        )
-        return { ...rp, [permissionKey]: { ...current, ...nextPerms } }
-      })
-    }
-
-      })
-    }
-    const setAllPermissions = (select: boolean) => {
-      if (readOnly || isAdmin) return
-      setRolesPerms((rp) => {
-        const nextPerms = Object.fromEntries(
-          PERMISSION_MODULES.map(({ name, finalAction }) => {
-            const actions = [...commonActions, finalAction]
-            return [name, select ? actions : []]
-          }),
-        )
-        return { ...rp, [permissionKey]: nextPerms }
-      })
-    }
-    const setActionForAll = (action: string, select: boolean) => {
-      if (readOnly || isAdmin) return
-      setRolesPerms((rp) => {
-        const current = rp[permissionKey] || {}
-        const nextPerms = Object.fromEntries(
-          PERMISSION_MODULES.map(({ name, finalAction }) => {
-            const targetAction = action === "final" ? finalAction : action
-            const currentActions = current[name] || []
-            const nextActions = select
-              ? currentActions.includes(targetAction)
-                ? currentActions
-                : [...currentActions, targetAction]
-              : currentActions.filter((currentAction) => currentAction !== targetAction)
-            return [name, nextActions]
-          }),
-        )
-        return { ...rp, [permissionKey]: { ...current, ...nextPerms } }
-      })
-    }
-
-    const columnHeader = (label: string, action: string) => {
-      return (
-        <div className="flex min-w-0 flex-col items-center justify-center gap-0.5">
-          <span className="text-center text-[10px] font-bold leading-tight break-words" style={{ color: t.muted }}>
-            {label}
-          </span>
-          {!readOnly && (
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setActionForAll(action, true)}
-                disabled={isAdmin}
-                aria-label={`Seleccionar todo: ${label} en todos los módulos`}
-                title={`Seleccionar todo: ${label} en todos los módulos`}
-                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ background: t.input, color: C.mustard }}
-              >
-                ✓
-              </button>
-              <button
-                type="button"
-                onClick={() => setActionForAll(action, false)}
-                disabled={isAdmin}
-                aria-label={`Quitar todo: ${label} en todos los módulos`}
-                title={`Quitar todo: ${label} en todos los módulos`}
-                className="flex h-4 w-4 cursor-pointer items-center justify-center rounded text-[10px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ background: t.input, color: t.muted }}
-              >
-                ×
-              </button>
-            </div>
-          )}
-        </div>
-      )
-    }
-
-    const permissionSections = [
-      { title: "Administración e inventario", modules: PERMISSION_MODULES.slice(0, 8) },
-      { title: "Operación y ventas", modules: PERMISSION_MODULES.slice(8) },
+    const actionsOf = (mod: string) => [
+      ...commonActions,
+      PERMISSION_MODULES.find((m) => m.name === mod)?.finalAction ?? "Anular",
     ]
-
+    const allNames = PERMISSION_MODULES.map((m) => m.name)
+    const totalPermissions = PERMISSION_MODULES.length * 4
+    // Only the module's own 4 actions count (Administrador has Anular and Eliminar everywhere)
+    const grantedIn = (mod: string) => actionsOf(mod).filter((a) => (perms[mod] || []).includes(a))
+    const granted = allNames.reduce((n, name) => n + grantedIn(name).length, 0)
+    const canEdit = !readOnly && !isAdmin
+    // Replaces the given modules' actions (the others stay as they are)
+    const setModules = (next: Record<string, string[]>) =>
+      setRolesPerms((rp) => ({ ...rp, [permissionKey]: { ...(rp[permissionKey] || {}), ...next } }))
+    // Any action needs "Ver"; without "Ver" the module has nothing
+    const withAction = (mod: string, action: string, on: boolean) => {
+      const cur = perms[mod] || []
+      if (on) return [...new Set([...cur, action, "Ver"])]
+      return action === "Ver" ? [] : cur.filter((a) => a !== action)
+    }
+    const toggle = (mod: string, action: string) =>
+      canEdit && setModules({ [mod]: withAction(mod, action, !(perms[mod] || []).includes(action)) })
+    // A column: "final" = each module's Anular/Eliminar
+    const columnAction = (mod: string, column: string) => (column === "final" ? actionsOf(mod)[3] : column)
+    const columnAllOn = (column: string) => allNames.every((m) => (perms[m] || []).includes(columnAction(m, column)))
+    const toggleColumn = (column: string) => {
+      if (!canEdit) return
+      const on = !columnAllOn(column)
+      setModules(Object.fromEntries(allNames.map((m) => [m, withAction(m, columnAction(m, column), on)])))
+    }
+    const setAll = (on: boolean) =>
+      canEdit && setModules(Object.fromEntries(allNames.map((m) => [m, on ? actionsOf(m) : []])))
+    const columns = [
+      { key: "Ver", label: "Ver" },
+      { key: "Crear", label: "Crear" },
+      { key: "Editar", label: "Editar" },
+      { key: "final", label: "Anular / Eliminar" },
+    ]
+    const box = (on: boolean, size = 18) => (
+      <span
+        className="flex flex-shrink-0 items-center justify-center rounded-md"
+        style={{
+          width: size,
+          height: size,
+          background: on ? C.mustard : "transparent",
+          border: `1.5px solid ${on ? C.mustard : t.inputB}`,
+          color: "#fff",
+        }}
+      >
+        {on && Ico.check}
+      </span>
+    )
+    const grid = "minmax(0,1fr) repeat(4, minmax(3.25rem, 4.5rem))"
     return (
-      <div className="mt-2">
-        <div className="flex items-center justify-between gap-2 mb-1.5">
-          <div className="text-xs font-bold" style={{ color: t.muted }}>
-            Permisos por módulo
-
+      <div className="mt-2 flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold" style={{ color: t.text }}>
+              Permisos por módulo
+            </span>
+            <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+              {granted} de {totalPermissions}
+            </span>
           </div>
-          {!readOnly && (
-            <div className="flex gap-2">
+          {canEdit && (
+            <div className="flex gap-1.5">
               <button
                 type="button"
-                onClick={() => setAllPermissions(true)}
-                disabled={isAdmin}
-                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
-                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
-
-          </div>
-          {!readOnly && (
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setAllPermissions(true)}
-                disabled={isAdmin}
-                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
-                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
-                style={{
-                  background: t.input,
-                  color: t.text,
-                  opacity: isAdmin ? 0.5 : 1,
-                  cursor: isAdmin ? "not-allowed" : "pointer",
-                }}
+                onClick={() => setAll(true)}
+                className="cursor-pointer rounded-lg px-3 py-1.5 text-[11px] font-bold"
+                style={{ background: C.mustard, color: "#fff" }}
               >
-                Seleccionar todo
+                Seleccionar todos
               </button>
               <button
                 type="button"
-                onClick={() => setAllPermissions(false)}
-                disabled={isAdmin}
-                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
-                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
-                style={{
-                  background: t.input,
-                  color: t.text,
-                  opacity: isAdmin ? 0.5 : 1,
-                  cursor: isAdmin ? "not-allowed" : "pointer",
-                }}
+                onClick={() => setAll(false)}
+                className="cursor-pointer rounded-lg px-3 py-1.5 text-[11px] font-semibold"
+                style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
               >
                 Quitar todos
               </button>
             </div>
           )}
         </div>
-        <div
-          className="max-h-[46vh] min-w-0 overflow-auto rounded-xl"
-          style={{ border: `1px solid ${t.border}` }}
-        >
+        {isAdmin && (
+          <p className="rounded-lg px-3 py-2 text-[11px] font-medium" style={{ background: `${C.mustard}12`, color: C.mustard }}>
+            El rol Administrador siempre tiene todos los permisos.
+          </p>
+        )}
+        <div className="max-h-[46vh] min-w-0 overflow-auto rounded-xl" style={{ border: `1px solid ${t.border}` }}>
+          {/* Header: each column can be selected for every module at once */}
           <div
-            className="sticky top-0 z-10 grid min-w-0 items-center px-2.5 py-1.5"
-            style={{
-              gridTemplateColumns:
-                "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
-              background: t.cardAlt,
-              borderBottom: `1px solid ${t.border}`,
-            }}
+            className="sticky top-0 z-10 grid items-center gap-1 px-3 py-2"
+            style={{ gridTemplateColumns: grid, background: t.cardAlt, borderBottom: `1px solid ${t.border}` }}
           >
-            <div
-              className="min-w-0 text-[10px] font-bold break-words"
-              style={{ color: t.muted }}
-            >
+            <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
               Módulo
-            </div>
-            {commonActions.map((action) => (
-              <div key={action}>{columnHeader(action, action)}</div>
-            ))}
-            <div>{columnHeader("Anular / Eliminar", "final")}</div>
+            </span>
+            {columns.map((column) => {
+              const on = columnAllOn(column.key)
+              return (
+                <button
+                  key={column.key}
+                  type="button"
+                  disabled={!canEdit}
+                  onClick={() => toggleColumn(column.key)}
+                  title={canEdit ? `${on ? "Quitar" : "Seleccionar"} «${column.label}» en todos los módulos` : undefined}
+                  aria-label={`${on ? "Quitar" : "Seleccionar"} ${column.label} en todos los módulos`}
+                  className="flex flex-col items-center gap-1 rounded-lg px-1 py-1 disabled:cursor-default"
+                  style={{ cursor: canEdit ? "pointer" : "default", background: on ? `${C.mustard}14` : "transparent" }}
+                >
+                  <span className="text-center text-[10px] font-bold leading-tight" style={{ color: on ? C.mustard : t.muted }}>
+                    {column.label}
+                  </span>
+                  {canEdit && (
+                    <span className="flex items-center gap-1 text-[9px] font-semibold" style={{ color: on ? C.mustard : t.muted }}>
+                      {box(on, 14)} Todos
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
-          {PERMISSION_MODULES.map(({ name, finalAction }, index) => {
-            const moduleActions = [...commonActions, finalAction]
+          {PERMISSION_MODULES.map(({ name }, index) => {
+            const modPerms = grantedIn(name)
             return (
               <div
                 key={name}
-                className="grid min-w-0 items-center px-2.5 py-1"
-
+                className="grid items-center gap-1 px-3 py-1.5"
                 style={{
-                  background: t.input,
-                  color: t.text,
-                  opacity: isAdmin ? 0.5 : 1,
-                  cursor: isAdmin ? "not-allowed" : "pointer",
+                  gridTemplateColumns: grid,
+                  background: index % 2 ? (dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.015)") : "transparent",
+                  borderBottom: index < PERMISSION_MODULES.length - 1 ? `1px solid ${t.border}` : "none",
                 }}
               >
-                Seleccionar todo
-              </button>
-              <button
-                type="button"
-                onClick={() => setAllPermissions(false)}
-                disabled={isAdmin}
-                title={isAdmin ? "El rol Administrador siempre conserva todos los privilegios." : undefined}
-                className="rounded-lg px-2.5 py-1 text-[10px] font-semibold cursor-pointer"
-                style={{
-                  background: t.input,
-                  color: t.text,
-                  opacity: isAdmin ? 0.5 : 1,
-                  cursor: isAdmin ? "not-allowed" : "pointer",
-                }}
-              >
-                Quitar todos
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="grid min-w-0 gap-3 md:grid-cols-2">
-          {permissionSections.map(({ title, modules }, sectionIndex) => (
-            <section key={sectionIndex} className="min-w-0">
-              <h4 className="mb-1.5 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
-                {title}
-              </h4>
-              <div
-                className="min-w-0 overflow-hidden rounded-xl"
-                style={{ border: `1px solid ${t.border}` }}
-              >
-                <div
-                  className="grid min-w-0 items-center px-2 py-1.5"
-                  style={{
-                    gridTemplateColumns:
-                      "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
-                    background: t.cardAlt,
-                    borderBottom: `1px solid ${t.border}`,
-                  }}
-                >
-                  <div
-                    className="min-w-0 text-[10px] font-bold break-words"
-                    style={{ color: t.muted }}
-                  >
-                    Módulo
+                <div className="min-w-0">
+                  <div className="truncate text-xs font-semibold" style={{ color: t.text }}>{name}</div>
+                  <div className="text-[10px]" style={{ color: modPerms.length ? C.mustard : t.muted }}>
+                    {modPerms.length ? `${modPerms.length}/4` : "Sin acceso"}
                   </div>
-                  {commonActions.map((action) => (
-                    <div key={action}>{columnHeader(action, action)}</div>
-                  ))}
-                  <div>{columnHeader("Anular / Eliminar", "final")}</div>
                 </div>
-
-                {modules.map(({ name, finalAction }, index) => {
-                  const moduleActions = [...commonActions, finalAction]
+                {columns.map((column) => {
+                  const action = columnAction(name, column.key)
+                  const on = (perms[name] || []).includes(action)
                   return (
-                    <div
-                      key={name}
-                      className="grid min-w-0 items-center px-2 py-0.5"
-
-                {moduleActions.map((action) => (
-                  <div key={action} className="flex min-w-0 justify-center">
-                    <input
-                      type="checkbox"
-                      title={action}
-                      aria-label={`${action} ${name}`}
-                      checked={(perms[name] || []).includes(action)}
-                      onChange={() => toggle(name, action)}
-                      disabled={readOnly}
-                      className={readOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"}
-
-                      style={{
-                        gridTemplateColumns:
-                          "minmax(0, 1fr) repeat(4, minmax(2rem, 2.5rem))",
-                        borderBottom:
-                          index < modules.length - 1
-                            ? `1px solid ${t.border}`
-                            : "none",
-                      }}
+                    <button
+                      key={column.key}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={on}
+                      aria-label={`${action} en ${name}`}
+                      title={column.key === "final" ? action : undefined}
+                      disabled={!canEdit}
+                      onClick={() => toggle(name, action)}
+                      className="flex justify-center py-1.5 disabled:cursor-default"
+                      style={{ cursor: canEdit ? "pointer" : "default" }}
                     >
-                      <div
-                        className="min-w-0 text-xs leading-snug break-words"
-                        style={{ color: t.text }}
-                      >
-                        {name}
-                      </div>
-                      {moduleActions.map((action) => (
-                        <div key={action} className="flex min-w-0 justify-center">
-                          <input
-                            type="checkbox"
-                            title={action}
-                            aria-label={`${action} ${name}`}
-                            checked={(perms[name] || []).includes(action)}
-                            onChange={() => toggle(name, action)}
-                            disabled={readOnly}
-                            className={readOnly ? "cursor-not-allowed opacity-60" : "cursor-pointer"}
-                            style={{
-                              accentColor: C.mustard,
-                              width: "14px",
-                              height: "14px",
-                            }}
-                          />
-                        </div>
-                      ))}
-                    </div>
+                      {box(on)}
+                    </button>
                   )
                 })}
               </div>
-            </section>
+            )
+          })}
+        </div>
+        {canEdit && (
+          <p className="text-[11px]" style={{ color: t.muted }}>
+            «Todos» marca o quita esa acción en todos los módulos. Crear, Editar o Anular activan también Ver.
+          </p>
+        )}
+      </div>
+    )
+  }
+
+  // Insumo detail (view): header, stock and cost, suppliers and, if sold as a product, its ficha técnica.
+  // Row: [0 nombre, 1 categoría, 2 unidad, 3 costo, 4 stock, 5 mínimo, 7 producto de insumo,
+  //       8 ficha, 9 versión, 10 insumos principales, 11 preparación, 12 estado]
+  const supplyDetail = (row: (string | number)[]) => {
+    const unit = String(row[2] || "und")
+    const stock = Number(row[4]) || 0
+    const minimum = Number(row[5]) || 0
+    const low = stock <= minimum
+    const isProductSupply = String(row[7]).toLowerCase() === "sí"
+    const suppliers = (rows.proveedores || [])
+      .filter((p) => splitNames(p[7]).includes(String(row[0])))
+      .map((p) => String(p[0]))
+    const recipe = parseMainSupplies(row[10]).map((item) => {
+      const supply = (rows.insumos || []).find((i) => String(i[0]) === item.name)
+      const base = String(supply?.[2] || "")
+      const quantity = Number(item.quantity) || 0
+      const unit = item.unit || base
+      const inBase = toBaseQuantity(quantity, unit, base)
+      return { ...item, quantity, unit, cost: inBase === null ? null : inBase * (Number(supply?.[3]) || 0) }
+    })
+    const recipeCost = recipe.reduce((sum, item) => sum + (item.cost ?? 0), 0)
+    const unpriced = recipe.some((item) => item.cost === null)
+    const steps = String(row[11] ?? "")
+      .split("\n")
+      // "1. Lavar" -> "Lavar" (a quantity like "500 g de azúcar" stays)
+      .map((step) => step.replace(/^\s*\d+\s*[.)-]\s*/, "").trim())
+      .filter(Boolean)
+    const box = { background: t.input, border: `1px solid ${t.border}` }
+    const sectionTitle = (text: string) => (
+      <div className="mb-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted, fontFamily: "Montserrat, sans-serif" }}>
+        {text}
+      </div>
+    )
+    return (
+      <div className="flex flex-col gap-4 sm:col-span-2">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-lg font-black break-words" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+              {String(row[0])}
+            </div>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: t.input, color: t.muted }}>
+                {String(row[1] || "Sin categoría")}
+              </span>
+              {isProductSupply && (
+                <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                  Producto de insumo
+                </span>
+              )}
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-bold"
+                style={
+                  isActiveStatus(row[12])
+                    ? { background: "rgba(58,109,94,0.14)", color: "#2E7D60" }
+                    : { background: `${C.red}14`, color: C.red }
+                }
+              >
+                {String(row[12] || "Activo")}
+              </span>
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {[
+            ["Stock actual", `${stock.toLocaleString("es-CO")} ${unit}`, low ? C.red : t.text],
+            ["Stock mínimo", `${minimum.toLocaleString("es-CO")} ${unit}`, t.text],
+            ["Costo unitario", Number(row[3]) ? `${fmt(Number(row[3]))} / ${unit}` : "Sin compras", C.mustard],
+            ["Valor en stock", fmt(stock * (Number(row[3]) || 0)), t.text],
+          ].map(([label, value, color]) => (
+            <div key={label} className="rounded-xl px-3 py-2.5" style={box}>
+              <div className="text-[10px] font-semibold" style={{ color: t.muted }}>{label}</div>
+              <div className="mt-0.5 text-sm font-bold break-words" style={{ color }}>{value}</div>
+            </div>
           ))}
         </div>
+        {low && (
+          <p className="rounded-lg px-3 py-2 text-xs font-medium" style={{ background: `${C.red}12`, color: C.red }}>
+            El stock está en el mínimo o por debajo: conviene registrar una compra.
+          </p>
+        )}
+        <div>
+          {sectionTitle("Proveedores que lo venden")}
+          {suppliers.length ? (
+            <div className="flex flex-wrap gap-1.5">
+              {suppliers.map((name) => (
+                <span key={name} className="rounded-full px-2.5 py-1 text-xs font-semibold" style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}>
+                  {name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs" style={{ color: t.muted }}>Ningún proveedor lo tiene asignado.</p>
+          )}
+        </div>
+        {isProductSupply && (
+          <div className="overflow-hidden rounded-xl" style={{ border: `1.5px solid ${C.mustard}55` }}>
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3" style={{ background: `${C.mustard}12` }}>
+              <div className="min-w-0">
+                <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Ficha técnica</div>
+                <div className="text-sm font-semibold break-words" style={{ color: t.text }}>
+                  {String(row[8] || `Ficha técnica - ${String(row[0])}`)}
+                </div>
+              </div>
+              <span className="rounded-full px-2.5 py-1 text-[10px] font-bold" style={{ background: `${C.mustard}22`, color: C.mustard }}>
+                {String(row[9] || "v1.0")}
+              </span>
+            </div>
+            <div className="px-4 py-3">
+              {sectionTitle("Insumos que usa")}
+              {recipe.length ? (
+                <div className="overflow-hidden rounded-lg" style={{ border: `1px solid ${t.border}` }}>
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 px-3 py-2 text-[10px] font-bold uppercase" style={{ background: t.input, color: t.muted }}>
+                    <span>Insumo</span>
+                    <span className="text-right">Cantidad</span>
+                    <span className="w-20 text-right">Costo</span>
+                  </div>
+                  {recipe.map((item) => (
+                    <div key={item.name} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 border-t px-3 py-2 text-xs" style={{ borderColor: t.border }}>
+                      <span className="min-w-0 font-semibold break-words" style={{ color: t.text }}>{item.name}</span>
+                      <span className="text-right" style={{ color: item.quantity ? t.text : C.red }}>
+                        {item.quantity ? `${item.quantity.toLocaleString("es-CO")} ${item.unit}` : "Sin cantidad"}
+                      </span>
+                      <span
+                        className="w-20 text-right"
+                        style={{ color: t.muted }}
+                        title={item.cost === null ? "Esta unidad no se puede convertir a la de compra" : undefined}
+                      >
+                        {item.cost ? fmt(item.cost) : "—"}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between border-t px-3 py-2 text-xs font-bold" style={{ borderColor: t.border, background: t.input }}>
+                    <span style={{ color: t.text }}>
+                      Costo estimado por preparación
+                      {unpriced && <span className="block text-[10px] font-normal" style={{ color: t.muted }}>Sin contar los insumos en unidades que no se pueden convertir</span>}
+                    </span>
+                    <span style={{ color: C.mustard }}>{fmt(recipeCost)}</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-xs" style={{ color: t.muted }}>No tiene insumos en la ficha.</p>
+              )}
+              <div className="mt-4">
+                {sectionTitle("Cómo se prepara")}
+                {steps.length ? (
+                  <ol className="flex flex-col gap-2">
+                    {steps.map((step, i) => (
+                      <li key={i} className="flex gap-2.5 text-xs leading-relaxed" style={{ color: t.text }}>
+                        <span
+                          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                          style={{ background: C.mustard, color: "#fff" }}
+                        >
+                          {i + 1}
+                        </span>
+                        <span className="min-w-0 break-words">{step}</span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <p className="text-xs" style={{ color: t.muted }}>Sin pasos registrados.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -14132,13 +14234,8 @@ function AdminPanel({
     const isSupplier = modal.section === "proveedores"
     const isUser = modal.section === "usuarios"
     const row = modal.idx !== null ? rows[modal.section]?.[modal.idx] : null
-
     const isPrincipalAdminUser =
       isUser && String(row?.[8] ?? "") === "Principal"
-    const isProtectedAdditionCategory =
-      modal.section === "cat-producto" &&
-      normalizeName(String(row?.[0] ?? "")) === "adiciones"
-
     const orderDetails = isPedido ? getAdminOrderLines(row || undefined) : []
     const saleOrderLines = getSaleOrderLines(isSales ? row : null)
     const saleOrderIndex = isSales
@@ -14167,13 +14264,21 @@ function AdminPanel({
     const sellerOptions = [
       ...new Set([
         sellerName,
-        ...(rows.usuarios || []).filter((r) => isActiveStatus(r[5])).map((r) => String(r[0])),
+        ...(rows.usuarios || []).filter((r) => isActiveStatus(r[5]) && isStaffRole(r[3])).map((r) => String(r[0])),
+      ]),
+    ].filter(Boolean)
+    // Loss responsible: active staff (not clients), plus whoever is logged in and the saved value
+    const staffOptions = [
+      ...new Set([
+        sellerName,
+        ...(rows.usuarios || []).filter((r) => isStaffRole(r[3]) && isActiveStatus(r[5])).map((r) => String(r[0])),
+        String(formData["3"] ?? ""),
       ]),
     ].filter(Boolean)
     const namesOf = (sec: string) =>
       (rows[sec] || []).map((r) => String(r[0] ?? "")).filter(Boolean)
     // Sections whose first field is a name/main choice that reads better full width
-    const WIDE_FIRST_FIELD = ["cat-insumos", "insumos", "proveedores", "compras", "perdidas", "cat-producto", "clientes", "pedidos"]
+    const WIDE_FIRST_FIELD = ["cat-insumos", "proveedores", "compras", "perdidas", "cat-producto", "clientes", "pedidos"]
     const isWideField = (f: FieldType) =>
       (f.key === "0" && (WIDE_FIRST_FIELD.includes(modal.section) || !isSupplier)) ||
       f.type === "textarea" ||
@@ -14188,6 +14293,254 @@ function AdminPanel({
     const supplierSupplies = (supplierName: string) => {
       const supplier = (rows.proveedores || []).find((p) => String(p[0]) === supplierName)
       return splitList(String(supplier?.[7] ?? "")).filter((name) => supplyInfo(name))
+    }
+    const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void) => {
+      const groups = new Map<string, string[]>()
+      names.forEach((name) => {
+        const category = String(supplyInfo(name)?.[1] ?? "").trim() || "Sin categoría"
+        groups.set(category, [...(groups.get(category) || []), name])
+      })
+      return (
+        <div className={`grid gap-2 ${className}`}>
+          {[...groups].sort(([a], [b]) => a.localeCompare(b)).map(([category, list]) => (
+            <div key={category} className="min-w-0 rounded-xl px-3 py-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+              <div className="mb-1.5 flex items-center justify-between gap-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
+                <span className="min-w-0 truncate">{category}</span>
+                <span>{list.length}</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {list.sort((a, b) => a.localeCompare(b)).map((name) =>
+                  onRemove ? (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => onRemove(name)}
+                      aria-label={`Quitar ${name}`}
+                      className="flex cursor-pointer items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                      style={{ background: `${C.mustard}18`, color: C.mustard }}
+                    >
+                      {name} <span aria-hidden="true">×</span>
+                    </button>
+                  ) : (
+                    <span key={name} className="rounded-full px-2.5 py-0.5 text-xs font-semibold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                      {name}
+                    </span>
+                  ),
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )
+    }
+    const supplierDetail = (r: Row) => {
+      const v = (i: number) => String(r[i] ?? "").trim() || "—"
+      const natural = isNaturalSupplier(r[15])
+      const supplies = splitList(String(r[7] ?? ""))
+      const status = String(r[6] ?? "")
+      const doc = supplierDocument(r)
+      // Any purchase (even annulled) keeps the supplier from being deleted
+      const purchases = getSupplierPurchases(String(r[0] ?? ""))
+      const purchasesTotal = purchases.reduce((sum, p) => sum + (Number(p[4]) || 0), 0)
+      const sectionTitle = (title: string) => (
+        <h4 className="mb-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>
+          {title}
+        </h4>
+      )
+      const purchasesNote = purchases.length
+        ? "Como tiene compras registradas, este proveedor no se puede eliminar."
+        : "No tiene compras registradas: se puede eliminar si ya no lo necesitas."
+      const statusBadge = status && (
+        <span
+          className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+          style={{ background: badgeSt(status)?.bg ?? t.input, color: badgeSt(status)?.color ?? t.muted }}
+        >
+          {status}
+        </span>
+      )
+      if (!natural) {
+        const iconTile = (icon: React.ReactNode, size = "h-8 w-8") => (
+          <span
+            className={`flex ${size} flex-shrink-0 items-center justify-center rounded-lg`}
+            style={{ background: `${C.mustard}14`, color: C.mustard }}
+          >
+            {icon}
+          </span>
+        )
+        const line = (icon: React.ReactNode, label: string, value: string) => (
+          <div className="flex min-w-0 items-center gap-3">
+            {iconTile(icon)}
+            <div className="min-w-0">
+              <div className="text-[11px]" style={{ color: t.muted }}>{label}</div>
+              <div className="truncate text-sm" title={value} style={{ color: value === "—" ? t.muted : t.text }}>{value}</div>
+            </div>
+          </div>
+        )
+        const card = (title: string, children: React.ReactNode) => (
+          <div className="flex min-w-0 flex-col gap-2.5 rounded-xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+            {sectionTitle(title)}
+            {children}
+          </div>
+        )
+        const contactInitials =
+          v(4) === "—" ? "?" : v(4).split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
+        return (
+          <div className="flex min-w-0 flex-col gap-3 sm:col-span-2 lg:col-span-4">
+            <div className="flex flex-wrap items-center gap-3 rounded-xl px-4 py-3" style={{ background: t.cardAlt }}>
+              {iconTile(Ico.shopping, "h-11 w-11")}
+              <div className="min-w-0 flex-1">
+                <div className="break-words text-base font-semibold" style={{ color: t.text }}>{v(0)}</div>
+                <div className="text-xs" style={{ color: t.muted }}>
+                  Persona jurídica · NIT <span style={{ color: t.text }}>{v(1)}</span>
+                </div>
+              </div>
+              {statusBadge}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {card("Datos de la empresa", (
+                <>
+                  {line(Ico.phone, "Teléfono", v(3))}
+                  {line(Ico.mail, "Correo", v(2))}
+                  {line(Ico.mapPin, "Dirección", v(5))}
+                </>
+              ))}
+              {card("Persona de contacto", (
+                <>
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span
+                      className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      {contactInitials}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="truncate text-sm" style={{ color: t.text }}>{v(4)}</div>
+                      <div className="truncate text-[11px]" style={{ color: t.muted }}>
+                        {v(14) === "—" ? "Sin cargo" : v(14)} · {doc}
+                      </div>
+                    </div>
+                  </div>
+                  {line(Ico.phone, "Teléfono", v(12))}
+                  {line(Ico.mail, "Correo", v(13))}
+                </>
+              ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="min-w-0 rounded-xl px-4 py-3 sm:col-span-2" style={{ border: `1px solid ${t.border}` }}>
+                {sectionTitle(`Insumos que suministra (${supplies.length})`)}
+                {supplies.length ? (
+                  renderSupplyGroups(supplies, "sm:grid-cols-2")
+                ) : (
+                  <span className="text-sm" style={{ color: t.muted }}>Sin insumos asignados.</span>
+                )}
+              </div>
+              {card("Compras", (
+                <>
+                  {line(Ico.cart, "Compras registradas", String(purchases.length))}
+                  <div className="flex min-w-0 items-center gap-3">
+                    {iconTile(Ico.cash)}
+                    <div className="min-w-0">
+                      <div className="text-[11px]" style={{ color: t.muted }}>Total comprado</div>
+                      <div className="truncate text-base font-semibold" style={{ color: C.mustard }}>{fmt(purchasesTotal)}</div>
+                    </div>
+                  </div>
+                  <p className="mt-auto border-t pt-2 text-[11px] leading-snug" style={{ color: t.muted, borderColor: t.border }}>
+                    {purchasesNote}
+                  </p>
+                </>
+              ))}
+            </div>
+          </div>
+        )
+      }
+      // Label above value, two per row: light and easy to scan
+      const block = (title: string, items: [string, string][]) => (
+        <div className="min-w-0 rounded-xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+          {sectionTitle(title)}
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+            {items.map(([label, value]) => (
+              <div key={label} className={`min-w-0 ${label === "Dirección" || label === "Correo" ? "col-span-2" : ""}`}>
+                <dt className="text-[11px]" style={{ color: t.muted }}>{label}</dt>
+                <dd className="break-words text-sm" style={{ color: value === "—" ? t.muted : t.text }}>{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )
+      return (
+        <div className="flex min-w-0 flex-col gap-3 sm:col-span-2 lg:col-span-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-4 py-3" style={{ background: t.cardAlt }}>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider" style={{ color: t.muted }}>
+                Persona natural
+              </div>
+              <div className="break-words text-base font-semibold" style={{ color: t.text }}>{v(0)}</div>
+            </div>
+            {statusBadge}
+          </div>
+          {block("Datos de la persona", [
+            ["Documento", doc],
+            ["Teléfono", v(3)],
+            ["Correo", v(2)],
+            ["Dirección", v(5)],
+          ])}
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="min-w-0 rounded-xl px-4 py-3 sm:col-span-2" style={{ border: `1px solid ${t.border}` }}>
+              {sectionTitle(`Insumos que suministra (${supplies.length})`)}
+              {supplies.length ? (
+                renderSupplyGroups(supplies, "")
+              ) : (
+                <span className="text-sm" style={{ color: t.muted }}>Sin insumos asignados.</span>
+              )}
+            </div>
+            <div className="grid content-start grid-cols-2 gap-3 rounded-xl px-4 py-3 text-sm" style={{ background: t.input }}>
+              <div>
+                <div className="text-xs font-semibold" style={{ color: t.muted }}>Compras registradas</div>
+                <div className="text-lg font-bold" style={{ color: t.text }}>{purchases.length}</div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold" style={{ color: t.muted }}>Total comprado</div>
+                <div className="text-lg font-bold" style={{ color: C.mustard }}>{fmt(purchasesTotal)}</div>
+              </div>
+              <div className="col-span-2 text-xs" style={{ color: t.muted }}>
+                {purchasesNote}
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+    // Profit of one unit of a product: its price minus what its insumos cost
+    const renderProfit = (price: number, cost: number) => {
+      const profit = price - cost
+      const margin = price > 0 ? Math.round((profit / price) * 100) : 0
+      const good = profit > 0
+      return (
+        <div className="rounded-xl px-3 py-3" style={{ background: good ? "rgba(46,125,96,0.08)" : `${C.red}0d`, border: `1px solid ${good ? "rgba(46,125,96,0.25)" : `${C.red}30`}` }}>
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: good ? "#2E7D60" : C.red, fontFamily: "Montserrat, sans-serif" }}>
+            Ganancias por unidad
+          </div>
+          {price > 0 ? (
+            <div className="grid grid-cols-3 gap-2 text-center">
+              {([
+                ["Precio de venta", fmt(price), t.text],
+                ["Costo de insumos", fmt(Math.round(cost)), t.text],
+                ["Ganancia", `${fmt(Math.round(profit))} (${margin}%)`, good ? "#2E7D60" : C.red],
+              ] as const).map(([label, value, color]) => (
+                <div key={label} className="min-w-0">
+                  <div className="text-[11px]" style={{ color: t.muted }}>{label}</div>
+                  <div className="break-words text-sm font-semibold" style={{ color }}>{value}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs" style={{ color: t.muted }}>Ponle precio al producto para ver la ganancia.</p>
+          )}
+          {price > 0 && !good && (
+            <p className="mt-2 text-[11px]" style={{ color: C.red }}>El precio no cubre el costo de los insumos.</p>
+          )}
+        </div>
+      )
     }
     const formatViewValue = (f: FieldType, raw: string) => {
       if (!raw || raw === "—") return "—"
@@ -14208,7 +14561,15 @@ function AdminPanel({
     const showSupplyTechnicalSheet =
       isSupply &&
       String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
-    const formDataFields = isUser
+    const supplierFieldKeys = !isSupplier || !isNaturalSupplier(isView ? row?.[15] : formData["15"])
+      ? null
+      : isView
+        ? NATURAL_SUPPLIER_VIEW_KEYS
+        : NATURAL_SUPPLIER_KEYS
+    const naturalSupplierForm = !!supplierFieldKeys
+    const formDataFields = supplierFieldKeys
+      ? supplierFieldKeys.map((key) => dataFields.find((field) => field.key === key)!)
+      : isUser
       ? dataFields.filter(
           (field) =>
             field.key !== "6" ||
@@ -14218,17 +14579,20 @@ function AdminPanel({
       : isProduction
       ? dataFields.filter((field) => !["0", "1"].includes(field.key))
       : isPnc
-
         ? dataFields.filter((field) => !["0", "1", "2", "6"].includes(field.key))
-
-        ? dataFields.filter((field) => !["0", "1", "2"].includes(field.key))
-
       : isSupply
         ? dataFields.filter(
             (field) =>
               // "Stock actual" isn't entered when creating: it starts at 0
               !(modal.mode === "add" && field.key === "4") &&
               (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
+          )
+      : isUser
+        ? dataFields.filter(
+            (field) =>
+              // The new user receives a provisional password by e-mail (blank on edit = keep it)
+              !(modal.mode === "add" && field.key === "6") &&
+              (!STAFF_CONTACT_KEYS.includes(field.key) || isStaffRole(isView ? row?.[3] : formData["3"])),
           )
         : dataFields
     const productMainFields = isProduct
@@ -14250,7 +14614,9 @@ function AdminPanel({
     const availableItemOptions = isProduction
       ? availableProductionProducts
       : availablePncDamagedItems
-    const clientOptions = (rows.clientes || [])
+    const clientOptions = [...(rows.clientes || [])]
+      .filter((client) => isActiveStatus(client[7]))
+      .sort((a, b) => Number(isCounterClientRow("clientes", b)) - Number(isCounterClientRow("clientes", a)))
       .map((client) => String(client[0] ?? ""))
       .filter(Boolean)
 
@@ -14285,22 +14651,14 @@ function AdminPanel({
       <div
         className="fixed inset-0 z-50 flex items-center justify-center px-4"
         style={{ background: "rgba(0,0,0,0.65)" }}
-        onClick={() => setModal({ mode: null, section: "", idx: null })}
+        onClick={closeModal}
       >
         <div
-
-          className={`flex min-w-0 w-full ${isRoles || isPnc ? "max-w-6xl" : isProduct ? "max-w-3xl" : isUser ? "max-w-2xl" : isSupplier ? "max-w-5xl" : isProductCategory ? "max-w-xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+          className={`flex min-w-0 w-full ${isRoles ? "max-w-6xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales || (isPurchase && isView) ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
             maxHeight: isPurchaseModule || isProduct || isRoles ? "94vh" : "88vh",
-
-          className={`flex min-w-0 w-full ${isRoles || isProduct ? "max-w-3xl" : isUser ? "max-w-2xl" : isSupplier ? "max-w-4xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
-          style={{
-            background: t.card,
-            border: `1px solid ${t.border}`,
-            maxHeight: isPurchaseModule || isProduct ? "94vh" : isRoles ? "82vh" : "88vh",
-
           }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -14322,7 +14680,8 @@ function AdminPanel({
                     : "Ver detalle"}
             </h3>
             <button
-              onClick={() => setModal({ mode: null, section: "", idx: null })}
+              onClick={closeModal}
+              aria-label="Cerrar"
               className="w-8 h-8 flex items-center justify-center rounded-xl cursor-pointer"
               style={{ background: t.input, color: t.muted }}
             >
@@ -14330,11 +14689,7 @@ function AdminPanel({
             </button>
           </div>
           <div
-
             className={`min-w-0 overflow-x-hidden ${isRoles ? "overflow-y-auto md:overflow-y-hidden" : "overflow-y-auto"} px-4 ${isUser ? "py-3 sm:px-5" : "py-4 sm:px-5"} ${
-
-            className={`min-w-0 overflow-x-hidden overflow-y-auto px-4 ${isUser ? "py-3 sm:px-5" : "py-4 sm:px-5"} ${
-
               isUser
                 ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
                 : isRoles && !isView
@@ -14343,24 +14698,20 @@ function AdminPanel({
                   ? `grid min-h-0 flex-1 content-start gap-x-4 gap-y-3 ${
                       // Supplier: 4 columns on large screens — supplier data spans the left two,
                       // contact person goes two fields per row on the right (keeps "Cargo" in view)
-                      isSupplier ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4" : "sm:grid-cols-2"
+                      isSupplier ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4" : (isProduction || isPedido || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
                     }`
                   : isProduct
                     ? "flex min-h-0 flex-1 flex-col gap-3"
                     : "flex flex-col gap-3"
             }`}
             style={{
-
               maxHeight: isPurchaseModule || isProduct ? undefined : isRoles ? "78vh" : isUser ? "58vh" : "65vh",
-
-              maxHeight: isPurchaseModule || isProduct ? undefined : isUser ? "58vh" : "65vh",
-
               // A visible (thin) scrollbar tells the user there are more fields below
               scrollbarWidth: "thin",
             }}
           >
             {/* Purchase module detail header: record name + status */}
-            {isView && isPurchaseModule && !isPurchase && row && (
+            {isView && isPurchaseModule && !isPurchase && !isSupplier && !isClient && !isPedido && !isSales && row && (
               <div
                 className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-4 py-3 sm:col-span-2"
                 style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}
@@ -14383,87 +14734,10 @@ function AdminPanel({
                 )}
               </div>
             )}
-            {/* Image field */}
-            {isProduct && cfg.fields.some((f) => f.type === "image") && (
-              <div className="flex flex-col gap-2">
-                <label
-                  className="text-xs font-semibold"
-                  style={{ color: t.muted }}
-                >
-                  Foto del producto
-                </label>
-                {isView ? (
-                  imgPreview ? (
-                    <img
-                      src={imgPreview}
-                      alt=""
-                      className="w-full h-36 object-cover rounded-xl"
-                    />
-                  ) : (
-                    <div
-                      className="w-full h-24 rounded-xl flex items-center justify-center text-4xl"
-                      style={{ background: t.input }}
-                    >
-                      🍔
-                    </div>
-                  )
-                ) : (
-                  <div>
-                    {imgPreview && (
-                      <img
-                        src={imgPreview}
-                        alt=""
-                        className="w-full h-32 object-cover rounded-xl mb-2"
-                      />
-                    )}
-                    <div
-                      className="border-2 border-dashed rounded-xl p-4 text-center cursor-pointer hover:opacity-80 mb-2"
-                      style={{ borderColor: t.inputB }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault()
-                        const f = e.dataTransfer.files[0]
-                        if (f) handleFile(f)
-                      }}
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <div
-                        className="flex items-center justify-center gap-2 text-xs"
-                        style={{ color: t.muted }}
-                      >
-                        {Ico.upload} Arrastra o selecciona una imagen
-                      </div>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp"
-                        className="hidden"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0]
-                          if (f) handleFile(f)
-                        }}
-                      />
-                    </div>
-                    <input
-                      type="url"
-                      placeholder="o pega una URL de imagen..."
-                      value={imgPreview.startsWith("data:") ? "" : imgPreview}
-                      onChange={(e) => setImgPreview(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl text-xs outline-none"
-                      style={{
-                        background: t.input,
-                        border: `1px solid ${t.inputB}`,
-                        color: t.text,
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
             {/* Proof only matters for transfers (cash / pay at the store = contraentrega) */}
-            {isPedido && (isView || formData["3"] === "Transferencia") && (
+            {isPedido && !isView && formData["3"] === "Transferencia" && (
               // Last in the form (order-last): client and products come first
-              <div className="order-last flex min-w-0 flex-col gap-2 sm:col-span-2">
+              <div className={`order-last flex min-w-0 flex-col gap-2 ${isPedido && !isView ? "sm:col-span-3" : "sm:col-span-2"}`}>
                 <label className="text-xs font-semibold" style={{ color: t.muted }}>Comprobante de pago</label>
                 {isView ? (
                   paymentProofDraft ? (
@@ -14494,20 +14768,127 @@ function AdminPanel({
               </div>
             )}
             {isProduct ? (
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
                 <div className="flex flex-col gap-3">
-                  <div
-                    className="text-xs font-bold uppercase tracking-wide"
-                    style={{ color: t.muted }}
-                  >
-                    Producto
-                  </div>
+                  {isView && row && (
+                    <div className="flex flex-col gap-4">
+                      {imgPreview ? (
+                        <img
+                          src={imgPreview}
+                          alt={String(row[0] ?? "")}
+                          className="h-48 w-full rounded-2xl object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-40 w-full items-center justify-center rounded-2xl text-5xl" style={{ background: t.cardAlt }}>
+                          🍔
+                        </div>
+                      )}
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="rounded-full px-2.5 py-0.5 text-[11px]" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                            {String(row[1] || "Sin categoría")}
+                          </span>
+                          {statusValue && (
+                            <span
+                              className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                              style={{ background: badgeSt(statusValue)?.bg ?? t.input, color: badgeSt(statusValue)?.color ?? t.muted }}
+                            >
+                              {statusValue}
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="mt-2 break-words text-lg font-semibold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                          {String(row[0] ?? "—")}
+                        </h4>
+                        <div className="text-xl font-semibold" style={{ color: C.mustard }}>
+                          {Number(row[2]) > 0 ? fmt(Number(row[2])) : "Sin precio"}
+                        </div>
+                      </div>
+                      <div className="rounded-xl px-4 py-3" style={{ background: t.cardAlt }}>
+                        <div className="mb-1 text-[11px]" style={{ color: t.muted }}>Descripción</div>
+                        <p className="text-sm leading-relaxed" style={{ color: String(row[3] ?? "").trim() ? t.text : t.muted }}>
+                          {String(row[3] ?? "").trim() || "Sin descripción."}
+                        </p>
+                      </div>
+                      {(() => {
+                        const recipe = getProductRecipe(row)
+                        if (!recipe.length) return null
+                        const cost = recipe.reduce((sum, ingredient) => {
+                          const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
+                          const value = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit)) * Number(supply?.[3] || 0)
+                          return sum + (Number.isFinite(value) ? value : 0)
+                        }, 0)
+                        return renderProfit(Number(row[2]) || 0, cost)
+                      })()}
+                    </div>
+                  )}
+                  {!isView && (
+                    // Photo in the same place as in the detail; click (or drop) to change it
+                    <div className="flex flex-col gap-2">
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        aria-label={imgPreview ? "Cambiar foto del producto" : "Subir foto del producto"}
+                        className="group relative cursor-pointer overflow-hidden rounded-2xl"
+                        onClick={() => fileInputRef.current?.click()}
+                        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && fileInputRef.current?.click()}
+                        onDragOver={(e) => e.preventDefault()}
+                        onDrop={(e) => {
+                          e.preventDefault()
+                          const file = e.dataTransfer.files[0]
+                          if (file) handleFile(file)
+                        }}
+                      >
+                        {imgPreview ? (
+                          <>
+                            <img src={imgPreview} alt="" className="h-44 w-full rounded-2xl object-cover" />
+                            <span
+                              className="absolute right-2 bottom-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                              style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}
+                            >
+                              {Ico.upload} Cambiar foto
+                            </span>
+                          </>
+                        ) : (
+                          <div
+                            className="flex h-36 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-xs"
+                            style={{ borderColor: t.inputB, color: t.muted }}
+                          >
+                            <span className="text-4xl">🍔</span>
+                            <span className="flex items-center gap-1.5">{Ico.upload} Arrastra o selecciona una imagen</span>
+                          </div>
+                        )}
+                        <input
+                          ref={fileInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) handleFile(file)
+                          }}
+                        />
+                      </div>
+                      <input
+                        type="url"
+                        placeholder="o pega una URL de imagen..."
+                        aria-label="URL de la imagen"
+                        value={imgPreview.startsWith("data:") ? "" : imgPreview}
+                        onChange={(e) => setImgPreview(e.target.value)}
+                        className="w-full rounded-xl px-3 py-2 text-xs outline-none"
+                        style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                      />
+                    </div>
+                  )}
                   {modal.mode === "add" && (
                     <p className="text-xs" style={{ color: t.muted }}>
                       Puedes agregar el precio después desde la opción Editar.
                     </p>
                   )}
+                  {/* Two fields per row (name and description full width) so the form barely scrolls */}
+                  <div className={isView ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
                   {productMainFields.map((f) => {
+                    if (isView) return null
                     const val = isView
                       ? String(row ? (row[Number(f.key)] ?? "—") : "—")
                       : formData[f.key] || ""
@@ -14529,7 +14910,7 @@ function AdminPanel({
                             .sort((a, b) => a.localeCompare(b))
                         : f.options
                     return (
-                      <div key={f.key} className="flex flex-col gap-1.5">
+                      <div key={f.key} className={`flex min-w-0 flex-col gap-1.5 ${f.key === "0" || f.key === "3" ? "sm:col-span-2" : ""}`}>
                         <label
                           className="text-xs font-semibold"
                           style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
@@ -14551,19 +14932,11 @@ function AdminPanel({
                             disabled={isPedido && f.key === "7"}
                             onChange={(e) =>
                               updateAdminField(modal.section, f.key, e.target.value)
-
                             }
                             onBlur={() =>
                               getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
                               setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
                             }
-
-                            }
-                            onBlur={() =>
-                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
-                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
-                            }
-
                             aria-invalid={!!formFieldErrors[f.key]}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
                             title={
@@ -14590,19 +14963,11 @@ function AdminPanel({
                             value={val}
                             onChange={(e) =>
                               updateAdminField(modal.section, f.key, e.target.value)
-
                             }
                             onBlur={() =>
                               getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
                               setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
                             }
-
-                            }
-                            onBlur={() =>
-                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
-                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
-                            }
-
                             aria-invalid={!!formFieldErrors[f.key]}
                             rows={isPurchaseModule || isProduct ? 2 : 3}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
@@ -14618,19 +14983,11 @@ function AdminPanel({
                             value={val}
                             onChange={(e) =>
                               updateAdminField(modal.section, f.key, e.target.value)
-
                             }
                             onBlur={() =>
                               getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
                               setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
                             }
-
-                            }
-                            onBlur={() =>
-                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
-                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
-                            }
-
                             aria-invalid={!!formFieldErrors[f.key]}
                             className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
                             style={{
@@ -14644,376 +15001,931 @@ function AdminPanel({
                       </div>
                     )
                   })}
-                </div>
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <div
-                      className="text-xs font-bold uppercase tracking-wide"
-                      style={{ color: t.muted }}
-                    >
-                      Ficha técnica
-                    </div>
-                    {!isView && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTechnicalSheetError("")
-                          setTechnicalSheetOpen(true)
-                        }}
-                        className="rounded-xl px-3 py-2 text-xs font-bold cursor-pointer"
-                        style={{ background: C.mustard, color: "#fff" }}
-                      >
-                        {technicalIngredients.length
-                          ? "Editar ficha técnica"
-                          : "Agregar ficha técnica"}
-                      </button>
-                    )}
                   </div>
-                  {!isView && (
-                    <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                      {technicalIngredients.length
-                        ? (
-                          <>
-                            <div className="mb-2 text-xs font-bold" style={{ color: t.text }}>
-                              Insumos y cantidades
-                            </div>
-                            {technicalIngredients.map((ingredient, index) => (
-                              <div
-                                key={`${ingredient.name}-${index}`}
-                                className="flex justify-between gap-3 border-t py-2 text-xs"
-                                style={{ borderColor: t.border, color: t.muted }}
-                              >
-                                <span className="min-w-0 truncate">{ingredient.name}</span>
-                                <strong className="shrink-0" style={{ color: t.text }}>
-                                  {ingredient.quantity} {ingredient.unit}
-                                </strong>
-                              </div>
-                            ))}
-                          </>
-                        )
-                        : <span className="text-xs" style={{ color: t.muted }}>
-                            Ficha técnica opcional. Puedes agregar insumos, cantidades y unidades.
-                          </span>}
-                    </div>
-                  )}
-                  {isView && getProductRecipe(row ?? undefined).length > 0 && (
-                    <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                      <div className="mb-2 text-xs font-bold" style={{ color: t.text }}>Insumos y cantidades</div>
-                      {getProductRecipe(row ?? undefined).map((ingredient, index) => (
-                        <div key={`${ingredient.name}-${index}`} className="flex justify-between gap-3 border-t py-2 text-xs" style={{ borderColor: t.border, color: t.muted }}>
-                          <span>{ingredient.name}</span>
-                          <strong style={{ color: t.text }}>{ingredient.quantity} {ingredient.unit}</strong>
+                  {/* Editing: the profit stays in this column too (updates with the price and the ficha técnica) */}
+                  {!isView && technicalIngredients.length > 0 &&
+                    renderProfit(
+                      Number(formData["2"] || 0),
+                      technicalIngredients.reduce((sum, ingredient) => {
+                        const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
+                        const value = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit)) * Number(supply?.[3] || 0)
+                        return sum + (Number.isFinite(value) ? value : 0)
+                      }, 0),
+                    )}
+                </div>
+                {(() => {
+                  const recipe: TechnicalIngredient[] = isView ? getProductRecipe(row ?? undefined) : technicalIngredients
+                  const steps = isView ? getPreparationSteps(row?.[8]) : technicalSteps
+                  const version = String((isView ? row?.[6] : formData["6"]) || getAutoTechVersion(rows.producto || []))
+                  const lines = recipe.map((ingredient) => {
+                    const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
+                    const cost = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit)) * Number(supply?.[3] || 0)
+                    return { ...ingredient, cost: Number.isFinite(cost) ? cost : 0 }
+                  })
+                  const totalCost = lines.reduce((sum, line) => sum + line.cost, 0)
+                  return (
+                    <section className="flex flex-col gap-3 rounded-2xl px-4 py-4" style={{ border: `1px solid ${t.border}` }}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                            Ficha técnica
+                          </h4>
+                          <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                            Versión {version}
+                          </span>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                  {productTechFields.map((f) => {
-                    if (!isView) return null
-                    const fieldRowIndex = Number(f.key)
-                    const val = isView
-                      ? String(row ? (row[fieldRowIndex] ?? "—") : "—")
-                      : formData[f.key] || ""
-                    const existingInsumos =
-                      isProduct && f.key === "7"
-                        ? (val || "")
-                            .split(",")
-                            .map((v) => v.trim())
-                            .filter(Boolean)
-                        : []
-                    const availableInsumos = getAvailableInsumos()
-                    return (
-                      <div key={f.key} className="flex flex-col gap-1.5">
-                        <label
-                          className="text-xs font-semibold"
-                          style={{ color: t.muted }}
-                        >
-                          {f.label}
-                        </label>
-                        {isProduct && f.key === "6" && !isView ? (
-                          <input
-                            type="text"
-                            value={
-                              val || getAutoTechVersion(rows.producto || [])
-                            }
-                            readOnly
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
-                            style={{
-                              background: "rgba(30,30,30,0.05)",
-                              border: `1.5px solid ${t.inputB}`,
-                              color: t.muted,
+                        {!isView && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTechnicalSheetError("")
+                              setTechnicalStepEdit(null)
+                              setTechnicalSheetOpen(true)
                             }}
-                          />
-                        ) : isProduct && f.key === "7" && !isView ? (
-                          <div className="flex flex-col gap-2">
-                            <div className="flex flex-wrap gap-2">
-                              {existingInsumos.length === 0 ? (
-                                <div
-                                  className="text-xs px-2.5 py-1.5 rounded-full"
-                                  style={{
-                                    background: t.input,
-                                    color: t.muted,
-                                  }}
-                                >
-                                  Sin insumos seleccionados
-                                </div>
-                              ) : (
-                                existingInsumos.map((insumo) => (
-                                  <button
-                                    key={insumo}
-                                    type="button"
-                                    onClick={() => {
-                                      const next = existingInsumos.filter(
-                                        (item) => item !== insumo,
-                                      )
-                                      setFormData((d) => ({
-                                        ...d,
-                                        [f.key]: next.join(", "),
-                                      }))
-                                    }}
-                                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs cursor-pointer"
-                                    style={{
-                                      background: `${C.mustard}15`,
-                                      color: C.mustard,
-                                      border: `1px solid ${C.mustard}35`,
-                                    }}
-                                  >
-                                    <span>{insumo}</span>
-                                    <span>×</span>
-                                  </button>
-                                ))
-                              )}
-                            </div>
-                            <div className="flex flex-col gap-1.5">
-                              <select
-                                value=""
-                                onChange={(event) => {
-                                  const selectedInsumo = event.target.value
-                                  if (!selectedInsumo) return
-                                  setFormData((current) => {
-                                    const currentItems = String(
-                                      current[f.key] ?? "",
-                                    )
-                                      .split(",")
-                                      .map((item) => item.trim())
-                                      .filter(Boolean)
-                                    if (currentItems.includes(selectedInsumo)) {
-                                      return current
-                                    }
-                                    return {
-                                      ...current,
-                                      [f.key]: [
-                                        ...currentItems,
-                                        selectedInsumo,
-                                      ].join(", "),
-                                    }
-                                  })
-                                }}
-                                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
-                                style={{
-                                  background: t.input,
-                                  border: `1.5px solid ${t.inputB}`,
-                                  color: t.text,
-                                }}
-                              >
-                                <option value="">
-                                  Selecciona un insumo para agregarlo...
-                                </option>
-                                {availableInsumos
-                                  .filter(
-                                    (insumo) =>
-                                      !existingInsumos.includes(insumo),
-                                  )
-                                  .map((insumo) => (
-                                    <option key={insumo} value={insumo}>
-                                      {insumo}
-                                    </option>
-                                  ))}
-                              </select>
-                              <span className="text-[10px]" style={{ color: t.subtle }}>
-                                El insumo se selecciona automáticamente al elegirlo.
-                              </span>
-                            </div>
-                          </div>
-                        ) : isView && isProduct && f.key === "8" ? (
-                          <ol
-                            className="w-full list-decimal space-y-2 rounded-xl px-4 py-3 pl-8 text-sm"
-                            style={{ background: t.input, color: t.text }}
+                            className="flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold"
+                            style={{ background: C.mustard, color: "#fff" }}
                           >
-                            {getPreparationSteps(val).length ? (
-                              getPreparationSteps(val).map((step, index) => (
-                                <li key={`${index}-${step}`}>{step}</li>
-                              ))
-                            ) : (
-                              <li className="list-none" style={{ color: t.muted }}>
-                                No hay pasos de preparación registrados.
-                              </li>
-                            )}
-                          </ol>
-                        ) : isView ? (
-                          <div
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
-                            style={{ background: t.input, color: t.text }}
-                          >
-                            {val}
-                          </div>
-                        ) : f.type === "select" ? (
-                          <select
-                            value={val}
-                            onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
-                            }
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
-                              color: val ? t.text : t.muted,
-                            }}
-                          >
-                            <option value="">Selecciona...</option>
-                            {f.options?.map((o) => (
-                              <option key={o} value={o}>
-                                {o}
-                              </option>
-                            ))}
-                          </select>
-                        ) : f.type === "textarea" ? (
-                          <textarea
-                            value={val}
-                            onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
-                            }
-                            rows={4}
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
-                              color: t.text,
-                            }}
-                          />
-                        ) : (
-                          <input
-                            type={f.type}
-                            value={val}
-                            onChange={(e) =>
-                              setFormData((d) => ({
-                                ...d,
-                                [f.key]: e.target.value,
-                              }))
-                            }
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${t.inputB}`,
-                              color: t.text,
-                            }}
-                          />
+                            {recipe.length || steps.length ? <>{Ico.edit} Editar ficha técnica</> : <>{Ico.plus} Agregar ficha técnica</>}
+                          </button>
                         )}
                       </div>
-                    )
-                  })}
-                </div>
+                      {!recipe.length && !steps.length ? (
+                        <p className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.cardAlt, color: t.muted }}>
+                          {isView ? "Este producto no tiene ficha técnica." : "Opcional: agrega los insumos que lleva, sus cantidades y cómo se prepara."}
+                        </p>
+                      ) : (
+                        <>
+                          <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
+                            <div
+                              className="grid grid-cols-[minmax(0,1fr)_auto_5.5rem] gap-x-3 px-3 py-2 text-[11px]"
+                              style={{ background: t.cardAlt, color: t.muted }}
+                            >
+                              <span>Insumo</span>
+                              <span className="text-right">Cantidad</span>
+                              <span className="text-right">Costo</span>
+                            </div>
+                            {lines.length ? (
+                              lines.map((line, index) => (
+                                <div
+                                  key={`${line.name}-${index}`}
+                                  className="grid grid-cols-[minmax(0,1fr)_auto_5.5rem] items-center gap-x-3 border-t px-3 py-1.5 text-sm"
+                                  style={{ borderColor: t.border, color: t.text }}
+                                >
+                                  <span className="min-w-0 break-words">{line.name}</span>
+                                  <span className="text-right" style={{ color: t.muted }}>
+                                    {line.quantity.toLocaleString("es-CO")} {line.unit}
+                                  </span>
+                                  <span className="text-right">{fmt(Math.round(line.cost))}</span>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="border-t px-3 py-3 text-center text-xs" style={{ borderColor: t.border, color: t.muted }}>
+                                Sin insumos.
+                              </div>
+                            )}
+                            {lines.length > 0 && (
+                              <div className="flex items-center justify-between border-t px-3 py-2.5 text-sm" style={{ borderColor: t.border, background: `${C.mustard}0d` }}>
+                                <span style={{ color: t.muted }}>Costo de los insumos por unidad</span>
+                                <span className="font-semibold" style={{ color: C.mustard }}>{fmt(Math.round(totalCost))}</span>
+                              </div>
+                            )}
+                          </div>
+                          <div>
+                            <div className="mb-2 text-[11px]" style={{ color: t.muted }}>Cómo se prepara</div>
+                            {steps.length ? (
+                              <ol className={steps.length > 5 ? "grid gap-x-5 gap-y-1.5 sm:grid-cols-2" : "flex flex-col gap-1.5"}>
+                                {steps.map((step, index) => (
+                                  <li key={`${index}-${step}`} className="flex items-start gap-2.5 text-sm" style={{ color: t.text }}>
+                                    <span
+                                      className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-semibold"
+                                      style={{ background: `${C.mustard}18`, color: C.mustard }}
+                                    >
+                                      {index + 1}
+                                    </span>
+                                    <span className="min-w-0 break-words">{step}</span>
+                                  </li>
+                                ))}
+                              </ol>
+                            ) : (
+                              <p className="text-xs" style={{ color: t.muted }}>No hay pasos de preparación registrados.</p>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </section>
+                  )
+                })()}
               </div>
             ) : (
               <>
                 {/* In the production detail the products are listed in its summary below */}
-                {(isPnc || (isProduction && !isView)) && (
-                  <section className="rounded-2xl p-4 sm:col-span-2" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                    <div className="mb-3 flex items-center gap-2">
-                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>{isPnc ? "Productos o insumos que se dañaron" : "Productos de la orden"}</h4>
+                {isProduction && !isView && (() => {
+                  // What one unit of the quantity means for each kind of product
+                  const unitsOf = (name: string): [string, string] => {
+                    if (name.startsWith("Gaseosa ")) return ["botella", "botellas"]
+                    const product = rows.producto?.find((item) => item[0] === name)
+                    const category = normalizeName(String(product?.[1] ?? ""))
+                    if (category === "salsas") return ["bolsita", "bolsitas"]
+                    if (category === "adiciones") return ["porción", "porciones"]
+                    if (category === "bebidas" || category === "sabores de bebida") return ["botella", "botellas"]
+                    if (category === "producto de insumo") {
+                      const unit = String(supplyInfo(name)?.[2] ?? "und")
+                      return [unit, unit]
+                    }
+                    return ["unidad", "unidades"]
+                  }
+                  const PLURAL: Record<string, string> = {
+                    unidad: "unidades", "porción": "porciones", bolsita: "bolsitas", botella: "botellas", paquete: "paquetes", vaso: "vasos",
+                  }
+                  const UNIT_CHOICES = ["unidad", "porción", "bolsita", "botella", "paquete", "vaso", "kg", "g", "L", "ml"]
+                  const unitWord = (unit: string, qty: number) => (qty === 1 ? unit : PLURAL[unit] ?? unit)
+                  const qtyLabel = (name: string, qty: number, unit?: string) =>
+                    `${qty.toLocaleString("es-CO")} ${unitWord(unit || unitsOf(name)[0], qty)}`
+                  const query = normalizeName(productionSearch ?? "")
+                  const categoryOf = (name: string) => normalizeName(String(rows.producto?.find((item) => item[0] === name)?.[1] ?? ""))
+                  const activeIn = (category: string) =>
+                    (rows.producto || [])
+                      .filter((item) => normalizeName(String(item[1] ?? "")) === category && isActiveStatus(item[4]))
+                      .map((item) => String(item[0]))
+                  const sodas = activeIn("sabores de bebida").flatMap((flavor) =>
+                    activeIn("bebidas").map((size) => `Gaseosa ${flavor} (${size})`),
+                  )
+                  const tabOptions =
+                    productionKind === "gaseosas"
+                      ? sodas
+                      : availableItemOptions.filter((name) =>
+                          productionKind === "adiciones"
+                            ? categoryOf(name) === "adiciones"
+                            : !["adiciones", "bebidas", "sabores de bebida"].includes(categoryOf(name)),
+                        )
+                  const options = tabOptions
+                    .filter((name) => !productionItems.some((item) => item.name === name))
+                    .filter((name) => {
+                      const category = String(rows.producto?.find((item) => item[0] === name)?.[1] ?? "")
+                      return !query || normalizeName(name).includes(query) || normalizeName(category).includes(query)
+                    })
+                  const open = productionSearch !== null
+                  const pick = (name: string) => {
+                    setProductionProductSelect(name)
+                    setProductionItemUnit(unitsOf(name)[0])
+                    setProductionSearch(null)
+                    setProductionFormError("")
+                  }
 
-                    </div>
-                    {productionItems.length ? (
-                      <div className="mb-3 flex flex-col gap-2">
-                        {productionItems.map((item, index) => (
-                          <div key={`${item.name}-${index}`} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-xs" style={{ background: t.input, border: `1px solid ${t.border}` }}>
-                            <span className="min-w-0 font-semibold break-words" style={{ color: t.text }}>{item.name}</span>
-                            <div className="flex flex-shrink-0 items-center gap-2">
-                              <span style={{ color: t.muted }}>
-                                × {item.quantity}
-                                {isPnc && ` ${item.unit || getNonconformingItemUnit(item.name)}`}
-                              </span>
-                              {!isView && <button type="button" aria-label={`Quitar ${item.name}`} onClick={() => setProductionItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg" style={{ color: C.red, background: `${C.red}10` }}>{Ico.x}</button>}
-                            </div>
-                          </div>
-                        ))}
+                  const draftQty = Number(productionItemQuantity)
+                  const add = () => {
+                    if (!productionProductSelect) return setProductionFormError("Busca y elige un producto.")
+                    if (!(draftQty > 0)) return setProductionFormError("La cantidad debe ser mayor que 0.")
+                    // Added at the end: the list grows downwards and the search box stays on top
+                    setProductionItems((current) => [
+                      ...current,
+                      {
+                        name: productionProductSelect,
+                        quantity: draftQty,
+                        unit: productionItemUnit || unitsOf(productionProductSelect)[0],
+                      },
+                    ])
+                    setProductionItemUnit("")
+                    setProductionProductSelect("")
+                    setProductionItemQuantity("1")
+                    setProductionFormError("")
+                  }
+                  const saveEdit = () => {
+                    if (!productionItemEdit) return
+                    const qty = Number(productionItemEdit.qty)
+                    if (!(qty > 0)) return setProductionFormError("La cantidad debe ser mayor que 0.")
+                    setProductionItems((current) => current.map((item, i) => (i === productionItemEdit.index ? { ...item, quantity: qty } : item)))
+                    setProductionItemEdit(null)
+                    setProductionFormError("")
+                  }
+                  const controlSt = { background: t.input, border: `1px solid ${t.inputB}`, color: t.text }
+                  return (
+                    <section className="flex flex-col gap-3 sm:col-span-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Productos de la orden</h4>
+                        </div>
+                        {productionItems.length > 0 && (
+                          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                            {productionItems.length} {productionItems.length === 1 ? "producto" : "productos"}
+                          </span>
+                        )}
                       </div>
-                    ) : (
-                      <div className="mb-3 rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>{isPnc ? "Agrega al menos un producto o insumo perdido." : "Agrega al menos un producto o producto de insumo."}</div>
-                    )}
-                    {!isView && (
-                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_100px_auto]">
-                        <select value={productionProductSelect} onChange={(event) => setProductionProductSelect(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: productionProductSelect ? t.text : t.muted }}>
-                          <option value="">Selecciona un producto o insumo...</option>
-                          {(isPnc
-                            ? availableItemOptions
-                            : availableItemOptions.filter((product) => !productionItems.some((item) => item.name === product)))
-                            .map((product, index) => {
-                            const isSupply = isPnc
-                              ? rows.insumos?.some((item) => item[0] === product)
-                              : rows.producto?.some((item) => item[0] === product && item[1] === "Producto de insumo")
-                            return <option key={`${product}-${index}`} value={product}>{product}{isSupply ? " · Insumo" : ""}</option>
-                          })}
-                        </select>
-                        <input type="number" min="1" value={productionItemQuantity} onChange={(event) => setProductionItemQuantity(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
-                        <button type="button" onClick={() => {
-                          if (!productionProductSelect) return
-                          const quantity = Math.max(1, Number(productionItemQuantity) || 1)
-                          setProductionItems((current) => [
-                            ...current,
-                            {
-                              name: productionProductSelect,
-                              quantity,
-                              ...(isPnc ? { unit: getNonconformingItemUnit(productionProductSelect) } : {}),
-                            },
-                          ])
-                          setProductionProductSelect("")
-                          setProductionItemQuantity("1")
-                          setProductionFormError("")
-                        }} className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer" style={{ background: C.mustard, color: "#fff" }}>Agregar</button>
-                      </div>
-                    )}
-                    {!isView && isPnc && productionProductSelect && (
-                      <p className="mt-2 rounded-lg px-3 py-2 text-xs" style={{ background: t.input, color: t.muted }}>
-                        Unidad de medida:{" "}
-                        <strong style={{ color: t.text }}>
-                          {getNonconformingItemUnit(productionProductSelect)}
-                        </strong>
+                      <p className="-mt-1 text-[11px]" style={{ color: t.muted }}>
+                        Elige si vas a agregar un producto o una adición, búscalo y pon cuánto se va a preparar.
                       </p>
-                    )}
-                    <p className="mt-2 text-[10px]" style={{ color: t.muted }}>{isPnc ? "Selecciona todos los productos o insumos que se perdieron y agrega la cantidad de cada uno." : "El selector incluye productos normales y productos de insumo."}</p>
-                    {productionFormError && <p className="mt-2 text-xs font-medium" style={{ color: C.red }}>{productionFormError}</p>}
-                  </section>
-                )}
-                {isUser &&
-                  !isView &&
-                  modal.mode === "add" &&
-                  String(formData["3"] ?? "").toLowerCase() !== "cliente" && (
-                    <div
-                      className="rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2"
-                      style={{
-                        background: `${C.mustard}12`,
-                        color: t.text,
-                        border: `1px solid ${C.mustard}35`,
-                      }}
-                    >
-                      La contraseña temporal se asignará según el rol y deberá cambiarse en el primer inicio de sesión.
+                      <div className="grid items-end gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_8rem_auto]" style={{ background: t.cardAlt }}>
+                        <div role="tablist" aria-label="Qué agregar" className="flex gap-1.5 sm:col-span-4">
+                          {(["productos", "adiciones", "gaseosas"] as const).map((kind) => {
+                            const on = productionKind === kind
+                            return (
+                              <button
+                                key={kind}
+                                type="button"
+                                role="tab"
+                                aria-selected={on}
+                                onClick={() => {
+                                  setProductionKind(kind)
+                                  setProductionProductSelect("")
+                                  setProductionFormError("")
+                                }}
+                                className="cursor-pointer rounded-full px-4 py-1.5 text-xs font-semibold"
+                                style={on ? { background: C.mustard, color: "#fff" } : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }}
+                              >
+                                {kind === "productos" ? "Productos" : kind === "adiciones" ? "Adiciones" : "Gaseosas"}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <div className="relative flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
+                          <label htmlFor="production-search">{productionKind === "adiciones" ? "Adición" : productionKind === "gaseosas" ? "Gaseosa (sabor y tamaño)" : "Producto"}</label>
+                          <div className="flex items-center gap-2 rounded-xl px-3" style={controlSt}>
+                            <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
+                            <input
+                              id="production-search"
+                              role="combobox"
+                              aria-expanded={open}
+                              aria-controls="production-search-list"
+                              autoComplete="off"
+                              value={open ? productionSearch : productionProductSelect}
+                              placeholder={productionKind === "adiciones" ? "Busca una adición..." : productionKind === "gaseosas" ? "Busca un sabor o tamaño..." : "Busca un producto..."}
+                              onFocus={() => setProductionSearch("")}
+                              onChange={(event) => setProductionSearch(event.target.value)}
+                              onBlur={() => setTimeout(() => setProductionSearch(null), 150)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" && open && options.length) {
+                                  event.preventDefault()
+                                  pick(options[0])
+                                }
+                                if (event.key === "Escape") setProductionSearch(null)
+                              }}
+                              className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
+                              style={{ color: t.text }}
+                            />
+                          </div>
+                          {open && (
+                            <div
+                              id="production-search-list"
+                              role="listbox"
+                              className="absolute top-full right-0 left-0 z-20 mt-1 max-h-56 overflow-y-auto rounded-xl p-1 shadow-xl"
+                              style={{ background: t.card, border: `1px solid ${t.border}`, scrollbarWidth: "thin" }}
+                            >
+                              {options.length ? (
+                                options.map((name) => (
+                                  <button
+                                    key={name}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={productionProductSelect === name}
+                                    onMouseDown={(event) => {
+                                      event.preventDefault()
+                                      pick(name)
+                                    }}
+                                    className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left hover:opacity-80"
+                                  >
+                                    <span className="min-w-0 truncate text-sm" style={{ color: t.text }}>{name}</span>
+                                    <span className="flex-shrink-0 text-[10px]" style={{ color: t.muted }}>
+                                      {String(rows.producto?.find((item) => item[0] === name)?.[1] ?? "")}
+                                    </span>
+                                  </button>
+                                ))
+                              ) : (
+                                <p className="px-2.5 py-3 text-center text-xs" style={{ color: t.muted }}>
+                                  {productionKind === "adiciones" ? "No hay adiciones que coincidan." : productionKind === "gaseosas" ? "No hay gaseosas que coincidan." : "No hay productos que coincidan."}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <label className="flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
+                          Cantidad
+                          <div className="flex items-center gap-1.5 rounded-xl px-3" style={controlSt}>
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={productionItemQuantity}
+                              onChange={(event) => setProductionItemQuantity(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault()
+                                  add()
+                                }
+                              }}
+                              className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
+                              style={{ color: t.text }}
+                            />
+                          </div>
+                        </label>
+                        <label className="flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
+                          Unidad de medida
+                          <select
+                            value={productionItemUnit}
+                            disabled={!productionProductSelect}
+                            onChange={(event) => setProductionItemUnit(event.target.value)}
+                            className="w-full min-w-0 cursor-pointer rounded-xl px-2.5 py-2.5 text-sm outline-none disabled:cursor-default disabled:opacity-50"
+                            style={controlSt}
+                          >
+                            {!productionProductSelect && <option value="">—</option>}
+                            {[...new Set([...(productionItemUnit ? [productionItemUnit] : []), ...UNIT_CHOICES])].map((unit) => (
+                              <option key={unit} value={unit}>{unitWord(unit, draftQty)}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={add}
+                          className="flex cursor-pointer items-center justify-center gap-1 rounded-xl px-4 py-2.5 text-xs font-bold"
+                          style={{ background: C.mustard, color: "#fff" }}
+                        >
+                          {Ico.plus} Agregar
+                        </button>
+                        {productionProductSelect && draftQty > 0 && (
+                          <span className="text-[11px] sm:col-span-4" style={{ color: t.muted }}>
+                            Se van a preparar <span style={{ color: t.text }}>{qtyLabel(productionProductSelect, draftQty, productionItemUnit)}</span> de «{productionProductSelect}»
+                            .
+                          </span>
+                        )}
+                      </div>
+                      {productionItems.length ? (
+                        <div
+                          // Up to 4 items: one column; more: split in halves (2 columns), and from 9 on in 3
+                          className={`gap-2 ${productionItems.length > 8 ? "sm:columns-3" : productionItems.length > 4 ? "sm:columns-2" : ""}`}
+                        >
+                          {productionItems.map((item, index) => (
+                            <div
+                              key={`${item.name}-${index}`}
+                              className="mb-2 flex break-inside-avoid items-center gap-2 rounded-xl px-2.5 py-2"
+                              style={{ border: `1px solid ${t.border}` }}
+                            >
+                              <span
+                                className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+                                style={{ background: `${C.mustard}18`, color: C.mustard }}
+                              >
+                                {index + 1}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate text-sm" style={{ color: t.text }} title={item.name}>{item.name}</span>
+                              {productionItemEdit?.index === index ? (
+                                <>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    autoFocus
+                                    aria-label={`Cantidad de ${item.name}`}
+                                    value={productionItemEdit.qty}
+                                    onChange={(event) => setProductionItemEdit({ index, qty: event.target.value })}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") {
+                                        event.preventDefault()
+                                        saveEdit()
+                                      }
+                                      if (event.key === "Escape") setProductionItemEdit(null)
+                                    }}
+                                    className="w-20 rounded-lg px-2 py-1.5 text-sm outline-none"
+                                    style={controlSt}
+                                  />
+                                  <span className="text-xs" style={{ color: t.muted }}>{unitWord(item.unit || unitsOf(item.name)[0], 2)}</span>
+                                  <button
+                                    type="button"
+                                    title="Guardar"
+                                    aria-label={`Guardar cantidad de ${item.name}`}
+                                    onClick={saveEdit}
+                                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                    style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+                                  >
+                                    {Ico.check}
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-sm" style={{ color: t.muted }}>{qtyLabel(item.name, item.quantity, item.unit)}</span>
+                                  <button
+                                    type="button"
+                                    title="Editar cantidad"
+                                    aria-label={`Editar ${item.name}`}
+                                    onClick={() => setProductionItemEdit({ index, qty: String(item.quantity) })}
+                                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                    style={{ color: C.mustard, background: `${C.mustard}14` }}
+                                  >
+                                    {Ico.edit}
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                title="Quitar"
+                                aria-label={`Quitar ${item.name}`}
+                                onClick={() => {
+                                  setProductionItems((current) => current.filter((_, i) => i !== index))
+                                  setProductionItemEdit(null)
+                                }}
+                                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                style={{ color: C.red, background: `${C.red}10` }}
+                              >
+                                {Ico.x}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="rounded-xl px-3 py-3 text-center text-xs" style={{ border: `1.5px dashed ${t.inputB}`, color: t.muted }}>
+                          Aquí aparecen los productos que agregues.
+                        </p>
+                      )}
+                      {productionFormError && <p role="alert" className="text-xs font-medium" style={{ color: C.red }}>{productionFormError}</p>}
+                    </section>
+                  )
+                })()}
+                {isPnc && modal.mode === "add" && !pncManual && (() => {
+                  // Orders that can have a producto no conforme (already started, not marked yet)
+                  const orders = (rows.produccion || [])
+                    .map((order, index) => ({ order, index }))
+                    .filter(({ order }) => ["Iniciada", "En cocina", "Terminado"].includes(String(order[8])))
+                  return (
+                    <section className="flex flex-col gap-2 rounded-2xl p-4 sm:col-span-2" style={{ background: `${C.mustard}0d`, border: `1px solid ${C.mustard}35` }}>
+                      <div>
+                        <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                          ¿Viene de una orden de producción?
+                        </h4>
+                        <p className="text-[11px]" style={{ color: t.muted }}>
+                          Elígela y registra lo dañado directamente de sus productos; la orden se reinicia para rehacerlo.
+                        </p>
+                      </div>
+                      {orders.length ? (
+                        <div className="flex flex-col gap-2 sm:flex-row">
+                          <select
+                            aria-label="Orden de producción"
+                            value={pncOrderPick}
+                            onChange={(event) => setPncOrderPick(event.target.value)}
+                            className="min-w-0 flex-1 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                            style={{ background: t.card, border: `1px solid ${t.inputB}`, color: pncOrderPick ? t.text : t.muted }}
+                          >
+                            <option value="">Selecciona la orden...</option>
+                            {orders.map(({ order, index }) => (
+                              <option key={String(order[0])} value={String(index)}>
+                                {String(order[0])} · {String(order[1])} · {String(order[8])}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            disabled={!pncOrderPick}
+                            onClick={() => {
+                              const index = Number(pncOrderPick)
+                              setPncOrderPick("")
+                              setModal({ mode: null, section: "", idx: null })
+                              openProductionPnc(index)
+                            }}
+                            className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-bold disabled:cursor-default disabled:opacity-50"
+                            style={{ background: C.mustard, color: "#fff" }}
+                          >
+                            Registrar desde esta orden
+                          </button>
+                        </div>
+                      ) : (
+                        <p className="text-xs" style={{ color: t.muted }}>
+                          No hay órdenes iniciadas, en cocina o terminadas.
+                        </p>
+                      )}
+                      <div className="my-1 flex items-center gap-3 text-[11px]" style={{ color: t.muted }}>
+                        <span className="h-px flex-1" style={{ background: `${C.mustard}35` }} />o<span className="h-px flex-1" style={{ background: `${C.mustard}35` }} />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPncManual(true)}
+                        className="group flex w-full cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-left transition hover:shadow-md"
+                        style={{ background: t.card, border: `1.5px dashed ${C.mustard}` }}
+                      >
+                        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: C.mustard, color: "#fff" }}>
+                          {Ico.plus}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold" style={{ color: t.text }}>
+                            Si no hay orden de producción, crea el producto no conforme
+                          </span>
+                          <span className="block text-[11px]" style={{ color: t.muted }}>
+                            Registra a mano los productos, adiciones o bebidas que se dañaron.
+                          </span>
+                        </span>
+                        <span className="flex-shrink-0 -rotate-90" style={{ color: C.mustard }}>{Ico.chevDown}</span>
+                      </button>
+                    </section>
+                  )
+                })()}
+                {isView && isClient && row && (() => {
+                  let saved: string[] = []
+                  try {
+                    saved = JSON.parse(String(row[9] || "[]"))
+                  } catch {
+                    // no saved addresses
+                  }
+                  const main = String(row[5] ?? "").trim()
+                  // The main address once, then the other saved ones
+                  const addresses = [...new Set([main, ...saved].map((address) => String(address).trim()).filter(Boolean))]
+                  const value = (v: string | number | undefined) => String(v ?? "").trim() || "—"
+                  const info = (label: string, text: string, icon: React.ReactNode) => (
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                        {icon}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-[11px]" style={{ color: t.muted }}>{label}</div>
+                        <div className="truncate text-sm" title={text} style={{ color: text === "—" ? t.muted : t.text }}>{text}</div>
+                      </div>
                     </div>
-                  )}
+                  )
+                  const initials = value(row[0]) === "—" ? "?" : value(row[0]).split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase()
+                  const status = String(row[7] || "Activo")
+                  return (
+                    <div className="flex min-w-0 flex-col gap-3 sm:col-span-2">
+                      <div className="flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3" style={{ background: t.cardAlt }}>
+                        <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold" style={{ background: C.mustard, color: "#fff" }}>
+                          {initials}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="break-words text-base font-semibold" style={{ color: t.text }}>{value(row[0])}</div>
+                          <div className="text-xs" style={{ color: t.muted }}>
+                            {row[11] === "Sí" ? "Tiene cuenta en la app" : "Sin cuenta en la app"}
+                            {row[6] === "Sí" ? " · Cliente de local" : ""}
+                          </div>
+                        </div>
+                        <span
+                          className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                          style={{ background: badgeSt(status)?.bg ?? t.input, color: badgeSt(status)?.color ?? t.muted }}
+                        >
+                          {status}
+                        </span>
+                      </div>
+                      <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+                        <h4 className="mb-3 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>
+                          Información personal
+                        </h4>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {info("Documento", [value(row[1]), value(row[2])].filter((v) => v !== "—").join(" ") || "—", Ico.user)}
+                          {info("Teléfono", value(row[3]), Ico.phone)}
+                          <div className="sm:col-span-2">{info("Correo", value(row[4]), Ico.mail)}</div>
+                        </div>
+                      </div>
+                      <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+                        <h4 className="mb-3 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>
+                          Direcciones ({addresses.length})
+                        </h4>
+                        {addresses.length ? (
+                          <ul className="flex flex-col gap-2">
+                            {addresses.map((address, index) => (
+                              <li
+                                key={address}
+                                className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm"
+                                style={{ background: index === 0 && main ? `${C.mustard}0d` : t.cardAlt, color: t.text }}
+                              >
+                                <span className="flex-shrink-0" style={{ color: C.mustard }}>{Ico.mapPin}</span>
+                                <span className="min-w-0 flex-1 break-words">{address}</span>
+                                {index === 0 && main && (
+                                  <span className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                                    Principal
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="text-sm" style={{ color: t.muted }}>No tiene direcciones guardadas.</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })()}
+                {isPnc && isView && row && (
+                  <div className="rounded-2xl px-4 py-3 sm:col-span-2" style={{ border: `1px solid ${t.border}` }}>
+                    <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>
+                      Productos o insumos que se dañaron
+                    </h4>
+                    {getNonconformingItems(row).map((item, index) => (
+                      <div key={`${item.name}-${index}`} className="flex justify-between gap-3 border-b py-1.5 text-sm last:border-b-0" style={{ borderColor: t.border }}>
+                        <span className="min-w-0 break-words" style={{ color: t.text }}>{item.name}</span>
+                        <span className="flex-shrink-0" style={{ color: t.muted }}>{item.quantity.toLocaleString("es-CO")} {item.unit}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {isPnc && modal.mode === "add" && pncManual && (
+                  <button
+                    type="button"
+                    onClick={() => setPncManual(false)}
+                    className="flex cursor-pointer items-center gap-1.5 self-start text-xs font-semibold sm:col-span-2"
+                    style={{ color: t.muted }}
+                  >
+                    <span className="rotate-90">{Ico.chevDown}</span> Volver a elegir una orden de producción
+                  </button>
+                )}
+                {isPnc && (modal.mode !== "add" || pncManual) && !isView && (() => {
+                  const categoryOf = (name: string) => normalizeName(String(rows.producto?.find((item) => item[0] === name)?.[1] ?? ""))
+                  const isDrink = (name: string) =>
+                    name.startsWith("Gaseosa ") || ["bebidas", "sabores de bebida"].includes(categoryOf(name))
+                  const activeIn = (category: string) =>
+                    (rows.producto || [])
+                      .filter((item) => normalizeName(String(item[1] ?? "")) === category && isActiveStatus(item[4]))
+                      .map((item) => String(item[0]))
+                  const sodas = activeIn("sabores de bebida").flatMap((flavor) => activeIn("bebidas").map((size) => `Gaseosa ${flavor} (${size})`))
+                  const options = (
+                    productionKind === "gaseosas"
+                      ? sodas
+                      : availableItemOptions.filter((name) =>
+                          productionKind === "adiciones" ? categoryOf(name) === "adiciones" : categoryOf(name) !== "adiciones" && !isDrink(name),
+                        )
+                  ).filter((name) => !productionItems.some((item) => item.name === name))
+                  // Default measure: the insumo's own unit, or what one of that product is
+                  const defaultUnit = (name: string) => {
+                    const supply = rows.insumos?.find((item) => item[0] === name)
+                    if (supply) return String(supply[2] ?? "und")
+                    if (isDrink(name)) return "botella"
+                    const category = categoryOf(name)
+                    return category === "salsas" ? "bolsita" : category === "adiciones" ? "porción" : "und"
+                  }
+                  const unitOptions = (unit: string) => [...new Set([unit, ...PNC_UNITS])]
+                  const qty = Number(productionItemQuantity)
+                  const add = () => {
+                    if (!productionProductSelect) return setProductionFormError("Elige qué se dañó.")
+                    if (!(qty > 0)) return setProductionFormError("La cantidad debe ser mayor que 0.")
+                    setProductionItems((current) => [
+                      ...current,
+                      { name: productionProductSelect, quantity: qty, unit: productionItemUnit || defaultUnit(productionProductSelect) },
+                    ])
+                    setProductionProductSelect("")
+                    setProductionItemQuantity("1")
+                    setProductionItemUnit("")
+                    setProductionFormError("")
+                  }
+                  const controlSt = { background: t.input, border: `1px solid ${t.inputB}`, color: t.text }
+                  return (
+                    <section className="flex flex-col gap-3 sm:col-span-2">
+                      <div className="flex items-center gap-2">
+                        <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                        <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Productos o insumos que se dañaron</h4>
+                      </div>
+                      <div className="grid items-end gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_7rem_auto]" style={{ background: t.cardAlt }}>
+                        <div role="tablist" aria-label="Qué se dañó" className="flex gap-1.5 sm:col-span-4">
+                          {(["productos", "adiciones", "gaseosas"] as const).map((kind) => {
+                            const on = productionKind === kind
+                            return (
+                              <button
+                                key={kind}
+                                type="button"
+                                role="tab"
+                                aria-selected={on}
+                                onClick={() => {
+                                  setProductionKind(kind)
+                                  setProductionProductSelect("")
+                                  setProductionItemUnit("")
+                                  setProductionFormError("")
+                                }}
+                                className="cursor-pointer rounded-full px-4 py-1.5 text-xs font-semibold"
+                                style={on ? { background: C.mustard, color: "#fff" } : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }}
+                              >
+                                {kind === "productos" ? "Productos" : kind === "adiciones" ? "Adiciones" : "Bebidas"}
+                              </button>
+                            )
+                          })}
+                        </div>
+                        <label className="flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
+                          {productionKind === "adiciones" ? "Adición" : productionKind === "gaseosas" ? "Bebida" : "Producto o insumo"}
+                          <select
+                            value={productionProductSelect}
+                            onChange={(event) => {
+                              setProductionProductSelect(event.target.value)
+                              setProductionItemUnit(event.target.value ? defaultUnit(event.target.value) : "")
+                              setProductionFormError("")
+                            }}
+                            className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                            style={{ ...controlSt, color: productionProductSelect ? t.text : t.muted }}
+                          >
+                            <option value="">Selecciona...</option>
+                            {options.map((name) => (
+                              <option key={name} value={name}>
+                                {name}{rows.insumos?.some((item) => item[0] === name) ? " · Insumo" : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <label className="flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
+                          Cantidad
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={productionItemQuantity}
+                            onChange={(event) => setProductionItemQuantity(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault()
+                                add()
+                              }
+                            }}
+                            className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
+                            style={controlSt}
+                          />
+                        </label>
+                        <label className="flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
+                          Unidad
+                          <select
+                            value={productionItemUnit}
+                            disabled={!productionProductSelect}
+                            onChange={(event) => setProductionItemUnit(event.target.value)}
+                            className="w-full min-w-0 cursor-pointer rounded-xl px-2.5 py-2.5 text-sm outline-none disabled:cursor-default disabled:opacity-50"
+                            style={controlSt}
+                          >
+                            {!productionProductSelect && <option value="">—</option>}
+                            {productionProductSelect && unitOptions(productionItemUnit || defaultUnit(productionProductSelect)).map((unit) => (
+                              <option key={unit} value={unit}>{unit}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={add}
+                          className="flex cursor-pointer items-center justify-center gap-1 rounded-xl px-4 py-2.5 text-xs font-bold"
+                          style={{ background: C.mustard, color: "#fff" }}
+                        >
+                          {Ico.plus} Agregar
+                        </button>
+                      </div>
+                      {productionItems.length ? (
+                        <div className={`gap-2 ${productionItems.length > 4 ? "sm:columns-2" : ""}`}>
+                          {productionItems.map((item, index) => {
+                            const unit = item.unit || getNonconformingItemUnit(item.name)
+                            const editing = productionItemEdit?.index === index
+                            return (
+                              <div
+                                key={`${item.name}-${index}`}
+                                className="mb-2 flex break-inside-avoid items-center gap-2 rounded-xl px-2.5 py-2"
+                                style={{ border: `1px solid ${t.border}` }}
+                              >
+                                <span className="min-w-0 flex-1 truncate text-sm" style={{ color: t.text }} title={item.name}>{item.name}</span>
+                                {editing ? (
+                                  <>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="any"
+                                      autoFocus
+                                      aria-label={`Cantidad de ${item.name}`}
+                                      value={productionItemEdit.qty}
+                                      onChange={(event) => setProductionItemEdit({ ...productionItemEdit, qty: event.target.value })}
+                                      className="w-16 rounded-lg px-2 py-1.5 text-sm outline-none"
+                                      style={controlSt}
+                                    />
+                                    <select
+                                      aria-label={`Unidad de ${item.name}`}
+                                      value={productionItemUnit || unit}
+                                      onChange={(event) => setProductionItemUnit(event.target.value)}
+                                      className="cursor-pointer rounded-lg px-1.5 py-1.5 text-sm outline-none"
+                                      style={controlSt}
+                                    >
+                                      {unitOptions(unit).map((option) => <option key={option} value={option}>{option}</option>)}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      title="Guardar"
+                                      aria-label={`Guardar ${item.name}`}
+                                      onClick={() => {
+                                        const value = Number(productionItemEdit.qty)
+                                        if (!(value > 0)) return setProductionFormError("La cantidad debe ser mayor que 0.")
+                                        setProductionItems((current) =>
+                                          current.map((line, i) => (i === index ? { ...line, quantity: value, unit: productionItemUnit || unit } : line)),
+                                        )
+                                        setProductionItemEdit(null)
+                                        setProductionItemUnit("")
+                                        setProductionFormError("")
+                                      }}
+                                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                      style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+                                    >
+                                      {Ico.check}
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="text-sm" style={{ color: t.muted }}>{item.quantity.toLocaleString("es-CO")} {unit}</span>
+                                    <button
+                                      type="button"
+                                      title="Editar"
+                                      aria-label={`Editar ${item.name}`}
+                                      onClick={() => {
+                                        setProductionItemEdit({ index, qty: String(item.quantity) })
+                                        setProductionItemUnit(unit)
+                                      }}
+                                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                      style={{ color: C.mustard, background: `${C.mustard}14` }}
+                                    >
+                                      {Ico.edit}
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  type="button"
+                                  title="Quitar"
+                                  aria-label={`Quitar ${item.name}`}
+                                  onClick={() => {
+                                    setProductionItems((current) => current.filter((_, i) => i !== index))
+                                    setProductionItemEdit(null)
+                                  }}
+                                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                  style={{ color: C.red, background: `${C.red}10` }}
+                                >
+                                  {Ico.x}
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <p className="rounded-xl px-3 py-3 text-center text-xs" style={{ border: `1.5px dashed ${t.inputB}`, color: t.muted }}>
+                          Aquí aparece lo que agregues como dañado.
+                        </p>
+                      )}
+                      {productionFormError && <p role="alert" className="text-xs font-medium" style={{ color: C.red }}>{productionFormError}</p>}
+                    </section>
+                  )
+                })()}
+                {isView && isSupply && row && supplyDetail(row)}
+                {isView && isSupplier && row && supplierDetail(row)}
+                {isUser && !isView && modal.mode === "add" && (
+                  <div
+                    className="rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2"
+                    style={{ background: `${C.mustard}12`, color: t.text, border: `1px solid ${C.mustard}35` }}
+                  >
+                    Le llegará al correo una contraseña provisional y deberá cambiarla la primera vez que entre.
+                  </div>
+                )}
+                {formReturn && formReturn.child === modal.section && modal.mode === "add" && (
+                  <div
+                    className="rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 lg:col-span-4"
+                    style={{ background: `${C.mustard}12`, color: t.text, border: `1px solid ${C.mustard}35` }}
+                  >
+                    {formReturn.section === "proveedores" ? (
+                      <>
+                        Al guardar volverás al proveedor
+                        {(formReturn.form["0"] || formReturn.form["10"]) && ` «${formReturn.form["0"] || formReturn.form["10"]}»`} con
+                        este insumo ya seleccionado. Si cancelas, vuelves sin agregarlo.
+                      </>
+                    ) : formReturn.section === "ventas" ? (
+                      <>Al guardar volverás a la venta con este pedido asociado y su total. Si cancelas, vuelves a la venta sin cambios.</>
+                    ) : (
+                      <>Al guardar volverás a la compra con este proveedor ya seleccionado. Si cancelas, vuelves a la compra sin cambios.</>
+                    )}
+                  </div>
+                )}
                 {formDataFields.map((f) => {
+                if (isPnc && modal.mode === "add" && !pncManual) return null
+                // Insumo and supplier details have their own layout (supplyDetail, supplierDetail)
+                if (isView && (isSupply || isSupplier)) return null
                 if (isView && isPurchase) return null // the purchase ticket shows everything
                 if (isPurchase && !isView && f.key === "2") return null
                 // Shown in the detail header (with autoId, row[0] is the code, so field "0" stays)
                 if (isView && isPurchaseModule && f.key === "0" && !cfg.autoId) return null
+                if (modal.section === "perdidas" && !isView && f.key === "5") return null
                 // Order total is computed from its products ("Total del pedido"), not typed
                 if (isPedido && !isView && f.key === "5") return null
                 // Modality and payment status come from the payment method (read-only)
+                if (isPedido && !isView && f.key === "7" && modal.mode === "edit") {
+                  // Pendiente / Pendiente de verificación → Pagado: the current one and the next, never back
+                  const current = String(formData["7"] || "Pendiente")
+                  const next = PAYMENT_NEXT[current]
+                  const paid = current === "Pagado"
+                  return (
+                    <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
+                      <span className="text-xs font-semibold" style={{ color: t.muted }}>{f.label}</span>
+                      <div className="relative">
+                        <span
+                          className="pointer-events-none absolute left-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
+                          style={{ background: paid ? "#2E7D60" : C.mustard }}
+                        />
+                        <select
+                          value={current}
+                          disabled={!next}
+                          onChange={(event) => updateAdminField(modal.section, f.key, event.target.value)}
+                          className="w-full min-w-0 cursor-pointer rounded-xl py-2.5 pl-7 pr-3 text-sm outline-none disabled:cursor-default"
+                          style={{
+                            background: paid ? "rgba(46,125,96,0.10)" : t.input,
+                            border: `1.5px solid ${t.inputB}`,
+                            color: paid ? "#2E7D60" : t.text,
+                          }}
+                        >
+                          {[current, ...(next ? [next] : [])].map((status) => (
+                            <option key={status} value={status}>{status}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <span className="text-[11px]" style={{ color: t.muted }}>
+                        {paid
+                          ? "Pagado: su venta ya quedó registrada."
+                          : "Al pasarlo a «Pagado» y guardar, se crea la venta del pedido."}
+                      </span>
+                    </div>
+                  )
+                }
                 if (isPedido && !isView && (f.key === "4" || f.key === "7")) {
                   const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
                   const value = f.key === "4" ? payment.modalidad : payment.estadoPago
@@ -15049,11 +15961,25 @@ function AdminPanel({
                   if (!showSupplyTechnicalSheet) return null
                   const src = (key: string) => String((isView ? row?.[Number(key)] : formData[key]) ?? "")
                   const supplyName = src("0").trim() || "este insumo"
-                  const mainSupplies = splitList(src("10"))
+                  const mainSupplies = parseMainSupplies(src("10"))
                   const setSheet = (key: string, value: string) => {
                     setSupplyFormError("")
                     updateAdminField(modal.section, key, value)
                   }
+                  const unitOf = (name: string) => String(supplyInfo(name)?.[2] ?? "und")
+                  // Stored as text the backend already keeps: "Azúcar (50 g), Limón (2 und)"
+                  const setMainSupplies = (next: { name: string; quantity: string; unit: string }[]) =>
+                    setSheet(
+                      "10",
+                      next.map((i) => (i.quantity ? `${i.name} (${i.quantity} ${i.unit.trim() || unitOf(i.name)})` : i.name)).join(", "),
+                    )
+                  // Only plain insumos can be ingredients: not this one, nor others sold as products (e.g. a gaseosa)
+                  const ingredientOptions = getAvailableInsumos().filter(
+                    (name) =>
+                      name !== src("0").trim() &&
+                      String(supplyInfo(name)?.[7] ?? "").toLowerCase() !== "sí" &&
+                      !mainSupplies.some((i) => i.name === name),
+                  )
                   const sheetControl = { background: t.card, border: `1.5px solid ${t.inputB}`, color: t.text }
                   return (
                     <section
@@ -15099,41 +16025,121 @@ function AdminPanel({
                           <span className="text-xs font-semibold" style={{ color: t.muted }}>
                             Insumos principales{!isView && " *"}
                           </span>
-                          <div className="flex flex-wrap gap-2">
-                            {mainSupplies.length === 0 ? (
-                              <span className="rounded-full px-2.5 py-1 text-xs" style={{ background: t.input, color: t.muted }}>
-                                Sin insumos seleccionados
-                              </span>
-                            ) : (
-                              mainSupplies.map((name) =>
-                                isView ? (
-                                  <span
-                                    key={name}
-                                    className="rounded-full px-2.5 py-1 text-xs font-semibold"
-                                    style={{ background: `${C.mustard}15`, color: C.mustard }}
-                                  >
-                                    {name}
+                          {mainSupplies.length === 0 ? (
+                            <span className="self-start rounded-full px-2.5 py-1 text-xs" style={{ background: t.input, color: t.muted }}>
+                              Sin insumos seleccionados
+                            </span>
+                          ) : isView ? (
+                            <div className="flex flex-wrap gap-2">
+                              {splitNames(src("10")).map((part) => (
+                                <span
+                                  key={part}
+                                  className="rounded-full px-2.5 py-1 text-xs font-semibold"
+                                  style={{ background: `${C.mustard}15`, color: C.mustard }}
+                                >
+                                  {part}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col gap-2">
+                              <div className="flex items-center gap-2 px-1 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
+                                <span className="flex-1">Insumo</span>
+                                <span className="w-[16rem] text-center">Cuánto usas y en qué unidad</span>
+                                <span className="w-7" />
+                              </div>
+                              <datalist id="recipe-unit-options">
+                                {RECIPE_UNIT_SUGGESTIONS.map((u) => (
+                                  <option key={u} value={u} />
+                                ))}
+                              </datalist>
+                              {mainSupplies.map((item, index) => (
+                                <div key={item.name} className="flex items-center gap-2">
+                                  <span className="min-w-0 flex-1 truncate text-sm font-semibold" style={{ color: t.text }}>
+                                    {item.name}
                                   </span>
-                                ) : (
                                   <button
-                                    key={name}
                                     type="button"
-                                    aria-label={`Quitar ${name} de la ficha`}
-                                    onClick={() => setSheet("10", mainSupplies.filter((n) => n !== name).join(", "))}
-                                    className="flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
-                                    style={{ background: `${C.mustard}15`, color: C.mustard, border: `1px solid ${C.mustard}35` }}
+                                    aria-label={`Menos ${item.name}`}
+                                    onClick={() =>
+                                      setMainSupplies(
+                                        mainSupplies.map((m, i) =>
+                                          i === index ? { ...m, quantity: String(Math.max(0, (Number(m.quantity) || 0) - 1)) } : m,
+                                        ),
+                                      )
+                                    }
+                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg font-bold"
+                                    style={sheetControl}
                                   >
-                                    {name} <span aria-hidden="true">×</span>
+                                    −
                                   </button>
-                                ),
-                              )
-                            )}
-                          </div>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    value={item.quantity}
+                                    onChange={(e) =>
+                                      setMainSupplies(
+                                        mainSupplies.map((m, i) => (i === index ? { ...m, quantity: e.target.value } : m)),
+                                      )
+                                    }
+                                    placeholder="0"
+                                    aria-label={`Cantidad de ${item.name}`}
+                                    className="w-16 rounded-xl px-2 py-2 text-center text-sm outline-none"
+                                    style={{
+                                      ...sheetControl,
+                                      border: `1.5px solid ${Number(item.quantity) > 0 ? t.inputB : C.red}`,
+                                    }}
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label={`Más ${item.name}`}
+                                    onClick={() =>
+                                      setMainSupplies(
+                                        mainSupplies.map((m, i) => (i === index ? { ...m, quantity: String((Number(m.quantity) || 0) + 1) } : m)),
+                                      )
+                                    }
+                                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg font-bold"
+                                    style={sheetControl}
+                                  >
+                                    +
+                                  </button>
+                                  <input
+                                    list="recipe-unit-options"
+                                    value={item.unit}
+                                    onChange={(e) =>
+                                      setMainSupplies(
+                                        mainSupplies.map((m, i) =>
+                                          // "," and "()" would break the stored text "Azúcar (50 g), ..."
+                                          i === index ? { ...m, unit: e.target.value.replace(/[(),]/g, "").slice(0, 20) } : m,
+                                        ),
+                                      )
+                                    }
+                                    placeholder={unitOf(item.name)}
+                                    aria-label={`Unidad de ${item.name}`}
+                                    title={`Escribe la unidad que usas (se compra en ${unitOf(item.name)})`}
+                                    className="w-24 rounded-xl px-2 py-2 text-xs outline-none"
+                                    style={sheetControl}
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label={`Quitar ${item.name} de la ficha`}
+                                    onClick={() => setMainSupplies(mainSupplies.filter((_, i) => i !== index))}
+                                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                    style={{ color: C.red, background: `${C.red}10` }}
+                                  >
+                                    {Ico.x}
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                           {!isView && (
                             <select
                               value=""
                               onChange={(e) => {
-                                if (e.target.value) setSheet("10", [...mainSupplies, e.target.value].join(", "))
+                                if (e.target.value)
+                                  setMainSupplies([...mainSupplies, { name: e.target.value, quantity: "", unit: compatibleUnits(unitOf(e.target.value))[0] }])
                               }}
                               aria-invalid={!!formFieldErrors["10"]}
                               className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
@@ -15144,13 +16150,11 @@ function AdminPanel({
                               }}
                             >
                               <option value="">+ Agregar insumo a la ficha...</option>
-                              {getAvailableInsumos()
-                                .filter((name) => !mainSupplies.includes(name))
-                                .map((name) => (
-                                  <option key={name} value={name}>
-                                    {name}
-                                  </option>
-                                ))}
+                              {ingredientOptions.map((name) => (
+                                <option key={name} value={name}>
+                                  {name} ({unitOf(name)})
+                                </option>
+                              ))}
                             </select>
                           )}
                           {formFieldErrors["10"] && (
@@ -15231,7 +16235,7 @@ function AdminPanel({
                     : ""
                   const lostSoFar = (name: string) =>
                     (rows.perdidas || [])
-                      .filter((l) => String(l[5] ?? "") === lossOrigin && String(l[0]) === name)
+                      .filter((l) => !isReturnedLoss(l) && String(l[5] ?? "") === lossOrigin && String(l[0]) === name)
                       .reduce((sum, l) => sum + (parseFloat(String(l[1])) || 0), 0)
                   const openLoss = (name: string) => {
                     const bought = savedItems
@@ -15354,7 +16358,64 @@ function AdminPanel({
                                   </div>
                                 )}
                               </div>
-                              <span className="font-bold" style={{ color: C.mustard }}>{fmt(item.total)}</span>
+                              {purchaseItemEdit?.index === index ? (
+                                <>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    aria-label={`Cantidad de ${item.name}`}
+                                    value={purchaseItemEdit.qty}
+                                    onChange={(e) => setPurchaseItemEdit({ ...purchaseItemEdit, qty: e.target.value })}
+                                    className="w-20 rounded-lg px-2 py-1.5 text-sm outline-none"
+                                    style={controlSt}
+                                  />
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    aria-label={`Precio unitario de ${item.name}`}
+                                    value={purchaseItemEdit.price}
+                                    onChange={(e) => setPurchaseItemEdit({ ...purchaseItemEdit, price: e.target.value })}
+                                    className="w-24 rounded-lg px-2 py-1.5 text-sm outline-none"
+                                    style={controlSt}
+                                  />
+                                  <button
+                                    type="button"
+                                    title="Guardar cambios"
+                                    aria-label={`Guardar cambios de ${item.name}`}
+                                    onClick={() => {
+                                      const qty = Number(purchaseItemEdit.qty)
+                                      const price = Number(purchaseItemEdit.price)
+                                      if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
+                                      if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
+                                      setItems(items.map((i, n) => (n === index ? { ...i, quantity: String(qty), unitPrice: String(price) } : i)))
+                                      setPurchaseItemEdit(null)
+                                      setPurchaseFormError("")
+                                    }}
+                                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                    style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+                                  >
+                                    {Ico.check}
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="font-semibold" style={{ color: C.mustard }}>{fmt(item.total)}</span>
+                                  {modal.mode === "add" && <button
+                                    type="button"
+                                    title="Editar cantidad y precio"
+                                    aria-label={`Editar ${item.name}`}
+                                    onClick={() => {
+                                      setPurchaseItemEdit({ index, qty: String(item.quantity), price: String(item.unitPrice ?? "") })
+                                      setPurchaseFormError("")
+                                    }}
+                                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                                    style={{ color: C.mustard, background: `${C.mustard}14` }}
+                                  >
+                                    {Ico.edit}
+                                  </button>}
+                                </>
+                              )}
                               {savedItems.some((i) => i.name === item.name) && (
                                 <button
                                   type="button"
@@ -15370,7 +16431,10 @@ function AdminPanel({
                               <button
                                 type="button"
                                 aria-label={`Quitar ${item.name}`}
-                                onClick={() => setItems(items.filter((_, i) => i !== index))}
+                                onClick={() => {
+                                  setItems(items.filter((_, i) => i !== index))
+                                  setPurchaseItemEdit(null)
+                                }}
                                 className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
                                 style={{ color: C.red, background: `${C.red}10` }}
                               >
@@ -15380,14 +16444,8 @@ function AdminPanel({
                           ))
                         )}
                       </div>
-                      <div
-                        className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs"
-                        style={{ borderColor: t.border }}
-                      >
-                        <span style={{ color: t.muted }}>
-                          Subtotal: <strong style={{ color: t.text }}>{fmt(total)}</strong>
-                        </span>
-                        <span className="text-sm" style={{ color: t.text }}>
+                      <div className="mt-3 flex justify-end border-t pt-3 text-sm" style={{ borderColor: t.border, color: t.text }}>
+                        <span>
                           Total: <strong style={{ color: C.mustard }}>{fmt(total)}</strong>
                         </span>
                       </div>
@@ -15414,582 +16472,520 @@ function AdminPanel({
                   !isView &&
                   getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)
                 const fieldValidationError = isView ? undefined : formFieldErrors[f.key]
-                // Supplier form: pick which insumos this supplier sells
-                if (modal.section === "proveedores" && !isView && f.key === "7") {
-                  const selected = splitList(String(formData["7"] ?? ""))
-                  const toggleSupply = (name: string) =>
-                    updateAdminField(
-                      "proveedores",
-                      "7",
-                      (selected.includes(name)
-                        ? selected.filter((item) => item !== name)
-                        : [...selected, name]
-                      ).join(", "),
-                    )
-                  return (
-                    <div key="7" className="flex flex-col gap-1.5 lg:col-start-1 lg:col-span-2">
-                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                        {f.label}{requiredFormField && " *"}
-                      </span>
-                      <details className="group relative">
-                        <summary
-                          className="flex cursor-pointer list-none items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm"
-                          title={selected.join(", ")}
-                          style={{
-                            background: t.input,
-                            border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
-                            color: selected.length ? t.text : t.muted,
-                          }}
-                        >
-                          <span className="truncate">
-                            {selected.length
-                              ? `${selected.length} insumo${selected.length === 1 ? "" : "s"} seleccionado${selected.length === 1 ? "" : "s"}`
-                              : "Selecciona los insumos"}
-                          </span>
-                          <span aria-hidden="true" className="text-xs">⌄</span>
-                        </summary>
-                        <div
-                          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-48 overflow-y-auto rounded-xl p-1.5 shadow-xl"
-                          style={{ background: t.card, border: `1px solid ${t.border}` }}
-                        >
-                          {namesOf("insumos").length ? namesOf("insumos").map((name) => {
-                            const on = selected.includes(name)
-                            return (
-                              <label
-                                key={name}
-                                className="flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-xs"
-                                style={{ color: t.text }}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={on}
-                                  onChange={() => toggleSupply(name)}
-                                  style={{ accentColor: C.mustard }}
-                                />
-                                <span className="min-w-0 break-words">{name}</span>
-                              </label>
-                            )
-                          }) : (
-                            <p className="px-2.5 py-2 text-xs" style={{ color: t.muted }}>
-                              No hay insumos registrados.
-                            </p>
-                          )}
-                        </div>
-                      </details>
-                      <p className="text-[11px]" style={{ color: t.muted }}>
-                        Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
-                      </p>
-                      {fieldValidationError && (
-                        <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
-                          {fieldValidationError}
-                        </span>
-                      )}
-                    </div>
-=======
-                    </div>
-                    {productionItems.length ? (
-                      <div className="mb-3 flex flex-col gap-2">
-                        {productionItems.map((item, index) => (
-                          <div key={`${item.name}-${index}`} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-xs" style={{ background: t.input, border: `1px solid ${t.border}` }}>
-                            <span className="min-w-0 font-semibold break-words" style={{ color: t.text }}>{item.name}</span>
-                            <div className="flex flex-shrink-0 items-center gap-2">
-                              <span style={{ color: t.muted }}>× {item.quantity}</span>
-                              {!isView && <button type="button" aria-label={`Quitar ${item.name}`} onClick={() => setProductionItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg" style={{ color: C.red, background: `${C.red}10` }}>{Ico.x}</button>}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="mb-3 rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>{isPnc ? "Agrega al menos un producto o insumo perdido." : "Agrega al menos un producto o producto de insumo."}</div>
-                    )}
-                    {!isView && (
-                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_100px_auto]">
-                        <select value={productionProductSelect} onChange={(event) => setProductionProductSelect(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: productionProductSelect ? t.text : t.muted }}>
-                          <option value="">Selecciona un producto o insumo...</option>
-                          {(isPnc
-                            ? availableItemOptions
-                            : availableItemOptions.filter((product) => !productionItems.some((item) => item.name === product)))
-                            .map((product, index) => {
-                            const isSupply = isPnc
-                              ? rows.insumos?.some((item) => item[0] === product)
-                              : rows.producto?.some((item) => item[0] === product && item[1] === "Producto de insumo")
-                            return <option key={`${product}-${index}`} value={product}>{product}{isSupply ? " · Insumo" : ""}</option>
-                          })}
-                        </select>
-                        <input type="number" min="1" value={productionItemQuantity} onChange={(event) => setProductionItemQuantity(event.target.value)} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
-                        <button type="button" onClick={() => {
-                          if (!productionProductSelect) return
-                          const quantity = Math.max(1, Number(productionItemQuantity) || 1)
-                          setProductionItems((current) => [...current, { name: productionProductSelect, quantity }])
-                          setProductionProductSelect("")
-                          setProductionItemQuantity("1")
-                          setProductionFormError("")
-                        }} className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer" style={{ background: C.mustard, color: "#fff" }}>Agregar</button>
-                      </div>
-                    )}
-                    <p className="mt-2 text-[10px]" style={{ color: t.muted }}>{isPnc ? "Selecciona todos los productos o insumos que se perdieron y agrega la cantidad de cada uno." : "El selector incluye productos normales y productos de insumo."}</p>
-                    {productionFormError && <p className="mt-2 text-xs font-medium" style={{ color: C.red }}>{productionFormError}</p>}
-                  </section>
-                )}
-                {formDataFields.map((f) => {
-                if (isView && isPurchase) return null // the purchase ticket shows everything
-                // Shown in the detail header (with autoId, row[0] is the code, so field "0" stays)
-                if (isView && isPurchaseModule && f.key === "0" && !cfg.autoId) return null
-                // Order total is computed from its products ("Total del pedido"), not typed
-                if (isPedido && !isView && f.key === "5") return null
-                // Modality and payment status come from the payment method (read-only)
-                if (isPedido && !isView && (f.key === "4" || f.key === "7")) {
-                  const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
-                  const value = f.key === "4" ? payment.modalidad : payment.estadoPago
-                  return (
-                    <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
-                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                        {f.label}
-                      </span>
-                      <div
-                        className="rounded-xl px-3.5 py-2.5 text-sm font-semibold"
-                        style={{
-                          background: t.cardAlt,
-                          border: `1px dashed ${t.inputB}`,
-                          color: value ? (value === "Pagado" ? "#2E7D60" : t.text) : t.muted,
-                        }}
-                        title="Se asigna automáticamente según el método de pago"
-                      >
-                        {value || "Según el método de pago"}
-                      </div>
-                      {f.key === "7" && (
-                        <span className="text-[11px]" style={{ color: t.muted }}>
-                          Automático: transferencia con comprobante = pagado; efectivo o pago en el local = contraentrega y pendiente.
-                        </span>
-                      )}
-                    </div>
+                if (isClient && !isView && f.key === "5") {
+                  const part = (key: string) => String(formData[`a_${key}`] ?? "")
+                  const parts: AddressParts = Object.fromEntries(
+                    ["via", "num", "cruce", "placa", "interior", "tipo", "d0", "d1", "d2"].map((key) => [key, part(key).trim()]),
                   )
-                }
-                // Production detail already shows "Creada" date/time in its summary
-                if (isView && isProduction && (f.key === "3" || f.key === "4")) return null
-                // Insumo technical sheet (fields 8-11) rendered as one card at field "8"
-                if (isSupply && ["9", "10", "11"].includes(f.key)) return null
-                if (isSupply && f.key === "8") {
-                  if (!showSupplyTechnicalSheet) return null
-                  const src = (key: string) => String((isView ? row?.[Number(key)] : formData[key]) ?? "")
-                  const supplyName = src("0").trim() || "este insumo"
-                  const mainSupplies = splitList(src("10"))
-                  const setSheet = (key: string, value: string) => {
-                    setSupplyFormError("")
-                    updateAdminField(modal.section, key, value)
-                  }
-                  const sheetControl = { background: t.card, border: `1.5px solid ${t.inputB}`, color: t.text }
-                  return (
-                    <section
-                      key="ficha-tecnica"
-                      className="rounded-xl p-4 sm:col-span-2"
-                      style={{ background: `${C.mustard}0D`, border: `1.5px solid ${C.mustard}55` }}
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>
-                            Ficha técnica · Producto de insumo
-                          </div>
-                          <div className="text-sm font-semibold break-words" style={{ color: t.text }}>
-                            {src("8").trim() || `Ficha técnica - ${supplyName}`}
-                          </div>
-                        </div>
-                        <span
-                          className="rounded-full px-2.5 py-1 text-[10px] font-bold"
-                          style={{ background: `${C.mustard}20`, color: C.mustard }}
-                        >
-                          {src("9") || "v1.0"}
-                        </span>
-                      </div>
-                      {!isView && (
-                        <p className="mt-1 text-xs" style={{ color: t.muted }}>
-                          Esta ficha se crea junto con el insumo y también aparecerá en el módulo Productos.
-                        </p>
-                      )}
-                      <div className="mt-4 grid gap-3">
-                        {!isView && (
-                          <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
-                            Nombre de la ficha
-                            <input
-                              value={formData["8"] ?? ""}
-                              onChange={(e) => setSheet("8", e.target.value)}
-                              placeholder={`Ficha técnica - ${supplyName}`}
-                              className="rounded-xl px-3 py-2.5 text-sm outline-none"
-                              style={sheetControl}
-                            />
-                          </label>
-                        )}
-                        <div className="flex flex-col gap-1.5">
-                          <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                            Insumos principales{!isView && " *"}
-                          </span>
-                          <div className="flex flex-wrap gap-2">
-                            {mainSupplies.length === 0 ? (
-                              <span className="rounded-full px-2.5 py-1 text-xs" style={{ background: t.input, color: t.muted }}>
-                                Sin insumos seleccionados
-                              </span>
-                            ) : (
-                              mainSupplies.map((name) =>
-                                isView ? (
-                                  <span
-                                    key={name}
-                                    className="rounded-full px-2.5 py-1 text-xs font-semibold"
-                                    style={{ background: `${C.mustard}15`, color: C.mustard }}
-                                  >
-                                    {name}
-                                  </span>
-                                ) : (
-                                  <button
-                                    key={name}
-                                    type="button"
-                                    aria-label={`Quitar ${name} de la ficha`}
-                                    onClick={() => setSheet("10", mainSupplies.filter((n) => n !== name).join(", "))}
-                                    className="flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold"
-                                    style={{ background: `${C.mustard}15`, color: C.mustard, border: `1px solid ${C.mustard}35` }}
-                                  >
-                                    {name} <span aria-hidden="true">×</span>
-                                  </button>
-                                ),
-                              )
-                            )}
-                          </div>
-                          {!isView && (
-                            <select
-                              value=""
-                              onChange={(e) => {
-                                if (e.target.value) setSheet("10", [...mainSupplies, e.target.value].join(", "))
-                              }}
-                              aria-invalid={!!formFieldErrors["10"]}
-                              className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                              style={{
-                                ...sheetControl,
-                                border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
-                                color: t.muted,
-                              }}
-                            >
-                              <option value="">+ Agregar insumo a la ficha...</option>
-                              {getAvailableInsumos()
-                                .filter((name) => !mainSupplies.includes(name))
-                                .map((name) => (
-                                  <option key={name} value={name}>
-                                    {name}
-                                  </option>
-                                ))}
-                            </select>
-                          )}
-                          {formFieldErrors["10"] && (
-                            <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
-                              {formFieldErrors["10"]}
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex flex-col gap-1.5">
-                          <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                            Cómo se prepara{!isView && " *"}
-                          </span>
-                          {isView ? (
-                            <div className="text-sm whitespace-pre-line break-words" style={{ color: t.text }}>
-                              {src("11") || "—"}
-                            </div>
-                          ) : (
-                            <textarea
-                              value={formData["11"] ?? ""}
-                              onChange={(e) => setSheet("11", e.target.value)}
-                              rows={3}
-                              placeholder={"1. Recibir y revisar el insumo.\n2. Porcionar.\n3. Almacenar y servir."}
-                              className="resize-none rounded-xl px-3 py-2.5 text-sm outline-none"
-                              style={sheetControl}
-                            />
-                          )}
-                        </div>
-                      </div>
-                      {!isView && (shownFieldError("10") || shownFieldError("11")) && (
-                        <p className="mt-3 text-xs font-medium" style={{ color: C.red }} role="alert">
-                          {shownFieldError("10") || shownFieldError("11")}
-                        </p>
-                      )}
-                    </section>
-                  )
-                }
-                // Purchase form: subtotal/total are computed from the items below
-                if (isPurchase && (f.key === "3" || f.key === "4")) return null
-                if (isPurchase && f.key === "6") {
-                  const supplier = String(formData["0"] ?? "")
-                  const allowed = supplierSupplies(supplier)
-                  const items = parsePurchaseItems(formData["6"])
-                  const total = items.reduce((sum, item) => sum + item.total, 0)
-                  const setItems = (next: { name: string; quantity: string; unitPrice?: string }[]) =>
+                  const setPart = (key: string, value: string) => {
+                    const next = { ...parts, [key]: value.trim() }
+                    // Changing the housing type clears the details of the previous one
+                    if (key === "tipo") ["d0", "d1", "d2"].forEach((k) => (next[k] = ""))
                     setFormData((current) => ({
                       ...current,
-                      "6": next.map((i) => `${i.name} | ${i.quantity} | ${i.unitPrice ?? 0}`).join("\n"),
+                      [`a_${key}`]: value,
+                      ...(key === "tipo" ? { a_d0: "", a_d1: "", a_d2: "" } : {}),
+                      "5": composeAddress(next),
                     }))
-                  const pickSupply = (name: string) => {
-                    setPurchaseItemSelect(name)
-                    setPurchaseItemPrice(name ? String(supplyInfo(name)?.[3] ?? "") : "")
-                    setPurchaseFormError("")
-                  }
-                  const addItem = () => {
-                    const qty = Number(purchaseItemQty)
-                    const price = Number(purchaseItemPrice)
-                    if (!purchaseItemSelect) return setPurchaseFormError("Elige el insumo que vas a agregar.")
-                    if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
-                    if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
-                    const existing = items.find(
-                      (i) => i.name === purchaseItemSelect && Number(i.unitPrice) === price,
-                    )
-                    setItems(
-                      existing
-                        ? items.map((i) => (i === existing ? { ...i, quantity: String(Number(i.quantity) + qty) } : i))
-                        : [...items, { name: purchaseItemSelect, quantity: String(qty), unitPrice: String(price) }],
-                    )
-                    setPurchaseItemSelect("")
-                    setPurchaseItemQty("1")
-                    setPurchaseItemPrice("")
-                    setPurchaseFormError("")
+                    setFormFieldErrors((current) => ({ ...current, "5": "" }))
                   }
                   const controlSt = { background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }
-                  // "Enviar a pérdida": only for items already saved in this purchase (edit mode)
-                  const savedItems = modal.mode === "edit" ? parsePurchaseItems(row?.[6]) : []
-                  const lossOrigin = row
-                    ? `Compra a ${String(row[0])} del ${formatViewValue(cfg.fields[1], String(row[1] ?? ""))}`
-                    : ""
-                  const lostSoFar = (name: string) =>
-                    (rows.perdidas || [])
-                      .filter((l) => String(l[5] ?? "") === lossOrigin && String(l[0]) === name)
-                      .reduce((sum, l) => sum + (parseFloat(String(l[1])) || 0), 0)
-                  const openLoss = (name: string) => {
-                    const bought = savedItems
-                      .filter((i) => i.name === name)
-                      .reduce((sum, i) => sum + Number(i.quantity || 0), 0)
-                    const max = bought - lostSoFar(name)
-                    setLossError("")
-                    if (!(max > 0)) {
-                      setPurchaseNotice(`Ya registraste como pérdida todo el insumo «${name}» de esta compra.`)
-                      return
-                    }
-                    setPurchaseNotice("")
-                    const now = new Date()
-                    setLossDraft({
-                      insumo: name,
-                      unit: String(supplyInfo(name)?.[2] ?? "und"),
-                      max,
-                      qty: "",
-                      motivo: "",
-                      responsable: user?.name ?? "",
-                      fecha: [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-"),
-                      origin: lossOrigin,
-                    })
-                  }
+                  const small = "flex min-w-0 flex-col gap-1 text-[11px]"
+                  const input = (key: string, label: string, placeholder = "") => (
+                    <label key={key} className={small} style={{ color: t.muted }}>
+                      {label}
+                      <input
+                        value={part(key)}
+                        onChange={(event) => setPart(key, event.target.value)}
+                        placeholder={placeholder}
+                        className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
+                        style={controlSt}
+                      />
+                    </label>
+                  )
+                  const housing = HOUSING[parts.tipo]
+                  const preview = String(formData["5"] ?? "")
                   return (
-                    <section
-                      key="purchase-items"
-                      className="rounded-xl p-4 sm:col-span-2"
-                      style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}
-                    >
-                      <div className="text-sm font-semibold" style={{ color: t.text }}>
-                        Insumos comprados
-                      </div>
-                      {!supplier ? (
-                        <p className="mt-1 text-xs" style={{ color: t.muted }}>
-                          Primero selecciona el proveedor para ver los insumos que te vende.
-                        </p>
-                      ) : !allowed.length ? (
-                        <p className="mt-1 text-xs" style={{ color: C.red }}>
-                          «{supplier}» no tiene insumos asignados. Asígnalos en Proveedores → Editar → «Insumos que suministra».
-                        </p>
-                      ) : (
-                        <>
-                          <p className="mt-1 text-xs" style={{ color: t.muted }}>
-                            Insumos que vende «{supplier}». Agrega todos los que necesites.
-                          </p>
-                          <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_96px_120px_auto]">
-                            <label className="flex min-w-0 flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                              Insumo
-                              <select
-                                value={purchaseItemSelect}
-                                onChange={(e) => pickSupply(e.target.value)}
-                                className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                                style={{ ...controlSt, color: purchaseItemSelect ? t.text : t.muted }}
-                              >
-                                <option value="">Selecciona un insumo...</option>
-                                {allowed.map((name) => (
-                                  <option key={name} value={name}>
-                                    {name}
-                                    {supplyInfo(name)?.[2] ? ` (${String(supplyInfo(name)?.[2])})` : ""}
-                                  </option>
-                                ))}
-                              </select>
-                            </label>
-                            <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                              Cantidad
-                              <input
-                                type="number"
-                                min="0"
-                                step="any"
-                                value={purchaseItemQty}
-                                onChange={(e) => setPurchaseItemQty(e.target.value)}
-                                className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-                                style={controlSt}
-                              />
-                            </label>
-                            <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                              Precio unitario
-                              <input
-                                type="number"
-                                min="0"
-                                value={purchaseItemPrice}
-                                onChange={(e) => setPurchaseItemPrice(e.target.value)}
-                                placeholder="$"
-                                className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-                                style={controlSt}
-                              />
-                            </label>
-                            <button
-                              type="button"
-                              onClick={addItem}
-                              className="cursor-pointer rounded-xl px-4 py-2.5 text-xs font-bold hover:opacity-90"
-                              style={{ background: C.mustard, color: "#fff" }}
-                            >
-                              Agregar
-                            </button>
-                          </div>
-                        </>
-                      )}
-                      <div className="mt-3 flex flex-col">
-                        {items.length === 0 ? (
-                          <div className="rounded-lg px-3 py-3 text-center text-xs" style={{ background: t.input, color: t.muted }}>
-                            Aún no has agregado insumos.
-                          </div>
-                        ) : (
-                          items.map((item, index) => (
-                            <div
-                              key={`${item.name}-${index}`}
-                              className="flex items-center gap-3 border-b py-2 text-sm last:border-b-0"
-                              style={{ borderColor: t.border }}
-                            >
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate font-semibold" style={{ color: t.text }}>{item.name}</div>
-                                <div className="text-[11px]" style={{ color: t.muted }}>
-                                  {Number(item.quantity).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")} × {fmt(Number(item.unitPrice || 0))}
-                                </div>
-                                {savedItems.length > 0 && lostSoFar(item.name) > 0 && (
-                                  <div className="text-[11px] font-semibold" style={{ color: C.red }}>
-                                    Perdido: {lostSoFar(item.name).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")}
-                                  </div>
-                                )}
-                              </div>
-                              <span className="font-bold" style={{ color: C.mustard }}>{fmt(item.total)}</span>
-                              {savedItems.some((i) => i.name === item.name) && (
-                                <button
-                                  type="button"
-                                  title="Enviar este insumo a Pérdida de insumos"
-                                  aria-label={`Enviar ${item.name} a pérdida de insumos`}
-                                  onClick={() => openLoss(item.name)}
-                                  className="flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-[11px] font-bold hover:opacity-80"
-                                  style={{ color: C.amber, background: `${C.amber}18` }}
-                                >
-                                  {Ico.alert} Pérdida
-                                </button>
-                              )}
-                              <button
-                                type="button"
-                                aria-label={`Quitar ${item.name}`}
-                                onClick={() => setItems(items.filter((_, i) => i !== index))}
-                                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
-                                style={{ color: C.red, background: `${C.red}10` }}
-                              >
-                                {Ico.x}
-                              </button>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                      <div
-                        className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-xs"
-                        style={{ borderColor: t.border }}
-                      >
-                        <span style={{ color: t.muted }}>
-                          Subtotal: <strong style={{ color: t.text }}>{fmt(total)}</strong>
-                        </span>
-                        <span className="text-sm" style={{ color: t.text }}>
-                          Total: <strong style={{ color: C.mustard }}>{fmt(total)}</strong>
+                    <div key="5" className="flex flex-col gap-3 rounded-2xl p-4 sm:col-span-2" style={{ border: `1px solid ${fieldValidationError ? C.red : t.border}` }}>
+                      <div className="flex items-center gap-2">
+                        <span style={{ color: C.mustard }}>{Ico.mapPin}</span>
+                        <span className="text-xs font-semibold" style={{ color: fieldValidationError ? C.red : t.muted }}>
+                          Dirección principal *
                         </span>
                       </div>
-                      {purchaseFormError && (
-                        <p className="mt-2 text-xs font-medium" style={{ color: C.red }} role="alert">
-                          {purchaseFormError}
-                        </p>
-                      )}
-                      {purchaseNotice && (
-                        <p
-                          className="mt-2 rounded-lg px-3 py-2 text-xs font-medium"
-                          style={{ background: "rgba(58,109,94,0.12)", color: "#2E7D60" }}
-                          role="status"
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(0,1fr))]">
+                        <label className={small} style={{ color: t.muted }}>
+                          Vía
+                          <select
+                            value={part("via")}
+                            onChange={(event) => setPart("via", event.target.value)}
+                            className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                            style={{ ...controlSt, color: part("via") ? t.text : t.muted }}
+                          >
+                            <option value="">Calle, carrera...</option>
+                            {ADDRESS_VIAS.map((via) => <option key={via} value={via}>{via}</option>)}
+                          </select>
+                        </label>
+                        {input("num", "Número", "45A")}
+                        {input("cruce", "#", "12 Sur")}
+                        {input("placa", "-", "08")}
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
+                        {input("interior", "Interior (opcional)", "2")}
+                        <label className={small} style={{ color: t.muted }}>
+                          Tipo de vivienda (opcional)
+                          <select
+                            value={part("tipo")}
+                            onChange={(event) => setPart("tipo", event.target.value)}
+                            className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                            style={{ ...controlSt, color: part("tipo") ? t.text : t.muted }}
+                          >
+                            <option value="">Selecciona...</option>
+                            {Object.keys(HOUSING).map((type) => <option key={type} value={type}>{type}</option>)}
+                          </select>
+                        </label>
+                      </div>
+                      {housing && (
+                        <div
+                          className={`grid gap-2 rounded-xl p-3 ${housing.labels.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}
+                          style={{ background: t.cardAlt }}
                         >
-                          {purchaseNotice}
-                        </p>
+                          {housing.labels.map((label, i) => input(`d${i}`, `${label} (opcional)`))}
+                        </div>
                       )}
-                    </section>
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span style={{ color: t.muted }}>Así queda:</span>
+                        <span style={{ color: preview ? t.text : t.muted }}>
+                          {preview || "Elige la vía y escribe los tres números."}
+                        </span>
+                      </div>
+                      {fieldValidationError && (
+                        <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
+                          Completa la vía y los tres números de la dirección.
+                        </span>
+                      )}
+                    </div>
                   )
                 }
-                const isLocalClient =
-                  isClient && String(formData["6"] ?? "").toLowerCase() === "sí"
-                const requiredFormField =
-                  !isView &&
-                  getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)
-                const fieldValidationError = formFieldErrors[f.key]
-                // Supplier form: pick which insumos this supplier sells
-                if (modal.section === "proveedores" && !isView && f.key === "7") {
-                  const selected = splitList(String(formData["7"] ?? ""))
-                  const toggleSupply = (name: string) =>
-                    updateAdminField(
-                      "proveedores",
-                      "7",
-                      (selected.includes(name)
-                        ? selected.filter((item) => item !== name)
-                        : [...selected, name]
-                      ).join(", "),
-                    )
+                if (isReturns && f.key === "1") {
+                  const saleCode = String((isView ? row?.[1] : formData["1"]) ?? "")
+                  const sale = (rows.ventas || []).find((v) => String(v[0]) === saleCode)
+                  const lines = getSaleOrderLines(sale ?? null).filter((line) => !line.parentId)
+                  const date = new Date(`${String(sale?.[3] ?? "").slice(0, 10)}T00:00:00`)
                   return (
-                    <div key="7" className="flex flex-col gap-1.5 lg:col-start-1 lg:col-span-2">
-                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                        {f.label}{requiredFormField && " *"}
-                      </span>
-                      <div className="flex flex-wrap gap-2">
-                        {namesOf("insumos").map((name) => {
-                          const on = selected.includes(name)
+                    <div key="1" className="flex min-w-0 flex-col gap-2 rounded-2xl px-4 py-3 sm:col-span-2" style={{ border: `1px solid ${fieldValidationError ? C.red : t.border}` }}>
+                      {!isView && (
+                        <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: fieldValidationError ? C.red : t.muted }}>
+                          Busca la venta *
+                          <div className="flex items-center gap-2 rounded-xl px-3" style={{ background: t.input, border: `1.5px solid ${t.inputB}` }}>
+                            <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
+                            <input
+                              list="return-sales"
+                              value={saleCode}
+                              onChange={(event) => {
+                                const code = event.target.value.trim()
+                                setFormData((current) => ({ ...current, "1": code, "6": "[]" }))
+                                setFormFieldErrors((current) => ({ ...current, "1": "" }))
+                              }}
+                              placeholder="Código de la venta o cliente..."
+                              className="min-w-0 flex-1 bg-transparent py-2.5 text-sm font-normal outline-none"
+                              style={{ color: t.text }}
+                            />
+                            <datalist id="return-sales">
+                              {(rows.ventas || [])
+                                .filter((v) => !saleReturnBlock(v))
+                                .map((v) => (
+                                  <option key={String(v[0])} value={String(v[0])}>{`${String(v[2] ?? "")} · ${fmt(Number(v[7]) || 0)}`}</option>
+                                ))}
+                            </datalist>
+                          </div>
+                          {fieldValidationError && <span className="text-[10px] font-medium">{fieldValidationError}</span>}
+                          <span className="text-[10px] font-normal" style={{ color: t.muted }}>
+                            Solo salen las ventas que se pueden devolver: directas, o con su orden de producción en «Terminado».
+                          </span>
+                        </label>
+                      )}
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="text-[11px]" style={{ color: t.muted }}>Venta asociada</div>
+                          <div className="text-sm font-semibold" style={{ color: t.text }}>{saleCode || "—"}</div>
+                        </div>
+                        {sale && <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(Number(sale[7]) || 0)}</span>}
+                      </div>
+                      {sale ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                            {([
+                              ["Cliente", String(sale[2] || "—")],
+                              ["Fecha", Number.isNaN(date.getTime()) ? String(sale[3] || "—") : date.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" })],
+                              ["Método de pago", String(sale[5] || "—")],
+                              ["Pedido", String(sale[9] || "Sin pedido")],
+                            ] as const).map(([label, value]) => (
+                              <div key={label} className="min-w-0 rounded-xl px-3 py-2" style={{ background: t.cardAlt }}>
+                                <div className="text-[11px]" style={{ color: t.muted }}>{label}</div>
+                                <div className="break-words" style={{ color: t.text }}>{value}</div>
+                              </div>
+                            ))}
+                          </div>
+                          {(() => {
+                            const allLines = getSaleOrderLines(sale ?? null)
+                            let chosen: { id: string; product: string; quantity: number; unitPrice: number }[] = []
+                            try {
+                              chosen = JSON.parse(String((isView ? row?.[6] : formData["6"]) || "[]"))
+                            } catch {
+                              chosen = []
+                            }
+                            const setChosen = (next: typeof chosen) => {
+                              setFormData((current) => ({ ...current, "6": JSON.stringify(next) }))
+                              setFormFieldErrors((current) => ({ ...current, "1": "" }))
+                            }
+                            const refund = chosen.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
+                            if (isView)
+                              return (
+                                <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.red}08`, border: `1px solid ${C.red}25` }}>
+                                  <div className="mb-1 text-[11px] font-semibold" style={{ color: C.red }}>Productos devueltos</div>
+                                  {chosen.length ? (
+                                    <>
+                                      {chosen.map((item) => (
+                                        <div key={item.id} className="flex justify-between gap-3 text-sm" style={{ color: t.text }}>
+                                          <span className="min-w-0 break-words">{item.product} ×{item.quantity}</span>
+                                          <span className="flex-shrink-0">{fmt(item.quantity * item.unitPrice)}</span>
+                                        </div>
+                                      ))}
+                                      <div className="mt-1 flex justify-between border-t pt-1 text-sm font-semibold" style={{ borderColor: `${C.red}25`, color: C.red }}>
+                                        <span>Valor devuelto</span>
+                                        <span>{fmt(refund)}</span>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <span className="text-xs" style={{ color: t.muted }}>No se registraron productos (devolución anterior a este cambio).</span>
+                                  )}
+                                </div>
+                              )
+                            if (!allLines.length) return <p className="text-xs" style={{ color: t.muted }}>Esta venta no tiene el detalle de sus productos.</p>
+                            return (
+                              <div className="rounded-xl px-3 py-2.5" style={{ background: t.cardAlt }}>
+                                <div className="mb-1.5 text-[11px] font-semibold" style={{ color: t.muted }}>¿Qué productos se devuelven?</div>
+                                <div className={`gap-x-5 ${allLines.length > 5 ? "sm:columns-2" : ""}`}>
+                                  {allLines.map((line) => {
+                                    const picked = chosen.find((item) => item.id === line.id)
+                                    return (
+                                      <div key={line.id} className={`mb-1 flex break-inside-avoid items-center gap-2 text-sm ${line.parentId ? "pl-5" : ""}`}>
+                                        <input
+                                          type="checkbox"
+                                          aria-label={`Devolver ${line.product}`}
+                                          checked={!!picked}
+                                          onChange={() =>
+                                            setChosen(
+                                              picked
+                                                ? chosen.filter((item) => item.id !== line.id)
+                                                : [...chosen, { id: line.id, product: line.product, quantity: line.quantity, unitPrice: line.unitPrice }],
+                                            )
+                                          }
+                                          style={{ accentColor: C.red }}
+                                        />
+                                        <span className="min-w-0 flex-1 break-words" style={{ color: line.parentId ? t.muted : t.text }}>
+                                          {line.parentId ? "+ " : ""}{line.product}
+                                        </span>
+                                        {picked ? (
+                                          <input
+                                            type="number"
+                                            min="1"
+                                            max={line.quantity}
+                                            aria-label={`Cantidad de ${line.product} que se devuelve`}
+                                            value={picked.quantity}
+                                            onChange={(event) =>
+                                              setChosen(
+                                                chosen.map((item) =>
+                                                  item.id === line.id
+                                                    ? { ...item, quantity: Math.min(line.quantity, Math.max(1, Math.floor(Number(event.target.value)) || 1)) }
+                                                    : item,
+                                                ),
+                                              )
+                                            }
+                                            className="w-14 rounded-lg px-2 py-1 text-sm outline-none"
+                                            style={{ background: t.card, border: `1px solid ${t.inputB}`, color: t.text }}
+                                          />
+                                        ) : null}
+                                        <span className="w-14 flex-shrink-0 text-right text-xs" style={{ color: t.muted }}>de {line.quantity}</span>
+                                      </div>
+                                    )
+                                  })}
+                                </div>
+                                <div className="mt-1.5 flex justify-between border-t pt-1.5 text-sm" style={{ borderColor: t.border }}>
+                                  <span style={{ color: t.muted }}>Valor a devolver o reembolsar</span>
+                                  <span className="font-semibold" style={{ color: chosen.length ? C.red : t.muted }}>{fmt(refund)}</span>
+                                </div>
+                              </div>
+                            )
+                          })()}
+                        </>
+                      ) : (
+                        <p className="text-xs" style={{ color: t.muted }}>
+                          {saleCode ? "No se encontró una venta con ese código." : "Aún no has elegido la venta."}
+                        </p>
+                      )}
+                    </div>
+                  )
+                }
+                if (isSupplier && !isView && f.key === "15") {
+                  const types = [
+                    { value: "Persona jurídica", icon: Ico.shopping, hint: "Empresa con NIT y una persona de contacto" },
+                    { value: "Persona natural", icon: Ico.user, hint: "Una persona que vende con su documento de identidad" },
+                  ]
+                  // Type chosen: only its form shows, with a way back to the two options
+                  const chosen = types.find((type) => type.value === formData["15"])
+                  if (chosen) {
+                    return (
+                      <div
+                        key="15"
+                        className="flex items-center gap-3 rounded-xl px-4 py-2.5 sm:col-span-2 lg:col-span-4"
+                        style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}
+                      >
+                        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: C.mustard, color: "#fff" }}>
+                          {chosen.icon}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-semibold" style={{ color: t.text }}>{chosen.value}</span>
+                          <span className="block text-[11px]" style={{ color: t.muted }}>{chosen.hint}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => updateAdminField("proveedores", "15", "")}
+                          className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold"
+                          style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
+                        >
+                          <span className="rotate-90">{Ico.chevDown}</span> Cambiar tipo
+                        </button>
+                      </div>
+                    )
+                  }
+                  return (
+                    <div key="15" className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-4">
+                      {!formData["15"] && (
+                        <p className="text-xs font-semibold" style={{ color: t.muted }}>
+                          ¿Qué tipo de proveedor vas a registrar?
+                        </p>
+                      )}
+                      <div role="radiogroup" aria-label="Tipo de persona" className="grid gap-3 sm:grid-cols-2">
+                        {types.map((type) => {
+                          const on = formData["15"] === type.value
                           return (
                             <button
-                              key={name}
+                              key={type.value}
                               type="button"
-                              role="checkbox"
+                              role="radio"
                               aria-checked={on}
-                              onClick={() => toggleSupply(name)}
-                              className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold"
+                              onClick={() => updateAdminField("proveedores", "15", type.value)}
+                              className={`flex cursor-pointer items-center gap-3 rounded-xl px-4 text-left transition ${formData["15"] ? "py-2.5" : "py-5"}`}
                               style={{
-                                background: on ? `${C.mustard}18` : t.input,
-                                border: `1.5px solid ${on ? C.mustard : t.inputB}`,
-                                color: on ? C.mustard : t.muted,
+                                background: on ? `${C.mustard}14` : t.input,
+                                border: `1.5px solid ${on ? C.mustard : fieldValidationError ? C.red : t.inputB}`,
+                                color: t.text,
                               }}
                             >
-                              {on && Ico.check}
-                              {name}
+                              <span
+                                className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl"
+                                style={{ background: on ? C.mustard : `${C.mustard}18`, color: on ? "#fff" : C.mustard }}
+                              >
+                                {type.icon}
+                              </span>
+                              <span className="min-w-0">
+                                <span className="block text-sm font-bold">{type.value}</span>
+                                <span className="block text-[11px]" style={{ color: t.muted }}>{type.hint}</span>
+                              </span>
                             </button>
                           )
                         })}
                       </div>
-                      <p className="text-[11px]" style={{ color: t.muted }}>
+                      {fieldValidationError && (
+                        <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
+                          Elige el tipo de persona.
+                        </span>
+                      )}
+                    </div>
+                  )
+                }
+                if (isSupplier && !isView && !formData["15"]) return null
+                // Supplier detail: insumos grouped by category
+                if (isSupplier && isView && f.key === "7") {
+                  const names = splitList(String(row?.[7] ?? ""))
+                  return (
+                    <div key="7" className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-4">
+                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                        Insumos que suministra ({names.length})
+                      </span>
+                      {names.length ? (
+                        renderSupplyGroups(names, "sm:grid-cols-2 lg:grid-cols-3")
+                      ) : (
+                        <span className="text-sm" style={{ color: t.muted }}>Sin insumos asignados.</span>
+                      )}
+                    </div>
+                  )
+                }
+                // Supplier form: pick which insumos this supplier sells (search box that opens a list)
+                if (isSupplier && !isView && f.key === "7") {
+                  const selected = splitList(String(formData["7"] ?? ""))
+                  const setSelected = (next: string[]) =>
+                    updateAdminField("proveedores", "7", [...new Set(next)].join(", "))
+                  const toggleSupply = (name: string) =>
+                    setSelected(selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name])
+                  // Active insumos, plus any already chosen (even if deactivated later), grouped by category
+                  const query = normalizeName(supplierSupplySearch)
+                  const groups = new Map<string, string[]>()
+                  ;(rows.insumos || [])
+                    .filter((r) => isActiveStatus(r[12]) || selected.includes(String(r[0])))
+                    .forEach((r) => {
+                      const name = String(r[0] ?? "").trim()
+                      if (!name || (query && !normalizeName(name).includes(query))) return
+                      const category = String(r[1] ?? "").trim() || "Sin categoría"
+                      groups.set(category, [...(groups.get(category) || []), name])
+                    })
+                  const categories = [...groups.keys()].sort((x, y) => x.localeCompare(y))
+                  const menu = supplierSupplyOpen
+                  const openMenu = (box: HTMLElement) => setSupplierSupplyOpen(box.getBoundingClientRect())
+                  const closeMenu = () => {
+                    setSupplierSupplyOpen(null)
+                    setSupplierSupplySearch("")
+                  }
+                  // Opens upwards when there's no room below
+                  const opensDown = !menu || window.innerHeight - menu.bottom >= 280 || menu.top < 280
+                  return (
+                    <div
+                      key="7"
+                      className={`flex min-w-0 flex-col gap-1 sm:col-span-2 ${naturalSupplierForm ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-1"}`}
+                    >
+                      <label htmlFor="supplier-supplies" className="text-xs font-semibold" style={{ color: fieldValidationError ? C.red : t.muted }}>
+                        Insumos que vende{requiredFormField && " *"}
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="flex min-w-0 flex-1 cursor-text items-center gap-2 rounded-xl px-3 py-2"
+                          style={{ background: t.input, border: `1.5px solid ${fieldValidationError ? C.red : menu ? C.mustard : t.inputB}` }}
+                          onClick={(e) => openMenu(e.currentTarget)}
+                        >
+                          <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
+                          <input
+                            id="supplier-supplies"
+                            role="combobox"
+                            aria-expanded={!!menu}
+                            aria-controls="supplier-supplies-list"
+                            autoComplete="off"
+                            value={supplierSupplySearch}
+                            onFocus={(e) => openMenu(e.currentTarget.parentElement!)}
+                            onChange={(e) => {
+                              setSupplierSupplySearch(e.target.value)
+                              if (!menu) openMenu(e.currentTarget.parentElement!)
+                            }}
+                            onKeyDown={(e) => e.key === "Escape" && closeMenu()}
+                            placeholder={
+                              selected.length
+                                ? `${selected.length} seleccionado${selected.length === 1 ? "" : "s"} · buscar para agregar...`
+                                : "Selecciona los insumos..."
+                            }
+                            className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+                            style={{ color: t.text }}
+                          />
+                          <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.chevDown}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openChildForm("insumos")}
+                          title="Crear un insumo nuevo y volver a este proveedor"
+                          className="flex flex-shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-xl px-3 py-2 text-xs font-semibold"
+                          style={{ background: `${C.mustard}18`, color: C.mustard, border: `1.5px solid ${C.mustard}40` }}
+                        >
+                          {Ico.plus} Crear insumo
+                        </button>
+                      </div>
+                      {menu && (
+                        <>
+                          {/* Click outside closes the list */}
+                          <div className="fixed inset-0 z-[60]" onClick={closeMenu} />
+                          <div
+                            id="supplier-supplies-list"
+                            role="listbox"
+                            aria-multiselectable="true"
+                            className="fixed z-[61] overflow-y-auto rounded-xl p-1.5 shadow-xl"
+                            style={{
+                              left: menu.left,
+                              width: menu.width,
+                              maxHeight: 260,
+                              ...(opensDown ? { top: menu.bottom + 4 } : { bottom: window.innerHeight - menu.top + 4 }),
+                              background: t.card,
+                              border: `1px solid ${t.border}`,
+                              scrollbarWidth: "thin",
+                            }}
+                          >
+                            {!categories.length ? (
+                              <p className="px-2 py-3 text-center text-xs" style={{ color: t.muted }}>
+                                {supplierSupplySearch
+                                  ? `No hay insumos que coincidan con «${supplierSupplySearch}». Si es nuevo, usa «Crear insumo».`
+                                  : "No hay insumos registrados."}
+                              </p>
+                            ) : (
+                              categories.map((category) => {
+                                const names = groups.get(category)!.sort((x, y) => x.localeCompare(y))
+                                const allOn = names.every((name) => selected.includes(name))
+                                return (
+                                  <div key={category} className="mb-1 last:mb-0">
+                                    <div className="flex items-center justify-between gap-2 px-2 py-1">
+                                      <span className="text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
+                                        {category}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setSelected(allOn ? selected.filter((n) => !names.includes(n)) : [...selected, ...names])
+                                        }
+                                        className="cursor-pointer text-[10px] font-semibold"
+                                        style={{ color: C.mustard }}
+                                      >
+                                        {allOn ? "Quitar todos" : "Todos"}
+                                      </button>
+                                    </div>
+                                    {names.map((name) => (
+                                      <label
+                                        key={name}
+                                        role="option"
+                                        aria-selected={selected.includes(name)}
+                                        className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs"
+                                        style={{ color: t.text, background: selected.includes(name) ? `${C.mustard}12` : "transparent" }}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={selected.includes(name)}
+                                          onChange={() => toggleSupply(name)}
+                                          style={{ accentColor: C.mustard }}
+                                        />
+                                        <span className="min-w-0 break-words">{name}</span>
+                                      </label>
+                                    ))}
+                                  </div>
+                                )
+                              })
+                            )}
+                          </div>
+                        </>
+                      )}
+                      {selected.length > 0 && renderSupplyGroups(selected, "pt-1 sm:grid-cols-2", toggleSupply)}
+                      <span className="text-[11px]" style={{ color: t.muted }}>
                         Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
-                      </p>
+                      </span>
                       {fieldValidationError && (
                         <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
                           {fieldValidationError}
                         </span>
                       )}
                     </div>
-
                   )
                 }
+                const naturalSupplier =
+                  isSupplier && isNaturalSupplier(isView ? row?.[15] : formData["15"])
+                // Client and order details: their own layout
+                if (isView && (isClient || isPedido || isSales)) return null
+                const fieldLabel =
+                  naturalSupplier && f.key === "0" ? "Nombre completo" : f.label
                 const fieldRowIndex = Number(f.key) + rowOffset
                 const val = isView
                   ? String(row ? (row[fieldRowIndex] ?? "—") : "—")
@@ -16006,20 +17002,23 @@ function AdminPanel({
                         : isPurchase && f.key === "0" && namesOf("proveedores").length
                           ? namesOf("proveedores")
                           : modal.section === "perdidas" && f.key === "0" && namesOf("insumos").length
-                            ? namesOf("insumos")
+                            ? [...new Set([
+                                ...(rows.insumos || []).filter((r) => isActiveStatus(r[12])).map((r) => String(r[0])),
+                                ...(formData["0"] ? [String(formData["0"])] : []),
+                              ])]
+                            : modal.section === "perdidas" && f.key === "3"
+                              ? staffOptions
                             : isSupply && f.key === "1" && namesOf("cat-insumos").length
                               ? namesOf("cat-insumos")
                               : isUser && f.key === "3" && namesOf("roles").length
                                 ? (rows.roles || []).filter((r) => isActiveStatus(r[2])).map((r) => String(r[0]))
                                 : f.options
-
                 const visibleFieldOptions =
                   isUser &&
                   f.key === "1" &&
                   String(formData["3"] ?? "").toLowerCase() !== "cliente"
                               ? fieldOptions?.filter((option) => option !== "Tarjeta de Identidad")
                               : fieldOptions
-
                 const pedidoCategories = [
                   "Todas",
                   ...new Set(
@@ -16039,6 +17038,9 @@ function AdminPanel({
                 const selectedOrderProduct = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
                 const isSelectedAddition = String(selectedOrderProduct?.[1] ?? "").toLowerCase() === "adiciones"
                 const updateFieldValue = (value: string) => {
+                  // A typed future date becomes today (the calendar already stops at today)
+                  if (((isPurchase && f.key === "1") || (modal.section === "perdidas" && f.key === "4") || (isProduction && f.key === "3") || (isReturns && f.key === "5")) && value > getCurrentDateTimeParts().date)
+                    value = getCurrentDateTimeParts().date
                   if (isSales && f.key === "1" && value === "__new_client__") {
                     setQuickClientForm({})
                     setQuickClientErrors({})
@@ -16078,6 +17080,7 @@ function AdminPanel({
                             String(formData[isSupplier ? "8" : "1"] ?? ""),
                           )
                         : ((modal.section === "clientes" && f.key === "3") ||
+                            (isUser && ["9", "12"].includes(f.key)) ||
                             (isSupplier && ["3", "12"].includes(f.key)))
                           ? normalizePhoneInput(value)
                           : isSupplier && f.key === "1"
@@ -16090,48 +17093,361 @@ function AdminPanel({
                 }
                 return (
                   <Fragment key={f.key}>
-                  {isSupplier && (f.key === "1" || f.key === "8") && (
+                  {isSupply && !isView && f.key === "7" && (() => {
+                    const toggle = (name: string) =>
+                      setSupplySuppliers(
+                        supplySuppliers.includes(name) ? supplySuppliers.filter((n) => n !== name) : [...supplySuppliers, name],
+                      )
+                    const query = normalizeName(supplierPickerQuery)
+                    const options = (rows.proveedores || [])
+                      .filter((p) => isActiveStatus(p[6]) || supplySuppliers.includes(String(p[0])))
+                      .filter((p) => !query || normalizeName(p[0]).includes(query))
+                    return (
+                      <div className="flex flex-col gap-1.5 sm:col-span-2">
+                        <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                          Proveedores que lo venden <span className="font-normal">(opcional si lo preparan ustedes)</span>
+                        </span>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setSupplierPickerOpen(!supplierPickerOpen)}
+                            aria-expanded={supplierPickerOpen}
+                            className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-left text-sm"
+                            style={{ background: t.input, border: `1.5px solid ${supplierPickerOpen ? C.mustard : t.inputB}` }}
+                          >
+                            <span className="min-w-0 truncate" style={{ color: supplySuppliers.length ? t.text : t.muted }}>
+                              {supplySuppliers.length ? supplySuppliers.join(", ") : "Selecciona proveedores..."}
+                            </span>
+                            <span className="flex flex-shrink-0 items-center gap-1.5" style={{ color: t.muted }}>
+                              {supplySuppliers.length > 0 && (
+                                <span className="rounded-full px-1.5 text-[10px] font-bold" style={{ background: C.mustard, color: "#fff" }}>
+                                  {supplySuppliers.length}
+                                </span>
+                              )}
+                              {Ico.chevDown}
+                            </span>
+                          </button>
+                          {supplierPickerOpen && (
+                            <div
+                              className="absolute left-0 right-0 top-full z-30 mt-1 rounded-xl p-2 shadow-xl"
+                              style={{ background: t.card, border: `1px solid ${t.border}` }}
+                            >
+                              <div
+                                className="mb-1.5 flex items-center gap-2 rounded-lg px-2.5 py-1.5"
+                                style={{ background: t.input, border: `1px solid ${t.inputB}` }}
+                              >
+                                <span style={{ color: t.muted }}>{Ico.search}</span>
+                                <input
+                                  type="search"
+                                  value={supplierPickerQuery}
+                                  onChange={(e) => setSupplierPickerQuery(e.target.value)}
+                                  placeholder="Buscar proveedor..."
+                                  aria-label="Buscar proveedor"
+                                  autoFocus
+                                  className="min-w-0 flex-1 bg-transparent text-xs outline-none"
+                                  style={{ color: t.text }}
+                                />
+                              </div>
+                              <div className="max-h-44 overflow-y-auto">
+                                {options.length ? (
+                                  options.map((p) => {
+                                    const name = String(p[0])
+                                    return (
+                                      <label
+                                        key={name}
+                                        className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs"
+                                        style={{ color: t.text, background: supplySuppliers.includes(name) ? `${C.mustard}12` : "transparent" }}
+                                      >
+                                        <input
+                                          type="checkbox"
+                                          checked={supplySuppliers.includes(name)}
+                                          onChange={() => toggle(name)}
+                                          style={{ accentColor: C.mustard }}
+                                        />
+                                        <span className="min-w-0 flex-1 break-words">{name}</span>
+                                        {p[1] && <span className="text-[10px]" style={{ color: t.muted }}>{String(p[1])}</span>}
+                                      </label>
+                                    )
+                                  })
+                                ) : (
+                                  <p className="px-2 py-2 text-center text-xs" style={{ color: t.muted }}>
+                                    {(rows.proveedores || []).length ? "Ningún proveedor coincide." : "No hay proveedores registrados."}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="mt-1.5 flex justify-end">
+                                <button
+                                  type="button"
+                                  onClick={() => setSupplierPickerOpen(false)}
+                                  className="cursor-pointer rounded-lg px-3 py-1 text-xs font-bold"
+                                  style={{ background: C.mustard, color: "#fff" }}
+                                >
+                                  Listo
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                        {supplySuppliers.length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {supplySuppliers.map((name) => (
+                              <button
+                                key={name}
+                                type="button"
+                                onClick={() => toggle(name)}
+                                aria-label={`Quitar ${name}`}
+                                className="flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                style={{ background: `${C.mustard}18`, color: C.mustard }}
+                              >
+                                {name} <span aria-hidden="true">×</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })()}
+                  {isSales && !isView && (f.key === "1" || f.key === "0") && (
+                    <div
+                      className={`flex items-center gap-2 sm:col-span-3 ${f.key === "1" ? "" : "mt-1 border-t pt-4"}`}
+                      style={{ borderColor: t.border }}
+                    >
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                        {f.key === "1" ? "Cliente y fecha" : "Datos de la venta"}
+                      </h4>
+                    </div>
+                  )}
+                  {isPedido && !isView && ["0", "1", "11"].includes(f.key) && (
+                    <div
+                      className={`flex items-center gap-2 sm:col-span-3 ${f.key === "0" ? "" : "mt-1 border-t pt-4"}`}
+                      style={{ borderColor: t.border }}
+                    >
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                        {f.key === "0" ? "Cliente y pago" : f.key === "1" ? "Productos del pedido" : "Especificaciones"}
+                      </h4>
+                    </div>
+                  )}
+                  {isPnc && !isView && f.key === "3" && (
+                    <div className="mt-1 flex items-center gap-2 border-t pt-4 sm:col-span-2" style={{ borderColor: t.border }}>
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                        Detalles del registro
+                      </h4>
+                    </div>
+                  )}
+                  {isProduction && !isView && f.key === "3" && (
+                    <div className="mt-1 flex items-center gap-2 border-t pt-4 sm:col-span-3" style={{ borderColor: t.border }}>
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                        Detalles de la orden
+                      </h4>
+                    </div>
+                  )}
+                  {isSupplier && (f.key === "15" || (f.key === "1" && !isView) || f.key === "8") && (
                     <div
                       className={`pt-1 sm:col-span-2 ${
-                        f.key === "1" ? "lg:col-span-2 lg:col-start-1" : "lg:col-span-2 lg:col-start-3"
+                        f.key === "8"
+                          ? naturalSupplier ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-3"
+                          : "lg:col-span-2 lg:col-start-1"
                       }`}
                     >
                       <div className="mb-1 h-px" style={{ background: t.border }} />
                       <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
-                        {f.key === "1" ? "Datos del proveedor" : "Persona de contacto"}
+                        {f.key === "15"
+                          ? "Datos del proveedor"
+                          : f.key === "1"
+                            ? "Datos de la empresa"
+                            : naturalSupplier
+                              ? "Datos de la persona"
+                              : "Persona de contacto"}
                       </h4>
                     </div>
                   )}
                   <div
                     className={`flex min-w-0 flex-col gap-1 ${
                       isSupplier
-                      ? Number(f.key) < 8
+                      ? naturalSupplier
+                        ? "lg:col-span-2" // one form, two fields per row
+                        : Number(f.key) < 8 || f.key === "15"
                         ? "lg:col-span-2 lg:col-start-1"
                         : f.key === "14"
                           ? "lg:col-span-2 lg:col-start-3" // Cargo
                           : Number(f.key) % 2 === 0
                             ? "lg:col-start-3" // tipo doc, nombre, teléfono
                             : "lg:col-start-4" // nº doc, apellido, correo
-                        : isPurchaseModule && isWideField(f)
+                        : isPedido && !isView
+                          ? f.key === "0" ? "sm:col-span-2" : f.key === "1" || f.key === "11" ? "sm:col-span-3" : ""
+                        : isSales && (f.key === "1" || f.key === "8")
+                          ? "sm:col-span-2"
+                        : isPurchaseModule && isWideField(f) && !(isProduction && !isView)
                           ? "sm:col-span-2"
                           : ""
                     }`}
                   >
-                    <label
-                      className="text-xs font-semibold"
-
-                      style={{ color: !isView && shownFieldError(f.key) ? C.red : t.muted }}
-                    >
-                      {f.label}
-                      {!isView && (isRequiredField(f.key) || requiredFormField) && " *"}
-
-                      style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
-                    >
-                      {f.label}
-                      {(isRequiredField(f.key) || requiredFormField) && " *"}
-
-                    </label>
-                    {isPedido && f.key === "1" && !isView ? (
+                    <div className="flex items-center justify-between gap-2">
+                      <label
+                        className="text-xs font-semibold"
+                        style={{ color: !isView && shownFieldError(f.key) ? C.red : t.muted }}
+                      >
+                        {fieldLabel}
+                        {!isView && (isRequiredField(f.key) || requiredFormField) && " *"}
+                      </label>
+                      {isPurchase && !isView && f.key === "0" && (
+                        <button
+                          type="button"
+                          onClick={() => openChildForm("proveedores")}
+                          title="Crear un proveedor nuevo y volver a esta compra"
+                          className="flex cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+                          style={{ background: `${C.mustard}14`, color: C.mustard }}
+                        >
+                          {Ico.plus} Crear proveedor
+                        </button>
+                      )}
+                    </div>
+                    {isProduction && modal.mode === "edit" && (f.key === "3" || f.key === "4") ? (
+                      <div
+                        className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm"
+                        style={{ background: t.cardAlt, border: `1.5px dashed ${t.inputB}`, color: t.text }}
+                        title="La fecha y la hora de creación no se cambian"
+                      >
+                        <span>{f.key === "3" ? formatViewValue(f, val) : val || "—"}</span>
+                        <span className="text-[10px]" style={{ color: t.muted }}>No editable</span>
+                      </div>
+                    ) : isSupply && !isView && modal.mode === "edit" && (f.key === "3" || f.key === "4") ? (
+                      <div
+                        className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm"
+                        style={{ background: t.cardAlt, border: `1.5px dashed ${t.inputB}`, color: t.text }}
+                        title="Se actualiza solo con compras, pérdidas y producción"
+                      >
+                        <span className="font-semibold">
+                          {f.key === "3"
+                            ? Number(val) ? fmt(Number(val)) : "Sin compras"
+                            : `${Number(val || 0).toLocaleString("es-CO")} ${String(formData["2"] || "und")}`}
+                        </span>
+                        <span className="text-[10px]" style={{ color: t.muted }}>
+                          {f.key === "3" ? "Se toma de la última compra" : "Suma con compras"}
+                        </span>
+                      </div>
+                    ) : modal.section === "perdidas" && f.key === "1" && !isView ? (() => {
+                      const supply = supplyInfo(String(formData["0"] ?? ""))
+                      const unit = String(supply?.[2] ?? "und")
+                      const qty = String(formData["1"] ?? "").split(" ")[0]
+                      return (
+                        <>
+                          <div
+                            className="flex items-center gap-2 rounded-xl px-3.5"
+                            style={{ background: t.input, border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}` }}
+                          >
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={qty}
+                              onChange={(e) => updateAdminField("perdidas", "1", e.target.value ? `${e.target.value} ${unit}` : "")}
+                              placeholder="0"
+                              aria-invalid={!!fieldValidationError}
+                              className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
+                              style={{ color: t.text }}
+                            />
+                            <span className="text-xs" style={{ color: t.muted }}>{unit}</span>
+                          </div>
+                          {(() => {
+                            const max = purchaseLossMax(String(formData["5"] ?? ""), String(formData["0"] ?? ""), modal.mode === "edit" ? modal.idx : null)
+                            return max !== null ? (
+                              <span className="text-[11px]" style={{ color: t.muted }}>
+                                Máximo {max.toLocaleString("es-CO")} {unit}: lo comprado en esa compra menos lo ya perdido
+                              </span>
+                            ) : supply ? (
+                              <span className="text-[11px]" style={{ color: t.muted }}>
+                                En stock: {Number(supply[4] || 0).toLocaleString("es-CO")} {unit}
+                              </span>
+                            ) : null
+                          })()}
+                        </>
+                      )
+                    })() : isSales && f.key === "8" && !isView ? (
+                      <div className="flex min-w-0 gap-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3" style={{ background: t.input, border: `1.5px solid ${t.inputB}` }}>
+                          <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
+                          <input
+                            list="sale-orders"
+                            value={val === "Sin pedido" ? "" : val}
+                            onChange={(event) => {
+                              const code = event.target.value
+                              const order = (rows.pedidos || []).find((p) => String(p[0]) === code.trim())
+                              setFormData((current) => ({
+                                ...current,
+                                "8": code,
+                                ...(order ? { "1": String(order[1] ?? current["1"] ?? ""), "6": String(order[6] ?? "") } : {}),
+                              }))
+                            }}
+                            placeholder="Sin pedido (opcional)"
+                            aria-label="Pedido asociado"
+                            className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
+                            style={{ color: t.text }}
+                          />
+                          <datalist id="sale-orders">
+                            {(rows.pedidos || [])
+                              .filter((p) => !(rows.ventas || []).some((sale, i) => i !== modal.idx && String(sale[9]) === String(p[0])))
+                              .map((p) => (
+                                <option key={String(p[0])} value={String(p[0])}>{`${String(p[1] ?? "")} · ${fmt(Number(p[6]) || 0)}`}</option>
+                              ))}
+                          </datalist>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openChildForm("pedidos")}
+                          title="Crear un pedido nuevo y volver a esta venta"
+                          className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-xl px-3 text-xs font-semibold"
+                          style={{ background: `${C.mustard}14`, color: C.mustard }}
+                        >
+                          {Ico.plus} Crear pedido
+                        </button>
+                      </div>
+                    ) : isSales && f.key === "6" && !isView && (rows.pedidos || []).some((p) => String(p[0]) === String(formData["8"] ?? "").trim()) ? (
+                      <div
+                        className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm"
+                        style={{ background: t.cardAlt, border: `1.5px dashed ${t.inputB}`, color: t.text }}
+                        title="Es el total del pedido asociado"
+                      >
+                        <span className="font-semibold">{fmt(Number(formData["6"]) || 0)}</span>
+                        <span className="text-[10px]" style={{ color: t.muted }}>Del pedido</span>
+                      </div>
+                    ) : isSales && f.key === "1" && !isView ? (
+                      <div className="flex min-w-0 gap-2">
+                        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3" style={{ background: t.input, border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}` }}>
+                          <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
+                          <input
+                            list="sale-clients"
+                            value={val}
+                            onChange={(event) => updateAdminField(modal.section, f.key, event.target.value)}
+                            placeholder="Busca por nombre..."
+                            aria-label="Cliente"
+                            aria-invalid={!!fieldValidationError}
+                            className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
+                            style={{ color: t.text }}
+                          />
+                          <datalist id="sale-clients">
+                            {clientOptions.map((name) => <option key={name} value={name} />)}
+                          </datalist>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setQuickClientForm({})
+                            setQuickClientErrors({})
+                            setQuickClientError("")
+                            setQuickClientOpen(true)
+                          }}
+                          className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-xl px-3 text-xs font-semibold"
+                          style={{ background: `${C.mustard}14`, color: C.mustard }}
+                        >
+                          {Ico.plus} Crear cliente
+                        </button>
+                      </div>
+                    ) : isPedido && f.key === "1" && !isView ? (
                       <div className="flex flex-col gap-3">
                         <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                           {/* Wide enough so category and product names show complete */}
@@ -16176,7 +17492,6 @@ function AdminPanel({
                                 const productRow = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
                                 const quantity = Number(pedidoProductQuantity)
                                 if (!productRow || !Number.isInteger(quantity) || quantity <= 0) return
-                                const parentLine = pedidoOrderLines.find((line) => line.id === pedidoParentSelect)
                                 const id = `order-line-${Date.now()}-${pedidoOrderLines.length}`
                                 const line: AdminOrderLine = {
                                   id,
@@ -16184,12 +17499,12 @@ function AdminPanel({
                                   category: String(productRow[1] ?? ""),
                                   quantity,
                                   unitPrice: Number(productRow[2]) || 0,
-                                  ...(isSelectedAddition && parentLine ? { parentId: parentLine.id } : {}),
                                 }
                                 setPedidoOrderLines((current) => [...current, line])
                                 setPedidoProductoSelect("")
                                 setPedidoProductQuantity("1")
-                                setPedidoParentSelect("")
+                                // Ready to add its additions right away
+                                setPedidoAdditionsFor(isSelectedAddition ? "" : id)
                               }}
                               className="rounded-xl px-3 py-2.5 text-xs font-bold cursor-pointer"
                               style={{ background: C.mustard, color: "#fff" }}
@@ -16197,51 +17512,165 @@ function AdminPanel({
                               Agregar
                             </button>
                           </div>
-                          {isSelectedAddition && (
-                            <label className="mt-2 flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                              Adición de (opcional)
-                              <select
-                                value={pedidoParentSelect}
-                                onChange={(event) => setPedidoParentSelect(event.target.value)}
-                                className="w-full rounded-xl px-3 py-2 text-xs outline-none"
-                                style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                              >
-                                <option value="">Sin producto asociado</option>
-                                {pedidoOrderLines.filter((line) => line.category.toLowerCase() !== "adiciones").map((line) => (
-                                  <option key={line.id} value={line.id}>{line.product} × {line.quantity}</option>
-                                ))}
-                              </select>
-                            </label>
-                          )}
                         </div>
                         {!pedidoOrderLines.length ? (
                           <div className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>
                             Agrega al menos un producto al pedido.
                           </div>
                         ) : (
-                          <div className="flex flex-col divide-y rounded-xl px-3" style={{ background: t.input, borderColor: t.border }}>
-                            {pedidoOrderLines.map((line) => (
-                              <div key={line.id} className="flex items-center gap-3 py-2.5 text-xs" style={{ borderColor: t.border }}>
-                                <div className="min-w-0 flex-1">
-                                  <div className="font-semibold" style={{ color: t.text }}>
-                                    {line.product} × {line.quantity}
-                                    {line.category.toLowerCase() === "adiciones" && <span className="ml-1 rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: `${C.amber}18`, color: C.amber }}>Adición</span>}
-                                  </div>
-                                  {line.parentId && <div className="mt-0.5" style={{ color: t.muted }}>Adición de: {pedidoOrderLines.find((parent) => parent.id === line.parentId)?.product ?? "Producto"}</div>}
+                          <div className="rounded-xl px-3" style={{ background: t.input }}>
+                            {(() => {
+                              const additionProducts = (rows.producto || []).filter(
+                                (product) =>
+                                  String(product[1] ?? "").toLowerCase() === "adiciones" &&
+                                  isActiveStatus(product[4]) &&
+                                  Number(product[2]) > 0,
+                              )
+                              const setQuantity = (id: string, quantity: number) =>
+                                setPedidoOrderLines((current) =>
+                                  current.map((item) => (item.id === id ? { ...item, quantity: Math.max(1, quantity) } : item)),
+                                )
+                              // Adds the addition to that product, or one more if it already has it
+                              const addAddition = (parent: AdminOrderLine, product: (string | number)[]) =>
+                                setPedidoOrderLines((current) => {
+                                  const existing = current.find((item) => item.parentId === parent.id && item.product === product[0])
+                                  if (existing)
+                                    return current.map((item) => (item === existing ? { ...item, quantity: item.quantity + 1 } : item))
+                                  return [
+                                    ...current,
+                                    {
+                                      id: `order-line-${Date.now()}-${current.length}`,
+                                      product: String(product[0]),
+                                      category: String(product[1] ?? ""),
+                                      quantity: 1,
+                                      unitPrice: Number(product[2]) || 0,
+                                      parentId: parent.id,
+                                    },
+                                  ]
+                                })
+                              // Each product followed by its additions; an addition never stays without its product
+                              const ordered = [
+                                ...pedidoOrderLines
+                                  .filter((line) => !line.parentId)
+                                  .flatMap((line) => [line, ...pedidoOrderLines.filter((child) => child.parentId === line.id)]),
+                                ...pedidoOrderLines.filter((line) => line.parentId && !pedidoOrderLines.some((p) => p.id === line.parentId)),
+                              ]
+                              const stepper = (line: AdminOrderLine) => (
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    aria-label={`Una ${line.product} menos`}
+                                    disabled={line.quantity <= 1}
+                                    onClick={() => setQuantity(line.id, line.quantity - 1)}
+                                    className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                                    style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
+                                  >
+                                    −
+                                  </button>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={line.quantity}
+                                    onChange={(event) => setQuantity(line.id, Math.floor(Number(event.target.value)) || 1)}
+                                    aria-label={`Cantidad de ${line.product}`}
+                                    className="h-6 w-10 rounded-lg text-center text-xs outline-none"
+                                    style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label={`Una ${line.product} más`}
+                                    onClick={() => setQuantity(line.id, line.quantity + 1)}
+                                    className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-lg font-bold"
+                                    style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
+                                  >
+                                    +
+                                  </button>
                                 </div>
-                                <span style={{ color: t.muted }}>{fmt(line.unitPrice)} c/u</span>
-                                <strong style={{ color: C.mustard }}>{fmt(line.unitPrice * line.quantity)}</strong>
-                                <button
-                                  type="button"
-                                  aria-label={`Quitar ${line.product}`}
-                                  onClick={() => setPedidoOrderLines((current) => current.filter((item) => item.id !== line.id).map((item) => item.parentId === line.id ? { ...item, parentId: undefined } : item))}
-                                  className="flex h-6 w-6 items-center justify-center rounded-lg cursor-pointer"
-                                  style={{ color: C.red, background: `${C.red}10` }}
-                                >
-                                  {Ico.x}
-                                </button>
-                              </div>
-                            ))}
+                              )
+                              const renderLine = (line: AdminOrderLine) => {
+                                const isAddition = !!line.parentId || line.category.toLowerCase() === "adiciones"
+                                const open = pedidoAdditionsFor === line.id
+                                return (
+                                  <div key={line.id} className={`py-2.5 text-xs ${line.parentId ? "pl-5" : ""}`} style={{ borderColor: t.border }}>
+                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                                      <div className="min-w-0 flex-1 font-semibold" style={{ color: t.text }}>
+                                        {line.parentId && <span style={{ color: t.muted }}>↳ </span>}
+                                        {line.product}
+                                        {isAddition && <span className="ml-1 rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: `${C.amber}18`, color: C.amber }}>Adición</span>}
+                                        <div className="text-[10px] font-normal" style={{ color: t.muted }}>{fmt(line.unitPrice)} c/u</div>
+                                      </div>
+                                      {stepper(line)}
+                                      <strong className="w-16 text-right" style={{ color: C.mustard }}>{fmt(line.unitPrice * line.quantity)}</strong>
+                                      {!isAddition && additionProducts.length > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setPedidoAdditionsFor(open ? "" : line.id)}
+                                          aria-expanded={open}
+                                          className="cursor-pointer rounded-lg px-2 py-1 text-[11px] font-semibold"
+                                          style={{
+                                            background: open ? C.mustard : `${C.mustard}18`,
+                                            color: open ? "#fff" : C.mustard,
+                                          }}
+                                        >
+                                          + Adiciones
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        aria-label={`Quitar ${line.product}`}
+                                        onClick={() => setPedidoOrderLines((current) => current.filter((item) => item.id !== line.id && item.parentId !== line.id))}
+                                        className="flex h-6 w-6 items-center justify-center rounded-lg cursor-pointer"
+                                        style={{ color: C.red, background: `${C.red}10` }}
+                                      >
+                                        {Ico.x}
+                                      </button>
+                                    </div>
+                                    {open && (
+                                      <div className="mt-2 flex flex-wrap gap-1.5 rounded-lg p-2" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                                        <span className="w-full text-[10px] font-semibold" style={{ color: t.muted }}>
+                                          Toca una adición para agregarla a {line.product}:
+                                        </span>
+                                        {additionProducts.map((product) => {
+                                          const count = pedidoOrderLines.find((item) => item.parentId === line.id && item.product === product[0])?.quantity ?? 0
+                                          return (
+                                            <button
+                                              key={String(product[0])}
+                                              type="button"
+                                              onClick={() => addAddition(line, product)}
+                                              className="cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                                              style={{
+                                                background: count ? `${C.mustard}18` : t.input,
+                                                color: count ? C.mustard : t.text,
+                                                border: `1px solid ${count ? C.mustard : t.inputB}`,
+                                              }}
+                                            >
+                                              + {String(product[0])} · {fmt(Number(product[2]))}
+                                              {count > 0 && ` (${count})`}
+                                            </button>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              }
+                              // A product and its additions stay together; more than 4 products split in 2 and then 3 columns
+                              const groups: AdminOrderLine[][] = []
+                              ordered.forEach((line) => {
+                                if (line.parentId && groups.length && groups[groups.length - 1][0].id === line.parentId) groups[groups.length - 1].push(line)
+                                else groups.push([line])
+                              })
+                              return (
+                                <div className={`gap-x-5 ${groups.length > 8 ? "sm:columns-2 lg:columns-3" : groups.length > 4 ? "sm:columns-2" : ""}`}>
+                                  {groups.map((group) => (
+                                    <div key={group[0].id} className="break-inside-avoid divide-y border-b" style={{ borderColor: t.border }}>
+                                      {group.map(renderLine)}
+                                    </div>
+                                  ))}
+                                </div>
+                              )
+                            })()}
                             <div className="flex justify-between py-2 text-xs font-bold" style={{ color: t.text }}>
                               <span>Total del pedido</span>
                               <span style={{ color: C.mustard }}>{fmt(pedidoOrderLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0))}</span>
@@ -16355,11 +17784,7 @@ function AdminPanel({
                             validateManagedForm(modal.section, formData, modal.mode),
                           )
                         }
-
                         aria-invalid={!isView && !!fieldValidationError}
-
-                        aria-invalid={!!fieldValidationError}
-
                         rows={isPurchaseModule ? 2 : isRoles ? 2 : 3}
                         className={`w-full min-w-0 rounded-xl text-sm outline-none resize-none ${isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
@@ -16371,12 +17796,7 @@ function AdminPanel({
                     ) : (
                       <input
                         type={f.type}
-                        disabled={
-                          isProtectedAdditionCategory &&
-                          modal.mode === "edit" &&
-                          f.key === "0"
-                        }
-                        max={isPurchase && f.key === "1" ? getCurrentDateTimeParts().date : undefined}
+                        max={(isPurchase && f.key === "1") || (modal.section === "perdidas" && f.key === "4") || (isProduction && f.key === "3") || (isReturns && f.key === "5") ? getCurrentDateTimeParts().date : undefined}
                         value={val}
                         inputMode={
                           (modal.section === "usuarios" && f.key === "2") ||
@@ -16397,32 +17817,18 @@ function AdminPanel({
                             )
                           }
                         }}
-
                         aria-invalid={!isView && !!fieldValidationError}
-
-                        aria-invalid={!!fieldValidationError}
-
                         className={`w-full min-w-0 rounded-xl text-sm outline-none ${isUser || isRoles ? "px-3 py-2" : "px-3.5 py-2.5"}`}
                         style={{
                           background: t.input,
                           border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`,
                           color: t.text,
-                          opacity:
-                            isProtectedAdditionCategory &&
-                            modal.mode === "edit" &&
-                            f.key === "0"
-                              ? 0.7
-                              : 1,
                         }}
                       />
                     )}
-
                     {!isView && (
                       <FieldError msg={shownFieldError(f.key) || fieldValidationError} />
                     )}
-
-                    <FieldError msg={shownFieldError(f.key) || fieldValidationError} />
-
                   </div>
                   </Fragment>
                 )
@@ -16508,263 +17914,412 @@ function AdminPanel({
                 </div>
               )
             })()}
-            {isView && modal.section === "proveedores" && row && (() => {
-              const purchases = getSupplierPurchases(String(row[0]))
-              const total = purchases.reduce((s, p) => s + Number(p[4] || 0), 0)
-              return (
-                <div className="grid grid-cols-2 gap-3 rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                  <div>
-                    <div className="text-xs font-semibold" style={{ color: t.muted }}>Compras registradas</div>
-                    <div className="text-lg font-bold" style={{ color: t.text }}>{purchases.length}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold" style={{ color: t.muted }}>Total comprado</div>
-                    <div className="text-lg font-bold" style={{ color: C.mustard }}>{fmt(total)}</div>
-                  </div>
-                  <div className="col-span-2 text-xs" style={{ color: t.muted }}>
-                    {purchases.length
-                      ? "Como tiene compras registradas, este proveedor no se puede eliminar."
-                      : "No tiene compras registradas: se puede eliminar si ya no lo necesitas."}
-                  </div>
-                </div>
-              )
-            })()}
-
-                </div>
-              )
-            })()}
-            {isView && modal.section === "insumos" && row && (() => {
-              // Every purchase line of this insumo: what was bought, how much and for how much
-              const name = normalizeName(row[0])
-              const unit = String(row[2] ?? "und")
-              const lines = (rows.compras || []).flatMap((purchase) =>
-                parsePurchaseItems(purchase[6])
-                  .filter((item) => normalizeName(item.name) === name)
-                  .map((item) => ({
-                    supplier: String(purchase[0] ?? ""),
-                    date: String(purchase[1] ?? ""),
-                    annulled: String(purchase[5]) === "Anulado",
-                    quantity: Number(item.quantity) || 0,
-                    unitPrice: Number(item.unitPrice) || 0,
-                    total: item.total,
-                  })),
-              )
-              const active = lines.filter((l) => !l.annulled)
-              const boughtQty = active.reduce((s, l) => s + l.quantity, 0)
-              const boughtValue = active.reduce((s, l) => s + l.total, 0)
-              const dateField = MOD_CFG.compras.fields.find((field) => field.key === "1")!
-              return (
-                <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                    <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                      Compras de este insumo
-                    </span>
-                    {active.length > 0 && (
-                      <span className="text-xs" style={{ color: t.muted }}>
-                        Total comprado:{" "}
-                        <strong style={{ color: t.text }}>
-                          {boughtQty.toLocaleString("es-CO")} {unit}
-                        </strong>{" "}
-                        · <strong style={{ color: C.mustard }}>{fmt(boughtValue)}</strong>
-                      </span>
-                    )}
-                  </div>
-                  {lines.length === 0 ? (
-                    <div style={{ color: t.text }}>Aún no hay compras registradas de este insumo.</div>
-                  ) : (
-                    lines.map((l, i) => (
-                      <div
-                        key={i}
-                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
-                        style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
-                      >
-                        <span className="min-w-0" style={{ color: t.text }}>
-                          <strong>{formatViewValue(dateField, l.date)}</strong> · {l.supplier}
-                          {l.annulled && <span style={{ color: C.red }}> · Anulada</span>}
-                        </span>
-                        <span style={{ color: t.muted }}>
-                          {l.quantity.toLocaleString("es-CO")} {unit} × {fmt(l.unitPrice)} ={" "}
-                          <strong style={{ color: C.mustard }}>{fmt(l.total)}</strong>
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )
-            })()}
-            {isView && modal.section === "proveedores" && row && (() => {
-              const purchases = getSupplierPurchases(String(row[0]))
-              const total = purchases.reduce((s, p) => s + Number(p[4] || 0), 0)
-              return (
-                <div className="grid grid-cols-2 gap-3 rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                  <div>
-                    <div className="text-xs font-semibold" style={{ color: t.muted }}>Compras registradas</div>
-                    <div className="text-lg font-bold" style={{ color: t.text }}>{purchases.length}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs font-semibold" style={{ color: t.muted }}>Total comprado</div>
-                    <div className="text-lg font-bold" style={{ color: C.mustard }}>{fmt(total)}</div>
-                  </div>
-                  <div className="col-span-2 text-xs" style={{ color: t.muted }}>
-                    {purchases.length
-                      ? "Como tiene compras registradas, este proveedor no se puede eliminar."
-                      : "No tiene compras registradas: se puede eliminar si ya no lo necesitas."}
-                  </div>
-                </div>
-              )
-            })()}
-
-            {isView && isPurchase && (
+            {isView && modal.section === "perdidas" && String(row?.[7] ?? "").trim() && (
               <div
-                className="min-w-0 overflow-hidden rounded-xl sm:col-span-2"
-                style={{ border: `1px dashed ${t.inputB}`, background: t.card }}
+                className="rounded-xl px-4 py-3 text-sm sm:col-span-2"
+                style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}
               >
-                <div
-                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-3"
-                  style={{ background: t.cardAlt, borderBottom: `1px solid ${t.border}` }}
-                >
-                  <div>
-                    <div className="text-sm font-bold" style={{ color: t.text }}>Ticket de compra</div>
-                    <div className="mt-0.5 text-[10px]" style={{ color: t.muted }}>Detalle de insumos y valores</div>
-                  </div>
-                  <span className="rounded-full px-2.5 py-1 text-[10px] font-bold" style={{ background: String(row?.[5]) === "Anulado" ? `${C.red}18` : "rgba(58,109,94,0.14)", color: String(row?.[5]) === "Anulado" ? C.red : "#2E7D60" }}>
-                    {String(row?.[5] ?? "Activo")}
-                  </span>
+                <div className="text-xs font-semibold" style={{ color: C.mustard }}>
+                  {isReturnedLoss(row ?? undefined) ? RETURNED_LOSS : "Devuelto a compra"}
+                  {row?.[8] ? ` · ${String(row[8])} en total` : ""}
                 </div>
-                <div className="grid gap-2 px-4 py-3 text-xs sm:grid-cols-3" style={{ color: t.muted }}>
-                  <span><strong style={{ color: t.text }}>Proveedor:</strong> {String(row?.[0] ?? "—")}</span>
-                  <span><strong style={{ color: t.text }}>Compra:</strong> {formatViewValue(cfg.fields[1], String(row?.[1] ?? ""))}</span>
-                  <span><strong style={{ color: t.text }}>Registro:</strong> {formatViewValue(cfg.fields[2], String(row?.[2] ?? ""))}</span>
-                </div>
-                <div className="min-w-0 border-t border-dashed px-4 py-3" style={{ borderColor: t.inputB }}>
-                  <div className="mb-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted, fontFamily: "Montserrat, sans-serif" }}>Insumos comprados</div>
-                  {parsePurchaseItems(row?.[6]).length ? (
-                    parsePurchaseItems(row?.[6]).map((item, index) => (
-                      <div key={`${item.name}-${index}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1 border-b py-2.5 text-xs last:border-b-0" style={{ borderColor: t.border }}>
-                        <span className="min-w-0 font-semibold break-words" style={{ color: t.text }}>{item.name}</span>
-                        <span className="text-right font-bold" style={{ color: C.mustard }}>{fmt(item.total)}</span>
-                        <span className="col-span-2 text-[10px]" style={{ color: t.muted }}>{item.quantity} {String(supplyInfo(item.name)?.[2] ?? "und")} × {fmt(Number(item.unitPrice || 0))}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>No se registraron insumos comprados.</div>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-dashed px-4 py-3 text-xs" style={{ borderColor: t.inputB }}>
-                  <span style={{ color: t.muted }}>Subtotal: <strong style={{ color: t.text }}>{fmt(Number(row?.[3] || 0))}</strong></span>
-                  <span className="text-sm" style={{ color: t.text }}>Total: <strong style={{ color: C.mustard }}>{fmt(Number(row?.[4] || 0))}</strong></span>
-                </div>
+                {String(row?.[7]).split("\n").map((line, index) => (
+                  <div key={index} className="mt-1" style={{ color: t.text }}>{line}</div>
+                ))}
               </div>
             )}
+            {isView && isPurchase && (() => {
+              const items = parsePurchaseItems(row?.[6])
+              const annulled = String(row?.[5]) === "Anulado"
+              const info = (label: string, value: string) => (
+                <div className="min-w-0">
+                  <div className="text-[11px]" style={{ color: t.muted }}>{label}</div>
+                  <div className="truncate text-sm" style={{ color: t.text }}>{value}</div>
+                </div>
+              )
+              return (
+                <div className="flex min-w-0 flex-col gap-3 sm:col-span-2">
+                  <div className="flex flex-wrap items-center gap-3 rounded-xl px-4 py-3" style={{ background: t.cardAlt }}>
+                    <span
+                      className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg"
+                      style={{ background: `${C.mustard}14`, color: C.mustard }}
+                    >
+                      {Ico.cart}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px]" style={{ color: t.muted }}>Compra a</div>
+                      <div className="break-words text-base font-semibold" style={{ color: t.text }}>{String(row?.[0] ?? "—")}</div>
+                    </div>
+                    <span
+                      className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                      style={{ background: annulled ? `${C.red}18` : "rgba(58,109,94,0.14)", color: annulled ? C.red : "#2E7D60" }}
+                    >
+                      {String(row?.[5] ?? "Activo")}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 rounded-xl px-4 py-3 sm:grid-cols-3" style={{ border: `1px solid ${t.border}` }}>
+                    {info("Fecha de compra", formatViewValue(cfg.fields[1], String(row?.[1] ?? "")))}
+                    {info("Registrada el", formatViewValue(cfg.fields[2], String(row?.[2] ?? "")))}
+                    {info("Insumos", `${items.length} ${items.length === 1 ? "insumo" : "insumos"}`)}
+                  </div>
+                  <div className="min-w-0 overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
+                    <div
+                      className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-x-4 px-4 py-2 text-[11px] sm:grid-cols-[minmax(0,1fr)_7rem_7rem_7rem]"
+                      style={{ background: t.cardAlt, color: t.muted }}
+                    >
+                      <span>Insumo</span>
+                      <span className="hidden text-right sm:block">Cantidad</span>
+                      <span className="text-right">Precio unit.</span>
+                      <span className="text-right">Total</span>
+                    </div>
+                    {items.length ? (
+                      items.map((item, index) => {
+                        const unit = String(supplyInfo(item.name)?.[2] ?? "und")
+                        return (
+                          <div
+                            key={`${item.name}-${index}`}
+                            className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-4 border-t px-4 py-2.5 text-sm sm:grid-cols-[minmax(0,1fr)_7rem_7rem_7rem]"
+                            style={{ borderColor: t.border, color: t.text }}
+                          >
+                            <span className="min-w-0">
+                              <span className="block break-words">{item.name}</span>
+                              <span className="block text-[11px] sm:hidden" style={{ color: t.muted }}>
+                                {Number(item.quantity).toLocaleString("es-CO")} {unit}
+                              </span>
+                            </span>
+                            <span className="hidden text-right sm:block" style={{ color: t.muted }}>
+                              {Number(item.quantity).toLocaleString("es-CO")} {unit}
+                            </span>
+                            <span className="text-right" style={{ color: t.muted }}>{fmt(Number(item.unitPrice || 0))}</span>
+                            <span className="text-right">{fmt(item.total)}</span>
+                          </div>
+                        )
+                      })
+                    ) : (
+                      <div className="border-t px-4 py-4 text-center text-xs" style={{ borderColor: t.border, color: t.muted }}>
+                        No se registraron insumos comprados.
+                      </div>
+                    )}
+                    <div className="flex items-center justify-end gap-3 border-t px-4 py-3" style={{ borderColor: t.border }}>
+                      <span className="text-sm" style={{ color: t.muted }}>Total</span>
+                      <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(Number(row?.[4] || 0))}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
             {isView && modal.section === "cat-producto" && row && (() => {
               const products = (rows.producto || []).filter(
                 (product) => normalizeName(product[1]) === normalizeName(row[0]),
               )
               return (
-                <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                  <div className="text-xs font-semibold mb-1.5" style={{ color: t.muted }}>
+                <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ border: `1px solid ${t.border}` }}>
+                  <div className="mb-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>
                     Productos en esta categoría ({products.length})
                   </div>
-                  <div style={{ color: t.text }}>
-                    {products.length
-                      ? products.map((product) => String(product[0])).join(", ")
-                      : "Ningún producto usa esta categoría todavía."}
+                  {products.length ? (
+                    <div className="grid gap-1.5 sm:grid-cols-2">
+                      {products
+                        .map((product) => String(product[0]))
+                        .sort((a, b) => a.localeCompare(b))
+                        .map((name) => (
+                          <div
+                            key={name}
+                            className="flex min-w-0 items-center gap-2 rounded-lg px-3 py-2"
+                            style={{ background: t.cardAlt, color: t.text }}
+                          >
+                            <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: C.mustard }} />
+                            <span className="min-w-0 truncate" title={name}>{name}</span>
+                          </div>
+                        ))}
+                    </div>
+                  ) : (
+                    <div style={{ color: t.muted }}>Ningún producto usa esta categoría todavía.</div>
+                  )}
+                </div>
+              )
+            })()}
+            {isView && isProduction && row && (() => {
+              const items = getProductionOrderItems(row)
+              // Products first, then additions, then drinks
+              const groupOf = (item: ProductionItem) => {
+                const category = normalizeName(String(item.category || rows.producto?.find((p) => p[0] === item.name)?.[1] || ""))
+                if (item.name.startsWith("Gaseosa ") || category === "bebidas" || category === "sabores de bebida") return 2
+                if (item.parentId || category === "adiciones") return 1
+                return 0
+              }
+              const groups = ["Productos", "Adiciones", "Bebidas"]
+                .map((title, g) => ({ title, list: items.filter((item) => groupOf(item) === g) }))
+                .filter((group) => group.list.length)
+              const history = parseProductionHistory(row[12])
+              const status = String(row[8] || "Recibida")
+              // "17 oct 2026" and "18:34" (some old records saved "6:37:44 PM")
+              const shortDate = (value: string | number | undefined) => {
+                const d = new Date(`${String(value ?? "").slice(0, 10)}T00:00:00`)
+                return Number.isNaN(d.getTime()) ? String(value ?? "—") : d.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" })
+              }
+              const shortTime = (value: string | number | undefined) => {
+                const m = /^(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])?\.?\s*m?\.?$/i.exec(String(value ?? "").trim())
+                if (!m) return String(value ?? "—")
+                let h = Number(m[1]) % 12 + (m[3]?.toLowerCase() === "p" ? 12 : 0)
+                if (!m[3]) h = Number(m[1])
+                return `${String(h).padStart(2, "0")}:${m[2]}`
+              }
+              const info = (label: string, value: string, color: string = t.text) => (
+                <div className="min-w-0 rounded-xl px-3 py-2.5" style={{ background: t.cardAlt }}>
+                  <div className="text-[11px]" style={{ color: t.muted }}>{label}</div>
+                  <div className="truncate text-sm" style={{ color }}>{value}</div>
+                </div>
+              )
+              const title = (text: string) => (
+                <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>{text}</h4>
+              )
+              return (
+                <div className="grid gap-4 sm:col-span-2 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                  <div className="min-w-0 rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+                    {title(`Productos de la orden (${items.length})`)}
+                    <div className={`gap-x-4 ${items.length > 8 ? "sm:columns-2" : ""}`}>
+                      {groups.map((group) => (
+                        <div key={group.title} className="mb-3 break-inside-avoid last:mb-0">
+                          <div className="mb-1 text-[11px]" style={{ color: t.muted }}>{group.title}</div>
+                          {group.list.map((item, index) => (
+                            <div
+                              key={`${item.name}-${index}`}
+                              className="flex items-baseline justify-between gap-3 border-b py-1.5 last:border-b-0"
+                              style={{ borderColor: t.border }}
+                            >
+                              <span className="min-w-0">
+                                <span className="block break-words text-sm" style={{ color: t.text }}>{item.name}</span>
+                                {(item.reuse || item.onlySupplies) && (
+                                  <span className="block text-[11px]" style={{ color: t.muted }}>
+                                    {item.reuse
+                                      ? "Se reutiliza (no descuenta)"
+                                      : `Solo ${item.onlySupplies!.map((part: { name: string }) => part.name).join(", ")}`}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="flex-shrink-0 text-sm" style={{ color: t.muted }}>
+                                ×{item.quantity.toLocaleString("es-CO")} {item.unit && item.unit !== "unidad" ? item.unit : ""}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex min-w-0 flex-col gap-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Terminado" ? "#2E7D60" : t.text)}
+                      {info(row[15] ? "Pedido" : "Prioridad", row[15] ? String(row[15]) : `#${String(row[3] ?? "—")}`)}
+                      {info("Creada", `${shortDate(row[4])} · ${shortTime(row[5])}`)}
+                      {info("Actualizada", `${shortDate(row[6])} · ${shortTime(row[7])}`)}
+                    </div>
+                    {row[9] ? info("Salida de producción", String(row[9]), C.mustard) : null}
+                    <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+                      {title("Actualizaciones")}
+                      <ol className="relative flex flex-col gap-2.5">
+                        {history.map((update, index) => (
+                          <li key={`${update.status}-${update.date}-${index}`} className="flex items-center gap-2.5">
+                            <span
+                              className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                              style={{ background: update.status === "Producto no conforme" ? C.red : index === history.length - 1 ? C.mustard : t.inputB }}
+                            />
+                            <span className="min-w-0 flex-1 truncate text-sm" style={{ color: update.status === "Producto no conforme" ? C.red : t.text }}>
+                              {update.status}
+                            </span>
+                            <span className="flex-shrink-0 text-[11px]" style={{ color: t.muted }}>{shortDate(update.date)} · {shortTime(update.time)}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
                   </div>
                 </div>
               )
             })()}
-            {isView && isProduction && (
-              <div className="grid gap-2 sm:col-span-2 sm:grid-cols-2">
-                <div className="rounded-xl px-3.5 py-3 sm:col-span-2" style={{ background: t.input }}>
-                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Productos de la orden</span>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {getProductionOrderItems(row ?? undefined).map((item, index) => (
-                      <span key={`${item.name}-${index}`} className="rounded-full px-3 py-1.5 text-xs font-semibold" style={{ background: `${C.mustard}12`, color: C.mustard }}>
-                        {item.name} × {item.quantity}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="rounded-xl px-3.5 py-3 text-sm" style={{ background: t.input }}>
-                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Estado actual</span>
-                  <strong className="mt-1 block" style={{ color: String(row?.[8]) === "Producto no conforme" ? C.red : t.text }}>{String(row?.[8] ?? "Recibida")}</strong>
-                </div>
-                <div className="rounded-xl px-3.5 py-3 text-sm" style={{ background: t.input }}>
-                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Prioridad de llegada</span>
-                  <strong className="mt-1 block" style={{ color: t.text }}>#{String(row?.[3] ?? "—")}</strong>
-                </div>
-                <div className="rounded-xl px-3.5 py-3 text-sm" style={{ background: t.input }}>
-                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Creada</span>
-                  <strong className="mt-1 block" style={{ color: t.text }}>{String(row?.[4] ?? "—")} · {String(row?.[5] ?? "—")}</strong>
-                </div>
-                <div className="rounded-xl px-3.5 py-3 text-sm" style={{ background: t.input }}>
-                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Última actualización</span>
-                  <strong className="mt-1 block" style={{ color: t.text }}>{String(row?.[6] ?? "—")} · {String(row?.[7] ?? "—")}</strong>
-                </div>
-                <div className="rounded-xl px-3.5 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                  <span className="block text-[10px] font-semibold" style={{ color: t.muted }}>Salida de producción</span>
-                  <strong className="mt-1 block" style={{ color: C.mustard }}>{String(row?.[9] || "Pendiente")}</strong>
-                </div>
-                <div className="rounded-xl px-3.5 py-3 sm:col-span-2" style={{ background: t.input }}>
-                  <span className="block text-xs font-semibold" style={{ color: t.text }}>Actualizaciones consecutivas</span>
-                  <div className="mt-3 flex flex-col gap-2">
-                    {parseProductionHistory(row?.[12]).map((update, index) => (
-                      <div key={`${String(update.status)}-${String(update.date)}-${index}`} className="flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
-                        <span className="flex items-center gap-2 font-semibold" style={{ color: update.status === "Producto no conforme" ? C.red : t.text }}>
-                          <span style={{ color: C.mustard }}>{index + 1}.</span>
-                          {String(update.status)}
+            {isView && isPedido && row && (
+              <div className="grid min-w-0 gap-3 sm:col-span-2 md:grid-flow-row-dense md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                {(() => {
+                  const badge = (text: string, ok: boolean, warn = false) => (
+                    <span
+                      className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                      style={
+                        ok
+                          ? { background: "rgba(46,125,96,0.12)", color: "#2E7D60" }
+                          : warn
+                            ? { background: `${C.red}12`, color: C.red }
+                            : { background: `${C.mustard}16`, color: C.mustard }
+                      }
+                    >
+                      {text}
+                    </span>
+                  )
+                  const info = (label: string, value: string) => (
+                    <div className="min-w-0 rounded-xl px-3 py-2.5" style={{ background: t.cardAlt }}>
+                      <div className="text-[11px]" style={{ color: t.muted }}>{label}</div>
+                      <div className="break-words text-sm" style={{ color: t.text }}>{value || "—"}</div>
+                    </div>
+                  )
+                  const title = (text: string) => (
+                    <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>{text}</h4>
+                  )
+                  const productionOrders = (rows.produccion || []).filter((order) => String(order[15] ?? "") === String(row[0]))
+                  const groups = orderDetails
+                    .filter((line) => !line.parentId)
+                    .map((line) => [line, ...orderDetails.filter((child) => child.parentId === line.id)])
+                  const total = orderDetails.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0) || Number(row[6]) || 0
+                  const comment = String(row[12] ?? "").trim()
+                  return (
+                    <>
+                      <div className="flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3 md:col-span-2" style={{ background: t.cardAlt }}>
+                        <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                          {Ico.orders}
                         </span>
-                        <span style={{ color: t.muted }}>{String(update.date)} · {String(update.time)}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-            {isView && isPedido && (
-              <div className="rounded-xl p-4 sm:col-span-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <span className="text-xs" style={{ color: t.muted }}>Estado: <strong style={{ color: t.text }}>{String(row?.[7] ?? "Recibido")}</strong></span>
-                  <span className="text-xs" style={{ color: t.muted }}>Pago: <strong style={{ color: String(row?.[8]) === "Pagado" ? "#2E7D60" : C.red }}>{String(row?.[8] ?? "Pendiente")}</strong></span>
-                  <span className="text-xs" style={{ color: t.muted }}>Autorización: <strong style={{ color: String(row?.[9]) === "Autorizada" ? "#2E7D60" : C.mustard }}>{String(row?.[9] ?? "Pendiente admin")}</strong></span>
-                </div>
-                <div className="mt-4">
-                  <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle del pedido</h4>
-                  <div className="flex flex-col gap-2">
-                    {orderDetails.map((line) => {
-                      const parent = line.parentId
-                        ? orderDetails.find((candidate) => candidate.id === line.parentId)
-                        : undefined
-                      return (
-                        <div key={line.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
-                          <span style={{ color: t.text }}>{parent ? `↳ ${line.product} · adición de ${parent.product}` : line.product} <span style={{ color: t.muted }}>× {line.quantity}</span></span>
-                          <strong className="shrink-0" style={{ color: t.text }}>{fmt(line.quantity * line.unitPrice)}</strong>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-base font-semibold" style={{ color: t.text }}>{String(row[0])}</div>
+                          <div className="break-words text-xs" style={{ color: t.muted }}>{String(row[1] || "Sin cliente")}</div>
                         </div>
-                      )
-                    })}
-                    {!orderDetails.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
-                  </div>
-                </div>
-                {paymentProofs[modal.idx!] && (
-                  <div className="mt-4">
+                        <div className="flex flex-wrap gap-1.5">
+                          {badge(String(row[7] || "Recibido"), ["Entregado"].includes(String(row[7])), String(row[7]) === "Cancelado")}
+                          {badge(`Pago: ${String(row[8] || "Pendiente")}`, String(row[8]) === "Pagado", String(row[8]) === "Rechazado")}
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:col-span-2">
+                        {info("Tipo de pedido", String(row[3] ?? ""))}
+                        {info("Método de pago", String(row[4] ?? ""))}
+                        {info("Modalidad", String(row[5] ?? ""))}
+                        {info("Producción", String(row[9] ?? ""))}
+                      </div>
+                      <div className="rounded-2xl px-4 py-3 md:col-start-1 md:row-start-3 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
+                        {title(`Productos (${groups.length})`)}
+                        {groups.length ? (
+                          <div className={`gap-x-6 ${groups.length > 4 ? "sm:columns-2" : ""}`}>
+                            {groups.map((group) => (
+                              <div key={group[0].id} className="mb-2 break-inside-avoid border-b pb-2 last:border-b-0" style={{ borderColor: t.border }}>
+                                {(() => {
+                                  // The product's additions and drinks show only when its "Más detalles" is open
+                                  const [main, ...extras] = group
+                                  const open = orderDetailOpen.includes(main.id)
+                                  return (
+                                    <>
+                                      <div className="flex items-center justify-between gap-3 py-0.5 text-sm">
+                                        <span className="min-w-0 break-words" style={{ color: t.text }}>
+                                          {main.product}
+                                          <span style={{ color: t.muted }}> ×{main.quantity}</span>
+                                        </span>
+                                        <span className="flex flex-shrink-0 items-center gap-2">
+                                          {extras.length > 0 && (
+                                            <button
+                                              type="button"
+                                              aria-expanded={open}
+                                              onClick={() =>
+                                                setOrderDetailOpen((current) =>
+                                                  open ? current.filter((id) => id !== main.id) : [...current, main.id],
+                                                )
+                                              }
+                                              className="cursor-pointer rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                              style={{ background: `${C.mustard}14`, color: C.mustard }}
+                                            >
+                                              {open ? "− Menos" : `+ Más detalles (${extras.length})`}
+                                            </button>
+                                          )}
+                                          <span style={{ color: t.text }}>{fmt(main.quantity * main.unitPrice)}</span>
+                                        </span>
+                                      </div>
+                                      {open &&
+                                        extras.map((line) => (
+                                          <div key={line.id} className="flex items-baseline justify-between gap-3 py-0.5 pl-4 text-sm">
+                                            <span className="min-w-0 break-words" style={{ color: t.muted }}>
+                                              + {line.product}
+                                              <span> ×{line.quantity}</span>
+                                            </span>
+                                            <span className="flex-shrink-0" style={{ color: t.muted }}>{fmt(line.quantity * line.unitPrice)}</span>
+                                          </div>
+                                        ))}
+                                    </>
+                                  )
+                                })()}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm" style={{ color: t.muted }}>No hay detalle de productos disponible.</p>
+                        )}
+                        <div className="mt-2 flex items-center justify-between border-t pt-2.5" style={{ borderColor: t.border }}>
+                          <span className="text-sm" style={{ color: t.muted }}>Total</span>
+                          <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(total)}</span>
+                        </div>
+                      </div>
+                      {(comment || productionOrders.length > 0) && (
+                        <div className="grid content-start gap-3 md:col-start-2 self-start">
+                          {comment && (
+                            <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+                              {title("Especificaciones")}
+                              <p className="whitespace-pre-line text-sm" style={{ color: t.text }}>{comment}</p>
+                            </div>
+                          )}
+                          {productionOrders.length > 0 && (
+                            <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+                              {title("Orden de producción")}
+                              {productionOrders.map((order) => (
+                                <div key={String(order[0])} className="flex items-center justify-between gap-2 text-sm">
+                                  <span style={{ color: t.text }}>{String(order[0])}</span>
+                                  {badge(String(order[8] || "Recibida"), String(order[8]) === "Terminado", String(order[8]) === "Producto no conforme")}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
+                {(paymentProofs[modal.idx!] || paymentProofDraft) && (
+                  <div className="rounded-2xl px-4 py-3 md:col-start-2 self-start" style={{ border: `1px solid ${t.border}` }}>
                     <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
                       Comprobante de transferencia
                     </h4>
                     <img
-                      src={paymentProofs[modal.idx!]}
+                      src={paymentProofs[modal.idx!] || paymentProofDraft}
                       alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
-                      className="max-h-64 w-full rounded-xl object-contain"
+                      className="max-h-48 w-full rounded-xl object-contain"
                       style={{ background: t.card, border: `1px solid ${t.border}` }}
                     />
                   </div>
                 )}
+                {(() => {
+                  const current = String(row?.[8] || "Pendiente")
+                  const next = PAYMENT_NEXT[current]
+                  return (
+                    <label className="md:col-start-2 flex flex-col gap-1.5 text-xs font-semibold" style={{ color: t.text }}>
+                      Estado de pago
+                      <select
+                        value={current}
+                        disabled={!next}
+                        onChange={(event) => setOrderPayment(modal.idx!, event.target.value)}
+                        className="w-full cursor-pointer rounded-lg px-3 py-2 text-sm disabled:cursor-default"
+                        style={{
+                          background: current === "Pagado" ? "rgba(46,125,96,0.10)" : t.card,
+                          color: current === "Pagado" ? "#2E7D60" : t.text,
+                          border: `1px solid ${t.border}`,
+                        }}
+                      >
+                        {[current, ...(next ? [next] : [])].map((status) => (
+                          <option key={status} value={status}>{status}</option>
+                        ))}
+                      </select>
+                      <span className="text-[11px] font-normal" style={{ color: t.muted }}>
+                        {next ? "Solo avanza; al pasarlo a «Pagado» se crea la venta del pedido." : "Pagado: la venta ya quedó registrada."}
+                      </span>
+                    </label>
+                  )
+                })()}
                 {loadOrders().some((order) => order.id === row?.[0]) && (
-                  <label className="mt-4 flex items-center justify-between gap-3 text-xs font-semibold" style={{ color: t.text }}>
+                  <label className="md:col-start-2 flex flex-col gap-1.5 text-xs font-semibold" style={{ color: t.text }}>
                     Estado del pedido (lo ve el cliente)
                     <select
                       value={String(row?.[7] ?? "")}
                       onChange={(e) => setClientOrderStatus(modal.idx!, e.target.value)}
-                      className="rounded-lg px-3 py-2 text-sm"
+                      className="w-full rounded-lg px-3 py-2 text-sm"
                       style={{ background: t.card, color: t.text, border: `1px solid ${t.border}` }}
                     >
                       {[...new Set([String(row?.[7] ?? ""), "Por confirmar", ...ORDER_STEPS, "Cancelado"])]
@@ -16781,20 +18336,20 @@ function AdminPanel({
                   <button
                     type="button"
                     onClick={() => setClientOrderStatus(modal.idx!, String(row?.[7]))}
-                    className="mt-2 w-full cursor-pointer rounded-xl py-2 text-xs font-bold"
+                    className="md:col-start-2 self-start w-full cursor-pointer rounded-xl py-2 text-xs font-bold"
                     style={{ background: `${C.mustard}14`, color: C.mustard }}
                   >
                     Sincronizar producción con «{String(row?.[7])}»
                   </button>
                 )}
                 {String(row?.[8]) === "Rechazado" && (
-                  <p className="mt-4 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
+                  <p className="md:col-start-2 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
                     Transferencia rechazada: {String(row?.[11] || "Sin motivo registrado.")}
                   </p>
                 )}
                 {isTransferPaymentMethod(String(row?.[4] ?? "")) &&
                 String(row?.[8]) === "Pendiente de verificación" ? (
-                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <div className="md:col-start-2 flex flex-col gap-2">
                     <button
                       type="button"
                       onClick={() => {
@@ -16818,11 +18373,11 @@ function AdminPanel({
                     </button>
                   </div>
                 ) : String(row?.[9]) === "Autorizada" ? (
-                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
+                  <p className="md:col-start-2 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
                     Pago aprobado y producción autorizada.
                   </p>
                 ) : String(row?.[9]) === "Enviada a producción" ? (
-                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
+                  <p className="md:col-start-2 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
                     Ya se envió a producción.
                   </p>
                 ) : String(row?.[8]) !== "Rechazado" && (
@@ -16834,7 +18389,7 @@ function AdminPanel({
                       ["Autorizada", "Enviada a producción"].includes(String(row?.[9]))
                     }
                     onClick={() => approveOrderForProduction(modal.idx!)}
-                    className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                    className="md:col-start-2 self-start w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ background: C.mustard, color: "#fff" }}
                   >
                     Confirmar pedido y enviar a producción
@@ -16842,172 +18397,134 @@ function AdminPanel({
                 )}
               </div>
             )}
-
-            {isView && isSales && (
-              <div className="rounded-xl p-4 sm:col-span-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
-                <h4 className="mb-3 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle de la venta</h4>
-                <div className="flex flex-col gap-2">
-                  {saleOrderLines.map((line) => {
-                    const parent = line.parentId
-                      ? saleOrderLines.find((candidate) => candidate.id === line.parentId)
-                      : undefined
-                    return (
-                      <div key={line.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
-                        <span style={{ color: t.text }}>{parent ? `↳ ${line.product} · adición de ${parent.product}` : line.product} <span style={{ color: t.muted }}>× {line.quantity}</span></span>
-                        <strong className="shrink-0" style={{ color: t.text }}>{fmt(line.quantity * line.unitPrice)}</strong>
-                      </div>
-                    )
-                  })}
-                  {!saleOrderLines.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
+            {isView && isSales && row && (() => {
+              const info = (label: string, value: string) => (
+                <div className="min-w-0 rounded-xl px-3 py-2.5" style={{ background: t.cardAlt }}>
+                  <div className="text-[11px]" style={{ color: t.muted }}>{label}</div>
+                  <div className="break-words text-sm" style={{ color: t.text }}>{value || "—"}</div>
                 </div>
-
-            {isView && isPedido && (
-              <div className="rounded-xl p-4 sm:col-span-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <span className="text-xs" style={{ color: t.muted }}>Estado: <strong style={{ color: t.text }}>{String(row?.[7] ?? "Recibido")}</strong></span>
-                  <span className="text-xs" style={{ color: t.muted }}>Pago: <strong style={{ color: String(row?.[8]) === "Pagado" ? "#2E7D60" : C.red }}>{String(row?.[8] ?? "Pendiente")}</strong></span>
-                  <span className="text-xs" style={{ color: t.muted }}>Autorización: <strong style={{ color: String(row?.[9]) === "Autorizada" ? "#2E7D60" : C.mustard }}>{String(row?.[9] ?? "Pendiente admin")}</strong></span>
-                </div>
-                <div className="mt-4">
-                  <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle del pedido</h4>
-                  <div className="flex flex-col gap-2">
-                    {orderDetails.map((line) => {
-                      const parent = line.parentId
-                        ? orderDetails.find((candidate) => candidate.id === line.parentId)
-                        : undefined
-                      return (
-                        <div key={line.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
-                          <span style={{ color: t.text }}>{parent ? `↳ ${line.product} · adición de ${parent.product}` : line.product} <span style={{ color: t.muted }}>× {line.quantity}</span></span>
-                          <strong className="shrink-0" style={{ color: t.text }}>{fmt(line.quantity * line.unitPrice)}</strong>
-                        </div>
-                      )
-                    })}
-                    {!orderDetails.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
+              )
+              const title = (text: string) => (
+                <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>{text}</h4>
+              )
+              const groups = saleOrderLines
+                .filter((line) => !line.parentId)
+                .map((line) => [line, ...saleOrderLines.filter((child) => child.parentId === line.id)])
+              const date = new Date(`${String(row[3] ?? "").slice(0, 10)}T00:00:00`)
+              const dateText = Number.isNaN(date.getTime())
+                ? String(row[3] ?? "—")
+                : date.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
+              const proof = saleOrderIndex >= 0 ? paymentProofs[saleOrderIndex] : ""
+              return (
+                <div className="grid min-w-0 gap-3 sm:col-span-2 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                  <div className="flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3 md:col-span-2" style={{ background: t.cardAlt }}>
+                    <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                      {Ico.cash}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[11px] uppercase tracking-wider" style={{ color: t.muted }}>{String(row[0])}</div>
+                      <div className="break-words text-base font-semibold" style={{ color: t.text }}>{String(row[2] || "Sin cliente")}</div>
+                      <div className="text-xs" style={{ color: t.muted }}>{dateText}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[11px]" style={{ color: t.muted }}>Total</div>
+                      <div className="text-xl font-semibold" style={{ color: C.mustard }}>{fmt(Number(row[7]) || 0)}</div>
+                    </div>
                   </div>
-                </div>
-                {paymentProofs[modal.idx!] && (
-                  <div className="mt-4">
-                    <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
-                      Comprobante de transferencia
-                    </h4>
-                    <img
-                      src={paymentProofs[modal.idx!]}
-                      alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
-                      className="max-h-64 w-full rounded-xl object-contain"
-                      style={{ background: t.card, border: `1px solid ${t.border}` }}
-                    />
+                  <div className="rounded-2xl px-4 py-3 md:row-span-2" style={{ border: `1px solid ${t.border}` }}>
+                    {title(`Productos (${groups.length})`)}
+                    {groups.length ? (
+                      groups.map((group) => {
+                        const [main, ...extras] = group
+                        const open = orderDetailOpen.includes(main.id)
+                        return (
+                          <div key={main.id} className="border-b py-1.5 last:border-b-0" style={{ borderColor: t.border }}>
+                            <div className="flex items-center justify-between gap-3 text-sm">
+                              <span className="min-w-0">
+                                <span className="block break-words" style={{ color: t.text }}>
+                                  {main.product}<span style={{ color: t.muted }}> ×{main.quantity}</span>
+                                </span>
+                                <span className="block text-[11px]" style={{ color: t.muted }}>{fmt(main.unitPrice)} c/u</span>
+                              </span>
+                              <span className="flex flex-shrink-0 items-center gap-2">
+                                {extras.length > 0 && (
+                                  <button
+                                    type="button"
+                                    aria-expanded={open}
+                                    onClick={() =>
+                                      setOrderDetailOpen((current) => (open ? current.filter((id) => id !== main.id) : [...current, main.id]))
+                                    }
+                                    className="cursor-pointer rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                                    style={{ background: `${C.mustard}14`, color: C.mustard }}
+                                  >
+                                    {open ? "− Menos detalles" : `+ Más detalles (${extras.length})`}
+                                  </button>
+                                )}
+                                <span style={{ color: t.text }}>{fmt(main.quantity * main.unitPrice)}</span>
+                              </span>
+                            </div>
+                            {open &&
+                              extras.map((line) => (
+                                <div key={line.id} className="flex items-baseline justify-between gap-3 py-0.5 pl-4 text-sm">
+                                  <span className="min-w-0 break-words" style={{ color: t.muted }}>+ {line.product} ×{line.quantity}</span>
+                                  <span className="flex-shrink-0" style={{ color: t.muted }}>{fmt(line.quantity * line.unitPrice)}</span>
+                                </div>
+                              ))}
+                          </div>
+                        )
+                      })
+                    ) : (
+                      <p className="text-sm" style={{ color: t.muted }}>No hay detalle de productos disponible.</p>
+                    )}
+                    <div className="mt-2 flex items-center justify-between border-t pt-2.5" style={{ borderColor: t.border }}>
+                      <span className="text-sm" style={{ color: t.muted }}>Total</span>
+                      <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(Number(row[7]) || 0)}</span>
+                    </div>
                   </div>
-                )}
-                {loadOrders().some((order) => order.id === row?.[0]) && (
-                  <label className="mt-4 flex items-center justify-between gap-3 text-xs font-semibold" style={{ color: t.text }}>
-                    Estado del pedido (lo ve el cliente)
-                    <select
-                      value={String(row?.[7] ?? "")}
-                      onChange={(e) => setClientOrderStatus(modal.idx!, e.target.value)}
-                      className="rounded-lg px-3 py-2 text-sm"
-                      style={{ background: t.card, color: t.text, border: `1px solid ${t.border}` }}
-                    >
-                      {[...new Set([String(row?.[7] ?? ""), "Por confirmar", ...ORDER_STEPS, "Cancelado"])]
-                        .filter(Boolean)
-                        .map((status) => (
-                          <option key={status} value={status}>
-                            {status}
-                          </option>
+                  <div className="flex flex-col gap-3 self-start">
+                    <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+                      {title("Datos de la venta")}
+                      <dl className="flex flex-col gap-2 text-sm">
+                        {([
+                          ["Vendedor", String(row[1] || "—")],
+                          ["Tipo de venta", saleTypeOf(row[4]) || "—"],
+                          ["Método de pago", String(row[5] || "—")],
+                        ] as const).map(([label, value]) => (
+                          <div key={label} className="flex items-baseline justify-between gap-3">
+                            <dt style={{ color: t.muted }}>{label}</dt>
+                            <dd className="min-w-0 break-words text-right" style={{ color: t.text }}>{value}</dd>
+                          </div>
                         ))}
-                    </select>
-                  </label>
-                )}
-                {loadOrders().some((order) => order.id === row?.[0]) && ORDER_TO_PRODUCTION[String(row?.[7])] && (
-                  <button
-                    type="button"
-                    onClick={() => setClientOrderStatus(modal.idx!, String(row?.[7]))}
-                    className="mt-2 w-full cursor-pointer rounded-xl py-2 text-xs font-bold"
-                    style={{ background: `${C.mustard}14`, color: C.mustard }}
-                  >
-                    Sincronizar producción con «{String(row?.[7])}»
-                  </button>
-                )}
-                {String(row?.[8]) === "Rechazado" && (
-                  <p className="mt-4 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
-                    Transferencia rechazada: {String(row?.[11] || "Sin motivo registrado.")}
-                  </p>
-                )}
-                {isTransferPaymentMethod(String(row?.[4] ?? "")) &&
-                String(row?.[8]) === "Pendiente de verificación" ? (
-                  <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPaymentRejectionTarget(modal.idx!)
-                        setPaymentRejectionReason("")
-                        setPaymentRejectionError("")
-                      }}
-                      className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
-                      style={{ background: `${C.red}12`, color: C.red }}
-                    >
-                      Rechazar transferencia
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!paymentProofs[modal.idx!]}
-                      onClick={() => approveOrderForProduction(modal.idx!)}
-                      className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                      style={{ background: C.mustard, color: "#fff" }}
-                    >
-                      Aprobar transferencia y enviar a producción
-                    </button>
-                  </div>
-                ) : String(row?.[9]) === "Autorizada" ? (
-                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
-                    Pago aprobado y producción autorizada.
-                  </p>
-                ) : String(row?.[9]) === "Enviada a producción" ? (
-                  <p className="mt-4 text-center text-sm font-semibold" style={{ color: "#2E7D60" }}>
-                    Ya se envió a producción.
-                  </p>
-                ) : String(row?.[8]) !== "Rechazado" && (
-                  <button
-                    type="button"
-                    disabled={
-                      (String(row?.[5]) !== "Contraentrega" &&
-                        (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) ||
-                      ["Autorizada", "Enviada a producción"].includes(String(row?.[9]))
-                    }
-                    onClick={() => approveOrderForProduction(modal.idx!)}
-                    className="mt-4 w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                    style={{ background: C.mustard, color: "#fff" }}
-                  >
-                    Confirmar pedido y enviar a producción
-                  </button>
-                )}
-              </div>
-            )}
-            {isView && isSales && (
-              <div className="rounded-xl p-4 sm:col-span-2" style={{ background: t.input, border: `1px solid ${t.border}` }}>
-                <h4 className="mb-3 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>Detalle de la venta</h4>
-                <div className="flex flex-col gap-2">
-                  {saleOrderLines.map((line) => {
-                    const parent = line.parentId
-                      ? saleOrderLines.find((candidate) => candidate.id === line.parentId)
-                      : undefined
-                    return (
-                      <div key={line.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-xs" style={{ background: t.card, border: `1px solid ${t.border}` }}>
-                        <span style={{ color: t.text }}>{parent ? `↳ ${line.product} · adición de ${parent.product}` : line.product} <span style={{ color: t.muted }}>× {line.quantity}</span></span>
-                        <strong className="shrink-0" style={{ color: t.text }}>{fmt(line.quantity * line.unitPrice)}</strong>
+                      </dl>
+                    </div>
+                    {String(row[9] ?? "").trim() && String(row[9]) !== "Sin pedido" ? (
+                      <div className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+                        <div className="min-w-0">
+                          <div className="text-[11px]" style={{ color: t.muted }}>Pedido asociado</div>
+                          <div className="text-sm font-semibold" style={{ color: t.text }}>{String(row[9])}</div>
+                        </div>
+                        {String(row[10] ?? "").trim() && (
+                          <span
+                            className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                            style={String(row[10]) === "Entregado" ? { background: "rgba(46,125,96,0.12)", color: "#2E7D60" } : { background: `${C.mustard}16`, color: C.mustard }}
+                          >
+                            {String(row[10])}
+                          </span>
+                        )}
                       </div>
-                    )
-                  })}
-                  {!saleOrderLines.length && <span className="text-xs" style={{ color: t.muted }}>No hay detalle de productos disponible.</span>}
-                </div>
-
-                {saleOrderIndex >= 0 && paymentProofs[saleOrderIndex] && (
-                  <div className="mt-4">
-                    <h4 className="mb-2 text-xs font-bold" style={{ color: t.text }}>Comprobante de pago</h4>
-                    <img src={paymentProofs[saleOrderIndex]} alt="Comprobante de pago" className="max-h-56 w-full rounded-lg object-contain" style={{ background: t.card }} />
+                    ) : (
+                      <div className="rounded-2xl px-4 py-3 text-sm" style={{ background: t.cardAlt, color: t.muted }}>Venta directa, sin pedido asociado.</div>
+                    )}
                   </div>
-                )}
-              </div>
-            )}
+                  {proof && (
+                    <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+                      {title("Comprobante de pago")}
+                      <img src={proof} alt="Comprobante de pago" className="max-h-44 w-full rounded-lg object-contain" style={{ background: t.card }} />
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
             {/* Roles permissions matrix */}
             {isRoles && !isView && (
               <div className="sm:col-span-2">
@@ -17030,7 +18547,7 @@ function AdminPanel({
             style={{ borderTop: `1px solid ${t.border}` }}
           >
             <button
-              onClick={() => setModal({ mode: null, section: "", idx: null })}
+              onClick={closeModal}
               className="flex-1 py-2.5 rounded-xl text-sm font-semibold cursor-pointer transition-colors"
               style={{ background: t.input, color: t.muted }}
               onMouseEnter={(e) => {
@@ -17044,7 +18561,24 @@ function AdminPanel({
             >
               {isView ? "Cerrar" : "Cancelar"}
             </button>
-            {isView && isPurchaseModule && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && (
+            {isSales && modal.mode !== "add" && row && (
+              <button
+                type="button"
+                disabled={!!saleReturnBlock(row)}
+                title={saleReturnBlock(row) || "Registrar una devolución de esta venta"}
+                onClick={() => {
+                  const saleCode = String(row[0])
+                  setSection("devoluciones")
+                  openAdd("devoluciones")
+                  setFormData((current) => ({ ...current, "1": saleCode }))
+                }}
+                className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-semibold hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                style={{ background: `${C.red}12`, color: C.red }}
+              >
+                {Ico.undo} Registrar devolución
+              </button>
+            )}
+            {isView && (isPurchaseModule || isProduct) && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && (
               <button
                 onClick={() => openEdit(modal.section, modal.idx!)}
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
@@ -17053,9 +18587,28 @@ function AdminPanel({
                 Editar
               </button>
             )}
-            {!isView && (
+            {modal.section === "perdidas" && modal.mode === "edit" && String(row?.[5] ?? "").startsWith("Compra a ") && !isReturnedLoss(row ?? undefined) && (
               <button
-                onClick={saveModal}
+                type="button"
+                onClick={() => {
+                  setLossReturnError("")
+                  setLossReturnQty(String(parseFloat(String(row?.[1] ?? "")) || ""))
+                  setLossReturnReason("")
+                }}
+                className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-semibold hover:opacity-90"
+                style={{ background: `${C.mustard}14`, color: C.mustard, border: `1.5px solid ${C.mustard}40` }}
+              >
+                {Ico.undo} Devolver a compra
+              </button>
+            )}
+            {!isView && !(isPnc && modal.mode === "add" && !pncManual) && (
+              <button
+                onClick={() =>
+                  // New purchase: summary + confirmation first (if it's incomplete, saveModal shows what's missing)
+                  isPurchase && modal.mode === "add" && formData["0"] && parsePurchaseItems(formData["6"]).length
+                    ? setPurchaseConfirmOpen(true)
+                    : saveModal()
+                }
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
                 style={{ background: C.mustard, color: "#fff" }}
               >
@@ -17064,6 +18617,224 @@ function AdminPanel({
             )}
           </div>
         </div>
+        {lossReturnReason !== null && modal.section === "perdidas" && row && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center px-4"
+            style={{ background: "rgba(0,0,0,0.6)" }}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (!lossReturnSaving) setLossReturnReason(null)
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="loss-return-title"
+              className="w-full max-w-md overflow-hidden rounded-2xl"
+              style={{ background: t.card, border: `1px solid ${t.border}`, boxShadow: "0 12px 48px rgba(0,0,0,0.22)" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center gap-3 px-6 pt-6 pb-4" style={{ borderBottom: `1px solid ${t.border}` }}>
+                <span
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl"
+                  style={{ background: `${C.mustard}14`, color: C.mustard }}
+                >
+                  {Ico.undo}
+                </span>
+                <div className="min-w-0">
+                  <h3 id="loss-return-title" className="text-base font-semibold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                    Devolver a compra
+                  </h3>
+                  <p className="text-xs" style={{ color: t.muted }}>
+                    Lo que devuelvas vuelve al stock de «{String(row[0])}».
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col gap-3 px-6 py-5">
+                <div className="rounded-xl px-4 py-3 text-xs" style={{ background: t.cardAlt, color: t.muted }}>
+                  {String(row[5])} · pérdida por {String(row[2] || "—").toLowerCase()}
+                </div>
+                <label className="flex flex-col gap-1.5 text-xs font-medium" style={{ color: t.muted }}>
+                  Cantidad a devolver
+                  <div
+                    className="flex items-center gap-2 rounded-xl px-3"
+                    style={{ background: t.input, border: `1.5px solid ${t.inputB}` }}
+                  >
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={lossReturnQty}
+                      onChange={(e) => {
+                        setLossReturnQty(e.target.value)
+                        setLossReturnError("")
+                      }}
+                      className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
+                      style={{ color: t.text }}
+                    />
+                    <span className="text-xs" style={{ color: t.muted }}>
+                      {String(row[1]).split(" ").slice(1).join(" ") || "und"}
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-normal">
+                    Perdido: {String(row[1])}. Si devuelves una parte, la pérdida queda con el resto y se puede seguir editando.
+                  </span>
+                </label>
+                <label className="flex flex-col gap-1.5 text-xs font-medium" style={{ color: t.muted }}>
+                  ¿Por qué se devuelve a la compra?
+                  <textarea
+                      rows={3}
+                    value={lossReturnReason}
+                    onChange={(e) => {
+                      setLossReturnReason(e.target.value)
+                      setLossReturnError("")
+                    }}
+                    placeholder="Ej: el proveedor lo cambió por uno en buen estado"
+                    className="resize-none rounded-xl px-3 py-2.5 text-sm outline-none"
+                    style={{ background: t.input, border: `1.5px solid ${lossReturnError ? C.red : t.inputB}`, color: t.text }}
+                  />
+                </label>
+                {lossReturnError && (
+                  <p className="rounded-lg px-3 py-2 text-xs font-medium" style={{ background: `${C.red}10`, color: C.red }} role="alert">
+                    {lossReturnError}
+                  </p>
+                )}
+                <p className="text-[11px]" style={{ color: t.muted }}>
+                  Si devuelves todo, la pérdida queda como «{RETURNED_LOSS}» y ya no se podrá editar.
+                </p>
+              </div>
+              <div className="flex gap-3 px-6 pt-4 pb-6" style={{ borderTop: `1px solid ${t.border}` }}>
+                <button
+                  type="button"
+                  disabled={lossReturnSaving}
+                  onClick={() => setLossReturnReason(null)}
+                  className="flex-1 cursor-pointer rounded-xl py-3 text-sm font-semibold"
+                  style={{ background: t.input, color: t.muted }}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  disabled={lossReturnSaving}
+                  onClick={returnLossToPurchase}
+                  className="flex-1 cursor-pointer rounded-xl py-3 text-sm font-bold hover:opacity-90 disabled:opacity-60"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  {lossReturnSaving ? "Devolviendo..." : "Devolver a compra"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {purchaseConfirmOpen && isPurchase && (() => {
+          const items = parsePurchaseItems(formData["6"])
+          const total = items.reduce((sum, item) => sum + item.total, 0)
+          const date = String(formData["1"] ?? "")
+          return (
+            <div
+              className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6"
+              style={{ background: "rgba(0,0,0,0.6)" }}
+              onClick={(e) => {
+                e.stopPropagation()
+                setPurchaseConfirmOpen(false)
+              }}
+            >
+              <div
+                role="alertdialog"
+                aria-modal="true"
+                aria-labelledby="purchase-confirm-title"
+                className="flex max-h-full w-full max-w-xl flex-col overflow-hidden rounded-2xl"
+                style={{ background: t.card, border: `1px solid ${t.border}`, boxShadow: "0 12px 48px rgba(0,0,0,0.22)" }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center gap-3 px-6 pt-6 pb-4" style={{ borderBottom: `1px solid ${t.border}` }}>
+                  <span
+                    className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl"
+                    style={{ background: `${C.mustard}14`, color: C.mustard }}
+                  >
+                    {Ico.cart}
+                  </span>
+                  <div className="min-w-0">
+                    <h3 id="purchase-confirm-title" className="text-lg font-semibold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                      Resumen de la compra
+                    </h3>
+                    <p className="truncate text-sm" style={{ color: t.muted }}>
+                      {String(formData["0"] || "—")}
+                      {date && ` · ${formatViewValue(cfg.fields[1], date)}`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 py-5" style={{ scrollbarWidth: "thin" }}>
+                  <div className="flex items-center justify-between text-[11px] uppercase tracking-wider" style={{ color: t.muted }}>
+                    <span>{items.length} {items.length === 1 ? "insumo" : "insumos"}</span>
+                    <span>Total</span>
+                  </div>
+                  <div className="-mt-2 flex flex-col gap-2">
+                    {items.map((item, index) => (
+                      <div
+                        key={`${item.name}-${index}`}
+                        className="flex items-center gap-3 rounded-xl px-4 py-3"
+                        style={{ background: t.cardAlt }}
+                      >
+                        <span
+                          className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold"
+                          style={{ background: `${C.mustard}18`, color: C.mustard }}
+                        >
+                          {index + 1}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block break-words text-sm" style={{ color: t.text }}>{item.name}</span>
+                          <span className="block text-xs" style={{ color: t.muted }}>
+                            {Number(item.quantity).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")} ×{" "}
+                            {fmt(Number(item.unitPrice || 0))}
+                          </span>
+                        </span>
+                        <span className="flex-shrink-0 text-sm" style={{ color: t.text }}>{fmt(item.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div
+                    className="flex items-center justify-between rounded-xl px-4 py-3.5"
+                    style={{ background: `${C.mustard}12`, border: `1px solid ${C.mustard}35` }}
+                  >
+                    <span className="text-sm" style={{ color: t.text }}>Total de la compra</span>
+                    <span className="text-xl font-semibold" style={{ color: C.mustard }}>{fmt(total)}</span>
+                  </div>
+                </div>
+                <div className="px-6 pt-4 pb-6" style={{ borderTop: `1px solid ${t.border}` }}>
+                  <p className="text-center text-sm" style={{ color: t.text }}>
+                    ¿Estás seguro de que no vas a agregar más insumos?
+                  </p>
+                  <p className="mt-1 mb-4 text-center text-xs" style={{ color: t.muted }}>
+                    Se sumará al stock y después no podrás cambiar la cantidad ni el precio.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      autoFocus
+                      onClick={() => setPurchaseConfirmOpen(false)}
+                      className="flex-1 cursor-pointer rounded-xl py-3 text-sm font-semibold"
+                      style={{ background: t.input, color: t.muted }}
+                    >
+                      Agregar más
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPurchaseConfirmOpen(false)
+                        saveModal()
+                      }}
+                      className="flex-1 cursor-pointer rounded-xl py-3 text-sm font-bold hover:opacity-90"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      Sí, registrar compra
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })()}
         {technicalSheetOpen && isProduct && !isView && (
           <div
             className="fixed inset-0 z-[60] flex items-center justify-center px-4 py-6"
@@ -17074,8 +18845,8 @@ function AdminPanel({
               role="dialog"
               aria-modal="true"
               aria-labelledby="product-tech-sheet-title"
-              className="flex w-full max-w-xl flex-col overflow-hidden rounded-2xl"
-              style={{ background: t.card, border: `1px solid ${t.border}`, maxHeight: "85vh" }}
+              className="flex w-full max-w-2xl flex-col overflow-hidden rounded-2xl"
+              style={{ background: t.card, border: `1px solid ${t.border}`, maxHeight: "90vh" }}
               onClick={(event) => event.stopPropagation()}
             >
               <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${t.border}` }}>
@@ -17085,216 +18856,404 @@ function AdminPanel({
                 </div>
                 <button type="button" onClick={() => setTechnicalSheetOpen(false)} className="flex h-8 w-8 items-center justify-center rounded-xl cursor-pointer" style={{ background: t.input, color: t.muted }} aria-label="Cerrar ficha técnica">{Ico.x}</button>
               </div>
-              <div className="flex flex-col gap-3 overflow-y-auto px-5 py-4">
-
-                <p className="text-xs" style={{ color: t.muted }}>Agrega cada insumo y la cantidad necesaria para una unidad del producto. La unidad se toma del inventario y debe coincidir.</p>
-                <section className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                  <h4 className="mb-1 text-xs font-bold" style={{ color: t.text }}>
-                    Cómo se prepara · pasos en orden
-                  </h4>
-                  <p className="mb-3 text-[11px]" style={{ color: t.muted }}>
-                    Agrega cada acción y ordénala desde el primer paso hasta el último.
-                  </p>
-                  {technicalSteps.length ? (
-                    <ol className="mb-3 flex flex-col gap-2">
-                      {technicalSteps.map((step, index) => (
-                        <li
-                          key={`${index}-${step}`}
-                          className="flex items-center gap-2 rounded-lg px-2.5 py-2"
-                          style={{ background: t.input }}
-                        >
-                          <span className="w-6 shrink-0 text-xs font-bold" style={{ color: C.mustard }}>
-                            {index + 1}.
-                          </span>
-                          <span className="min-w-0 flex-1 text-xs" style={{ color: t.text }}>
-                            {step}
-                          </span>
+              <div className="flex flex-col gap-4 overflow-y-auto px-5 py-4" style={{ scrollbarWidth: "thin" }}>
+                {(() => {
+                  const controlSt = { background: t.input, border: `1px solid ${t.inputB}`, color: t.text }
+                  const supplyOf = (name: string) => rows.insumos?.find((item) => item[0] === name)
+                  const costOf = (ingredient: TechnicalIngredient) => {
+                    const supply = supplyOf(ingredient.name)
+                    const cost = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit)) * Number(supply?.[3] || 0)
+                    return Number.isFinite(cost) ? cost : 0
+                  }
+                  const pickedSupply = supplyOf(technicalIngredientSelect)
+                  const pickedUnit = technicalIngredientUnit || String(pickedSupply?.[2] ?? "")
+                  const draftQty = Number(technicalIngredientQuantity)
+                  const draftCost = pickedSupply && draftQty > 0
+                    ? costOf({ name: technicalIngredientSelect, quantity: draftQty, unit: pickedUnit })
+                    : 0
+                  const updateIngredient = (index: number, patch: Partial<TechnicalIngredient>) =>
+                    setTechnicalIngredients((current) => current.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)))
+                  const addStep = () => {
+                    const step = technicalStepDraft.trim()
+                    if (!step) return
+                    setTechnicalSteps((current) => [...current, step])
+                    setTechnicalStepDraft("")
+                  }
+                  const saveStepEdit = () => {
+                    if (!technicalStepEdit) return
+                    const text = technicalStepEdit.text.trim()
+                    if (!text) return
+                    setTechnicalSteps((current) => current.map((step, i) => (i === technicalStepEdit.index ? text : step)))
+                    setTechnicalStepEdit(null)
+                  }
+                  const totalCost = technicalIngredients.reduce((sum, ingredient) => sum + costOf(ingredient), 0)
+                  return (
+                    <>
+                      <section className="flex flex-col gap-3">
+                        <div>
+                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                            Insumos
+                          </h4>
+                          <p className="text-[11px]" style={{ color: t.muted }}>
+                            Lo que lleva una unidad del producto. Puedes usar otra unidad del mismo tipo (por ejemplo ml para un insumo en litros).
+                          </p>
+                        </div>
+                        <div className="grid items-end gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_5rem_auto]" style={{ background: t.cardAlt }}>
+                          {(() => {
+                            const query = normalizeName(technicalIngredientSearch ?? "")
+                            const options = getAvailableInsumos()
+                              .filter((name) => !technicalIngredients.some((item) => item.name === name))
+                              .filter((name) => {
+                                const supply = supplyOf(name)
+                                return !query || normalizeName(name).includes(query) || normalizeName(String(supply?.[1] ?? "")).includes(query)
+                              })
+                              .sort((x, y) => x.localeCompare(y))
+                            const pick = (name: string) => {
+                              setTechnicalIngredientSelect(name)
+                              setTechnicalIngredientUnit("")
+                              setTechnicalIngredientSearch(null)
+                              setTechnicalSheetError("")
+                            }
+                            const open = technicalIngredientSearch !== null
+                            return (
+                              <div className="relative flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
+                                <label htmlFor="tech-supply-search">Insumo</label>
+                                <div className="flex items-center gap-2 rounded-lg px-2.5" style={controlSt}>
+                                  <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
+                                  <input
+                                    id="tech-supply-search"
+                                    role="combobox"
+                                    aria-expanded={open}
+                                    aria-controls="tech-supply-list"
+                                    autoComplete="off"
+                                    value={open ? technicalIngredientSearch : technicalIngredientSelect}
+                                    placeholder="Busca un insumo..."
+                                    onFocus={() => setTechnicalIngredientSearch("")}
+                                    onChange={(event) => setTechnicalIngredientSearch(event.target.value)}
+                                    onBlur={() => setTimeout(() => setTechnicalIngredientSearch(null), 150)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter" && options.length) {
+                                        event.preventDefault()
+                                        pick(options[0])
+                                      }
+                                      if (event.key === "Escape") setTechnicalIngredientSearch(null)
+                                    }}
+                                    className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none"
+                                    style={{ color: t.text }}
+                                  />
+                                </div>
+                                {open && (
+                                  <div
+                                    id="tech-supply-list"
+                                    role="listbox"
+                                    className="absolute top-full right-0 left-0 z-20 mt-1 max-h-56 overflow-y-auto rounded-xl p-1 shadow-xl"
+                                    style={{ background: t.card, border: `1px solid ${t.border}`, scrollbarWidth: "thin" }}
+                                  >
+                                    {options.length ? (
+                                      options.map((name) => {
+                                        const supply = supplyOf(name)
+                                        return (
+                                          <button
+                                            key={name}
+                                            type="button"
+                                            role="option"
+                                            aria-selected={technicalIngredientSelect === name}
+                                            // mousedown runs before the input blur closes the list
+                                            onMouseDown={(event) => {
+                                              event.preventDefault()
+                                              pick(name)
+                                            }}
+                                            className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-left hover:opacity-80"
+                                            style={{ background: technicalIngredientSelect === name ? `${C.mustard}14` : "transparent" }}
+                                          >
+                                            <span className="min-w-0">
+                                              <span className="block truncate text-sm" style={{ color: t.text }}>{name}</span>
+                                              <span className="block text-[10px]" style={{ color: t.muted }}>{String(supply?.[1] || "Sin categoría")}</span>
+                                            </span>
+                                            <span className="flex-shrink-0 text-[11px]" style={{ color: t.muted }}>
+                                              {fmt(Number(supply?.[3] || 0))} / {String(supply?.[2] ?? "und")}
+                                            </span>
+                                          </button>
+                                        )
+                                      })
+                                    ) : (
+                                      <p className="px-2.5 py-3 text-center text-xs" style={{ color: t.muted }}>
+                                        No hay insumos que coincidan.
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })()}
+                          <label className="flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
+                            Cantidad
+                            <input
+                              aria-label="Cantidad del insumo"
+                              type="number"
+                              min="0.001"
+                              step="any"
+                              value={technicalIngredientQuantity}
+                              onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
+                              className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                              style={controlSt}
+                            />
+                          </label>
+                          <label className="flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
+                            Unidad
+                            <select
+                              value={pickedUnit}
+                              disabled={!pickedSupply}
+                              onChange={(event) => setTechnicalIngredientUnit(event.target.value)}
+                              className="w-full cursor-pointer rounded-lg px-2 py-2 text-sm outline-none disabled:cursor-default disabled:opacity-60"
+                              style={controlSt}
+                            >
+                              {pickedSupply ? convertibleUnits(String(pickedSupply[2] ?? "")).map((unit) => (
+                                <option key={unit} value={unit}>{unit}</option>
+                              )) : <option value="">—</option>}
+                            </select>
+                          </label>
                           <button
                             type="button"
-                            aria-label={`Mover paso ${index + 1} arriba`}
-                            title="Mover arriba"
-                            disabled={index === 0}
-                            onClick={() => setTechnicalSteps((current) => {
-                              const next = [...current]
-                              ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
-                              return next
+                            onClick={() => {
+                              if (!pickedSupply || !(draftQty > 0)) {
+                                setTechnicalSheetError("Selecciona un insumo y escribe una cantidad mayor que cero.")
+                                return
+                              }
+                              setTechnicalIngredients((current) => [...current, { name: technicalIngredientSelect, quantity: draftQty, unit: pickedUnit }])
+                              setTechnicalIngredientSelect("")
+                              setTechnicalIngredientUnit("")
+                              setTechnicalIngredientSearch(null)
+                              setTechnicalIngredientQuantity("1")
+                              setTechnicalSheetError("")
+                            }}
+                            className="flex cursor-pointer items-center justify-center gap-1 rounded-lg px-3 py-2 text-xs font-bold"
+                            style={{ background: C.mustard, color: "#fff" }}
+                          >
+                            {Ico.plus} Agregar
+                          </button>
+                          {pickedSupply && (
+                            <span className="text-[11px] sm:col-span-4" style={{ color: t.muted }}>
+                              Precio: {fmt(Number(pickedSupply[3] || 0))} por {String(pickedSupply[2] ?? "und")}
+                              {draftQty > 0 && <> · {draftQty.toLocaleString("es-CO")} {pickedUnit} = <span style={{ color: C.mustard }}>{fmt(Math.round(draftCost))}</span></>}
+                            </span>
+                          )}
+                        </div>
+                        {technicalIngredients.length ? (
+                          <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
+                            {technicalIngredients.map((ingredient, index) => {
+                              const supply = supplyOf(ingredient.name)
+                              return (
+                                <div
+                                  key={`${ingredient.name}-${index}`}
+                                  className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_auto] items-center gap-2 border-b px-3 py-2 last:border-b-0"
+                                  style={{ borderColor: t.border }}
+                                >
+                                  <span className="min-w-0">
+                                    <span className="block truncate text-sm" style={{ color: t.text }}>{ingredient.name}</span>
+                                    <span className="block text-[10px]" style={{ color: t.muted }}>
+                                      {fmt(Number(supply?.[3] || 0))} / {String(supply?.[2] ?? ingredient.unit)}
+                                    </span>
+                                  </span>
+                                  <input
+                                    aria-label={`Cantidad de ${ingredient.name}`}
+                                    type="number"
+                                    min="0.001"
+                                    step="any"
+                                    value={ingredient.quantity}
+                                    onChange={(event) => updateIngredient(index, { quantity: Number(event.target.value) })}
+                                    className="w-full rounded-lg px-2 py-1.5 text-sm outline-none"
+                                    style={controlSt}
+                                  />
+                                  <select
+                                    aria-label={`Unidad de ${ingredient.name}`}
+                                    value={ingredient.unit}
+                                    onChange={(event) => updateIngredient(index, { unit: event.target.value })}
+                                    className="w-full cursor-pointer rounded-lg px-1.5 py-1.5 text-sm outline-none"
+                                    style={controlSt}
+                                  >
+                                    {convertibleUnits(String(supply?.[2] ?? ingredient.unit)).map((unit) => (
+                                      <option key={unit} value={unit}>{unit}</option>
+                                    ))}
+                                  </select>
+                                  <span className="text-right text-sm" style={{ color: t.text }}>{fmt(Math.round(costOf(ingredient)))}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setTechnicalIngredients((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                                    className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                    style={{ background: `${C.red}10`, color: C.red }}
+                                    aria-label={`Quitar ${ingredient.name}`}
+                                  >
+                                    {Ico.x}
+                                  </button>
+                                </div>
+                              )
                             })}
-                            className="h-7 w-7 rounded-md text-sm font-bold disabled:opacity-30"
-                            style={{ background: t.card, color: t.text }}
-                          >
-                            ↑
-                          </button>
-                          <button
-                            type="button"
-                            aria-label={`Mover paso ${index + 1} abajo`}
-                            title="Mover abajo"
-                            disabled={index === technicalSteps.length - 1}
-                            onClick={() => setTechnicalSteps((current) => {
-                              const next = [...current]
-                              ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
-                              return next
+                            <div className="flex items-center justify-between px-3 py-2.5 text-sm" style={{ background: `${C.mustard}0d` }}>
+                              <span style={{ color: t.muted }}>Costo de los insumos por unidad</span>
+                              <span className="font-semibold" style={{ color: C.mustard }}>{fmt(Math.round(totalCost))}</span>
+                            </div>
+                          </div>
+                        ) : null}
+                        {technicalIngredients.length > 0 ? (
+                          renderProfit(Number(formData["2"] || 0), totalCost)
+                        ) : (
+                          <div className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>
+                            Todavía no hay insumos en esta ficha.
+                          </div>
+                        )}
+                      </section>
+                      <section className="flex flex-col gap-3 border-t pt-4" style={{ borderColor: t.border }}>
+                        <div>
+                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                            Cómo se prepara
+                          </h4>
+                          <p className="text-[11px]" style={{ color: t.muted }}>Pasos en orden, del primero al último.</p>
+                        </div>
+                        {technicalSteps.length > 0 && (
+                          <ol className="flex flex-col gap-1.5">
+                            {technicalSteps.map((step, index) => {
+                              const editing = technicalStepEdit?.index === index
+                              return (
+                                <li key={`${index}-${step}`} className="flex items-center gap-2 rounded-lg px-2.5 py-2" style={{ background: t.cardAlt }}>
+                                  <span
+                                    className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-semibold"
+                                    style={{ background: `${C.mustard}18`, color: C.mustard }}
+                                  >
+                                    {index + 1}
+                                  </span>
+                                  {editing ? (
+                                    <>
+                                      <input
+                                        autoFocus
+                                        aria-label={`Editar paso ${index + 1}`}
+                                        value={technicalStepEdit.text}
+                                        onChange={(event) => setTechnicalStepEdit({ index, text: event.target.value })}
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter") {
+                                            event.preventDefault()
+                                            saveStepEdit()
+                                          }
+                                          if (event.key === "Escape") setTechnicalStepEdit(null)
+                                        }}
+                                        className="min-w-0 flex-1 rounded-lg px-2.5 py-1.5 text-sm outline-none"
+                                        style={controlSt}
+                                      />
+                                      <button
+                                        type="button"
+                                        title="Guardar paso"
+                                        aria-label={`Guardar paso ${index + 1}`}
+                                        disabled={!technicalStepEdit.text.trim()}
+                                        onClick={saveStepEdit}
+                                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md disabled:opacity-40"
+                                        style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+                                      >
+                                        {Ico.check}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Cancelar"
+                                        aria-label="Cancelar edición"
+                                        onClick={() => setTechnicalStepEdit(null)}
+                                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md"
+                                        style={{ background: t.input, color: t.muted }}
+                                      >
+                                        {Ico.x}
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <span className="min-w-0 flex-1 break-words text-sm" style={{ color: t.text }}>{step}</span>
+                                      <button
+                                        type="button"
+                                        title="Editar paso"
+                                        aria-label={`Editar paso ${index + 1}`}
+                                        onClick={() => setTechnicalStepEdit({ index, text: step })}
+                                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md"
+                                        style={{ color: C.mustard, background: `${C.mustard}14` }}
+                                      >
+                                        {Ico.edit}
+                                      </button>
+                                      <button
+                                        type="button"
+                                        aria-label={`Mover paso ${index + 1} arriba`}
+                                        title="Mover arriba"
+                                        disabled={index === 0}
+                                        onClick={() => setTechnicalSteps((current) => {
+                                          const next = [...current]
+                                          ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
+                                          return next
+                                        })}
+                                        className="h-7 w-7 cursor-pointer rounded-md text-sm disabled:cursor-default disabled:opacity-30"
+                                        style={{ background: t.input, color: t.text }}
+                                      >
+                                        ↑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        aria-label={`Mover paso ${index + 1} abajo`}
+                                        title="Mover abajo"
+                                        disabled={index === technicalSteps.length - 1}
+                                        onClick={() => setTechnicalSteps((current) => {
+                                          const next = [...current]
+                                          ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
+                                          return next
+                                        })}
+                                        className="h-7 w-7 cursor-pointer rounded-md text-sm disabled:cursor-default disabled:opacity-30"
+                                        style={{ background: t.input, color: t.text }}
+                                      >
+                                        ↓
+                                      </button>
+                                      <button
+                                        type="button"
+                                        aria-label={`Quitar paso ${index + 1}`}
+                                        title="Quitar paso"
+                                        onClick={() => {
+                                          setTechnicalSteps((current) => current.filter((_, stepIndex) => stepIndex !== index))
+                                          setTechnicalStepEdit(null)
+                                        }}
+                                        className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md"
+                                        style={{ background: `${C.red}10`, color: C.red }}
+                                      >
+                                        {Ico.trash}
+                                      </button>
+                                    </>
+                                  )}
+                                </li>
+                              )
                             })}
-                            className="h-7 w-7 rounded-md text-sm font-bold disabled:opacity-30"
-                            style={{ background: t.card, color: t.text }}
-                          >
-                            ↓
-                          </button>
+                          </ol>
+                        )}
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            aria-label="Nuevo paso de preparación"
+                            placeholder={`Paso ${technicalSteps.length + 1}: escribe una acción...`}
+                            value={technicalStepDraft}
+                            onChange={(event) => setTechnicalStepDraft(event.target.value)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault()
+                                addStep()
+                              }
+                            }}
+                            className="min-w-0 flex-1 rounded-lg px-3 py-2 text-sm outline-none"
+                            style={controlSt}
+                          />
                           <button
                             type="button"
-                            aria-label={`Quitar paso ${index + 1}`}
-                            title="Quitar paso"
-                            onClick={() => setTechnicalSteps((current) => current.filter((_, stepIndex) => stepIndex !== index))}
-                            className="flex h-7 w-7 items-center justify-center rounded-md"
-                            style={{ background: `${C.red}10`, color: C.red }}
+                            onClick={addStep}
+                            disabled={!technicalStepDraft.trim()}
+                            className="flex cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold disabled:cursor-default disabled:opacity-50"
+                            style={{ background: C.mustard, color: "#fff" }}
                           >
-                            {Ico.trash}
+                            {Ico.plus} Agregar paso
                           </button>
-                        </li>
-                      ))}
-                    </ol>
-                  ) : (
-                    <p className="mb-3 rounded-lg px-3 py-3 text-center text-xs" style={{ background: t.input, color: t.muted }}>
-                      Aún no hay pasos de preparación.
-                    </p>
-                  )}
-                  <div className="flex flex-col gap-2 sm:flex-row">
-                    <input
-                      type="text"
-                      aria-label="Acción del paso de preparación"
-                      placeholder="Escribe una acción..."
-                      value={technicalStepDraft}
-                      onChange={(event) => setTechnicalStepDraft(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault()
-                          const step = technicalStepDraft.trim()
-                          if (!step) return
-                          setTechnicalSteps((current) => [...current, step])
-                          setTechnicalStepDraft("")
-                        }
-                      }}
-                      className="min-w-0 flex-1 rounded-lg px-3 py-2 text-xs outline-none"
-                      style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const step = technicalStepDraft.trim()
-                        if (!step) return
-                        setTechnicalSteps((current) => [...current, step])
-                        setTechnicalStepDraft("")
-                      }}
-                      disabled={!technicalStepDraft.trim()}
-                      className="rounded-lg px-3 py-2 text-xs font-bold disabled:opacity-50"
-                      style={{ background: C.mustard, color: "#fff" }}
-                    >
-                      Agregar paso
-                    </button>
-                  </div>
-                </section>
-
-                <p className="text-xs" style={{ color: t.muted }}>Agrega los insumos que utiliza una unidad del producto. La unidad se toma del inventario y debe coincidir.</p>
-
-                {technicalIngredients.length ? (
-                  technicalIngredients.map((ingredient, index) => (
-                    <div key={`${ingredient.name}-${index}`} className="grid items-center gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_110px_90px_auto]" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                      <span className="min-w-0 truncate text-sm font-semibold" style={{ color: t.text }}>{ingredient.name}</span>
-
-                      <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold" style={{ color: t.muted }}>
-                        Cantidad
-                        <input
-                          aria-label={`Cantidad de ${ingredient.name}`}
-                          type="number"
-                          min="0.001"
-                          step="any"
-                          value={ingredient.quantity}
-                          onChange={(event) => setTechnicalIngredients((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Number(event.target.value) } : item))}
-                          className="w-full rounded-lg px-3 py-2 text-sm font-normal outline-none"
-                          style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                        />
-                      </label>
-
-                      <input
-                        aria-label={`Cantidad de ${ingredient.name}`}
-                        type="number"
-                        min="0.001"
-                        step="any"
-                        value={ingredient.quantity}
-                        onChange={(event) => setTechnicalIngredients((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, quantity: Number(event.target.value) } : item))}
-                        className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                        style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                      />
-
-                      <span className="text-xs" style={{ color: t.muted }}>{ingredient.unit}</span>
-                      <button type="button" onClick={() => setTechnicalIngredients((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="flex h-8 w-8 items-center justify-center rounded-lg cursor-pointer" style={{ background: `${C.red}10`, color: C.red }} aria-label={`Quitar ${ingredient.name}`}>{Ico.trash}</button>
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-xl px-3 py-5 text-center text-xs" style={{ background: t.input, color: t.muted }}>Todavía no hay insumos en esta ficha.</div>
-                )}
-                <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px_auto]">
-                  <select
-                    value={technicalIngredientSelect}
-                    onChange={(event) => setTechnicalIngredientSelect(event.target.value)}
-                    className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
-                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                  >
-                    <option value="">Selecciona un insumo...</option>
-                    {getAvailableInsumos().filter((name) => !technicalIngredients.some((item) => item.name === name)).map((name) => {
-                      const supply = rows.insumos?.find((item) => item[0] === name)
-                      return <option key={name} value={name}>{name} · {String(supply?.[2] ?? "und")}</option>
-                    })}
-                  </select>
-
-                  <label className="flex min-w-0 flex-col gap-1 text-[10px] font-semibold" style={{ color: t.muted }}>
-                    Cantidad necesaria
-                    <input
-                      aria-label="Cantidad del insumo"
-                      type="number"
-                      min="0.001"
-                      step="any"
-                      value={technicalIngredientQuantity}
-                      onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
-                      className="w-full rounded-xl px-3 py-2 text-sm font-normal outline-none"
-                      style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                    />
-                  </label>
-
-                  <input
-                    aria-label="Cantidad del insumo"
-                    type="number"
-                    min="0.001"
-                    step="any"
-                    value={technicalIngredientQuantity}
-                    onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
-                    className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
-                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                  />
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const supply = rows.insumos?.find((item) => item[0] === technicalIngredientSelect)
-                      const quantity = Number(technicalIngredientQuantity)
-                      if (!supply || !Number.isFinite(quantity) || quantity <= 0) {
-                        setTechnicalSheetError("Selecciona un insumo e ingresa una cantidad mayor que cero.")
-                        return
-                      }
-                      setTechnicalIngredients((current) => [...current, {
-                        name: technicalIngredientSelect,
-                        quantity,
-                        unit: String(supply[2] ?? ""),
-                      }])
-                      setTechnicalIngredientSelect("")
-                      setTechnicalIngredientQuantity("1")
-                      setTechnicalSheetError("")
-                    }}
-                    className="rounded-xl px-4 py-2.5 text-xs font-bold cursor-pointer"
-                    style={{ background: C.mustard, color: "#fff" }}
-                  >
-                    Agregar insumo
-                  </button>
-                </div>
+                        </div>
+                      </section>
+                    </>
+                  )
+                })()}
                 {technicalSheetError && <p className="text-xs font-medium" style={{ color: C.red }} role="alert">{technicalSheetError}</p>}
               </div>
               <div className="flex justify-end gap-2 px-5 py-4" style={{ borderTop: `1px solid ${t.border}` }}>
@@ -17302,26 +19261,24 @@ function AdminPanel({
                 <button
                   type="button"
                   onClick={() => {
+                    // A step still being edited or typed is kept too
+                    const steps = [
+                      ...technicalSteps.map((step, index) =>
+                        technicalStepEdit?.index === index && technicalStepEdit.text.trim() ? technicalStepEdit.text.trim() : step,
+                      ),
+                      ...(technicalStepDraft.trim() ? [technicalStepDraft.trim()] : []),
+                    ]
+                    setTechnicalStepEdit(null)
+                    setTechnicalSteps(steps)
                     const recipe = JSON.stringify(technicalIngredients)
                     setFormData((current) => ({
                       ...current,
                       "5": `Ficha técnica - ${current["0"] || "Producto"}`,
                       "7": technicalIngredients.map((ingredient) => ingredient.name).join(", "),
-
-                      "8": JSON.stringify([
-                        ...technicalSteps,
-                        ...(technicalStepDraft.trim() ? [technicalStepDraft.trim()] : []),
-                      ]),
+                      "8": JSON.stringify(steps),
                       "9": recipe,
                     }))
-                    if (technicalStepDraft.trim()) {
-                      setTechnicalSteps((current) => [...current, technicalStepDraft.trim()])
-                    }
                     setTechnicalStepDraft("")
-
-                      "9": recipe,
-                    }))
-
                     setTechnicalSheetOpen(false)
                     setTechnicalSheetError("")
                   }}
@@ -17349,8 +19306,10 @@ function AdminPanel({
                 `No puede ser más de lo comprado: máximo ${lossDraft.max.toLocaleString("es-CO")} ${lossDraft.unit}.`,
               )
             if (!lossDraft.motivo) return setLossError("Selecciona el motivo de la pérdida.")
-            if (!lossDraft.responsable.trim()) return setLossError("Escribe quién es el responsable.")
+            if (!lossDraft.responsable.trim()) return setLossError("Selecciona quién es el responsable.")
             if (!lossDraft.fecha) return setLossError("Selecciona la fecha.")
+            if (lossDraft.fecha > getCurrentDateTimeParts().date)
+              return setLossError("La fecha de la pérdida no puede ser posterior a hoy.")
             const lossRow: Row = [
               lossDraft.insumo,
               `${qty} ${lossDraft.unit}`,
@@ -17368,10 +19327,17 @@ function AdminPanel({
             setLossError("")
           }
           const controlSt = { background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }
+          // Active staff (any role but Cliente); the current value stays even if it isn't one of them
+          const staff = (rows.usuarios || [])
+            .filter((u) => isStaffRole(u[3]) && isActiveStatus(u[5]) && String(u[0] ?? "").trim())
+            .map((u) => ({ name: String(u[0]).trim(), rol: String(u[3]) }))
+          if (lossDraft.responsable && !staff.some((p) => p.name === lossDraft.responsable))
+            staff.unshift({ name: lossDraft.responsable, rol: "" })
+          const fieldLabel = "flex min-w-0 flex-col gap-1.5 text-xs font-medium"
           return (
             <div
               className="fixed inset-0 z-[80] flex items-center justify-center px-4"
-              style={{ background: "rgba(0,0,0,0.45)" }}
+              style={{ background: "rgba(0,0,0,0.5)" }}
               onClick={(e) => {
                 e.stopPropagation()
                 setLossDraft(null)
@@ -17381,30 +19347,53 @@ function AdminPanel({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="loss-dialog-title"
-                className="w-full max-w-sm rounded-2xl p-5"
-                style={{ background: t.card, border: `1px solid ${t.border}` }}
+                className="w-full max-w-md overflow-hidden rounded-2xl"
+                style={{ background: t.card, border: `1px solid ${t.border}`, boxShadow: "0 12px 48px rgba(0,0,0,0.22)" }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <h3 id="loss-dialog-title" className="text-base font-semibold" style={{ color: t.text }}>
-                  Enviar a pérdida de insumos
-                </h3>
-                <p className="mt-1 mb-4 text-xs" style={{ color: t.muted }}>
-                  <strong style={{ color: t.text }}>{lossDraft.insumo}</strong> · {lossDraft.origin}
-                </p>
-                <div className="flex flex-col gap-3">
-                  <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
-                    Cantidad perdida ({lossDraft.unit}) · máximo {lossDraft.max.toLocaleString("es-CO")}
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={lossDraft.qty}
-                      onChange={(e) => updateLoss({ qty: e.target.value })}
-                      className="rounded-xl px-3 py-2.5 text-sm outline-none"
+                <div className="flex items-center gap-3 px-6 pt-6 pb-4" style={{ borderBottom: `1px solid ${t.border}` }}>
+                  <span
+                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl"
+                    style={{ background: `${C.red}14`, color: C.red }}
+                  >
+                    {Ico.alert}
+                  </span>
+                  <div className="min-w-0">
+                    <h3 id="loss-dialog-title" className="text-base font-semibold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                      Enviar a pérdida de insumos
+                    </h3>
+                    <p className="text-xs" style={{ color: t.muted }}>Lo que se pierda se descuenta del stock.</p>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-4 px-6 py-5">
+                  <div className="rounded-xl px-4 py-3" style={{ background: t.cardAlt }}>
+                    <div className="text-sm" style={{ color: t.text }}>{lossDraft.insumo}</div>
+                    <div className="text-xs" style={{ color: t.muted }}>{lossDraft.origin}</div>
+                  </div>
+                  <label className={fieldLabel} style={{ color: t.muted }}>
+                    Cantidad perdida
+                    <div
+                      className="flex items-center gap-2 rounded-xl px-3"
                       style={controlSt}
-                    />
+                    >
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        autoFocus
+                        value={lossDraft.qty}
+                        onChange={(e) => updateLoss({ qty: e.target.value })}
+                        placeholder="0"
+                        className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
+                        style={{ color: t.text }}
+                      />
+                      <span className="text-xs" style={{ color: t.muted }}>{lossDraft.unit}</span>
+                    </div>
+                    <span className="text-[11px] font-normal">
+                      Máximo {lossDraft.max.toLocaleString("es-CO")} {lossDraft.unit} (lo comprado que aún no se ha perdido)
+                    </span>
                   </label>
-                  <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
+                  <label className={fieldLabel} style={{ color: t.muted }}>
                     Motivo
                     <select
                       value={lossDraft.motivo}
@@ -17412,7 +19401,7 @@ function AdminPanel({
                       className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
                       style={{ ...controlSt, color: lossDraft.motivo ? t.text : t.muted }}
                     >
-                      <option value="">Selecciona...</option>
+                      <option value="">Selecciona el motivo...</option>
                       {motivos.map((m) => (
                         <option key={m} value={m}>
                           {m}
@@ -17420,39 +19409,49 @@ function AdminPanel({
                       ))}
                     </select>
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
-                      Responsable
-                      <input
+                  <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+                    <label className={fieldLabel} style={{ color: t.muted }}>
+                      Persona responsable
+                      <select
                         value={lossDraft.responsable}
                         onChange={(e) => updateLoss({ responsable: e.target.value })}
-                        placeholder="Ej: cocinero"
-                        className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
-                        style={controlSt}
-                      />
+                        className="min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                        style={{ ...controlSt, color: lossDraft.responsable ? t.text : t.muted }}
+                      >
+                        <option value="">Selecciona quién...</option>
+                        {staff.map((p) => (
+                          <option key={p.name} value={p.name}>
+                            {p.name}{p.rol && ` · ${p.rol}`}
+                          </option>
+                        ))}
+                      </select>
                     </label>
-                    <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
+                    <label className={fieldLabel} style={{ color: t.muted }}>
                       Fecha
                       <input
                         type="date"
                         value={lossDraft.fecha}
-                        onChange={(e) => updateLoss({ fecha: e.target.value })}
+                        max={getCurrentDateTimeParts().date}
+                        onChange={(e) => {
+                          const today = getCurrentDateTimeParts().date
+                          updateLoss({ fecha: e.target.value > today ? today : e.target.value })
+                        }}
                         className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
                         style={controlSt}
                       />
                     </label>
                   </div>
                   {lossError && (
-                    <p className="text-xs font-medium" style={{ color: C.red }} role="alert">
+                    <p className="rounded-lg px-3 py-2 text-xs font-medium" style={{ background: `${C.red}10`, color: C.red }} role="alert">
                       {lossError}
                     </p>
                   )}
                 </div>
-                <div className="mt-5 flex gap-3">
+                <div className="flex gap-3 px-6 pt-4 pb-6" style={{ borderTop: `1px solid ${t.border}` }}>
                   <button
                     type="button"
                     onClick={() => setLossDraft(null)}
-                    className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
+                    className="flex-1 cursor-pointer rounded-xl py-3 text-sm font-semibold"
                     style={{ background: t.input, color: t.muted }}
                   >
                     Cancelar
@@ -17460,7 +19459,7 @@ function AdminPanel({
                   <button
                     type="button"
                     onClick={confirmLoss}
-                    className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
+                    className="flex-1 cursor-pointer rounded-xl py-3 text-sm font-bold hover:opacity-90"
                     style={{ background: C.red, color: "#fff" }}
                   >
                     Enviar a pérdida
@@ -17480,9 +19479,6 @@ function AdminPanel({
     const productOptions = orderItems.length
       ? orderItems.map((item) => item.name)
       : getNonconformingProductOptions()
-    const selectedItemUnit = pncForm["1"]
-      ? getNonconformingItemUnit(pncForm["1"])
-      : ""
     const controlStyle = {
       background: t.input,
       border: `1px solid ${t.inputB}`,
@@ -17509,7 +19505,7 @@ function AdminPanel({
         onClick={() => setPncTarget(null)}
       >
         <div
-          className="flex max-h-[92vh] w-full max-w-4xl min-w-0 flex-col overflow-hidden rounded-3xl"
+          className="flex max-h-[92vh] w-full max-w-3xl min-w-0 flex-col overflow-hidden rounded-3xl"
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
@@ -17519,18 +19515,18 @@ function AdminPanel({
           onClick={(event) => event.stopPropagation()}
         >
           <div
-            className="flex items-center gap-3 px-5 py-4 sm:px-6"
-            style={{ background: t.cardAlt, borderBottom: `1px solid ${t.border}` }}
+            className="flex items-center gap-3 px-5 py-3.5 sm:px-6"
+            style={{ borderBottom: `1px solid ${t.border}` }}
           >
             <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.red}14`, color: C.red }}>
               {Ico.alert}
             </span>
             <div className="min-w-0 flex-1">
-              <h3 className="text-base font-bold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
-                Producto no conforme
+              <h3 className="text-base font-semibold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                Producto no conforme · {pncForm["0"]}
               </h3>
               <p className="mt-0.5 text-xs" style={{ color: t.muted }}>
-                Registra la pérdida y reinicia la orden de producción.
+                Registra lo que se dañó; se crea una nueva orden para rehacerlo.
               </p>
             </div>
             <button type="button" onClick={() => setPncTarget(null)} className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl" style={{ background: t.input, color: t.muted }}>
@@ -17538,95 +19534,331 @@ function AdminPanel({
             </button>
           </div>
 
-          <div className="flex min-w-0 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ background: t.input, border: `1px solid ${t.border}` }}>
-              <div>
-                <span className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: t.muted }}>Orden afectada</span>
-                <strong className="mt-1 block text-sm" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>{pncForm["0"]}</strong>
-              </div>
-              <span className="rounded-full px-3 py-1 text-[10px] font-bold" style={{ background: `${C.red}12`, color: C.red }}>Se generates una nueva orden</span>
-            </div>
+          <div className="flex min-w-0 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6" style={{ scrollbarWidth: "thin" }}>
+            {(() => {
+              // Order products (same product in two lines = one choice with the total)
+              const totals = new Map<string, number>()
+              ;(orderItems.some((item) => !item.parentId) ? orderItems.filter((item) => !item.parentId) : productOptions.map((name) => ({ name, quantity: 1 })))
+                .forEach((item) => totals.set(item.name, (totals.get(item.name) ?? 0) + (Number(item.quantity) || 1)))
+              const productChoices = [...totals].map(([name, quantity]) => ({ name, quantity }))
+              const entries = parsePncEntries(pncForm.entries)
+              const product = String(pncForm["1"] ?? "")
+              const listedWhole = (name: string, except = -1) =>
+                entries
+                  .filter((entry, i) => i !== except && entry.product === name && entry.whole && (entry.unit || "und") === "und")
+                  .reduce((sum, entry) => sum + entry.quantity, 0)
+              const orderQty = (name: string) => productChoices.find((item) => item.name === name)?.quantity ?? 1
+              const maxQty = Math.max(0, orderQty(product) - listedWhole(product))
+              const recipe = getProductRecipe(rows.producto?.find((row) => row[0] === product))
+              // Insumos of this product not yet on the list
+              const partOptions = recipe.filter(
+                (ingredient) => !entries.some((entry) => entry.product === product && entry.parts.some((part) => part.name === ingredient.name)),
+              )
+              const editIndex = pncForm.pEdit === undefined || pncForm.pEdit === "" ? -1 : Number(pncForm.pEdit)
+              const setEntries = (next: PncEntry[], patch: Record<string, string> = {}) => {
+                setPncForm((current) => ({ ...current, entries: JSON.stringify(next), pEdit: "", ...patch }))
+                setPncFieldErrors({})
+                setPncError("")
+              }
+              const addWhole = () => {
+                const qty = Number(pncForm["3"])
+                const unit = pncForm.wUnit || "und"
+                if (!product) return setPncError("Elige el producto que se dañó.")
+                if (!(qty > 0)) return setPncError("Escribe cuántos se dañaron.")
+                // The order counts products in units; other measures (tajadas, g...) aren't capped
+                if (unit === "und" && qty > maxQty) return setPncError(`Del pedido solo quedan ${maxQty} «${product}» por registrar.`)
+                const existing = entries.findIndex((entry) => entry.product === product && entry.whole && (entry.unit || "und") === unit)
+                setEntries(
+                  existing >= 0
+                    ? entries.map((entry, i) => (i === existing ? { ...entry, quantity: entry.quantity + qty } : entry))
+                    : [...entries, { product, whole: true, quantity: qty, unit, parts: [] }],
+                  { "3": "1", wUnit: "und" },
+                )
+              }
+              const addPart = () => {
+                const ingredient = recipe.find((item) => item.name === pncForm.pIns)
+                const qty = Number(pncForm.pQty)
+                if (!ingredient) return setPncError("Elige el insumo que se dañó.")
+                if (!(qty > 0)) return setPncError("Escribe cuánto se dañó.")
+                setEntries([...entries, { product, whole: false, quantity: 1, parts: [{ name: ingredient.name, quantity: qty, unit: ingredient.unit }] }], { pIns: "", pQty: "" })
+              }
+              const saveEdit = (index: number) => {
+                const qty = Number(pncForm.pEditQty)
+                const entry = entries[index]
+                if (!(qty > 0)) return setPncError("La cantidad debe ser mayor que 0.")
+                if (entry.whole && (entry.unit || "und") === "und" && qty > orderQty(entry.product) - listedWhole(entry.product, index))
+                  return setPncError(`Del pedido solo hay ${orderQty(entry.product)} «${entry.product}».`)
+                setEntries(entries.map((item, i) =>
+                  i !== index ? item : item.whole ? { ...item, quantity: qty } : { ...item, parts: item.parts.map((part) => ({ ...part, quantity: qty })) },
+                ))
+              }
+              const sectionTitle = (title: string, color: string = C.mustard) => (
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="h-4 w-1 rounded-full" style={{ background: color }} />
+                  <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>{title}</h4>
+                </div>
+              )
+              const fieldLabel = "flex min-w-0 flex-col gap-1.5 text-xs font-medium"
+              const addButton = (label: string, onClick: () => void, disabled = false) => (
+                <button
+                  type="button"
+                  onClick={onClick}
+                  disabled={disabled}
+                  className="flex cursor-pointer items-center justify-center gap-1 rounded-xl px-4 py-2.5 text-xs font-bold disabled:cursor-default disabled:opacity-40"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  {Ico.plus} {label}
+                </button>
+              )
+              return (
+                <>
+                  <section className="flex flex-col gap-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                    <label className={`${fieldLabel} sm:col-span-2`} style={{ color: t.muted }}>
+                      Producto dañado
+                      <select
+                        value={product}
+                        onChange={(event) => {
+                          setPncForm((current) => ({ ...current, "1": event.target.value, "3": "1", pIns: "", pQty: "" }))
+                          setPncError("")
+                        }}
+                        className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                        style={controlStyle}
+                      >
+                        <option value="">Selecciona...</option>
+                        {productChoices.map((item) => (
+                          <option key={item.name} value={item.name}>
+                            {item.name}{item.quantity > 1 ? ` (×${item.quantity} en el pedido)` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                      <label className={fieldLabel} style={{ color: t.muted }}>
+                        Motivo
+                        <select value={pncForm["4"] || "Producto perdido"} onChange={(event) => updatePncField("4", event.target.value)} aria-invalid={!!pncFieldErrors["4"]} className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("4")}>
+                          {["Tiempo superado", "Error en preparación", "Ingrediente incorrecto", "Daño físico", "Producto perdido", "Otro"].map((reason) => <option key={reason}>{reason}</option>)}
+                        </select>
+                        {pncFieldErrors["4"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["4"]}</span>}
+                      </label>
+                      <label className={fieldLabel} style={{ color: t.muted }}>
+                        Fecha
+                        <input
+                          type="date"
+                          max={getCurrentDateTimeParts().date}
+                          value={pncForm["5"] || ""}
+                          onChange={(event) => {
+                            const today = getCurrentDateTimeParts().date
+                            updatePncField("5", event.target.value > today ? today : event.target.value)
+                          }}
+                          aria-invalid={!!pncFieldErrors["5"]}
+                          className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
+                          style={pncStyle("5")}
+                        />
+                        {pncFieldErrors["5"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["5"]}</span>}
+                      </label>
+                    </div>
 
-            <section className="rounded-2xl p-4" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-              <div className="mb-3 flex items-center gap-2">
-                <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Producto y daño</h4>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Producto o producto de insumo *
-                  <select value={pncForm["1"] || ""} onChange={(event) => {
-                    const selectedProduct = event.target.value
-                    const selectedItem = orderItems.find((item) => item.name === selectedProduct)
-                    setPncForm((current) => ({
-                      ...current,
-                      "1": selectedProduct,
-                      "2": selectedProduct,
-                      "3": String(selectedItem?.quantity ?? current["3"] ?? 1),
-                    }))
-                    setPncFieldErrors((current) => {
-                      const next = { ...current }
-                      delete next["1"]
-                      delete next["2"]
-                      delete next["3"]
-                      return next
-                    })
-                    setPncError("")
-                  }} aria-invalid={!!pncFieldErrors["1"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("1")}>
-                    <option value="">Selecciona...</option>
-                    {productOptions.map((product) => <option key={product} value={product}>{product}</option>)}
-                  </select>
-                  {pncFieldErrors["1"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["1"]}</span>}
+                    {product && (
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-xs font-medium" style={{ color: t.muted }}>Agrega lo que se dañó de «{product}»</span>
+                        <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
+                          <div className="grid items-end gap-2 px-3 py-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,13rem)_auto]">
+                            <span className="self-center text-sm" style={{ color: t.text }}>
+                              Todo el producto
+                              <span className="block text-[11px]" style={{ color: t.muted }}>Quedan {maxQty} und por registrar</span>
+                            </span>
+                            <div className="flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
+                              <span id="pnc-whole-label">Cantidad y medida</span>
+                              <div className="flex items-center overflow-hidden rounded-xl" style={controlStyle}>
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="any"
+                                  aria-labelledby="pnc-whole-label"
+                                  value={pncForm["3"] || ""}
+                                  onChange={(event) => updatePncField("3", event.target.value)}
+                                  className="w-16 min-w-0 flex-1 bg-transparent px-3 py-2.5 text-sm outline-none"
+                                  style={{ color: t.text }}
+                                />
+                                <select
+                                  aria-label="Medida"
+                                  value={pncForm.wUnit || "und"}
+                                  onChange={(event) => setPncForm((current) => ({ ...current, wUnit: event.target.value }))}
+                                  className="cursor-pointer border-l bg-transparent px-2 py-2.5 text-sm outline-none"
+                                  style={{ color: t.text, borderColor: t.inputB }}
+                                >
+                                  {PNC_UNITS.map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+                                </select>
+                              </div>
+                            </div>
+                            {addButton("Agregar", addWhole, maxQty === 0 && (pncForm.wUnit || "und") === "und")}
+                          </div>
+                          {/* Only products with a ficha técnica have insumos to pick (an addition like a huevo doesn't) */}
+                          {recipe.length > 0 && (
+                          <div className="grid items-center gap-2 border-t px-3 py-3 sm:grid-cols-[minmax(0,1fr)_7.5rem_auto]" style={{ borderColor: t.border }}>
+                              <>
+                                <select
+                                  aria-label="Insumo dañado"
+                                  value={pncForm.pIns || ""}
+                                  onChange={(event) => {
+                                    const ingredient = recipe.find((item) => item.name === event.target.value)
+                                    setPncForm((current) => ({ ...current, pIns: event.target.value, pQty: ingredient ? String(ingredient.quantity) : "" }))
+                                    setPncError("")
+                                  }}
+                                  className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                                  style={{ ...controlStyle, color: pncForm.pIns ? t.text : t.muted }}
+                                >
+                                  <option value="">Un insumo (ej. el queso)...</option>
+                                  {partOptions.map((ingredient) => (
+                                    <option key={ingredient.name} value={ingredient.name}>{ingredient.name}</option>
+                                  ))}
+                                </select>
+                                <div className="flex items-center gap-1.5 rounded-xl px-3" style={controlStyle}>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    aria-label="Cantidad del insumo dañado"
+                                    value={pncForm.pQty || ""}
+                                    onChange={(event) => setPncForm((current) => ({ ...current, pQty: event.target.value }))}
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") {
+                                        event.preventDefault()
+                                        addPart()
+                                      }
+                                    }}
+                                    className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
+                                    style={{ color: t.text }}
+                                  />
+                                  <span className="text-[11px]" style={{ color: t.muted }}>
+                                    {recipe.find((item) => item.name === pncForm.pIns)?.unit ?? ""}
+                                  </span>
+                                </div>
+                                {addButton("Agregar", addPart, !pncForm.pIns)}
+                              </>
+                          </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
-                  {selectedItemUnit && (
-                    <span className="rounded-lg px-3 py-2 text-[11px] font-medium" style={{ background: t.input, color: t.muted }}>
-                      Unidad de medida: <strong style={{ color: t.text }}>{selectedItemUnit}</strong>
-                    </span>
-                  )}
+                    <div className="flex flex-col gap-1.5">
+                      <span className="text-xs font-medium" style={{ color: pncFieldErrors.items ? C.red : t.muted }}>
+                        Lo que se dañó ({entries.length})
+                      </span>
+                      {entries.length ? (
+                        <div className="max-h-52 overflow-y-auto rounded-xl" style={{ border: `1px solid ${t.border}`, scrollbarWidth: "thin" }}>
+                          {entries.map((entry, index) => {
+                            const part = entry.parts[0]
+                            return (
+                              <div
+                                key={`${entry.product}-${part?.name ?? "todo"}-${index}`}
+                                className="flex items-center gap-3 border-b px-3 py-2.5 last:border-b-0"
+                                style={{ borderColor: t.border }}
+                              >
+                                <span
+                                  className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                                  style={entry.whole ? { background: `${C.red}12`, color: C.red } : { background: `${C.amber}18`, color: C.amber }}
+                                >
+                                  {entry.whole ? "Producto" : "Insumo"}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-sm" style={{ color: t.text }}>{entry.whole ? entry.product : part?.name}</span>
+                                  {!entry.whole && (
+                                    <span className="block truncate text-[11px]" style={{ color: t.muted }}>de {entry.product}</span>
+                                  )}
+                                </span>
+                                {editIndex === index ? (
+                                  <>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="any"
+                                      autoFocus
+                                      aria-label="Nueva cantidad"
+                                      value={pncForm.pEditQty ?? ""}
+                                      onChange={(event) => setPncForm((current) => ({ ...current, pEditQty: event.target.value }))}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                          event.preventDefault()
+                                          saveEdit(index)
+                                        }
+                                      }}
+                                      className="w-20 rounded-lg px-2 py-1.5 text-sm outline-none"
+                                      style={controlStyle}
+                                    />
+                                    <span className="text-xs" style={{ color: t.muted }}>{entry.whole ? entry.unit || "und" : part?.unit}</span>
+                                    <button
+                                      type="button"
+                                      title="Guardar"
+                                      aria-label="Guardar cantidad"
+                                      onClick={() => saveEdit(index)}
+                                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                      style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+                                    >
+                                      {Ico.check}
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <span className="text-sm" style={{ color: t.muted }}>
+                                      {entry.whole
+                                        ? `${entry.quantity.toLocaleString("es-CO")} ${entry.unit || "und"}`
+                                        : `${(part?.quantity ?? 0).toLocaleString("es-CO")} ${part?.unit ?? ""}`}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      title="Editar cantidad"
+                                      aria-label="Editar cantidad"
+                                      onClick={() => setPncForm((current) => ({
+                                        ...current,
+                                        pEdit: String(index),
+                                        pEditQty: String(entry.whole ? entry.quantity : part?.quantity ?? ""),
+                                      }))}
+                                      className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                      style={{ color: C.mustard, background: `${C.mustard}14` }}
+                                    >
+                                      {Ico.edit}
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  type="button"
+                                  title="Quitar"
+                                  aria-label="Quitar de la lista"
+                                  onClick={() => setEntries(entries.filter((_, i) => i !== index))}
+                                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+                                  style={{ color: C.red, background: `${C.red}10` }}
+                                >
+                                  {Ico.x}
+                                </button>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      ) : (
+                        <p
+                          className="rounded-xl px-3 py-3 text-center text-xs"
+                          style={{ border: `1.5px dashed ${pncFieldErrors.items ? C.red : t.inputB}`, color: pncFieldErrors.items ? C.red : t.muted }}
+                        >
+                          {pncFieldErrors.items || "Aquí aparece cada producto o insumo dañado que agregues."}
+                        </p>
+                      )}
+                    </div>
+                  </section>
 
-                </label>
-                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Cantidad *
-                  <input type="number" min="1" value={pncForm["3"] || "1"} onChange={(event) => updatePncField("3", event.target.value)} aria-invalid={!!pncFieldErrors["3"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("3")} />
-                  {pncFieldErrors["3"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["3"]}</span>}
-                </label>
-                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold sm:col-span-2" style={{ color: t.muted }}>
-                  Productos que se dañaron *
-                  <textarea rows={2} value={pncForm["2"] || ""} onChange={(event) => updatePncField("2", event.target.value)} aria-invalid={!!pncFieldErrors["2"]} className="w-full min-w-0 resize-none rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("2")} />
-                  {pncFieldErrors["2"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["2"]}</span>}
-                </label>
-              </div>
-            </section>
-
-            <section className="rounded-2xl p-4" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-              <div className="mb-3 flex items-center gap-2">
-                <span className="h-4 w-1 rounded-full" style={{ background: C.red }} />
-                <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Clasificación del registro</h4>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Motivo *
-                  <select value={pncForm["4"] || "Producto perdido"} onChange={(event) => updatePncField("4", event.target.value)} aria-invalid={!!pncFieldErrors["4"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("4")}>
-                    {["Tiempo superado", "Error en preparación", "Ingrediente incorrecto", "Daño físico", "Producto perdido", "Otro"].map((reason) => <option key={reason}>{reason}</option>)}
-                  </select>
-                  {pncFieldErrors["4"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["4"]}</span>}
-                </label>
-                <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-                  Fecha del registro *
-                  <input type="date" value={pncForm["5"] || ""} onChange={(event) => updatePncField("5", event.target.value)} aria-invalid={!!pncFieldErrors["5"]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none" style={pncStyle("5")} />
-                  {pncFieldErrors["5"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["5"]}</span>}
-                </label>
-              </div>
-            </section>
+                </>
+              )
+            })()}
 
             {pncError && (
-              <div className="rounded-xl px-3 py-2.5 text-xs font-medium" style={{ background: `${C.red}10`, color: C.red }}>
+              <div role="alert" className="rounded-xl px-3 py-2.5 text-xs font-medium" style={{ background: `${C.red}10`, color: C.red }}>
                 {pncError}
               </div>
             )}
           </div>
 
-          <div className="flex flex-col-reverse gap-2 px-4 py-4 sm:flex-row sm:justify-end sm:px-6" style={{ background: t.cardAlt, borderTop: `1px solid ${t.border}` }}>
+          <div className="flex flex-col-reverse gap-2 px-4 py-3 sm:flex-row sm:justify-end sm:px-6" style={{ borderTop: `1px solid ${t.border}` }}>
             <button type="button" onClick={() => setPncTarget(null)} className="rounded-xl px-5 py-2.5 text-sm font-semibold cursor-pointer" style={{ background: t.input, color: t.muted }}>
               Cancelar
             </button>
@@ -17641,7 +19873,6 @@ function AdminPanel({
 
   const QuickClientModal = () => {
     if (!quickClientOpen) return null
-    const quickIsLocal = String(quickClientForm["6"] ?? "").toLowerCase() === "sí"
     const updateQuickClientField = (
       key: string,
       rawValue: string,
@@ -17662,10 +19893,7 @@ function AdminPanel({
       }
       setQuickClientForm(nextForm)
       if (validateImmediately || quickClientErrors[key] || quickClientError) {
-        const isLocal = String(nextForm["6"] ?? "").toLowerCase() === "sí"
-        const required =
-          key === "0" || key === "1" || key === "2" || key === "3" ||
-          (!isLocal && (key === "4" || key === "5"))
+        const required = ["0", "1", "2", "3", "4", "5"].includes(key)
         let error = required && !value.trim() ? "Este campo es obligatorio." : ""
         if (!error && key === "2" && value.trim()) {
           error = validateDocumentNumber(value, nextForm["1"] ?? "")
@@ -17685,8 +19913,7 @@ function AdminPanel({
     }
     const field = (key: string, label: string, type = "text", options?: string[]) => (
       <label className="flex min-w-0 flex-col gap-1.5 text-xs font-semibold" style={{ color: t.muted }}>
-        {label}{(key === "0" || key === "1" || key === "2" || key === "3" ||
-          (!quickIsLocal && (key === "4" || key === "5"))) && " *"}
+        {label}
         {options ? (
           <select value={quickClientForm[key] || ""} onBlur={() => updateQuickClientField(key, quickClientForm[key] || "", true)} onChange={(event) => updateQuickClientField(key, event.target.value)} aria-invalid={!!quickClientErrors[key]} className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm" style={{ background: t.input, border: `1px solid ${quickClientErrors[key] ? C.red : t.inputB}`, color: t.text }}>
             <option value="">Selecciona...</option>
@@ -17702,36 +19929,16 @@ function AdminPanel({
       <div className="fixed inset-0 z-[75] flex items-center justify-center px-4" style={{ background: "rgba(0,0,0,0.68)" }} onClick={() => setQuickClientOpen(false)}>
         <div className="flex max-h-[90vh] w-full max-w-lg min-w-0 flex-col overflow-hidden rounded-2xl" style={{ background: t.card, border: `1px solid ${t.border}` }} onClick={(event) => event.stopPropagation()}>
           <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: `1px solid ${t.border}` }}>
-            <div><h3 className="text-base font-semibold" style={{ color: t.text }}>Registrar cliente</h3><p className="text-xs" style={{ color: t.muted }}>Correo y dirección obligatorios, excepto para clientes de local.</p></div>
+            <div><h3 className="text-base font-semibold" style={{ color: t.text }}>Registrar cliente</h3><p className="text-xs" style={{ color: t.muted }}>Le llegará al correo una contraseña provisional para entrar a la app. Si no quiere dar sus datos, usa «Cliente mostrador».</p></div>
             <button type="button" onClick={() => setQuickClientOpen(false)} className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl" style={{ background: t.input, color: t.muted }}>{Ico.x}</button>
           </div>
           <div className="grid min-w-0 gap-3 overflow-y-auto px-5 py-4 sm:grid-cols-2">
             <div className="sm:col-span-2">{field("0", "Nombre completo *")}</div>
             <div className="sm:col-span-2">{field("3", "Teléfono *", "tel")}</div>
-            {field("1", "Tipo de documento *", "text", ["Cédula de Ciudadanía", "Cédula Extranjería", "NIT", "Pasaporte", "Tarjeta de Identidad"])}
+            {field("1", "Tipo de documento *", "text", DOC_TYPES)}
             {field("2", "Número de documento *")}
-            {field("4", quickIsLocal ? "Correo electrónico (opcional)" : "Correo electrónico *", "email")}
-            <div className="sm:col-span-2">{field("5", quickIsLocal ? "Dirección (opcional)" : "Dirección *")}</div>
-            <button
-              type="button"
-              role="checkbox"
-              aria-checked={quickIsLocal}
-              onClick={() => {
-                setQuickClientForm((current) => ({ ...current, "6": quickIsLocal ? "No" : "Sí" }))
-                setQuickClientErrors((current) => {
-                  const next = { ...current }
-                  if (quickIsLocal) return next
-                  delete next["4"]
-                  delete next["5"]
-                  return next
-                })
-              }}
-              className="flex cursor-pointer items-start gap-3 rounded-xl px-3 py-3 text-left sm:col-span-2"
-              style={{ background: t.input, border: `1px solid ${t.inputB}` }}
-            >
-              <span className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md" style={{ background: quickIsLocal ? C.mustard : "transparent", border: `1.5px solid ${quickIsLocal ? C.mustard : t.inputB}`, color: "#fff" }}>{quickIsLocal ? Ico.check : null}</span>
-              <span><strong className="block text-sm" style={{ color: t.text }}>Cliente de local</strong><span className="block text-xs" style={{ color: t.muted }}>No requiere correo electrónico ni dirección.</span></span>
-            </button>
+            {field("4", "Correo electrónico *", "email")}
+            <div className="sm:col-span-2">{field("5", "Dirección *")}</div>
             {quickClientError && <p className="text-xs font-medium sm:col-span-2" style={{ color: C.red }}>{quickClientError}</p>}
           </div>
           <div className="flex gap-3 px-5 py-4" style={{ borderTop: `1px solid ${t.border}` }}>
@@ -17961,16 +20168,21 @@ function AdminPanel({
   const SidebarContent = () => (
     <>
       <div
-        className="flex items-center justify-between px-4 py-4"
+        className={`flex items-center justify-between px-4 py-4 ${sidebarCollapsed ? "lg:justify-center lg:px-2" : ""}`}
         style={{ borderBottom: `1px solid ${t.sidebarBd}` }}
       >
-        <div className="flex items-center gap-2.5 min-w-0">
+        <button
+          type="button"
+          onClick={onSwitchToClient}
+          aria-label="Volver al menú principal"
+          className={`flex min-w-0 cursor-pointer items-center gap-2.5 text-left ${sidebarCollapsed ? "lg:justify-center" : ""}`}
+        >
           <img
             src={logoImg}
             alt="Logo"
-            className="w-11 h-11 object-contain flex-shrink-0"
+            className={`object-contain flex-shrink-0 ${sidebarCollapsed ? "w-11 h-11 lg:w-10 lg:h-10" : "w-11 h-11"}`}
           />
-          <div className="min-w-0">
+          <div className={`min-w-0 ${hideOnMini}`}>
             <div
               className="font-semibold text-sm truncate"
               style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
@@ -17981,7 +20193,7 @@ function AdminPanel({
               Mini Burguer · Admin
             </div>
           </div>
-        </div>
+        </button>
         <button
           onClick={() => setSidebarOpen(false)}
           className="lg:hidden w-7 h-7 flex items-center justify-center rounded-lg cursor-pointer"
@@ -18008,9 +20220,15 @@ function AdminPanel({
                 onClick={() => {
                   if (leaf) {
                     setSection(g.key as AdminSection)
+                  } else if (sidebarCollapsed && window.innerWidth >= 1024) {
+                    // Its modules need their names: open the menu with this group expanded
+                    setSidebarCollapsed(false)
+                    if (!open.includes(g.key)) toggleGrp(g.key)
                   } else toggleGrp(g.key)
                 }}
-                className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer"
+                title={sidebarCollapsed ? g.label : undefined}
+                aria-label={g.label}
+                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
                 style={{
                   background: active
                     ? `${g.color}18`
@@ -18022,18 +20240,18 @@ function AdminPanel({
                 }}
               >
                 <span
-                  className="flex-shrink-0"
+                  className="flex w-[18px] flex-shrink-0 justify-center"
                   style={{ color: active || anyChild ? g.color : t.sidebarMu }}
                 >
                   {g.icon}
                 </span>
                 <span
-                  className="flex-1 text-xs font-medium truncate"
+                  className={`flex-1 truncate text-left text-xs font-medium ${hideOnMini}`}
                   style={{ color: active ? g.color : t.sidebarTx }}
                 >
                   {g.label}
                 </span>
-                {!leaf && (
+                {!leaf && !(sidebarCollapsed && window.innerWidth >= 1024) && (
                   <span
                     style={{
                       color: t.sidebarMu,
@@ -18050,7 +20268,7 @@ function AdminPanel({
               </button>
               {!leaf && open.includes(g.key) && (
                 <div
-                  className="ml-5 mt-0.5 flex flex-col gap-0.5 pl-2"
+                  className={`ml-5 mt-0.5 flex flex-col gap-0.5 ${hideOnMini}`}
                   style={{ borderLeft: `1.5px solid ${t.sidebarBd}` }}
                 >
                   {g.children.map((item) => (
@@ -18059,8 +20277,9 @@ function AdminPanel({
                       onClick={() => {
                         setSection(item.key as AdminSection)
                       }}
-                      className="w-full text-left px-3 py-2 rounded-lg cursor-pointer"
+                      className="w-full text-left pr-3 py-2 rounded-lg cursor-pointer"
                       style={{
+                        paddingLeft: "18.5px",
                         background:
                           section === item.key ? `${g.color}14` : "transparent",
                       }}
@@ -18087,19 +20306,21 @@ function AdminPanel({
       >
         <button
           onClick={onSwitchToClient}
-          className="w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80"
+          title={sidebarCollapsed ? (user ? "Vista de cliente" : "Ver sitio") : undefined}
+          className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80 ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
           style={{ color: t.sidebarMu }}
         >
           {Ico.globe}
-          <span>{user ? "Vista de cliente" : "Ver sitio"}</span>
+          <span className={hideOnMini}>{user ? "Vista de cliente" : "Ver sitio"}</span>
         </button>
         <button
           onClick={onLogout}
-          className="mt-1 w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80"
+          title={sidebarCollapsed ? "Cerrar sesión" : undefined}
+          className={`mt-1 w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80 ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
           style={{ color: C.red }}
         >
           {Ico.logout}
-          <span>Cerrar sesión</span>
+          <span className={hideOnMini}>Cerrar sesión</span>
         </button>
       </div>
     </>
@@ -18118,11 +20339,10 @@ function AdminPanel({
         />
       )}
       <aside
-        className={`fixed lg:relative inset-y-0 left-0 z-50 flex flex-col transition-transform duration-300 ${
+        className={`fixed lg:relative inset-y-0 left-0 z-50 flex w-[208px] flex-col transition-[transform,width] duration-300 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        }`}
+        } ${sidebarCollapsed ? "lg:w-[72px]" : ""}`}
         style={{
-          width: "240px",
           background: t.sidebarBg,
           borderRight: `1px solid ${t.sidebarBd}`,
           flexShrink: 0,
@@ -18137,8 +20357,12 @@ function AdminPanel({
           style={{ background: t.hdrBg, borderBottom: `1px solid ${t.hdrBd}` }}
         >
           <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-2 rounded-xl cursor-pointer"
+            onClick={() =>
+              window.innerWidth >= 1024 ? setSidebarCollapsed((collapsed) => !collapsed) : setSidebarOpen(!sidebarOpen)
+            }
+            title={sidebarCollapsed ? "Ver el menú con nombres" : "Ver solo los íconos"}
+            aria-label={sidebarCollapsed ? "Mostrar los nombres del menú" : "Mostrar solo los íconos del menú"}
+            className="p-2 rounded-xl cursor-pointer"
             style={{ color: t.muted, background: t.input }}
           >
             {Ico.menu}
@@ -18400,7 +20624,7 @@ function AdminPanel({
         </main>
       </div>
       {CRUDModal()}
-      <ProductionPncModal />
+      {ProductionPncModal()}
       <QuickClientModal />
       <AnulModal />
       <PaymentRejectionModal />
@@ -18427,7 +20651,6 @@ function AdminPanel({
 export default function App() {
   const [page, setPage] = useState<Page>("landing")
   const [user, setUser] = useState<User | null>(null)
-  const [firstPasswordDestination, setFirstPasswordDestination] = useState<Page>("app")
   // The cart is kept in the browser, so it survives logout and reloads
   const [cart, setCart] = useState<CartItem[]>(() => loadLS("cart", []))
   const [forgotEmail, setForgotEmail] = useState("")
@@ -18440,7 +20663,17 @@ export default function App() {
   const [, setMenuVersion] = useState(0)
   useEffect(() => {
     loadMenu()
-      .then(() => setMenuVersion((v) => v + 1))
+      .then(() => {
+        setMenuVersion((v) => v + 1)
+        // A cart saved before the burgers were renamed ("Sencilla" -> "Hamburguesa Sencilla") gets the current names
+        setCart((items) =>
+          items.map((item) => {
+            if (PRODUCTS.some((product) => product.name === item.name)) return item
+            const renamed = PRODUCTS.find((product) => product.name === `Hamburguesa ${item.name}`)
+            return renamed ? { ...item, name: renamed.name } : item
+          }),
+        )
+      })
       .catch((err) => console.warn("No se pudo cargar el menú del backend:", err))
   }, [])
 
@@ -18458,22 +20691,14 @@ export default function App() {
   // Orders come from the backend; the panel opens once they're loaded
   const [ordersLoadedFor, setOrdersLoadedFor] = useState("")
   useEffect(() => {
-
-    if (!user || user.requiresPasswordChange) return
-
-    if (!user) return
-
+    if (!user || user.mustChangePassword) return
     refreshOrders(user.role)
       .catch((err) => console.warn("No se pudieron cargar los pedidos del backend:", err))
       .finally(() => {
         setOrdersLoadedFor(user.email)
         setOrdersVersion((v) => v + 1)
       })
-
-  }, [user?.email, user?.role, user?.requiresPasswordChange])
-
-  }, [user?.email, user?.role])
-
+  }, [user?.email, user?.role, user?.mustChangePassword])
 
   // Re-read on every render so status changes made in the admin panel show up
   const orders = user
@@ -18500,16 +20725,8 @@ export default function App() {
     // What the backend has wins; the browser copy only fills the gaps (e.g. the photo)
     const fromBackend = Object.fromEntries(Object.entries(u).filter(([, v]) => v !== undefined)) as User
     const authenticatedUser = saved ? { ...saved, ...fromBackend, password: undefined } : u
-
-    if (authenticatedUser.requiresPasswordChange) {
-      setUser(authenticatedUser)
-      setClientView("menu")
-      setFirstPasswordDestination(next)
-      setPage("first-password")
-      return
-    }
-
-    updateUser(authenticatedUser)
+    if (authenticatedUser.mustChangePassword) setUser(authenticatedUser)
+    else updateUser(authenticatedUser)
     setClientView("menu")
     setPage(next)
   }
@@ -18536,6 +20753,19 @@ export default function App() {
     setPage("guest-menu")
   }
 
+  // Nothing else is shown until the provisional password from the sign-up e-mail is replaced
+  if (user?.mustChangePassword)
+    return (
+      <ChooseOwnPasswordPage
+        user={user}
+        onDone={() => {
+          const updated = { ...user, mustChangePassword: false }
+          setUser(updated)
+          saveLS(`profile:${updated.email.toLowerCase()}`, updated)
+        }}
+        onLogout={logout}
+      />
+    )
   if (page === "login")
     return (
       <LoginPage
@@ -18569,24 +20799,6 @@ export default function App() {
     )
   if (page === "reset")
     return <ResetPage email={forgotEmail} onDone={() => setPage("login")} />
-  if (page === "first-password" && user)
-    return (
-      <FirstPasswordPage
-        onComplete={async (password) => {
-          const result = await api<{ token: string }>(
-            "/auth/me/contrasena-inicial",
-            "PATCH",
-            { nueva: password },
-          )
-          saveLS("token", result.token)
-          const updatedUser = { ...user, requiresPasswordChange: false }
-          setUser(updatedUser)
-          saveLS(`profile:${updatedUser.email.toLowerCase()}`, updatedUser)
-          saveRegisteredClient(updatedUser)
-          setPage(firstPasswordDestination)
-        }}
-      />
-    )
   if (page === "guest-menu")
     return (
       <GuestMenuPage
@@ -18603,10 +20815,6 @@ export default function App() {
         setCart={setCart}
         user={user}
         onLogin={(u) => login(u, "checkout")}
-        onRegisterVerified={(u) => {
-          saveRegisteredClient(u)
-          login(u, "checkout")
-        }}
         onBack={() => setPage(user ? "app" : "landing")}
         onPlaceOrder={async (info, shouldSaveAddress) => {
           if (!user) return
@@ -18691,10 +20899,6 @@ export default function App() {
   return (
     <LandingPage
       onLogin={() => setPage("login")}
-
-      // The admin panel needs a real admin login (the backend checks its token)
-      onAdmin={() => setPage(user?.role === "admin" ? "admin" : "login")}
-
       onGuestMenu={goGuestMenu}
       onCheckout={goCheckout}
       cart={cart}
