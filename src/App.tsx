@@ -14366,8 +14366,10 @@ function AdminPanel({
                 id="production-day"
                 type="date"
                 value={prodDay}
+                max={getCurrentDateTimeParts().date}
                 onChange={(event) => {
-                  setProdDay(event.target.value)
+                  const today = getCurrentDateTimeParts().date
+                  setProdDay(event.target.value > today ? today : event.target.value)
                   setP(0)
                 }}
                 className="cursor-pointer bg-transparent text-xs outline-none"
