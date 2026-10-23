@@ -26,6 +26,7 @@ type User = {
 type RegisteredClient = Pick<User, "name" | "email" | "cedula" | "docType" | "phone">
 type CartItem = {
   id: number
+  productId?: number
   name: string
   description?: string
   price: number
@@ -146,13 +147,16 @@ type AdminOrderLine = {
   quantity: number
   unitPrice: number
   parentId?: string
+  sauces?: string[]
 }
 type ProductionItem = {
+  id?: string
   name: string
   quantity: number
   unit?: string
   category?: string
   parentId?: string
+  sauces?: string[]
   // Order remade after a producto no conforme: reused as is (takes nothing out of stock)…
   reuse?: boolean
   // …or only these damaged insumos are replaced (instead of the whole ficha técnica)
@@ -1409,7 +1413,12 @@ const PRODUCT_CAT_LABEL: Record<string, string> = {
 // "Arepa Burger" was merged into "Arepa Rellena": products the database still lists under the
 // old category are shown as Arepa Rellena (and saved that way on their next edit)
 const RENAMED_CATEGORIES: Record<string, string> = { "Arepa Burger": "Arepa Rellena" }
-const currentCategory = (name: string) => RENAMED_CATEGORIES[name] ?? name
+const currentCategory = (name: string) => {
+  const raw = String(name ?? "")
+  const normalized = normalizeName(raw)
+  if (normalized === "bebidas" || normalized === "gaseosas") return "Gaseosas"
+  return RENAMED_CATEGORIES[raw] ?? raw
+}
 
 // ── Admin config ───────────────────────────────────────────────────────────────
 type ModConfig = {
@@ -1633,7 +1642,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [
       ["Hamburguesas", "Burgers artesanales de la casa", "Activa"],
       ["Adiciones", "Extras para agregar a los productos", "Activa"],
-      ["Bebidas", "Bebidas y presentaciones disponibles para la venta", "Activa"],
+      ["Gaseosas", "Gaseosas y presentaciones disponibles para la venta", "Activa"],
       ["Salchipapas", "Papas fritas con salchicha", "Activa"],
       ["Perros Calientes", "Hot dogs", "Activa"],
       ["Perras", "Versiones especiales", "Activa"],
@@ -1663,7 +1672,8 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Patacones",
           "Arepa Rellena",
           "Salsas",
-          "Bebidas",
+          "Gaseosas",
+          "Sabores de bebida",
           "Producto de insumo",
         ],
       },
@@ -1927,13 +1937,52 @@ const supplyAsProduct = (row: (string | number)[]): (string | number)[] => [
 // no ficha técnica) and is bought as the insumo with that same name (its stock). The name matches the order line
 // the store sends ("Gaseosa Manzana (1.5 L)").
 const SODA_RE = /^Gaseosa (.+) \((.+)\)$/
-const SODA_PRODUCT = "Bebidas"
-// A bought soda with this many units or fewer shows a "Pocas gaseosas" alert
-const SODA_LOW_STOCK = 3
+const SODA_PRODUCT = "Gaseosas"
+type SodaProductOverride = { price?: number; description?: string; status?: string }
+const SODA_PRODUCT_OVERRIDES_KEY = "sodaProductOverrides"
+const getSodaProductOverrides = () =>
+  loadLS<Record<string, SodaProductOverride>>(SODA_PRODUCT_OVERRIDES_KEY, {})
+const saveSodaProductOverride = (row: Row, patch: SodaProductOverride) => {
+  const name = String(row[0] ?? "")
+  if (!name) return
+  const overrides = getSodaProductOverrides()
+  overrides[name] = {
+    ...overrides[name],
+    ...patch,
+  }
+  saveLS(SODA_PRODUCT_OVERRIDES_KEY, overrides)
+}
 const isSodaName = (name: string | number | undefined) => SODA_RE.test(String(name ?? ""))
-const sodaImage = (name: string | number | undefined) => {
-  const m = SODA_RE.exec(String(name ?? ""))
-  return m ? beverageImage(m[1], m[2]) : undefined
+const isSodaProductRow = (row: Row | undefined) =>
+  !!row && isSodaName(row[0]) && currentCategory(String(row[1] ?? "")) === SODA_PRODUCT
+// One soda as the store shows it; sells at its size's price (category «Gaseosas»). insumo = its stock once bought
+const sodaAsProduct = (name: string, insumo: Row | undefined, products: Row[]): Row => {
+  const size = SODA_RE.exec(name)?.[2] ?? ""
+  const price = Number(products.find((p) => currentCategory(String(p[1])) === SODA_PRODUCT && String(p[0]) === size)?.[2]) || 0
+  const override = getSodaProductOverrides()[name]
+  return [
+    name,
+    SODA_PRODUCT,
+    override?.price ?? price,
+    override?.description ?? `Producto terminado: se compra y se vende igual, sin ficha técnica. ${
+      insumo ? `En stock: ${Number(insumo[4]) || 0} und.` : "Aún no se ha comprado: regístrala en Compras para tener stock."
+    }`,
+    override?.status ?? String(insumo?.[12] || "Activo"),
+    "", "", "", "", "[]", "Disponible",
+  ]
+}
+// Productos lists every soda of the store (active flavours × active sizes), bought or not
+const withSodaProducts = (producto: Row[], insumos: Row[]): Row[] => {
+  const base = producto.filter((row) => !isSodaProductRow(row))
+  const active = (category: string) =>
+    base
+      .filter((p) => normalizeName(currentCategory(String(p[1] ?? ""))) === category && isActiveStatus(p[4]))
+      .map((p) => String(p[0]))
+  const names = active("sabores de bebida").flatMap((flavor) => active("gaseosas").map((size) => `Gaseosa ${flavor} (${size})`))
+  return [
+    ...base,
+    ...names.map((name) => sodaAsProduct(name, insumos.find((i) => normalizeName(i[0]) === normalizeName(name)), base)),
+  ]
 }
 
 // ── Orders → production ───────────────────────────────────────────────────────
@@ -1958,6 +2007,62 @@ function productionLabel(lines: AdminOrderLine[]) {
     [...totals].map(([product, quantity]) => (quantity > 1 ? `${product} ×${quantity}` : product)).join(", ") +
     (additions ? ` + ${additions} ${additions === 1 ? "adición" : "adiciones"}` : "")
   )
+}
+
+function clientOrderToPanelRow(order: Order, products: (string | number)[][]): Row {
+  const lines: AdminOrderLine[] = order.items.flatMap((item, index) => {
+    const parentId = `${order.id}-line-${index}`
+    const mainLine: AdminOrderLine = {
+      id: parentId,
+      product: item.name,
+      category: String(products.find((product) => product[0] === item.name)?.[1] ?? ""),
+      quantity: item.qty,
+      unitPrice: item.price,
+      ...(item.sauces?.length ? { sauces: item.sauces } : {}),
+    }
+    return [
+      mainLine,
+      ...(item.additions || []).map((addition, additionIndex) => ({
+        id: `${parentId}-addition-${additionIndex}`,
+        product: addition.name,
+        category: "Adiciones",
+        quantity: addition.qty * item.qty,
+        unitPrice: addition.price,
+        parentId,
+      })),
+    ]
+  })
+  const paymentStatus =
+    order.paymentStatus ??
+    (order.voucher
+      ? ["Confirmado", "En cocina", "En camino", "Entregado"].includes(order.status)
+        ? "Pagado"
+        : "Pendiente de verificación"
+      : isTransferPaymentMethod(order.pago)
+        ? "Pendiente de verificación"
+        : "Pendiente")
+  return [
+    order.id,
+    order.cliente,
+    lines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${lines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
+    "Online",
+    order.pago === "Efectivo" ? "Efectivo" : "Transferencia",
+    order.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
+    order.total,
+    order.status,
+    paymentStatus,
+    order.productionAuthorized
+      ? "Autorizada"
+      : paymentStatus === "Pendiente de verificación" || paymentStatus === "Rechazado"
+        ? "Pendiente de pago"
+        : order.status === "Por confirmar"
+          ? "Pendiente admin"
+          : order.total >= APPROVAL_MIN
+            ? "Autorizada"
+            : "Enviada a producción",
+    JSON.stringify(lines),
+    order.paymentRejectionReason ?? "",
+  ]
 }
 
 // Next automatic sale code: VTA-AUTO-NN after the highest one there is
@@ -2004,10 +2109,12 @@ function buildProductionRows(
       "Sí",
       JSON.stringify([{ status: "Recibida", date, time }]),
       JSON.stringify(lines.map((line) => ({
+        id: line.id,
         name: line.product,
         quantity: line.quantity,
         category: line.category,
         ...(line.parentId ? { parentId: line.parentId } : {}),
+        ...(line.sauces?.length ? { sauces: line.sauces } : {}),
       }))),
       "No",
       orderCode,
@@ -3070,7 +3177,7 @@ function ZoomableImage({ src, alt, className }: { src: string; alt: string; clas
 
 // ── Product Info Modal (info only, centered) ───────────────────────────────────
 function ProductInfoModal({
-  product,
+  product: selectedProduct,
   onClose,
   onAddToCart,
   dark,
@@ -3080,6 +3187,18 @@ function ProductInfoModal({
   onAddToCart: (p: Product) => void
   dark: boolean
 }) {
+  const [product, setProduct] = useState(selectedProduct)
+  useEffect(() => {
+    const refreshProduct = () => {
+      const current = PRODUCTS.find((item) => item.id === selectedProduct.id) ??
+        PRODUCTS.find((item) => item.name === selectedProduct.name)
+      if (current) setProduct(current)
+      else onClose()
+    }
+    window.addEventListener("products-refreshed", refreshProduct)
+    return () => window.removeEventListener("products-refreshed", refreshProduct)
+  }, [selectedProduct.id, selectedProduct.name, onClose])
+  useEffect(() => setProduct(selectedProduct), [selectedProduct])
   const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
@@ -3096,15 +3215,17 @@ function ProductInfoModal({
         style={{ background: CARD, boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="relative" style={{ height: "200px" }}>
-          <ZoomableImage src={product.img} alt={product.name} className="w-full h-full object-cover" />
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                "linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%)",
-            }}
-          />
+        <div className="relative" style={{ height: "200px", background: dark ? "#111" : "#1E1C18" }}>
+          {product.img && <ZoomableImage src={product.img} alt={product.name} className="w-full h-full object-cover" />}
+          {product.img && (
+            <div
+              className="absolute inset-0"
+              style={{
+                background:
+                  "linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%)",
+              }}
+            />
+          )}
           <button
             onClick={onClose}
             className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
@@ -3168,7 +3289,7 @@ function ProductInfoModal({
 
 // ── Add to Cart Modal (centered, with sauces/additions) ────────────────────────
 function AddToCartModal({
-  product,
+  product: selectedProduct,
   onClose,
   onAdd,
   onCheckout,
@@ -3185,10 +3306,22 @@ function AddToCartModal({
   onCheckout?: () => void
   dark: boolean
 }) {
+  const [product, setProduct] = useState(selectedProduct)
+  useEffect(() => {
+    const refreshProduct = () => {
+      const current = PRODUCTS.find((item) => item.id === selectedProduct.id) ??
+        PRODUCTS.find((item) => item.name === selectedProduct.name)
+      if (current) setProduct(current)
+      else onClose()
+    }
+    window.addEventListener("products-refreshed", refreshProduct)
+    return () => window.removeEventListener("products-refreshed", refreshProduct)
+  }, [selectedProduct.id, selectedProduct.name, onClose])
+  useEffect(() => setProduct(selectedProduct), [selectedProduct])
   const [qty, setQty] = useState(1)
   const [selSauces, setSelSauces] = useState<string[]>([])
   const [addQtys, setAddQtys] = useState<Record<string, number>>({})
-  const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0].id)
+  const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0]?.id ?? "")
   // Drink whose picture is shown big (click again to close)
   const [zoomBeverage, setZoomBeverage] = useState<string | null>(null)
   const [customizationTab, setCustomizationTab] = useState<"sauces" | "additions" | "beverages">("sauces")
@@ -3219,7 +3352,7 @@ function AddToCartModal({
     0,
   )
   const selectedBeverageSize =
-    BEVERAGE_SIZES.find((size) => size.id === beverageSize) ?? BEVERAGE_SIZES[0]
+    BEVERAGE_SIZES.find((size) => size.id === beverageSize) ?? BEVERAGE_SIZES[0] ?? { id: "", label: "", price: 0 }
   const selectedBeverageCount = BEVERAGES.reduce(
     (total, flavor) =>
       total +
@@ -3273,7 +3406,7 @@ function AddToCartModal({
           className="relative flex-shrink-0 overflow-hidden"
           style={{ height: "clamp(150px, 30vh, 260px)", background: dark ? "#111" : "#1E1C18" }}
         >
-          <ZoomableImage src={product.img} alt={product.name} className="h-full w-full object-cover object-center" />
+          {product.img && <ZoomableImage src={product.img} alt={product.name} className="h-full w-full object-cover object-center" />}
           {/* z-20 keeps the close button above the photo so the tap closes instead of zooming */}
           <button
             onClick={onClose}
@@ -3318,7 +3451,7 @@ function AddToCartModal({
             {([
               ["sauces", `Salsas ${selSauces.length}/4`],
               ["additions", `Adiciones ${ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)}`],
-              ["beverages", `Bebidas ${selectedBeverageCount}`],
+              ["beverages", `Gaseosas ${selectedBeverageCount}`],
             ] as const).map(([tab, label]) => (
               <button
                 key={tab}
@@ -3465,7 +3598,12 @@ function AddToCartModal({
                 )
               })}
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
+            {!BEVERAGE_SIZES.length ? (
+              <p className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: dark ? "rgba(244,238,220,0.03)" : "#fff", color: MUTED }}>
+                No hay tamaños de bebida disponibles.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 gap-1.5">
               {BEVERAGES.map((flavor) => {
                 const size = selectedBeverageSize
                 const key = `Gaseosa ${flavor} ${size.id}`
@@ -3539,7 +3677,8 @@ function AddToCartModal({
                   </div>
                 )
               })}
-            </div>
+              </div>
+            )}
             {zoomBeverage && (
               <div
                 className="fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center p-6"
@@ -3627,6 +3766,15 @@ function AddToCartModal({
   )
 }
 
+const visiblePaginationPages = (currentPage: number, totalPages: number, maxVisible = 5) => {
+  const pageCount = Math.min(totalPages, maxVisible)
+  const startPage = Math.min(
+    Math.max(currentPage - Math.floor(pageCount / 2), 0),
+    totalPages - pageCount,
+  )
+  return Array.from({ length: pageCount }, (_, index) => startPage + index)
+}
+
 // ── Product Catalog Grid (shared, landing + client) ────────────────────────────
 function ProductCatalog({
   onInfoClick,
@@ -3668,6 +3816,7 @@ function ProductCatalog({
   const pageItems = shouldPaginate
     ? filtered.slice(pg * ITEMS_PER_PAGE, (pg + 1) * ITEMS_PER_PAGE)
     : filtered
+  const visiblePages = visiblePaginationPages(pg, totalPages)
   const switchCat = (id: string) => {
     setActiveCat(id)
     setPg(0)
@@ -3773,11 +3922,13 @@ function ProductCatalog({
             }}
             onClick={() => onInfoClick(p)}
           >
-            <img
-              src={p.img}
-              alt={p.name}
-              className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-            />
+            {p.img && (
+              <img
+                src={p.img}
+                alt={p.name}
+                className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+              />
+            )}
             {/* Bottom banner — always visible */}
             <div
               className={`absolute bottom-0 left-0 right-0 ${compact ? "px-2 py-1.5" : "px-3 py-2.5"}`}
@@ -3842,7 +3993,7 @@ function ProductCatalog({
           >
             ←
           </button>
-          {Array.from({ length: totalPages }, (_, i) => (
+          {visiblePages.map((i) => (
             <button
               key={i}
               onClick={() => goPage(i)}
@@ -3902,6 +4053,7 @@ function GuestMenuPage({
     setCart((items) =>
       addCartItem(items, {
         id: Date.now(),
+        productId: product.id,
         name: product.name,
         description: product.desc,
         price: product.price,
@@ -4127,6 +4279,7 @@ type CatalogItem = {
   precio: number
   categoria: string
   imagenes: string[]
+  estado?: string | null
 }
 
 // Backend category name → menu category id (inverse of PRODUCT_CAT_LABEL)
@@ -4176,8 +4329,14 @@ async function idByName(path: string, nameKey: string, idKey: string, name: stri
   if (!record) throw new Error(`${what} «${name}» no existe en la base de datos.`)
   return record[idKey] as number
 }
-const categoryIdByName = (path: string, name: string | number) =>
-  idByName(path, "nombre_categoria", "id_categoria", name, "La categoría")
+const categoryIdByName = async (path: string, name: string | number) => {
+  const categories = await api<DbRecord[]>(path)
+  const requested = normalizeName(name)
+  const aliases = requested === "gaseosas" || requested === "bebidas" ? ["gaseosas", "bebidas"] : [requested]
+  const category = categories.find((item) => aliases.includes(normalizeName(item.nombre_categoria)))
+  if (!category) throw new Error(`La categoría «${name}» no existe en la base de datos.`)
+  return category.id_categoria as number
+}
 
 // ── Dashboard period ─────────────────────────────────────────────────────────
 type DashPeriod = "hoy" | "semana" | "mes" | "año"
@@ -4369,14 +4528,13 @@ const parsePurchaseLines = (value: string | number | undefined) =>
     .filter(([name]) => name)
     .map(([name, quantity, unitPrice]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0 }))
 
-// reloads: the module whose rows show the category by name (a rename must reach them)
-const categorySpec = (path: string, reloads: string[]): SyncSpec => ({
+const categorySpec = (path: string, productCategories = false): SyncSpec => ({
   path,
   update: "PUT",
   idIndex: 3,
   idOf: (c) => c.id_categoria,
   toRow: (c) =>
-    withId([c.nombre_categoria, c.descripcion || "", c.estado === "ACTIVO" ? "Activa" : "Inactiva"], 3, c.id_categoria),
+    withId([productCategories ? currentCategory(c.nombre_categoria) : c.nombre_categoria, c.descripcion || "", c.estado === "ACTIVO" ? "Activa" : "Inactiva"], 3, c.id_categoria),
   toBody: (row) => ({ nombre_categoria: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
   reloads,
 })
@@ -4468,7 +4626,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       descripcion: text(row[3]),
       estado: estadoOf(row[4]),
     }),
-    localOnly: (row) => row[1] === "Producto de insumo",
+    localOnly: (row) => row[1] === "Producto de insumo" || isSodaProductRow(row),
     afterSave: (id, row) => {
       // A soda has no ficha técnica
       if (row[1] === SODA_PRODUCT) return Promise.resolve()
@@ -4478,6 +4636,8 @@ const DB_SYNC: Record<string, SyncSpec> = {
       } catch {
         // unreadable recipe: saved without ingredients
       }
+      if (!text(row[5]) && !text(row[7]) && !text(row[8]) && recipe.length === 0)
+        return Promise.resolve()
       return api(`/productos/${id}/ficha`, "PUT", {
         nombre: text(row[5]),
         version: text(row[6]),
@@ -4489,7 +4649,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       })
     },
   },
-  "cat-producto": categorySpec("/categorias-productos", ["producto"]),
+  "cat-producto": categorySpec("/categorias-productos", true),
   // [0 nombre, 1 tipo doc, 2 documento, 3 teléfono, 4 correo, 5 dirección, 6 de local (Sí/No), 7 estado]
   // Customers who registered in the app also show up here (their e-mail is their login).
   clientes: {
@@ -4574,13 +4734,23 @@ const DB_SYNC: Record<string, SyncSpec> = {
       ),
     toBody: async (row) => {
       const lines = parsePurchaseLines(row[6])
-      // A soda is bought as its product of «Bebidas» (its stock goes there), the rest as insumos
-      const [insumos, productos] = await Promise.all([
-        api<DbRecord[]>("/insumos"),
-        lines.some((l) => isSodaName(l.name)) ? api<DbRecord[]>("/productos") : Promise.resolve([] as DbRecord[]),
-      ])
-      const find = (name: string) =>
-        (isSodaName(name) ? productos : insumos).find((i) => normalizeName(i.nombre) === normalizeName(name))
+      const find = (name: string) => insumos.find((i) => normalizeName(i.nombre) === normalizeName(name))
+      // A soda bought for the first time becomes an insumo (category «Gaseosas», und, no ficha técnica)
+      const newSodas = [...new Set(lines.map((l) => l.name).filter((name) => isSodaName(name) && !find(name)))]
+      if (newSodas.length) {
+        const cats = await api<DbRecord[]>("/categorias-insumos")
+        const id_categoria =
+          cats.find((c) => ["bebidas", "gaseosas"].includes(normalizeName(c.nombre_categoria)))?.id_categoria ??
+          (await api<DbRecord>("/categorias-insumos", "POST", {
+            nombre_categoria: "Gaseosas",
+            descripcion: "Gaseosas que se compran para revender",
+            estado: "ACTIVO",
+          })).id_categoria
+        for (const nombre of newSodas)
+          insumos.push(
+            await api<DbRecord>("/insumos", "POST", { nombre, id_categoria, medida: "und", minimo: 0, tiene_ficha_tecnica: false, estado: "ACTIVO" }),
+          )
+      }
       const items = lines.map((line) => {
         const insumo = find(line.name)
         if (!insumo)
@@ -4599,8 +4769,8 @@ const DB_SYNC: Record<string, SyncSpec> = {
       }
     },
     setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", { estado: isActiveStatus(row[5]) ? "REGISTRADA" : "ANULADA" }),
-    // producto: a soda's stock and cost live in its product
-    reloads: ["insumos", "producto"],
+    // cat-insumos: the first soda purchase may create «Gaseosas»
+    reloads: ["insumos", "cat-insumos"],
   },
   // [0 insumo, 1 cantidad con unidad ("0.5 kg"), 2 motivo, 3 responsable, 4 fecha, 5 origen]
   // The backend takes the quantity out of the insumo's stock.
@@ -4820,49 +4990,39 @@ const withPanelId = (row: Row, idIndex: number, id: string | number) => {
 }
 
 // Backend categories that feed the customization options instead of the menu
-const EXTRA_CATS = ["Adiciones", "Salsas", "Bebidas", "Sabores de bebida"]
+const EXTRA_CATS = ["Adiciones", "Salsas", "Gaseosas", "Sabores de bebida"]
 
 // shortcut: replaces the menu arrays in place so every screen reading them shows the backend data;
 // move them into state/context when the admin panel edits them live.
 async function loadMenu() {
   const items = await api<CatalogItem[]>("/catalogo")
-  const inCat = (cat: string) => items.filter((p) => p.categoria === cat)
+  const sodaOverrides = getSodaProductOverrides()
+  const activeItems = items
+    .map((item) => ({ ...item, categoria: currentCategory(item.categoria) }))
+    .map((item) => {
+      const override = sodaOverrides[item.nombre]
+      return override
+        ? { ...item, precio: override.price ?? item.precio, descripcion: override.description ?? item.descripcion, estado: override.status ?? item.estado }
+        : item
+    })
+    .filter(
+      (item) => !["INACTIVO", "INACTIVA", "ANULADO", "ANULADA"].includes(String(item.estado ?? "").trim().toUpperCase()),
+    )
+  const inCat = (cat: string) => activeItems.filter((p) => p.categoria === cat)
   ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio })))
   SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
   const rank = (f: string) => (BEVERAGE_ORDER.indexOf(f) + 1 || 99)
-  // Each soda is a product of «Bebidas» named "Gaseosa <sabor> (<tamaño>)": flavours, sizes, prices and photos come from them
-  // (other drinks there, without that name, aren't offered as sodas)
-  const sodaProducts = inCat("Bebidas").flatMap((p) => {
-    const m = SODA_RE.exec(p.nombre.trim())
-    return m ? [{ name: p.nombre, flavor: m[1], size: m[2], price: p.precio, img: p.imagenes[0] ? imageUrl(p.imagenes[0]) : "" }] : []
-  })
-  // Bought sodas with no stock left (an older backend without this route sells them all)
-  const soldOut = new Set(
-    (await api<{ nombre: string; agotada: boolean }[]>("/catalogo/gaseosas").catch(() => []))
-      .filter((g) => g.agotada)
-      .map((g) => normalizeName(g.nombre)),
-  )
-  SODA_INFO.clear()
-  if (sodaProducts.length) {
-    sodaProducts.forEach((s) =>
-      SODA_INFO.set(normalizeName(`Gaseosa ${s.flavor} (${s.size})`), { precio: s.price, img: s.img, agotada: soldOut.has(normalizeName(s.name)) }),
-    )
-    BEVERAGES.splice(0, BEVERAGES.length, ...[...new Set(sodaProducts.map((s) => s.flavor))].sort((a, b) => rank(a) - rank(b)))
-    // Size buttons from small to big, each showing its cheapest soda
-    const sizes = [...new Set(sodaProducts.map((s) => s.size))].sort((a, b) => sizeMl(a) - sizeMl(b))
-    BEVERAGE_SIZES.splice(
-      0,
-      BEVERAGE_SIZES.length,
-      ...sizes.map((size) => ({ id: size, label: size, price: Math.min(...sodaProducts.filter((s) => s.size === size).map((s) => s.price)) })),
-    )
-  } else {
-    // No sodas for sale: the Bebidas tab says so
-    BEVERAGES.splice(0, BEVERAGES.length)
-  }
+  BEVERAGES.splice(0, BEVERAGES.length, ...flavors.sort((a, b) => rank(a) - rank(b)))
+  const sizes = inCat("Gaseosas").map((p) => ({ id: p.nombre, label: p.nombre, price: p.precio }))
+  BEVERAGE_SIZES.splice(0, BEVERAGE_SIZES.length, ...sizes)
+  // Bought sodas without stock show «Agotada» (an older backend without this route just shows them all)
+  const soldOut = await api<string[]>("/catalogo/gaseosas-agotadas").catch(() => [])
+  SOLD_OUT_SODAS.clear()
+  soldOut.forEach((name) => SOLD_OUT_SODAS.add(normalizeName(name)))
   PRODUCTS.splice(
     0,
     PRODUCTS.length,
-    ...items.filter((p) => !EXTRA_CATS.includes(p.categoria)).map((p) => ({
+    ...activeItems.filter((p) => !EXTRA_CATS.includes(p.categoria)).map((p) => ({
       id: p.id,
       name: p.nombre,
       desc: p.descripcion || "",
@@ -4874,6 +5034,27 @@ async function loadMenu() {
     })),
   )
 }
+
+const refreshCartProducts = (items: CartItem[]) =>
+  items.flatMap((item) => {
+    const product =
+      PRODUCTS.find((candidate) => candidate.id === item.productId) ??
+      PRODUCTS.find((candidate) => candidate.name === item.name) ??
+      PRODUCTS.find((candidate) => candidate.name === `Hamburguesa ${item.name}`)
+    if (!product) return []
+    return [{
+      ...item,
+      productId: product.id,
+      name: product.name,
+      description: product.desc,
+      price: product.price,
+      img: product.img,
+      additions: item.additions?.map((addition) => {
+        const currentAddition = ADDITIONS.find((candidate) => candidate.name === addition.name)
+        return currentAddition ? { ...addition, price: currentAddition.price } : addition
+      }),
+    }]
+  })
 
 const apiRegister = async (u: User, password: string) =>
   toUser(
@@ -4932,8 +5113,12 @@ const orderFromDb = (p: DbRecord): Order => ({
   productionRecords: p.registros_produccion,
 })
 // Staff get every order; clients only their own
-const refreshOrders = async (role: User["role"]) =>
-  saveOrders((await api<DbRecord[]>(role === "admin" ? "/pedidos" : "/pedidos/mios")).map(orderFromDb))
+const refreshOrders = async (role: User["role"]) => {
+  const orders = (await api<DbRecord[]>(role === "admin" ? "/pedidos" : "/pedidos/mios")).map(orderFromDb)
+  saveOrders(orders)
+  window.dispatchEvent(new Event("orders-updated"))
+  return orders
+}
 // Saves the panel's changes to a client order (status, payment, production)
 const pushOrder = (id: string) => {
   const o = loadOrders().find((order) => order.id === id)
@@ -5338,11 +5523,13 @@ function CartSummary({
                 aria-expanded={expandedItemId === item.id}
                 aria-label={`${expandedItemId === item.id ? "Ocultar" : "Ver"} detalles de ${item.name}`}
               >
-                <img
-                  src={item.img}
-                  alt=""
-                  className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
-                />
+                {item.img && (
+                  <img
+                    src={item.img}
+                    alt=""
+                    className="w-14 h-14 rounded-xl object-cover flex-shrink-0"
+                  />
+                )}
                 <span className="flex-1 min-w-0">
                   <span className="block font-semibold text-sm" style={{ color: TEXT }}>
                     {item.name}
@@ -6438,17 +6625,21 @@ function CheckoutPage({
                 {activeCart.map((i) => (
                   <div key={i.id} className="flex items-center gap-3">
                     <div className="relative flex-shrink-0">
-                      <img src={i.img} alt={i.name} className="w-12 h-12 rounded-lg object-cover" />
-                      <span
-                        className="absolute top-1 right-1 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold"
-                        style={{
-                          background: C.dark,
-                          color: "#fff",
-                          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
-                        }}
-                      >
-                        {i.qty}
-                      </span>
+                      {i.img && (
+                        <>
+                          <img src={i.img} alt={i.name} className="w-12 h-12 rounded-lg object-cover" />
+                          <span
+                            className="absolute top-1 right-1 min-w-5 h-5 px-1 rounded-full flex items-center justify-center text-[10px] font-bold"
+                            style={{
+                              background: C.dark,
+                              color: "#fff",
+                              boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+                            }}
+                          >
+                            {i.qty}
+                          </span>
+                        </>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold truncate" style={{ color: C.dark }}>
@@ -6597,6 +6788,7 @@ function CheckoutPage({
             setCart((items) =>
               addCartItem(items, {
                 id: Date.now(),
+                productId: product.id,
                 name: product.name,
                 description: product.desc,
                 price: product.price,
@@ -7458,6 +7650,7 @@ function ClientApp({
     setCart((c) =>
       addCartItem(c, {
         id: Date.now(),
+        productId: p.id,
         name: p.name,
         description: p.desc,
         price: p.price,
@@ -7478,7 +7671,7 @@ function ClientApp({
         return c.map((x) => (x.id === ex.id ? { ...x, qty: x.qty + 1 } : x))
       return [
         ...c,
-        { id: Date.now(), name: p.name, description: p.desc, price: p.price, qty: 1, img: p.img },
+        { id: Date.now(), productId: p.id, name: p.name, description: p.desc, price: p.price, qty: 1, img: p.img },
       ]
     })
 
@@ -7858,6 +8051,7 @@ function LandingPage({
     setCart((c) =>
       addCartItem(c, {
         id: Date.now(),
+        productId: p.id,
         name: p.name,
         description: p.desc,
         price: p.price,
@@ -9579,58 +9773,7 @@ function AdminPanel({
       return updatedRow
     })
     initialRows.pedidos = [
-      ...clientOrders.map((o) => {
-        const orderLines: AdminOrderLine[] = o.items.flatMap((item, index) => {
-          const parentId = `${o.id}-line-${index}`
-          const mainLine: AdminOrderLine = {
-            id: parentId,
-            product: item.name,
-            category: String(initialRows.producto?.find((product) => product[0] === item.name)?.[1] ?? ""),
-            quantity: item.qty,
-            unitPrice: item.price,
-          }
-          const additions: AdminOrderLine[] = (item.additions || []).map((addition, additionIndex) => ({
-            id: `${parentId}-addition-${additionIndex}`,
-            product: addition.name,
-            category: "Adiciones",
-            quantity: addition.qty * item.qty,
-            unitPrice: addition.price,
-            parentId,
-          }))
-          return [mainLine, ...additions]
-        })
-        const paymentStatus =
-          o.paymentStatus ??
-          (o.voucher
-            ? ["Confirmado", "En cocina", "En camino", "Entregado"].includes(o.status)
-              ? "Pagado"
-              : "Pendiente de verificación"
-            : isTransferPaymentMethod(o.pago)
-              ? "Pendiente de verificación"
-              : "Pendiente")
-        return [
-          o.id,
-          o.cliente,
-          orderLines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${orderLines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
-          "Online",
-          o.pago === "Efectivo" ? "Efectivo" : "Transferencia",
-          o.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
-          o.total,
-          o.status,
-          paymentStatus,
-          o.productionAuthorized
-            ? "Autorizada"
-            : paymentStatus === "Pendiente de verificación" || paymentStatus === "Rechazado"
-              ? "Pendiente de pago"
-              : o.status === "Por confirmar"
-                ? "Pendiente admin"
-                : o.total >= APPROVAL_MIN
-              ? "Autorizada"
-              : "Enviada a producción",
-          JSON.stringify(orderLines),
-          o.paymentRejectionReason ?? "",
-        ]
-      }),
+      ...clientOrders.map((order) => clientOrderToPanelRow(order, initialRows.producto || [])),
       ...(initialRows.pedidos || []),
     ]
     // Client orders that don't wait for the owner (or were already confirmed) get their
@@ -9677,6 +9820,52 @@ function AdminPanel({
     initialRows.clientes = [...registeredClientRows, ...(initialRows.clientes || [])]
     return initialRows
   })
+  const clientOrdersSnapshot = JSON.stringify(clientOrders)
+  const productsSnapshot = JSON.stringify(rows.producto || [])
+  const productionSnapshot = JSON.stringify(rows.produccion || [])
+  useEffect(() => {
+    const latestOrders = loadOrders()
+    const orderRows = latestOrders.map((order) => clientOrderToPanelRow(order, rows.producto || []))
+    const clientOrderIds = new Set(latestOrders.map((order) => order.id))
+    let productionRows = rows.produccion || []
+    const ordersToPersist: { id: string; records: Row[] }[] = []
+
+    for (const orderRow of orderRows) {
+      const orderId = String(orderRow[0])
+      const order = latestOrders.find((candidate) => candidate.id === orderId)
+      if (
+        !order ||
+        order.productionRecords?.length ||
+        !["Enviada a producción", "Autorizada"].includes(String(orderRow[9])) ||
+        productionRows.some((production) => String(production[15] ?? "") === orderId)
+      ) continue
+
+      const lines = JSON.parse(String(orderRow[10] ?? "[]")) as AdminOrderLine[]
+      const before = productionRows
+      productionRows = buildProductionRows(lines, before, orderId, order.notas || "")
+      ordersToPersist.push({
+        id: orderId,
+        records: productionRows.filter((production) => !before.includes(production)),
+      })
+    }
+
+    setRows((current) => ({
+      ...current,
+      pedidos: [
+        ...orderRows,
+        ...(current.pedidos || []).filter((row) => !clientOrderIds.has(String(row[0]))),
+      ],
+      produccion: productionRows,
+    }))
+    if (ordersToPersist.length) {
+      const updatedOrders = loadOrders().map((order) => {
+        const production = ordersToPersist.find((entry) => entry.id === order.id)
+        return production ? { ...order, productionRecords: production.records } : order
+      })
+      saveOrders(updatedOrders)
+      ordersToPersist.forEach(({ id }) => pushOrder(id))
+    }
+  }, [clientOrdersSnapshot, productsSnapshot, productionSnapshot])
   // Real low-stock alerts from the active insumos, before the order ones
   const notifications: AdminNotification[] = [
     ...(rows.insumos || []).flatMap((r, i) =>
@@ -9794,12 +9983,24 @@ function AdminPanel({
           }),
         }))
         spec.reloads?.forEach(loadModule)
-        if (statusOnly) return
-        return Promise.all([spec.afterSave?.(id, row), alsoSave?.(id)])
+        if (statusOnly) {
+          if (sec !== "producto") return
+          return loadModule(sec).then(() => {
+            window.dispatchEvent(new Event("products-updated"))
+          })
+        }
+        return Promise.all([spec.afterSave?.(id, row), alsoSave?.(id)]).then(async () => {
+          if (sec === "producto") {
+            await loadModule(sec)
+            window.dispatchEvent(new Event("products-updated"))
+          }
+        })
       })
       .catch((err) => {
         window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
-        loadModule(sec)
+        return loadModule(sec).then(() => {
+          if (sec === "producto") window.dispatchEvent(new Event("products-updated"))
+        })
       })
   }
   const deleteRowInDb = (sec: string, row: Row | undefined) => {
@@ -9963,10 +10164,12 @@ function AdminPanel({
   const [productionSearch, setProductionSearch] = useState<string | null>(null)
   const [productionItemEdit, setProductionItemEdit] = useState<{ index: number; qty: string } | null>(null)
   // Which list the search shows: menu products or additions
-  const [productionKind, setProductionKind] = useState<"productos" | "adiciones" | "gaseosas">("productos")
+  const [productionKind, setProductionKind] = useState<"productos" | "adiciones" | "bebidas">("productos")
   // Unit of measure of the line being added (singular word: "unidad", "bolsita", "kg"...)
   const [productionItemUnit, setProductionItemUnit] = useState("")
   const [productionItemQuantity, setProductionItemQuantity] = useState("1")
+  const [productionAdditionParentId, setProductionAdditionParentId] = useState("")
+  const [productionSelectedSauces, setProductionSelectedSauces] = useState<string[]>([])
   const [productionFormError, setProductionFormError] = useState("")
   // "Nueva compra" item picker (limited to the selected supplier's insumos)
   const [purchaseItemSelect, setPurchaseItemSelect] = useState("")
@@ -10216,7 +10419,7 @@ function AdminPanel({
     (rows.compras || []).some((c) => parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === normalizeName(name)))
 
   // Every soda for sale, named like the order line (Productos already lists them)
-  const sodaOptions = (rows.producto || []).filter((p) => p[1] === SODA_PRODUCT && isSodaName(p[0])).map((p) => String(p[0]))
+  const sodaOptions = (rows.producto || []).filter(isSodaProductRow).map((p) => String(p[0]))
 
   const getAvailableInsumos = () =>
     [...new Set((rows.insumos || []).map((row) => String(row[0] ?? "").trim()).filter(Boolean))].sort((a, b) =>
@@ -10280,6 +10483,7 @@ function AdminPanel({
             quantity: Number(line.quantity),
             unitPrice: Number(line.unitPrice),
             ...(line.parentId ? { parentId: String(line.parentId) } : {}),
+            ...(Array.isArray(line.sauces) ? { sauces: line.sauces.map(String) } : {}),
           }))
           .filter((line) => line.product && line.quantity > 0 && line.unitPrice >= 0)
       }
@@ -10343,20 +10547,17 @@ function AdminPanel({
       )
       .map((row) => String(row[0] ?? "").trim())
       .filter(Boolean)
-    return [
-      ...new Set(
-        options.length ? options : PRODUCTS.map((product) => product.name),
-      ),
-    ].sort((a, b) => a.localeCompare(b))
+    return [...new Set(options)].sort((a, b) => a.localeCompare(b))
   }
 
-  const getProductionOrderItems = (row: (string | number)[] | undefined) => {
+  const getProductionOrderItems = (row: (string | number)[] | undefined): ProductionItem[] => {
     if (!row) return []
     try {
       const items = JSON.parse(String(row[13] ?? "[]"))
       if (Array.isArray(items) && items.length) {
         return items
-          .map((item) => ({
+          .map((item, index) => ({
+            id: String(item.id ?? `production-line-${index}`),
             name: String(item.name ?? item.product ?? "").trim(),
             quantity: Math.max(1, Number(item.quantity) || 1),
             ...(item.unit ? { unit: String(item.unit) } : {}),
@@ -10364,6 +10565,7 @@ function AdminPanel({
             ...(Array.isArray(item.onlySupplies) && item.onlySupplies.length ? { onlySupplies: item.onlySupplies } : {}),
             ...(item.category ? { category: String(item.category) } : {}),
             ...(item.parentId ? { parentId: String(item.parentId) } : {}),
+            ...(Array.isArray(item.sauces) ? { sauces: item.sauces.map(String) } : {}),
           }))
           .filter((item) => item.name)
       }
@@ -10479,7 +10681,7 @@ function AdminPanel({
           ? ["8", "9"]
           : ["8", "9", "10", "11"]),
       ],
-      producto: ["5", "6", "7", "8", "10", ...(mode === "add" && draft["1"] !== SODA_PRODUCT ? ["2"] : [])],
+      producto: ["5", "6", "7", "8", "10"],
       produccion: ["0", "1", "15"],
       "producto-no-conforme": ["0", "1", "2", "5", "6"],
       compras: ["2", "3", "4"],
@@ -10713,7 +10915,7 @@ function AdminPanel({
       return next
     })()
 
-    return Object.fromEntries(
+    const errors = Object.fromEntries(
       keys.flatMap((key) => {
         const field = MOD_CFG[sec]?.fields.find((item) => item.key === key)
         const value = String(draft[key] ?? "")
@@ -10733,6 +10935,10 @@ function AdminPanel({
         return finalError ? [[key, finalError]] : []
       }),
     )
+    if (sec === "producto" && mode === "add" && !imgPreview.trim()) {
+      return { ...errors, img: "Sube una imagen del producto." }
+    }
+    return errors
   }
 
   const updateAdminField = (
@@ -10803,6 +11009,8 @@ function AdminPanel({
       setProductionKind("productos")
       setProductionItemUnit("")
       setProductionItemEdit(null)
+      setProductionAdditionParentId("")
+      setProductionSelectedSauces([])
     }
     if (sec === "perdidas") {
       initialFields["3"] = sellerName
@@ -10824,6 +11032,8 @@ function AdminPanel({
       setProductionItemEdit(null)
       setProductionKind("productos")
       setProductionItemUnit("")
+      setProductionAdditionParentId("")
+      setProductionSelectedSauces([])
       initialFields["3"] = currentDateTime.date
       initialFields["4"] = currentDateTime.time
     }
@@ -10896,6 +11106,8 @@ function AdminPanel({
       setProductionProductSelect("")
       setProductionItemQuantity("1")
       setProductionFormError("")
+      setProductionAdditionParentId("")
+      setProductionSelectedSauces([])
     }
     if (sec === "producto-no-conforme") {
       setProductionItems(getNonconformingItems(row))
@@ -10933,21 +11145,13 @@ function AdminPanel({
     setTouchedFields({})
     setPedidoProductoSelect("")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
-    // Only a real photo: the bundled bottle of a soda is just shown, never saved as its photo
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
     setModal({ mode: "edit", section: sec, idx })
   }
   // Stock history of the insumo open in "Ver detalle" (loaded when it opens)
   const [stockMoves, setStockMoves] = useState<{ id: string; rows: DbRecord[] | null; error?: string } | null>(null)
   const openView = (sec: string, idx: number) => {
-    const insumoId = sec === "insumos" ? String(rows.insumos?.[idx]?.[DB_SYNC.insumos.idIndex] ?? "") : ""
-    if (insumoId) {
-      setStockMoves({ id: insumoId, rows: null })
-      api<DbRecord[]>(`/movimientos-stock/${insumoId}`)
-        .then((list) => setStockMoves((cur) => (cur?.id === insumoId ? { id: insumoId, rows: list } : cur)))
-        .catch((err) => setStockMoves((cur) => (cur?.id === insumoId ? { ...cur, error: `No se pudo cargar el historial: ${(err as Error).message}` } : cur)))
-    }
-    setImgPreview(sec === "producto" ? prodImgs[idx] || sodaImage(rows.producto?.[idx]?.[0]) || "" : "")
+    setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
     if (sec === "producto") {
       setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
@@ -10967,7 +11171,7 @@ function AdminPanel({
     "cat-insumos": ["0"],
     "cat-producto": ["0"],
     insumos: ["0", "1", "2", "5"],
-    producto: ["0", "1", "3"],
+    producto: ["0", "1", "2", "3"],
     // Correo is required: every client gets an account (it also shows up in Usuarios)
     clientes: ["0", "1", "2", "3", "4", "5"],
     pedidos: ["0", "2", "3"],
@@ -11062,9 +11266,8 @@ function AdminPanel({
       if (!v("1")) e["1"] = "Selecciona la categoría."
       // Sauces and drink flavors are included free, so they may cost 0
       const minPrice = ["Salsas", "Sabores de bebida"].includes(v("1")) ? 0 : 1
-      if (!v("2")) {
-        if (modal.mode !== "add" || v("1") === SODA_PRODUCT) e["2"] = "Escribe el precio."
-      } else if (!(n("2") >= minPrice))
+      if (!v("2")) e["2"] = "Escribe el precio."
+      else if (!(n("2") >= minPrice))
         e["2"] = minPrice ? "El precio debe ser mayor que 0." : "El precio no puede ser negativo."
       else if (!Number.isInteger(n("2"))) e["2"] = "El precio debe ser un valor entero, sin decimales."
       checkText("3", "La descripción", 10, 200, "Escribe una descripción.")
@@ -11188,19 +11391,22 @@ function AdminPanel({
       return
     }
     if (sec === "producto") {
-      const invalidIngredient = technicalIngredients.find((ingredient) => {
-        const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
-        return (
-          !supply ||
-          !Number.isFinite(ingredient.quantity) ||
-          ingredient.quantity <= 0 ||
-          !ingredient.unit ||
-          toBaseQuantity(1, ingredient.unit, String(supply[2] ?? "")) === null
-        )
-      })
-      if (invalidIngredient) {
-        window.alert(`Verifica la cantidad y unidad de «${invalidIngredient.name}» en la ficha técnica.`)
-        return
+      const productCategory = normalizeName(currentCategory(String(formData["1"] ?? "")))
+      if (productCategory !== "gaseosas" && productCategory !== "bebidas") {
+        const invalidIngredient = technicalIngredients.find((ingredient) => {
+          const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
+          return (
+            !supply ||
+            !Number.isFinite(ingredient.quantity) ||
+            ingredient.quantity <= 0 ||
+            !ingredient.unit ||
+            toBaseQuantity(1, ingredient.unit, String(supply[2] ?? "")) === null
+          )
+        })
+        if (invalidIngredient) {
+          window.alert(`Verifica la cantidad y unidad de «${invalidIngredient.name}» en la ficha técnica.`)
+          return
+        }
       }
     }
     if (sec === "insumos" && String(formData["7"] ?? "").toLowerCase() === "sí") {
@@ -11381,7 +11587,7 @@ function AdminPanel({
       const currentDateTime = getCurrentDateTimeParts()
       // Same summary as orders sent from Pedidos: "Hamburguesa Pollo ×2 + 1 adición"
       newRow[1] = productionLabel(
-        productionItems.map((item) => ({ id: "", product: item.name, category: item.category ?? "", quantity: item.quantity, unitPrice: 0, parentId: item.parentId })),
+        productionItems.map((item) => ({ id: item.id ?? "", product: item.name, category: item.category ?? "", quantity: item.quantity, unitPrice: 0, parentId: item.parentId, sauces: item.sauces })),
       )
       newRow[2] = productionItems.reduce(
         (total, item) => total + item.quantity,
@@ -11465,10 +11671,12 @@ function AdminPanel({
 
       if (sec === "pedidos" && modal.mode === "edit") {
         const items = pedidoOrderLines.map((line) => ({
+          id: line.id,
           name: line.product,
           quantity: line.quantity,
           category: line.category,
           ...(line.parentId ? { parentId: line.parentId } : {}),
+          ...(line.sauces?.length ? { sauces: line.sauces } : {}),
         }))
         // No production order yet (e.g. it was waiting for approval): it gets one now
         if (
@@ -11538,6 +11746,13 @@ function AdminPanel({
 
       return { ...current, [sec]: updated }
     })
+    if (sec === "producto" && isSodaProductRow(newRow)) {
+      saveSodaProductOverride(newRow, {
+        price: Number(newRow[2]) || 0,
+        description: String(newRow[3] ?? ""),
+      })
+      window.dispatchEvent(new Event("products-updated"))
+    }
     // The photo is sent only when it changed (new upload or new URL)
     const previousImg = modal.idx !== null ? prodImgs[modal.idx] : ""
     const savePhoto = sec === "producto" && imgPreview && imgPreview !== previousImg
@@ -11950,6 +12165,12 @@ function AdminPanel({
       const syncedRow = [...currentRow]
       syncedRow[statusIndex] = nextValue
       syncRow(sec, syncedRow, false, true)
+    }
+    if (sec === "producto" && isSodaProductRow(currentRow)) {
+      const updatedSoda = [...currentRow]
+      updatedSoda[statusIndex] = nextValue
+      saveSodaProductOverride(updatedSoda, { status: nextValue })
+      window.dispatchEvent(new Event("products-updated"))
     }
 
     setRows((current) => {
@@ -12771,7 +12992,10 @@ function AdminPanel({
   }
   const handleFile = (file: File) => {
     readVoucher(file)
-      .then(setImgPreview)
+      .then((image) => {
+        setImgPreview(image)
+        setFormFieldErrors((current) => ({ ...current, img: "" }))
+      })
       .catch(() => window.alert("No se pudo leer la imagen. Prueba con otra (JPG o PNG)."))
   }
 
@@ -13494,6 +13718,7 @@ function AdminPanel({
     const filtered = beforeStatus.filter(({ row }) => !isProductionList || !prodStatus || orderStatus(row) === prodStatus)
     const cur = pg[section] || 0
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+    const visiblePages = visiblePaginationPages(cur, totalPages)
     const pageRows = filtered.slice(cur * PAGE_SIZE, (cur + 1) * PAGE_SIZE)
     const setP = (page: number) =>
       setPg((current) => ({ ...current, [section]: page }))
@@ -13731,8 +13956,6 @@ function AdminPanel({
         section === "usuarios" &&
         String(rows.usuarios?.[rowIndex]?.[8] ?? "") === "Principal"
       const deleteBlocked = !deleteAssessment.allowed
-      // Sodas (category «Gaseosas») are the only products that can be deleted
-      const isSodaProduct = section === "producto" && rows.producto?.[rowIndex]?.[1] === SODA_PRODUCT
       const deleteButton = (
         <button
           type="button"
@@ -14175,17 +14398,13 @@ function AdminPanel({
                             className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg"
                             style={{ background: t.input }}
                           >
-                            {prodImgs[originalIndex] || sodaImage(row[0]) ? (
+                            {prodImgs[originalIndex] ? (
                               <img
-                                src={prodImgs[originalIndex] || sodaImage(row[0])}
+                                src={prodImgs[originalIndex]}
                                 alt=""
                                 className="h-full w-full object-cover"
                               />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center text-lg">
-                                🍔
-                              </div>
-                            )}
+                            ) : null}
                           </div>
                         </td>
                       )}
@@ -14273,17 +14492,13 @@ function AdminPanel({
                           className="h-11 w-11 flex-shrink-0 overflow-hidden rounded-xl"
                           style={{ background: t.input }}
                         >
-                          {prodImgs[originalIndex] || sodaImage(row[0]) ? (
+                          {prodImgs[originalIndex] ? (
                             <img
-                              src={prodImgs[originalIndex] || sodaImage(row[0])}
+                              src={prodImgs[originalIndex]}
                               alt=""
                               className="h-full w-full object-cover"
                             />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center text-xl">
-                              🍔
-                            </div>
-                          )}
+                          ) : null}
                         </div>
                       )}
                       <div className="min-w-0 flex-1 text-sm font-semibold leading-snug break-words [overflow-wrap:anywhere]">
@@ -14348,7 +14563,7 @@ function AdminPanel({
               >
                 ←
               </button>
-              {Array.from({ length: Math.min(totalPages, 5) }, (_, index) => (
+              {visiblePages.map((index) => (
                 <button
                   key={index}
                   type="button"
@@ -14840,7 +15055,7 @@ function AdminPanel({
     const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void) => {
       const groups = new Map<string, string[]>()
       names.forEach((name) => {
-        const category = String(supplyInfo(name)?.[1] ?? "").trim() || (isSodaName(name) ? "Bebidas" : "Sin categoría")
+        const category = currentCategory(String(supplyInfo(name)?.[1] ?? "").trim()) || (isSodaName(name) ? "Gaseosas" : "Sin categoría")
         groups.set(category, [...(groups.get(category) || []), name])
       })
       return (
@@ -15101,6 +15316,9 @@ function AdminPanel({
     const statusValue =
       cfg.statusIndex !== undefined && row ? String(row[cfg.statusIndex] ?? "") : ""
     const dataFields = cfg.fields.filter((f) => f.type !== "image")
+    const isLocalSodaProduct = isProduct && isSodaProductRow(row ?? undefined)
+    const productCategory = normalizeName(currentCategory(String(isView ? row?.[1] ?? "" : formData["1"] ?? "")))
+    const hideProductTechnicalSheet = isProduct && ["gaseosas", "bebidas", normalizeName(SODA_PRODUCT)].includes(productCategory)
     const showSupplyTechnicalSheet =
       isSupply &&
       String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
@@ -15120,7 +15338,7 @@ function AdminPanel({
               String(formData["3"] ?? "").toLowerCase() === "cliente"),
         )
       : isProduction
-      ? dataFields.filter((field) => !["0", "1"].includes(field.key))
+      ? dataFields.filter((field) => !["0", "1", "3", "4"].includes(field.key))
       : isPnc
         ? dataFields.filter((field) => !["0", "1", "2", "6"].includes(field.key))
       : isSupply
@@ -15142,10 +15360,7 @@ function AdminPanel({
         : dataFields
     const productMainFields = isProduct
       ? dataFields.filter(
-          (field) =>
-            ["0", "1", "2", "3", "10"].includes(field.key) &&
-            // A soda needs its price from the start (the store sells it at that price)
-            !(modal.mode === "add" && field.key === "2" && formData["1"] !== SODA_PRODUCT),
+          (field) => ["0", "1", "2", "3", "10"].includes(field.key),
         )
       : dataFields
     // A drink (category «Bebidas») is a finished product: no ficha técnica, its own compact layout
@@ -15482,11 +15697,7 @@ function AdminPanel({
                           alt={String(row[0] ?? "")}
                           className="h-48 w-full rounded-2xl object-cover"
                         />
-                      ) : (
-                        <div className="flex h-40 w-full items-center justify-center rounded-2xl text-5xl" style={{ background: t.cardAlt }}>
-                          🍔
-                        </div>
-                      )}
+                      ) : null}
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="rounded-full px-2.5 py-0.5 text-[11px]" style={{ background: `${C.mustard}14`, color: C.mustard }}>
@@ -15515,6 +15726,7 @@ function AdminPanel({
                         </p>
                       </div>
                       {(() => {
+                        if (hideProductTechnicalSheet) return null
                         const recipe = getProductRecipe(row)
                         if (!recipe.length) return null
                         const cost = recipe.reduce((sum, ingredient) => {
@@ -15529,10 +15741,14 @@ function AdminPanel({
                   {!isView && (
                     // Photo in the same place as in the detail; click (or drop) to change it
                     <div className="flex flex-col gap-2">
+                      <label className="text-xs font-semibold" style={{ color: formFieldErrors.img ? C.red : t.muted }}>
+                        Foto del producto{modal.mode === "add" && " *"}
+                      </label>
                       <div
                         role="button"
                         tabIndex={0}
                         aria-label={imgPreview ? "Cambiar foto del producto" : "Subir foto del producto"}
+                        aria-invalid={!!formFieldErrors.img}
                         className="group relative cursor-pointer overflow-hidden rounded-2xl"
                         onClick={() => fileInputRef.current?.click()}
                         onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && fileInputRef.current?.click()}
@@ -15569,9 +15785,8 @@ function AdminPanel({
                         {!imgPreview && !(isDrinkForm && sodaImage(`Gaseosa ${String(formData["0"] ?? "").trim().replace(/^gaseosa\s+/i, "")} (${String(formData.sodaSize ?? "").trim()})`)) && (
                           <div
                             className="flex h-36 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-xs"
-                            style={{ borderColor: t.inputB, color: t.muted }}
+                            style={{ borderColor: formFieldErrors.img ? C.red : t.inputB, color: t.muted }}
                           >
-                            <span className="text-4xl">🍔</span>
                             <span className="flex items-center gap-1.5">{Ico.upload} Arrastra o selecciona una imagen</span>
                           </div>
                         )}
@@ -15591,29 +15806,138 @@ function AdminPanel({
                         placeholder="o pega una URL de imagen..."
                         aria-label="URL de la imagen"
                         value={imgPreview.startsWith("data:") ? "" : imgPreview}
-                        onChange={(e) => setImgPreview(e.target.value)}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setImgPreview(value)
+                          if (value.trim()) setFormFieldErrors((current) => ({ ...current, img: "" }))
+                        }}
                         className="w-full rounded-xl px-3 py-2 text-xs outline-none"
                         style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
                       />
+                      <FieldError msg={formFieldErrors.img} />
                     </div>
                   )}
-                  {modal.mode === "add" && formData["1"] !== SODA_PRODUCT && (
-                    <p className="text-xs" style={{ color: t.muted }}>
-                      Puedes agregar el precio después desde la opción Editar.
-                    </p>
-                  )}
-                  {/* Two fields per row (name and description full width) so the form barely scrolls; a drink has them on the right */}
-                  {!isDrinkForm && renderProductFields()}
-                  {isDrinkForm && (
-                    <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}>
-                      <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Producto terminado</div>
-                      <p className="mt-0.5 text-xs leading-snug" style={{ color: t.muted }}>
-                        Sin ficha técnica: se compra en Compras y se vende tal cual. Con tamaño es una gaseosa de la tienda y cada venta descuenta 1 und.
-                      </p>
-                    </div>
-                  )}
+                  {/* Two fields per row (name and description full width) so the form barely scrolls */}
+                  <div className={isView ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
+                  {productMainFields.map((f) => {
+                    if (isView) return null
+                    const val = isView
+                      ? String(row ? (row[Number(f.key)] ?? "—") : "—")
+                      : formData[f.key] || ""
+                    // Categories come only from "Categ. Producto" (active), deduplicated
+                    // ignoring case/accents so the same category never appears twice
+                    const productFieldOptions =
+                      f.key === "1"
+                        ? [
+                            ...(rows["cat-producto"] || [])
+                              .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
+                              .map((category) => String(category[0] ?? "").trim())
+                              .filter(Boolean),
+                            ...(isLocalSodaProduct ? [SODA_PRODUCT] : []),
+                            "Producto de insumo",
+                          ]
+                            .filter(
+                              (name, index, all) =>
+                                all.findIndex((other) => normalizeName(other) === normalizeName(name)) === index,
+                            )
+                            .sort((a, b) => a.localeCompare(b))
+                        : f.options
+                    return (
+                      <div key={f.key} className={`flex min-w-0 flex-col gap-1.5 ${f.key === "0" || f.key === "3" ? "sm:col-span-2" : ""}`}>
+                        <label
+                          className="text-xs font-semibold"
+                          style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
+                        >
+                          {f.label}
+                          {(isRequiredField(f.key) ||
+                            getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)) && " *"}
+                        </label>
+                        {isView ? (
+                          <div
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
+                            style={{ background: t.input, color: t.text }}
+                          >
+                            {val}
+                          </div>
+                        ) : f.type === "select" ? (
+                          <select
+                            value={val}
+                            disabled={(isPedido && f.key === "7") || (isLocalSodaProduct && ["0", "1"].includes(f.key))}
+                            onChange={(e) =>
+                              updateAdminField(modal.section, f.key, e.target.value)
+                            }
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                            title={
+                              isPedido && f.key === "7"
+                                ? "El pago solo cambia al aprobar o rechazar el comprobante en el detalle del pedido."
+                                : undefined
+                            }
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
+                              color: val ? t.text : t.muted,
+                              opacity: isPedido && f.key === "7" ? 0.7 : 1,
+                            }}
+                          >
+                            <option value="">Selecciona...</option>
+                            {productFieldOptions?.map((o) => (
+                              <option key={o} value={o}>
+                                {o}
+                              </option>
+                            ))}
+                          </select>
+                        ) : f.type === "textarea" ? (
+                          <textarea
+                            value={val}
+                            onChange={(e) =>
+                              updateAdminField(modal.section, f.key, e.target.value)
+                            }
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
+                            rows={isPurchaseModule || isProduct ? 2 : 3}
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
+                              color: t.text,
+                            }}
+                          />
+                        ) : (
+                          <input
+                            type={f.type}
+                            value={val}
+                            disabled={isLocalSodaProduct && ["0", "1"].includes(f.key)}
+                            onChange={(e) =>
+                              updateAdminField(modal.section, f.key, e.target.value)
+                            }
+                            onBlur={() =>
+                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                            aria-invalid={!!formFieldErrors[f.key]}
+                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
+                              color: t.text,
+                            }}
+                          />
+                        )}
+                        <FieldError msg={shownFieldError(f.key) || formFieldErrors[f.key]} />
+                      </div>
+                    )
+                  })}
+                  </div>
                   {/* Editing: the profit stays in this column too (updates with the price and the ficha técnica) */}
-                  {!isView && technicalIngredients.length > 0 &&
+                  {!isView && !hideProductTechnicalSheet && technicalIngredients.length > 0 &&
                     renderProfit(
                       Number(formData["2"] || 0),
                       technicalIngredients.reduce((sum, ingredient) => {
@@ -15627,9 +15951,9 @@ function AdminPanel({
                   // Creating or editing a drink: no ficha técnica at all, its fields take this column
                   if (isDrinkForm) return <div className="flex flex-col gap-3">{renderProductFields()}</div>
                   // A resale soda has no ficha técnica: show its stock and margin instead
-                  if (isView && row?.[1] === SODA_PRODUCT) {
-                    // Its purchases set its stock and cost on the product itself
-                    const cost = Number(row[13]) || 0
+                  if (isView && row && isSodaProductRow(row)) {
+                    const soda = rows.insumos?.find((item) => item[0] === row[0])
+                    const cost = Number(soda?.[3]) || 0
                     const price = Number(row[2]) || 0
                     return (
                       <section className="flex flex-col gap-3 rounded-2xl px-4 py-4" style={{ border: `1px solid ${t.border}` }}>
@@ -15700,6 +16024,7 @@ function AdminPanel({
                       </section>
                     )
                   }
+                  if (hideProductTechnicalSheet) return null
                   const recipe: TechnicalIngredient[] = isView ? getProductRecipe(row ?? undefined) : technicalIngredients
                   const steps = isView ? getPreparationSteps(row?.[8]) : technicalSteps
                   const version = String((isView ? row?.[6] : formData["6"]) || getAutoTechVersion(rows.producto || []))
@@ -15814,7 +16139,7 @@ function AdminPanel({
                     const category = normalizeName(String(product?.[1] ?? ""))
                     if (category === "salsas") return ["bolsita", "bolsitas"]
                     if (category === "adiciones") return ["porción", "porciones"]
-                    if (category === "bebidas" || category === "gaseosas") return ["botella", "botellas"]
+                    if (category === "gaseosas" || category === "sabores de bebida") return ["botella", "botellas"]
                     if (category === "producto de insumo") {
                       const unit = String(supplyInfo(name)?.[2] ?? "und")
                       return [unit, unit]
@@ -15829,22 +16154,24 @@ function AdminPanel({
                   const qtyLabel = (name: string, qty: number, unit?: string) =>
                     `${qty.toLocaleString("es-CO")} ${unitWord(unit || unitsOf(name)[0], qty)}`
                   const query = normalizeName(productionSearch ?? "")
-                  const categoryOf = (name: string) => normalizeName(String(rows.producto?.find((item) => item[0] === name)?.[1] ?? ""))
+                  const categoryOf = (name: string) => normalizeName(currentCategory(String(rows.producto?.find((item) => item[0] === name)?.[1] ?? "")))
                   const activeIn = (category: string) =>
                     (rows.producto || [])
-                      .filter((item) => normalizeName(String(item[1] ?? "")) === category && isActiveStatus(item[4]))
+                      .filter((item) => normalizeName(currentCategory(String(item[1] ?? ""))) === category && isActiveStatus(item[4]))
                       .map((item) => String(item[0]))
-                  const sodas = activeIn("bebidas").filter(isSodaName) // each soda is a product of «Bebidas»
+                  const sodas = activeIn("sabores de bebida").flatMap((flavor) =>
+                    activeIn("gaseosas").map((size) => `Gaseosa ${flavor} (${size})`),
+                  )
                   const tabOptions =
-                    productionKind === "gaseosas"
+                    productionKind === "bebidas"
                       ? sodas
                       : availableItemOptions.filter((name) =>
                           productionKind === "adiciones"
                             ? categoryOf(name) === "adiciones"
-                            : !["adiciones", "bebidas", "gaseosas"].includes(categoryOf(name)),
+                            : !["adiciones", "gaseosas", "sabores de bebida"].includes(categoryOf(name)),
                         )
                   const options = tabOptions
-                    .filter((name) => !productionItems.some((item) => item.name === name))
+                    .filter((name) => productionKind === "adiciones" || !productionItems.some((item) => item.name === name))
                     .filter((name) => {
                       const category = String(rows.producto?.find((item) => item[0] === name)?.[1] ?? "")
                       return !query || normalizeName(name).includes(query) || normalizeName(category).includes(query)
@@ -15853,6 +16180,7 @@ function AdminPanel({
                   const pick = (name: string) => {
                     setProductionProductSelect(name)
                     setProductionItemUnit(unitsOf(name)[0])
+                    setProductionSelectedSauces([])
                     setProductionSearch(null)
                     setProductionFormError("")
                   }
@@ -15861,18 +16189,28 @@ function AdminPanel({
                   const add = () => {
                     if (!productionProductSelect) return setProductionFormError("Busca y elige un producto.")
                     if (!(draftQty > 0)) return setProductionFormError("La cantidad debe ser mayor que 0.")
+                    if (productionKind === "adiciones" && !productionAdditionParentId)
+                      return setProductionFormError("Elige el producto al que pertenece esta adición.")
+                    const selectedRow = rows.producto?.find((item) => item[0] === productionProductSelect)
                     // Added at the end: the list grows downwards and the search box stays on top
                     setProductionItems((current) => [
                       ...current,
                       {
+                        id: `production-line-${Date.now()}-${current.length}`,
                         name: productionProductSelect,
                         quantity: draftQty,
                         unit: productionItemUnit || unitsOf(productionProductSelect)[0],
+                        category: String(selectedRow?.[1] ?? (productionKind === "bebidas" ? "Gaseosas" : "")),
+                        ...(productionKind === "adiciones" ? { parentId: productionAdditionParentId } : {}),
+                        ...(productionKind !== "adiciones" && productionSelectedSauces.length
+                          ? { sauces: productionSelectedSauces }
+                          : {}),
                       },
                     ])
                     setProductionItemUnit("")
                     setProductionProductSelect("")
                     setProductionItemQuantity("1")
+                    setProductionSelectedSauces([])
                     setProductionFormError("")
                   }
                   const saveEdit = () => {
@@ -15898,11 +16236,11 @@ function AdminPanel({
                         )}
                       </div>
                       <p className="-mt-1 text-[11px]" style={{ color: t.muted }}>
-                        Elige si vas a agregar un producto o una adición, búscalo y pon cuánto se va a preparar.
+                        Agrega el producto, sus salsas y las adiciones asociadas, igual que en una compra del cliente.
                       </p>
                       <div className="grid items-end gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_8rem_auto]" style={{ background: t.cardAlt }}>
                         <div role="tablist" aria-label="Qué agregar" className="flex gap-1.5 sm:col-span-4">
-                          {(["productos", "adiciones", "gaseosas"] as const).map((kind) => {
+                          {(["productos", "adiciones", "bebidas"] as const).map((kind) => {
                             const on = productionKind === kind
                             return (
                               <button
@@ -15913,6 +16251,8 @@ function AdminPanel({
                                 onClick={() => {
                                   setProductionKind(kind)
                                   setProductionProductSelect("")
+                                  setProductionAdditionParentId("")
+                                  setProductionSelectedSauces([])
                                   setProductionFormError("")
                                 }}
                                 className="cursor-pointer rounded-full px-4 py-1.5 text-xs font-semibold"
@@ -15923,8 +16263,28 @@ function AdminPanel({
                             )
                           })}
                         </div>
+                        {productionKind === "adiciones" && (
+                          <label className="flex min-w-0 flex-col gap-1 text-[11px] sm:col-span-4" style={{ color: t.muted }}>
+                            Adición para
+                            <select
+                              value={productionAdditionParentId}
+                              onChange={(event) => setProductionAdditionParentId(event.target.value)}
+                              className="w-full cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                              style={controlSt}
+                            >
+                              <option value="">Selecciona un producto de la orden...</option>
+                              {productionItems
+                                .filter((item) => !item.parentId && normalizeName(item.category ?? "") !== "adiciones" && !isSodaName(item.name))
+                                .map((item, index) => (
+                                  <option key={item.id || `${item.name}-${index}`} value={item.id || ""}>
+                                    {item.name} ×{item.quantity}
+                                  </option>
+                                ))}
+                            </select>
+                          </label>
+                        )}
                         <div className="relative flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
-                          <label htmlFor="production-search">{productionKind === "adiciones" ? "Adición" : productionKind === "gaseosas" ? "Gaseosa (sabor y tamaño)" : "Producto"}</label>
+                          <label htmlFor="production-search">{productionKind === "adiciones" ? "Adición" : productionKind === "bebidas" ? "Gaseosa (sabor y tamaño)" : "Producto"}</label>
                           <div className="flex items-center gap-2 rounded-xl px-3" style={controlSt}>
                             <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
                             <input
@@ -15934,7 +16294,7 @@ function AdminPanel({
                               aria-controls="production-search-list"
                               autoComplete="off"
                               value={open ? productionSearch : productionProductSelect}
-                              placeholder={productionKind === "adiciones" ? "Busca una adición..." : productionKind === "gaseosas" ? "Busca un sabor o tamaño..." : "Busca un producto..."}
+                              placeholder={productionKind === "adiciones" ? "Busca una adición..." : productionKind === "bebidas" ? "Busca un sabor o tamaño..." : "Busca un producto..."}
                               onFocus={() => setProductionSearch("")}
                               onChange={(event) => setProductionSearch(event.target.value)}
                               onBlur={() => setTimeout(() => setProductionSearch(null), 150)}
@@ -15977,7 +16337,7 @@ function AdminPanel({
                                 ))
                               ) : (
                                 <p className="px-2.5 py-3 text-center text-xs" style={{ color: t.muted }}>
-                                  {productionKind === "adiciones" ? "No hay adiciones que coincidan." : productionKind === "gaseosas" ? "No hay gaseosas que coincidan." : "No hay productos que coincidan."}
+                                  {productionKind === "adiciones" ? "No hay adiciones que coincidan." : productionKind === "bebidas" ? "No hay gaseosas que coincidan." : "No hay productos que coincidan."}
                                 </p>
                               )}
                             </div>
@@ -16026,6 +16386,30 @@ function AdminPanel({
                         >
                           {Ico.plus} Agregar
                         </button>
+                        {productionKind === "productos" &&
+                          productionProductSelect &&
+                          !["adiciones", "bebidas", "sabores de bebida"].includes(normalizeName(String(rows.producto?.find((item) => item[0] === productionProductSelect)?.[1] ?? ""))) && (
+                            <div className="flex flex-wrap gap-2 sm:col-span-4">
+                              {SAUCES.map((sauce) => {
+                                const selected = productionSelectedSauces.includes(sauce)
+                                return (
+                                  <label key={sauce} className="flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs" style={{ background: selected ? `${C.mustard}18` : t.input, color: selected ? C.mustard : t.text }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={selected}
+                                      disabled={!selected && productionSelectedSauces.length >= 4}
+                                      onChange={() => setProductionSelectedSauces((current) =>
+                                        selected ? current.filter((item) => item !== sauce) : [...current, sauce],
+                                      )}
+                                      style={{ accentColor: C.mustard }}
+                                    />
+                                    {sauce}
+                                  </label>
+                                )
+                              })}
+                              <span className="self-center text-[10px]" style={{ color: t.muted }}>Hasta 4 salsas, igual que en la compra del cliente.</span>
+                            </div>
+                          )}
                         {productionProductSelect && draftQty > 0 && (
                           <span className="text-[11px] sm:col-span-4" style={{ color: t.muted }}>
                             Se van a preparar <span style={{ color: t.text }}>{qtyLabel(productionProductSelect, draftQty, productionItemUnit)}</span> de «{productionProductSelect}»
@@ -16050,7 +16434,11 @@ function AdminPanel({
                               >
                                 {index + 1}
                               </span>
-                              <span className="min-w-0 flex-1 truncate text-sm" style={{ color: t.text }} title={item.name}>{item.name}</span>
+                              <span className="min-w-0 flex-1 truncate text-sm" style={{ color: t.text }} title={`${item.name}${item.sauces?.length ? ` · Salsas: ${item.sauces.join(", ")}` : ""}`}>
+                                {item.parentId ? <span className="mr-1" style={{ color: t.muted }}>↳</span> : null}
+                                {item.name}
+                                {item.sauces?.length ? <span className="ml-1 text-[10px]" style={{ color: t.muted }}>· {item.sauces.join(", ")}</span> : null}
+                              </span>
                               {productionItemEdit?.index === index ? (
                                 <>
                                   <input
@@ -16102,7 +16490,9 @@ function AdminPanel({
                                 title="Quitar"
                                 aria-label={`Quitar ${item.name}`}
                                 onClick={() => {
-                                  setProductionItems((current) => current.filter((_, i) => i !== index))
+                                  setProductionItems((current) =>
+                                    current.filter((candidate, i) => i !== index && candidate.parentId !== item.id),
+                                  )
                                   setProductionItemEdit(null)
                                 }}
                                 className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
@@ -16305,16 +16695,16 @@ function AdminPanel({
                   </button>
                 )}
                 {isPnc && (modal.mode !== "add" || pncManual) && !isView && (() => {
-                  const categoryOf = (name: string) => normalizeName(String(rows.producto?.find((item) => item[0] === name)?.[1] ?? ""))
+                  const categoryOf = (name: string) => normalizeName(currentCategory(String(rows.producto?.find((item) => item[0] === name)?.[1] ?? "")))
                   const isDrink = (name: string) =>
-                    name.startsWith("Gaseosa ") || ["bebidas", "gaseosas"].includes(categoryOf(name))
+                    name.startsWith("Gaseosa ") || ["gaseosas", "sabores de bebida"].includes(categoryOf(name))
                   const activeIn = (category: string) =>
                     (rows.producto || [])
-                      .filter((item) => normalizeName(String(item[1] ?? "")) === category && isActiveStatus(item[4]))
+                      .filter((item) => normalizeName(currentCategory(String(item[1] ?? ""))) === category && isActiveStatus(item[4]))
                       .map((item) => String(item[0]))
-                  const sodas = activeIn("bebidas").filter(isSodaName) // each soda is a product of «Bebidas»
+                  const sodas = activeIn("sabores de bebida").flatMap((flavor) => activeIn("gaseosas").map((size) => `Gaseosa ${flavor} (${size})`))
                   const options = (
-                    productionKind === "gaseosas"
+                    productionKind === "bebidas"
                       ? sodas
                       : availableItemOptions.filter((name) =>
                           productionKind === "adiciones" ? categoryOf(name) === "adiciones" : categoryOf(name) !== "adiciones" && !isDrink(name),
@@ -16351,7 +16741,7 @@ function AdminPanel({
                       </div>
                       <div className="grid items-end gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_7rem_auto]" style={{ background: t.cardAlt }}>
                         <div role="tablist" aria-label="Qué se dañó" className="flex gap-1.5 sm:col-span-4">
-                          {(["productos", "adiciones", "gaseosas"] as const).map((kind) => {
+                          {(["productos", "adiciones", "bebidas"] as const).map((kind) => {
                             const on = productionKind === kind
                             return (
                               <button
@@ -16368,13 +16758,13 @@ function AdminPanel({
                                 className="cursor-pointer rounded-full px-4 py-1.5 text-xs font-semibold"
                                 style={on ? { background: C.mustard, color: "#fff" } : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }}
                               >
-                                {kind === "productos" ? "Productos" : kind === "adiciones" ? "Adiciones" : "Bebidas"}
+                                {kind === "productos" ? "Productos" : kind === "adiciones" ? "Adiciones" : "Gaseosas"}
                               </button>
                             )
                           })}
                         </div>
                         <label className="flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
-                          {productionKind === "adiciones" ? "Adición" : productionKind === "gaseosas" ? "Bebida" : "Producto o insumo"}
+                          {productionKind === "adiciones" ? "Adición" : productionKind === "bebidas" ? "Gaseosa" : "Producto o insumo"}
                           <select
                             value={productionProductSelect}
                             onChange={(event) => {
@@ -16512,7 +16902,9 @@ function AdminPanel({
                                   title="Quitar"
                                   aria-label={`Quitar ${item.name}`}
                                   onClick={() => {
-                                    setProductionItems((current) => current.filter((_, i) => i !== index))
+                                    setProductionItems((current) =>
+                                      current.filter((candidate, i) => i !== index && candidate.parentId !== item.id),
+                                    )
                                     setProductionItemEdit(null)
                                   }}
                                   className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
@@ -17544,7 +17936,7 @@ function AdminPanel({
                   // Sodas not bought yet (no insumo): offered too, the first purchase creates them
                   sodaOptions
                     .filter((name) => !supplyInfo(name) && (!query || normalizeName(name).includes(query)))
-                    .forEach((name) => groups.set("Bebidas", [...(groups.get("Bebidas") || []), name]))
+                    .forEach((name) => groups.set("Gaseosas", [...(groups.get("Gaseosas") || []), name]))
                   const categories = [...groups.keys()].sort((x, y) => x.localeCompare(y))
                   const menu = supplierSupplyOpen
                   const openMenu = (box: HTMLElement) => setSupplierSupplyOpen(box.getBoundingClientRect())
@@ -19029,11 +19421,11 @@ function AdminPanel({
               // Products first, then additions, then drinks
               const groupOf = (item: ProductionItem) => {
                 const category = normalizeName(String(item.category || rows.producto?.find((p) => p[0] === item.name)?.[1] || ""))
-                if (item.name.startsWith("Gaseosa ") || category === "bebidas" || category === "gaseosas") return 2
+                if (item.name.startsWith("Gaseosa ") || category === "gaseosas" || category === "sabores de bebida") return 2
                 if (item.parentId || category === "adiciones") return 1
                 return 0
               }
-              const groups = ["Productos", "Adiciones", "Bebidas"]
+              const groups = ["Productos", "Adiciones", "Gaseosas"]
                 .map((title, g) => ({ title, list: items.filter((item) => groupOf(item) === g) }))
                 .filter((group) => group.list.length)
               const history = parseProductionHistory(row[12])
@@ -19075,6 +19467,16 @@ function AdminPanel({
                             >
                               <span className="min-w-0">
                                 <span className="block break-words text-sm" style={{ color: t.text }}>{item.name}</span>
+                                {item.sauces?.length ? (
+                                  <span className="block text-[11px]" style={{ color: t.muted }}>
+                                    Salsas: {item.sauces.join(", ")}
+                                  </span>
+                                ) : null}
+                                {item.parentId ? (
+                                  <span className="block text-[11px]" style={{ color: t.muted }}>
+                                    Adición de {items.find((parent) => parent.id === item.parentId)?.name ?? "producto"}
+                                  </span>
+                                ) : null}
                                 {(item.reuse || item.onlySupplies) && (
                                   <span className="block text-[11px]" style={{ color: t.muted }}>
                                     {item.reuse
@@ -21672,16 +22074,21 @@ export default function App() {
     loadMenu()
       .then(() => {
         setMenuVersion((v) => v + 1)
-        // A cart saved before the burgers were renamed ("Sencilla" -> "Hamburguesa Sencilla") gets the current names
-        setCart((items) =>
-          items.map((item) => {
-            if (PRODUCTS.some((product) => product.name === item.name)) return item
-            const renamed = PRODUCTS.find((product) => product.name === `Hamburguesa ${item.name}`)
-            return renamed ? { ...item, name: renamed.name } : item
-          }),
-        )
+        setCart(refreshCartProducts)
+        window.dispatchEvent(new Event("products-refreshed"))
       })
       .catch((err) => console.warn("No se pudo cargar el menú del backend:", err))
+    const refreshProducts = () => {
+      loadMenu()
+        .then(() => {
+          setMenuVersion((v) => v + 1)
+          setCart(refreshCartProducts)
+          window.dispatchEvent(new Event("products-refreshed"))
+        })
+        .catch((err) => console.warn("No se pudo actualizar el menú del backend:", err))
+    }
+    window.addEventListener("products-updated", refreshProducts)
+    return () => window.removeEventListener("products-updated", refreshProducts)
   }, [])
 
   // Listen for admin user updates from the AdminProfilePage
@@ -21699,12 +22106,33 @@ export default function App() {
   const [ordersLoadedFor, setOrdersLoadedFor] = useState("")
   useEffect(() => {
     if (!user || user.mustChangePassword) return
-    refreshOrders(user.role)
-      .catch((err) => console.warn("No se pudieron cargar los pedidos del backend:", err))
-      .finally(() => {
-        setOrdersLoadedFor(user.email)
-        setOrdersVersion((v) => v + 1)
-      })
+    let active = true
+    let loading = false
+    const refresh = () => {
+      if (loading || document.visibilityState === "hidden") return
+      loading = true
+      refreshOrders(user.role)
+        .catch((err) => console.warn("No se pudieron cargar los pedidos del backend:", err))
+        .finally(() => {
+          loading = false
+          if (!active) return
+          setOrdersLoadedFor(user.email)
+          setOrdersVersion((version) => version + 1)
+        })
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refresh()
+    }
+    refresh()
+    const interval = window.setInterval(refresh, 15000)
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    return () => {
+      active = false
+      window.clearInterval(interval)
+      window.removeEventListener("focus", refresh)
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+    }
   }, [user?.email, user?.role, user?.mustChangePassword])
 
   // Re-read on every render so status changes made in the admin panel show up
