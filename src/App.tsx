@@ -6,6 +6,7 @@ import registerBackgroundImg from "@/imports/auth-register-background.png"
 import forgotBackgroundImg from "@/imports/auth-forgot-background.png"
 import landingBackgroundImg from "@/imports/landing-background.png"
 import storyBelloImg from "@/imports/story-bello.png"
+import { neighborhoodNameFromAddress, normalizeNeighborhood } from "@/data/barrios"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "app" | "admin"
@@ -44,7 +45,7 @@ type CartItem = {
 // The shop is in Santa Ana (Bello, Antioquia); deliveries only up to DELIVERY_RADIUS_KM from there
 const SHOP_LOCATION = { lat: 6.3295, lon: -75.5627 }
 const DELIVERY_RADIUS_KM = 5
-const DELIVERY_ESTIMATE = "45 – 65 min"
+const DELIVERY_ESTIMATE_ENDPOINT = "/pedidos/estimacion"
 const BUILDING_TYPES = ["Departamento", "Edificio residencial", "Urbanización", "Hotel", "Oficinas", "Otro"]
 // Straight-line distance in km between two points (haversine)
 function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
@@ -64,6 +65,22 @@ const composeDeliveryAddress = (d: { calle: string; barrio: string; tipoEdificio
   ]
     .filter(Boolean)
     .join(", ")
+
+function addressPartsFromAddress(address: string) {
+  const segments = address.split(",").map((part) => part.trim()).filter(Boolean)
+  const barrio = neighborhoodNameFromAddress(address)
+  const otherDetails = segments
+    .slice(1)
+    .filter((part) => !/^Barrio\s+/i.test(part))
+    .join(", ")
+  return {
+    barrio,
+    calle: segments[0] || "",
+    tipoEdificio: "",
+    nombreEdificio: "",
+    unidad: otherDetails,
+  }
+}
 // OpenStreetMap search (free). "#" breaks it ("Calle 50 #45-20" -> "Calle 50 45-20")
 async function geocodeAddress(queries: string[], signal: AbortSignal) {
   for (const q of queries.filter(Boolean)) {
@@ -103,10 +120,25 @@ function addCartItem(items: CartItem[], item: CartItem): CartItem[] {
 type DeliveryInfo = {
   nombre: string
   telefono: string
+  barrio?: string
+  barrioId?: number
+  costoDomicilio?: number | null
   direccion: string
   notas: string
   pago: string
   voucher?: string
+}
+type DeliveryNeighborhood = {
+  id_barrio: number
+  nombre: string
+  costo_domicilio_cop: number | null
+}
+type DeliveryEstimate = {
+  minimumMinutes: number | null
+  maximumMinutes: number | null
+  estimatedMinutes: number | null
+  deliveryCost: number | null
+  message: string
 }
 type Order = DeliveryInfo & {
   id: string
@@ -4169,19 +4201,21 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3000/api"
 const imageUrl = (u: string | undefined) => (u?.startsWith("/imagenes/") ? API_URL + u : u || "")
 
 // Calls the backend (with the login token) and returns `data`; throws with the server's message so forms can show it
-async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
+async function api<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
   const token = loadLS<string>("token", "")
   let res: Response
   try {
     res = await fetch(API_URL + path, {
       method,
+      signal,
       headers: {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     })
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error
     throw new Error("No se pudo conectar con el servidor. Intenta de nuevo.")
   }
   const json = await res.json().catch(() => ({}))
@@ -5068,6 +5102,9 @@ const orderFromDb = (p: DbRecord): Order => ({
   nombre: p.nombre_contacto || p.cliente,
   telefono: p.telefono_contacto || "",
   direccion: p.direccion_entrega || "",
+  barrio: p.barrio || neighborhoodNameFromAddress(p.direccion_entrega || "") || undefined,
+  barrioId: p.id_barrio || undefined,
+  costoDomicilio: p.costo_domicilio_cop ?? null,
   notas: p.observacion || "",
   pago: p.metodo_pago || "Efectivo",
   voucher: p.comprobante || undefined,
@@ -5611,13 +5648,6 @@ function CartSummary({
           <span>{fmt(subtotal)}</span>
         </div>
         <div
-          className="flex justify-between text-sm mb-2"
-          style={{ color: MUTED }}
-        >
-          <span>Domicilio</span>
-          <span style={{ color: MUTED }}>Costo según zona</span>
-        </div>
-        <div
           className="flex justify-between font-black text-base pt-2"
           style={{
             borderTop: `1px solid ${BORDER}`,
@@ -5630,6 +5660,163 @@ function CartSummary({
         </div>
       </div>
       )}
+    </div>
+  )
+}
+
+function NeighborhoodSearch({
+  value,
+  query,
+  neighborhoods,
+  loading,
+  loadError,
+  onQueryChange,
+  onSelect,
+  error,
+}: {
+  value: string
+  query: string
+  neighborhoods: DeliveryNeighborhood[]
+  loading: boolean
+  loadError: string
+  onQueryChange: (query: string) => void
+  onSelect: (neighborhood: DeliveryNeighborhood | null) => void
+  error?: string
+}) {
+  const MUTED = "rgba(30,30,30,0.55)"
+  const LINE = "rgba(30,30,30,0.08)"
+  const rootRef = useRef<HTMLDivElement>(null)
+  const [open, setOpen] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const matches = neighborhoods.filter((neighborhood) =>
+    normalizeNeighborhood(neighborhood.nombre).includes(normalizeNeighborhood(query)),
+  )
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) setOpen(false)
+    }
+    document.addEventListener("pointerdown", closeOnOutsideClick)
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick)
+  }, [])
+
+  const choose = (neighborhood: DeliveryNeighborhood) => {
+    onQueryChange(neighborhood.nombre)
+    onSelect(neighborhood)
+    setOpen(false)
+    setActiveIndex(0)
+  }
+
+  return (
+    <div ref={rootRef} className="relative min-w-0">
+      <label htmlFor="delivery-neighborhood" className="mb-1 block text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
+        Barrio de entrega *
+      </label>
+      <span className="relative block">
+        <input
+          id="delivery-neighborhood"
+          type="text"
+          role="combobox"
+          aria-label="Barrio de entrega"
+          aria-autocomplete="list"
+          aria-expanded={open}
+          aria-controls="bello-neighborhood-options"
+          aria-activedescendant={open && matches.length ? `bello-neighborhood-${activeIndex}` : undefined}
+          autoComplete="off"
+          placeholder="Busca tu barrio en Bello"
+          value={query}
+          onFocus={() => {
+            setOpen(true)
+            setActiveIndex(0)
+          }}
+          onChange={(event) => {
+            onQueryChange(event.target.value)
+            setActiveIndex(0)
+            setOpen(true)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowDown" && matches.length) {
+              event.preventDefault()
+              setOpen(true)
+              setActiveIndex((index) => (index + 1) % matches.length)
+            } else if (event.key === "ArrowUp" && matches.length) {
+              event.preventDefault()
+              setOpen(true)
+              setActiveIndex((index) => (index - 1 + matches.length) % matches.length)
+            } else if (event.key === "Enter" && open && matches.length) {
+              event.preventDefault()
+              choose(matches[activeIndex] || matches[0])
+            } else if (event.key === "Escape") {
+              setOpen(false)
+            }
+          }}
+          className="w-full rounded-xl px-3.5 py-3 pr-10 text-sm outline-none"
+          style={{
+            background: "rgba(30,30,30,0.05)",
+            border: `1.5px solid ${error ? C.red : value ? C.mustard : "rgba(30,30,30,0.12)"}`,
+            color: "#1A1714",
+          }}
+        />
+        {(query || value) && (
+          <button
+            type="button"
+            aria-label="Limpiar barrio"
+            onClick={() => {
+              onQueryChange("")
+              onSelect(null)
+              setActiveIndex(0)
+              setOpen(true)
+            }}
+            className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-base"
+            style={{ color: MUTED }}
+          >
+            ×
+          </button>
+        )}
+      </span>
+      {open && (
+        <ul
+          id="bello-neighborhood-options"
+          role="listbox"
+          className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-lg"
+          style={{ borderColor: LINE }}
+        >
+          {matches.length ? (
+            matches.map((neighborhood, index) => (
+              <li
+                key={neighborhood.id_barrio}
+                id={`bello-neighborhood-${index}`}
+                role="option"
+                aria-selected={neighborhood.nombre === value}
+                onMouseEnter={() => setActiveIndex(index)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => choose(neighborhood)}
+                className="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-sm"
+                style={{
+                  background: index === activeIndex ? `${C.mustard}18` : "#fff",
+                  color: C.dark,
+                }}
+              >
+                {neighborhood.nombre}
+                {neighborhood.nombre === value && <span aria-hidden="true" style={{ color: C.forest }}>✓</span>}
+              </li>
+            ))
+          ) : loadError ? (
+            <li className="px-3 py-2.5 text-sm" style={{ color: C.red }} role="status">
+              {loadError}
+            </li>
+          ) : loading ? (
+            <li className="px-3 py-2.5 text-sm" style={{ color: MUTED }} role="status">
+              Cargando barrios...
+            </li>
+          ) : (
+            <li className="px-3 py-2.5 text-sm" style={{ color: MUTED }}>
+              No se encontraron barrios
+            </li>
+          )}
+        </ul>
+      )}
+      {error && <span className="mt-1 block text-xs" style={{ color: C.red }} role="alert">{error}</span>}
     </div>
   )
 }
@@ -5649,7 +5836,7 @@ function CheckoutPage({
   user: User | null
   onLogin: (u: User) => void
   onBack: () => void
-  onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<void>
+  onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<number | void>
   onComplete: () => void
 }) {
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
@@ -5672,6 +5859,13 @@ function CheckoutPage({
   })
   // Address typed in parts; `direccion` is built from them (see composeDeliveryAddress)
   const [addressParts, setAddressParts] = useState({ barrio: "", calle: "", tipoEdificio: "", nombreEdificio: "", unidad: "" })
+  const [neighborhoodQuery, setNeighborhoodQuery] = useState("")
+  const [neighborhoods, setNeighborhoods] = useState<DeliveryNeighborhood[]>([])
+  const [neighborhoodsLoading, setNeighborhoodsLoading] = useState(true)
+  const [neighborhoodsError, setNeighborhoodsError] = useState("")
+  const selectedNeighborhood = neighborhoods.find(
+    (item) => normalizeNeighborhood(item.nombre) === normalizeNeighborhood(addressParts.barrio),
+  )
   const setAddressPart = (key: keyof typeof addressParts, value: string) =>
     setAddressParts((current) => {
       const next = { ...current, [key]: value, ...(key === "tipoEdificio" && !value ? { nombreEdificio: "" } : {}) }
@@ -5680,6 +5874,29 @@ function CheckoutPage({
     })
   // Where the address is on the map and whether it's inside the delivery zone
   const [geo, setGeo] = useState<{ status: "idle" | "loading" | "ok" | "far" | "notfound" | "error"; lat?: number; lon?: number; km?: number }>({ status: "idle" })
+  const [deliveryEstimate, setDeliveryEstimate] = useState({
+    status: "idle" as "idle" | "loading" | "ready",
+    label: "Por confirmar",
+    deliveryCost: null as number | null,
+  })
+  useEffect(() => {
+    const controller = new AbortController()
+    setNeighborhoodsLoading(true)
+    api<DeliveryNeighborhood[]>("/barrios", "GET", undefined, controller.signal)
+      .then((items) => {
+        setNeighborhoods(items)
+        setNeighborhoodsError("")
+      })
+      .catch((error) => {
+        if ((error as Error).name !== "AbortError") {
+          setNeighborhoodsError((error as Error).message || "No se pudieron cargar los barrios.")
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setNeighborhoodsLoading(false)
+      })
+    return () => controller.abort()
+  }, [])
   const [editingAddress, setEditingAddress] = useState(
     () => !(user?.addresses?.length),
   )
@@ -5712,6 +5929,38 @@ function CheckoutPage({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [geoKey])
+  useEffect(() => {
+    if (!selectedNeighborhood) {
+      setDeliveryEstimate({ status: "idle", label: "Por confirmar", deliveryCost: null })
+      return
+    }
+    const controller = new AbortController()
+    setDeliveryEstimate((current) => ({ ...current, status: "loading", label: "Consultando..." }))
+    api<DeliveryEstimate>(
+      DELIVERY_ESTIMATE_ENDPOINT,
+      "POST",
+      { id_barrio: selectedNeighborhood.id_barrio, direccion: delivForm.direccion },
+      controller.signal,
+    )
+      .then((estimate) => {
+        const range = estimate.minimumMinutes !== null && estimate.maximumMinutes !== null
+          ? `${estimate.minimumMinutes}–${estimate.maximumMinutes} min`
+          : estimate.estimatedMinutes !== null
+            ? `${estimate.estimatedMinutes} min`
+            : ""
+        setDeliveryEstimate({
+          status: "ready",
+          label: range || estimate.message || "Por confirmar",
+          deliveryCost: estimate.deliveryCost,
+        })
+      })
+      .catch((error) => {
+        if ((error as Error).name !== "AbortError") {
+          setDeliveryEstimate({ status: "ready", label: "Por confirmar", deliveryCost: null })
+        }
+      })
+    return () => controller.abort()
+  }, [selectedNeighborhood?.id_barrio, delivForm.direccion])
   const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(false)
   const [saveAddress, setSaveAddress] = useState(
     () => !(user?.addresses?.length),
@@ -5737,6 +5986,10 @@ function CheckoutPage({
       telefono: f.telefono || user.phone || "",
       direccion: f.direccion || user.addresses?.[0] || "",
     }))
+    const savedAddress = user.addresses?.[0] || ""
+    const savedParts = addressPartsFromAddress(savedAddress)
+    setAddressParts(savedParts)
+    setNeighborhoodQuery(savedParts.barrio)
     setEditingAddress(!hasSavedAddress)
     setSaveAddress(!hasSavedAddress)
   }, [user])
@@ -5756,15 +6009,25 @@ function CheckoutPage({
   const [placing, setPlacing] = useState(false)
   const placeOrder = async () => {
     setDeliveryTried(true)
-    if (placing || !user || !delivFilled || !payReady || cart.length === 0) return
+    if (placing || !user || !delivFilled || !deliveryCostConfigured || !payReady || cart.length === 0) return
     setOrderError("")
     setPlacing(true)
     try {
-      await onPlaceOrder(
-        { ...delivForm, voucher: needsVoucher ? voucher : undefined },
+      const confirmedTotal = await onPlaceOrder(
+        {
+          ...delivForm,
+          barrio: addressParts.barrio,
+          barrioId: selectedNeighborhood?.id_barrio,
+          costoDomicilio: deliveryEstimate.deliveryCost,
+          voucher: needsVoucher ? voucher : undefined,
+        },
         saveAddress || !(user.addresses?.length),
       )
-      setPlacedTotal(subtotal)
+      setPlacedTotal(
+        typeof confirmedTotal === "number" && Number.isFinite(confirmedTotal)
+          ? confirmedTotal
+          : orderTotal,
+      )
       setOrdered(true)
     } catch (err) {
       setOrderError((err as Error).message)
@@ -5774,19 +6037,22 @@ function CheckoutPage({
   }
   const continueToReview = () => {
     setDeliveryTried(true)
-    if (!delivFilled || !payReady) return
+    if (!delivFilled || !deliveryCostConfigured || !payReady) return
     setCheckoutStep(3)
   }
   // Nequi / Daviplata must attach the payment receipt before continuing
   const needsVoucher = delivForm.pago !== "Efectivo"
   const payReady = !needsVoucher || !!voucher
+  const deliveryCostConfigured = deliveryEstimate.deliveryCost !== null && deliveryEstimate.status === "ready"
+  const orderTotal = subtotal + (deliveryEstimate.deliveryCost ?? 0)
   const delivFilled =
     !!delivForm.nombre.trim() &&
     !validatePhoneNumber(delivForm.telefono) &&
     !!delivForm.direccion.trim() &&
-    (!editingAddress || (!!addressParts.barrio.trim() && !!addressParts.calle.trim())) &&
+    !!selectedNeighborhood &&
+    (!editingAddress || !!addressParts.calle.trim()) &&
     (geo.status === "ok" || geo.status === "error")
-  const canOrder = user && delivFilled
+  const canOrder = user && delivFilled && deliveryCostConfigured
 
   // Errors show after the first submit of each form and update while typing
   const [loginTried, setLoginTried] = useState(false)
@@ -5999,7 +6265,7 @@ function CheckoutPage({
             const reachable =
               (step === 1 && !user) ||
               (step === 2 && !!user) ||
-              (step === 3 && !!user && !!delivFilled && payReady)
+              (step === 3 && !!user && !!delivFilled && deliveryCostConfigured && payReady)
             return (
               <li key={label} className={`flex items-center ${i < 2 ? "flex-1" : ""}`}>
                 <button
@@ -6329,23 +6595,37 @@ function CheckoutPage({
                     <div className="flex items-center justify-between gap-3 mb-1">
                       <button
                         type="button"
-                        onClick={() => setEditingAddress((editing) => !editing)}
+                        onClick={() => {
+                          if (!editingAddress) {
+                            const parts = addressPartsFromAddress(delivForm.direccion)
+                            setAddressParts(parts)
+                            setNeighborhoodQuery(parts.barrio)
+                          }
+                          setEditingAddress((editing) => !editing)
+                        }}
                         className="text-xs font-bold cursor-pointer"
                         style={{ color: C.mustard }}
                       >
                         {editingAddress ? "Usar dirección seleccionada" : "Cambiar dirección"}
                       </button>
                     </div>
+                    <div className="mb-3">
+                      <NeighborhoodSearch
+                        value={addressParts.barrio}
+                        query={neighborhoodQuery}
+                        neighborhoods={neighborhoods}
+                        loading={neighborhoodsLoading}
+                        loadError={neighborhoodsError}
+                        onQueryChange={(query) => {
+                          setNeighborhoodQuery(query)
+                          if (addressParts.barrio) setAddressPart("barrio", "")
+                        }}
+                        onSelect={(neighborhood) => setAddressPart("barrio", neighborhood?.nombre || "")}
+                        error={deliveryTried && !addressParts.barrio ? "Selecciona un barrio de la lista." : undefined}
+                      />
+                    </div>
                     {editingAddress ? (
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <InputField
-                          label="Barrio *"
-                          placeholder="Ej: Santa Ana, Niquía"
-                          value={addressParts.barrio}
-                          onChange={(v) => setAddressPart("barrio", v)}
-                          required
-                          error={deliveryTried && !addressParts.barrio.trim() ? "El barrio es obligatorio." : undefined}
-                        />
                         <InputField
                           label="Dirección *"
                           placeholder="Ej: Calle 50 # 45-20"
@@ -6400,6 +6680,9 @@ function CheckoutPage({
                             key={address}
                             type="button"
                             onClick={() => {
+                              const parts = addressPartsFromAddress(address)
+                              setAddressParts(parts)
+                              setNeighborhoodQuery(parts.barrio)
                               setDelivForm((form) => ({ ...form, direccion: address }))
                               setEditingAddress(false)
                               setSaveAddress(false)
@@ -6532,7 +6815,7 @@ function CheckoutPage({
                           className="font-black text-xl"
                           style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
                         >
-                          {fmt(subtotal)}
+                          {deliveryCostConfigured ? fmt(orderTotal) : "Por confirmar"}
                         </div>
                       </div>
                       <div>
@@ -6563,6 +6846,7 @@ function CheckoutPage({
                     rows: [
                       ["Recibe", delivForm.nombre],
                       ["Teléfono", delivForm.telefono],
+                      ["Barrio", addressParts.barrio],
                       ["Dirección", delivForm.direccion],
                       ...(delivForm.notas ? [["Notas", delivForm.notas]] : []),
                     ],
@@ -6676,11 +6960,24 @@ function CheckoutPage({
               </div>
               <div className="flex justify-between" style={{ color: MUTED }}>
                 <span>Domicilio</span>
-                <span style={{ color: MUTED }}>Costo según zona</span>
+                <span style={{ color: MUTED }}>
+                  {deliveryEstimate.status === "loading"
+                    ? "Consultando..."
+                    : deliveryCostConfigured
+                      ? fmt(deliveryEstimate.deliveryCost ?? 0)
+                      : "Por confirmar"}
+                </span>
               </div>
               <div className="flex justify-between" style={{ color: MUTED }}>
                 <span>Tiempo estimado</span>
-                <span className="font-semibold" style={{ color: C.dark }}>{DELIVERY_ESTIMATE}</span>
+                <span
+                  className="font-semibold"
+                  style={{ color: deliveryEstimate.status === "loading" ? MUTED : C.dark }}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {deliveryEstimate.label}
+                </span>
               </div>
             </div>
             <div
@@ -6692,7 +6989,9 @@ function CheckoutPage({
               }}
             >
               <span>Total</span>
-              <span style={{ color: C.mustard }}>{fmt(subtotal)}</span>
+              <span style={{ color: C.mustard }}>
+                {deliveryCostConfigured ? fmt(orderTotal) : "Por confirmar"}
+              </span>
             </div>
             <FieldError msg={orderError} />
             {cta ? (
@@ -6712,7 +7011,7 @@ function CheckoutPage({
                 Inicia sesión o regístrate para continuar.
               </p>
             )}
-            {user && checkoutStep >= 2 && (!delivFilled || !payReady) && (
+            {user && checkoutStep >= 2 && (!delivFilled || !deliveryCostConfigured || !payReady) && (
               <p className="mt-3 text-xs text-center" style={{ color: MUTED }}>
                 {!delivFilled
                   ? geo.status === "far"
@@ -6722,7 +7021,11 @@ function CheckoutPage({
                       : geo.status === "loading"
                         ? "Ubicando tu dirección..."
                         : "Completa nombre, teléfono, barrio y dirección para continuar."
-                  : `Sube el comprobante de ${delivForm.pago} para continuar.`}
+                  : !deliveryCostConfigured
+                    ? deliveryEstimate.status === "loading"
+                      ? "Calculando el costo del domicilio..."
+                      : "El costo de domicilio está por confirmar para este barrio."
+                    : `Sube el comprobante de ${delivForm.pago} para continuar.`}
               </p>
             )}
           </aside>
@@ -22413,6 +22716,7 @@ export default function App() {
             nombre: info.nombre,
             telefono: info.telefono,
             direccion: info.direccion,
+            id_barrio: info.barrioId,
             notas: info.notas,
             pago: info.pago,
             comprobante: info.voucher,
@@ -22427,6 +22731,7 @@ export default function App() {
           })
           updateOrders((os) => [orderFromDb(created), ...os])
           setCart([])
+          return Number(created.total)
         }}
         onComplete={() => {
           setClientView("orders")
