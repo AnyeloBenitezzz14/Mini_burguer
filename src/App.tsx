@@ -1,6 +1,11 @@
 import { Fragment, useState, useRef, useEffect, useCallback } from "react"
 import logoImg from "@/imports/logo.png"
 import qrImg from "@/imports/image-4.png"
+import loginBackgroundImg from "@/imports/auth-login-background.jpg"
+import registerBackgroundImg from "@/imports/auth-register-background.png"
+import forgotBackgroundImg from "@/imports/auth-forgot-background.png"
+import landingBackgroundImg from "@/imports/landing-background.png"
+import storyBelloImg from "@/imports/story-bello.png"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "app" | "admin"
@@ -787,6 +792,7 @@ const Ico = {
       stroke="currentColor"
       strokeWidth="2.2"
       strokeLinecap="round"
+      style={{ color: C.mustard }}
     >
       <circle cx="11" cy="11" r="8" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -1260,9 +1266,15 @@ const Ico = {
   ),
   delivery: (
     <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="7" cy="18" r="2.5" />
-      <circle cx="18" cy="18" r="2.5" />
-      <path d="M4.5 18H3V6h11v12M14 10h4l3 4v4h-.5M14 14h7M7 15.5V10h7" />
+      <circle cx="5.5" cy="17.5" r="2.5" />
+      <circle cx="18.5" cy="17.5" r="2.5" />
+      <path d="M8 17.5h5l-3-6h4l2.5 6M10 11.5l-2-3H5M13 11.5h3l2 3h2M11 8.5h2" />
+    </svg>
+  ),
+  onion: (
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 3c-.3 2-1.5 2.5-3.6 4.2C5.8 9.2 4 12 4 15a8 8 0 0 0 16 0c0-3-1.8-5.8-4.4-7.8C13.5 5.5 12.3 5 12 3z" />
+      <path d="M12 3c.2 2.5 1.5 4.6 3.5 6.4M12 3c-.2 2.5-1.5 4.6-3.5 6.4M12 9v12" />
     </svg>
   ),
   leaf: (
@@ -1798,6 +1810,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       "Estado del pedido",
     ],
     fields: [
+      { key: "8", label: "Pedido asociado", type: "text" },
       {
         key: "1",
         label: "Cliente",
@@ -1824,7 +1837,6 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Transferencia", "Efectivo"],
       },
       { key: "6", label: "Total", type: "number" },
-      { key: "8", label: "Pedido asociado", type: "text" },
       {
         key: "9",
         label: "Estado del pedido",
@@ -2310,36 +2322,34 @@ function AuthLayout({
   children,
   title,
   sub,
+  backgroundImage,
 }: {
   children: React.ReactNode
   title: string
   sub: React.ReactNode
+  backgroundImage?: string
 }) {
   return (
     <div
-      className="min-h-screen flex items-center justify-center px-4 py-8"
-      style={{ background: "#FAF3E6", fontFamily: "Poppins, sans-serif" }}
+      className="auth-access-page min-h-screen flex items-center justify-center px-4 py-8"
+      style={{
+        background: backgroundImage ? undefined : "#FAF3E6",
+        backgroundImage: backgroundImage
+          ? `linear-gradient(rgba(8,13,15,0.48), rgba(8,13,15,0.48)), url(${backgroundImage})`
+          : undefined,
+        backgroundPosition: backgroundImage ? "center" : undefined,
+        backgroundSize: backgroundImage ? "cover" : undefined,
+        fontFamily: "DM Sans, sans-serif",
+      }}
     >
       <div className="w-full max-w-lg">
-        <div className="flex flex-col items-center mb-5">
+        <div className="auth-brand flex flex-col items-center mb-5">
           <img
             src={logoImg}
             alt="El Parche"
             className="object-contain mb-2"
-            style={{ width: "100px", height: "100px" }}
+            style={{ width: "152px", height: "152px" }}
           />
-          <div
-            className="font-black text-xl"
-            style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
-          >
-            El Parche
-          </div>
-          <div
-            className="text-xs mt-0.5"
-            style={{ color: "rgba(30,30,30,0.4)" }}
-          >
-            Mini Burguer
-          </div>
         </div>
         <div
           className="p-6 rounded-3xl"
@@ -2350,7 +2360,7 @@ function AuthLayout({
         >
           <h2
             className="font-black text-xl mb-0.5"
-            style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: "#1A1714" }}
           >
             {title}
           </h2>
@@ -2402,77 +2412,71 @@ function LoginPage({
   }
   return (
     <div
-      className="min-h-screen flex items-center justify-center px-4 py-8"
-      style={{ background: "#F7F2E8", fontFamily: "Poppins, sans-serif" }}
+      className="auth-access-page relative min-h-screen flex items-center justify-center overflow-hidden px-4 py-8 sm:px-8"
+      style={{
+        backgroundImage:
+          `linear-gradient(90deg, rgba(8,13,15,0.78) 0%, rgba(8,13,15,0.58) 48%, rgba(8,13,15,0.38) 100%), url(${loginBackgroundImg})`,
+        backgroundColor: "#080d0f",
+        backgroundPosition: "center",
+        backgroundSize: "cover",
+        backgroundRepeat: "no-repeat",
+        fontFamily: "DM Sans, sans-serif",
+      }}
     >
-      <div className="w-full max-w-6xl grid lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] gap-8 items-center">
-        <div className="hidden lg:block px-8">
+      <div className="relative z-10 w-full max-w-5xl grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] gap-6 lg:gap-8 items-center">
+        <div className="hidden lg:block px-4">
           <img
             src={logoImg}
             alt="El Parche"
-            className="w-28 h-28 object-contain mb-5"
+            className="w-36 h-36 object-contain mb-5"
           />
           <div
-            className="text-xs font-bold uppercase tracking-widest mb-3"
-            style={{ color: C.mustard }}
+            className="text-sm font-bold uppercase tracking-widest mb-3"
+            style={{ color: "#D6B44B" }}
           >
             Bienvenido a El Parche
           </div>
           <h1
             className="font-black text-4xl leading-tight mb-4"
-            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: "#fff" }}
           >
             Tu próximo antojo empieza aquí.
           </h1>
           <p
-            className="text-base leading-relaxed max-w-md"
-            style={{ color: "rgba(25,21,18,0.55)" }}
+            className="text-lg leading-relaxed max-w-md"
+            style={{ color: "rgba(255,255,255,0.88)" }}
           >
             Inicia sesión para guardar tus datos, repetir tus pedidos y seguir
             cada entrega.
           </p>
         </div>
         <div
-          className="w-full max-w-xl mx-auto p-7 sm:p-10 rounded-3xl"
+          className="w-full max-w-md mx-auto p-4 sm:p-5 rounded-3xl"
           style={{
             background: "#fff",
-            boxShadow: "0 12px 45px rgba(30,30,30,0.10)",
+            boxShadow: "0 18px 55px rgba(0,0,0,0.28)",
           }}
         >
-          <div className="flex items-center gap-3 mb-7 lg:hidden">
+          <div className="flex items-center gap-3 mb-4 lg:hidden">
             <img
               src={logoImg}
               alt="El Parche"
-              className="w-12 h-12 object-contain"
+              className="w-20 h-20 object-contain"
             />
-            <div>
-              <div
-                className="font-black"
-                style={{
-                  fontFamily: "Montserrat, sans-serif",
-                  color: C.mustard,
-                }}
-              >
-                El Parche
-              </div>
-              <div className="text-xs" style={{ color: "rgba(30,30,30,0.4)" }}>
-                Mini Burguer
-              </div>
-            </div>
           </div>
           <h2
             className="font-black text-2xl mb-1"
-            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
           >
             Iniciar sesión
           </h2>
           <div
-            className="text-sm mb-6"
+            className="text-sm mb-4"
             style={{ color: "rgba(30,30,30,0.45)" }}
           >
             Accede a tu cuenta para continuar
           </div>
-          <form onSubmit={submit} noValidate className="flex flex-col gap-4">
+          <form onSubmit={submit} noValidate className="flex flex-col gap-2.5">
             <InputField
               label="Correo electrónico"
               type="email"
@@ -2503,7 +2507,7 @@ function LoginPage({
             <button
               type="submit"
               disabled={busy}
-              className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
+              className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
               style={{ background: C.mustard, color: "#fff" }}
             >
               {busy ? "Ingresando..." : "Iniciar sesión"}
@@ -2525,7 +2529,7 @@ function LoginPage({
             <button
               type="button"
               onClick={onRegister}
-              className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer"
+              className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer"
               style={{ background: "rgba(182,140,28,0.10)", color: C.mustard }}
             >
               Crear una cuenta
@@ -2607,31 +2611,31 @@ function RegisterPage({
   }
   return (
     <div
-      className="min-h-screen flex items-center justify-center px-4 py-8"
-      style={{ background: "#F7F2E8", fontFamily: "Poppins, sans-serif" }}
+      className="auth-access-page auth-register-page min-h-screen flex items-center justify-center px-4 py-8"
+      style={{
+        backgroundImage:
+          `linear-gradient(90deg, rgba(8,13,15,0.76) 0%, rgba(8,13,15,0.56) 48%, rgba(8,13,15,0.36) 100%), url(${registerBackgroundImg})`,
+        backgroundPosition: "right center",
+        backgroundSize: "cover",
+        fontFamily: "DM Sans, sans-serif",
+      }}
     >
       <div className="w-full max-w-6xl grid lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-6 items-center">
         <div className="hidden lg:block px-6">
           <img
             src={logoImg}
             alt="El Parche"
-            className="w-24 h-24 object-contain mb-4"
+            className="w-36 h-36 object-contain mb-4"
           />
-          <div
-            className="text-[10px] font-bold uppercase tracking-[0.2em] mb-2"
-            style={{ color: C.mustard }}
-          >
-            Únete a El Parche
-          </div>
           <h1
-            className="font-black text-3xl leading-tight mb-3"
-            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+            className="font-black text-4xl leading-tight mb-3"
+            style={{ fontFamily: "League Spartan, sans-serif", color: "#fff" }}
           >
             Crea tu cuenta y pide más fácil.
           </h1>
           <p
-            className="text-sm leading-relaxed max-w-md"
-            style={{ color: "rgba(25,21,18,0.55)" }}
+            className="text-base leading-relaxed max-w-md"
+            style={{ color: "rgba(255,255,255,0.88)" }}
           >
             Guarda tus datos de entrega y disfruta tus hamburguesas favoritas
             sin repetir el proceso.
@@ -2648,29 +2652,12 @@ function RegisterPage({
             <img
               src={logoImg}
               alt="El Parche"
-              className="w-11 h-11 object-contain"
+              className="w-20 h-20 object-contain"
             />
-            <div>
-              <div
-                className="font-black text-sm"
-                style={{
-                  fontFamily: "Montserrat, sans-serif",
-                  color: C.mustard,
-                }}
-              >
-                El Parche
-              </div>
-              <div
-                className="text-[10px]"
-                style={{ color: "rgba(30,30,30,0.4)" }}
-              >
-                Mini Burguer
-              </div>
-            </div>
           </div>
           <h2
             className="font-black text-xl mb-1"
-            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
           >
             Crear cuenta
           </h2>
@@ -2922,7 +2909,11 @@ function ForgotPage({
   const [busy, setBusy] = useState(false)
   if (sent)
     return (
-      <AuthLayout title="Revisa tu correo" sub="Si está registrado, te llegará un código">
+      <AuthLayout
+        title="Revisa tu correo"
+        sub="Si está registrado, te llegará un código"
+        backgroundImage={forgotBackgroundImg}
+      >
         <div className="text-center py-2">
           <div className="text-5xl mb-3">📧</div>
           <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.55)" }}>
@@ -2952,7 +2943,8 @@ function ForgotPage({
   return (
     <AuthLayout
       title="Recuperar contraseña"
-      sub="Ingresa tu correo y te enviamos un código"
+      sub="Se enviará un código si el correo existe."
+      backgroundImage={forgotBackgroundImg}
     >
       <form
         onSubmit={(e) => {
@@ -2963,7 +2955,14 @@ function ForgotPage({
           setBusy(true)
           api("/auth/recuperar", "POST", { correo: email.trim() })
             .then(() => setSent(true))
-            .catch((err) => setEmailErr((err as Error).message))
+            .catch((err) => {
+              const message = (err as Error).message
+              setEmailErr(
+                /no está registrado|no registrado|no existe/i.test(message)
+                  ? "Se enviará un código si el correo existe."
+                  : message,
+              )
+            })
             .finally(() => setBusy(false))
         }}
         className="flex flex-col gap-3"
@@ -3190,7 +3189,7 @@ function ProductInfoModal({
           </button>
           {product.badge && (
             <span
-              className="absolute top-3 left-3 text-xs font-bold px-2 py-0.5 rounded-full"
+              className="font-label absolute top-3 left-3 text-xs font-bold px-2 py-0.5 rounded-full"
               style={{ background: C.mustard, color: "#fff" }}
             >
               {product.badge}
@@ -3208,7 +3207,7 @@ function ProductInfoModal({
         <div className="p-5">
           <h2
             className="font-black text-xl mb-1"
-            style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
           >
             {product.name}
           </h2>
@@ -3220,8 +3219,8 @@ function ProductInfoModal({
             style={{ borderTop: `1px solid ${BORDER}` }}
           >
             <span
-              className="font-extrabold text-2xl"
-              style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
+              className="font-price text-2xl"
+              style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
             >
               {product.priceStr}
             </span>
@@ -3383,13 +3382,13 @@ function AddToCartModal({
             >
               {product.name}
             </div>
-            <div className="font-extrabold text-sm" style={{ color: C.amber }}>
+            <div className="font-price text-sm" style={{ color: C.amber }}>
               {product.priceStr}
             </div>
           </div>
           {product.badge && (
             <span
-              className="text-xs font-bold px-2.5 py-1 rounded-full"
+              className="font-label text-xs font-bold px-2.5 py-1 rounded-full"
               style={{ background: `${C.mustard}18`, color: C.mustard }}
             >
               {product.badge}
@@ -3793,7 +3792,7 @@ function ProductCatalog({
               role="tab"
               aria-selected={active}
               onClick={() => switchCat(cat.id)}
-              className="flex flex-shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 text-[13px] font-semibold transition-all hover:-translate-y-px"
+              className="flex flex-shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm font-semibold transition-all hover:-translate-y-px"
               style={{
                 background: active ? C.mustard : dark ? "rgba(255,255,255,0.05)" : "#fff",
                 border: `1px solid ${active ? C.mustard : BORDER}`,
@@ -3817,13 +3816,13 @@ function ProductCatalog({
       </div>
       {/* Search in catalog */}
       <div
-        className="flex w-full items-center gap-2 px-3 py-2.5 rounded-xl mb-5 sm:max-w-md"
+        className="search-control flex w-full items-center gap-2 px-3 py-2.5 rounded-full mb-5 sm:max-w-md"
         style={{
           background: dark ? "#1E1C18" : "#fff",
           border: `1.5px solid ${C.mustard}`,
         }}
       >
-        <span className="flex-shrink-0" style={{ color: C.mustard }}>{Ico.search}</span>
+        <span>{Ico.search}</span>
         <input
           placeholder="Buscar en el menú..."
           value={search}
@@ -3842,8 +3841,7 @@ function ProductCatalog({
               setSearch("")
               setPg(0)
             }}
-            className="flex h-5 w-5 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
-            style={{ background: `${C.mustard}18`, color: C.mustard }}
+            className="search-clear text-sm cursor-pointer"
           >
             ×
           </button>
@@ -3900,15 +3898,14 @@ function ProductCatalog({
             >
               {p.badge && (
                 <span
-                  className="text-xs font-bold px-2 py-0.5 rounded-full mb-2"
+                  className="font-label text-xs font-bold px-2 py-0.5 rounded-full mb-2"
                   style={{ background: C.mustard, color: "#fff" }}
                 >
                   {p.badge}
                 </span>
               )}
               <div
-                className="font-black text-lg text-white mb-1 text-center"
-                style={{ fontFamily: "Montserrat, sans-serif" }}
+                className="font-price text-lg text-white mb-1 text-center"
               >
                 {p.priceStr}
               </div>
@@ -3938,7 +3935,7 @@ function ProductCatalog({
           <button
             disabled={pg === 0}
             onClick={() => goPage(pg - 1)}
-            className="px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
+            className="pagination-control px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
             style={{
               background: dark
                 ? "rgba(255,255,255,0.08)"
@@ -3952,7 +3949,8 @@ function ProductCatalog({
             <button
               key={i}
               onClick={() => goPage(i)}
-              className="w-8 h-8 rounded-lg text-sm font-bold cursor-pointer"
+              className="pagination-control w-8 h-8 rounded-lg text-sm font-bold cursor-pointer"
+              aria-current={i === pg ? "page" : undefined}
               style={{
                 background:
                   i === pg
@@ -3969,7 +3967,7 @@ function ProductCatalog({
           <button
             disabled={pg >= totalPages - 1}
             onClick={() => goPage(pg + 1)}
-            className="px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
+            className="pagination-control px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
             style={{
               background: dark
                 ? "rgba(255,255,255,0.08)"
@@ -4026,7 +4024,7 @@ function GuestMenuPage({
       className="min-h-screen"
       style={{
         background: "#FAF5E8",
-        fontFamily: "Poppins, sans-serif",
+        fontFamily: "DM Sans, sans-serif",
         color: C.dark,
       }}
     >
@@ -4055,13 +4053,13 @@ function GuestMenuPage({
             <img
               src={logoImg}
               alt="El Parche"
-              className="w-10 h-10 object-contain"
+              className="w-12 h-12 object-contain"
             />
             <div>
               <div
                 className="font-black text-sm"
                 style={{
-                  fontFamily: "Montserrat, sans-serif",
+                  fontFamily: "League Spartan, sans-serif",
                   color: C.mustard,
                 }}
               >
@@ -4093,7 +4091,7 @@ function GuestMenuPage({
         <div className="mb-6">
           <h1
             className="font-black text-3xl"
-            style={{ fontFamily: "Montserrat, sans-serif" }}
+            style={{ fontFamily: "League Spartan, sans-serif" }}
           >
             Elige tu pedido
           </h1>
@@ -4365,6 +4363,26 @@ const shiftDashAnchor = (kind: DashPeriod, anchor: Date, step: number) =>
       : kind === "mes"
         ? new Date(anchor.getFullYear(), anchor.getMonth() + step, 1)
         : new Date(anchor.getFullYear() + step, 0, 1)
+const isFutureDashAnchor = (kind: DashPeriod, anchor: Date, now = new Date()) => {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const candidateStart =
+    kind === "hoy"
+      ? new Date(anchor.getFullYear(), anchor.getMonth(), anchor.getDate())
+      : kind === "semana"
+        ? getDashPeriod("semana", anchor).start
+        : kind === "mes"
+          ? new Date(anchor.getFullYear(), anchor.getMonth(), 1)
+          : new Date(anchor.getFullYear(), 0, 1)
+  const currentStart =
+    kind === "hoy"
+      ? today
+      : kind === "semana"
+        ? getDashPeriod("semana", today).start
+        : kind === "mes"
+          ? new Date(today.getFullYear(), today.getMonth(), 1)
+          : new Date(today.getFullYear(), 0, 1)
+  return candidateStart > currentStart
+}
 
 // "Cliente mostrador": anonymous client for sales to people who don't give their details.
 // Created by the backend (init.sql); it can't be edited, deactivated or deleted.
@@ -5299,7 +5317,7 @@ function OrderDetailModal({
         <div className="flex items-center justify-between mb-1">
           <h3
             className="font-black text-lg"
-            style={{ fontFamily: "Montserrat, sans-serif" }}
+            style={{ fontFamily: "League Spartan, sans-serif" }}
           >
             Pedido {order.id}
           </h3>
@@ -5603,7 +5621,7 @@ function CartSummary({
           className="flex justify-between font-black text-base pt-2"
           style={{
             borderTop: `1px solid ${BORDER}`,
-            fontFamily: "Montserrat, sans-serif",
+            fontFamily: "League Spartan, sans-serif",
             color: TEXT,
           }}
         >
@@ -5861,7 +5879,7 @@ function CheckoutPage({
     return (
       <div
         className="min-h-screen flex items-center justify-center px-4"
-        style={{ background: "#FAF5E8", fontFamily: "Poppins, sans-serif" }}
+        style={{ background: "#FAF5E8", fontFamily: "DM Sans, sans-serif" }}
       >
         <div className="w-full max-w-md p-8 rounded-3xl text-center" style={CARD_ST}>
           <div
@@ -5883,7 +5901,7 @@ function CheckoutPage({
           </div>
           <h2
             className="font-black text-2xl mb-2"
-            style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
           >
             ¡Pedido confirmado!
           </h2>
@@ -5926,7 +5944,7 @@ function CheckoutPage({
   return (
     <div
       className="min-h-screen"
-      style={{ background: "#FAF5E8", fontFamily: "Poppins, sans-serif" }}
+      style={{ background: "#FAF5E8", fontFamily: "DM Sans, sans-serif" }}
     >
       <header
         className="fixed inset-x-0 top-0 z-50"
@@ -5945,10 +5963,10 @@ function CheckoutPage({
             ← Seguir comprando
           </button>
           <div className="flex items-center gap-2">
-            <img src={logoImg} alt="El Parche" className="h-9 w-9 object-contain" />
+            <img src={logoImg} alt="El Parche" className="h-12 w-12 object-contain" />
             <span
               className="font-black hidden sm:inline"
-              style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
+              style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
             >
               El Parche
             </span>
@@ -5967,7 +5985,7 @@ function CheckoutPage({
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
         <h1
           className="font-black text-2xl sm:text-3xl text-center mb-6"
-          style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+          style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
         >
           Finalizar mi pedido
         </h1>
@@ -6050,9 +6068,15 @@ function CheckoutPage({
             )}
 
             {!user && showAuth && (
-              <section className="p-6 rounded-2xl" style={CARD_ST}>
-                <div className="flex items-start justify-between gap-3 mb-1">
-                  <h2 className="font-bold text-lg" style={{ color: C.dark }}>
+              <section className="p-4 sm:p-5 rounded-2xl" style={CARD_ST}>
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <h2 className="flex items-center gap-2 font-bold text-lg" style={{ color: C.dark }}>
+                    <span
+                      className="flex h-9 w-9 items-center justify-center rounded-xl"
+                      style={{ background: `${C.mustard}16`, color: C.mustard }}
+                    >
+                      {Ico.user}
+                    </span>
                     Identifícate
                   </h2>
                   <button
@@ -6063,12 +6087,12 @@ function CheckoutPage({
                     ← Volver al carrito
                   </button>
                 </div>
-                <p className="text-sm mb-5" style={{ color: MUTED }}>
+                <p className="text-sm mb-4" style={{ color: MUTED }}>
                   Inicia sesión o crea tu cuenta para guardar tu pedido y
                   seguir su estado.
                 </p>
                 <div
-                  className="flex rounded-xl overflow-hidden mb-5 p-1"
+                  className="flex rounded-xl overflow-hidden mb-4 p-1"
                   style={{ background: "rgba(30,30,30,0.06)" }}
                 >
                   {(["login", "register"] as const).map((tab) => (
@@ -6078,7 +6102,7 @@ function CheckoutPage({
                         setAuthTab(tab)
                         setServerErr("")
                       }}
-                      className="flex-1 py-2 rounded-lg text-sm font-semibold cursor-pointer"
+                      className="flex-1 py-2.5 rounded-lg text-sm font-semibold cursor-pointer"
                       style={{
                         background: authTab === tab ? "#fff" : "transparent",
                         color: authTab === tab ? C.dark : "rgba(30,30,30,0.5)",
@@ -6436,6 +6460,22 @@ function CheckoutPage({
                       </span>
                     </label>
                   </div>
+                  <label className="mt-5 block">
+                    <span className="mb-1.5 flex items-baseline justify-between gap-2">
+                      <span className="text-xs font-semibold" style={{ color: C.dark }}>
+                        Notas para el pedido <span className="font-normal" style={{ color: MUTED }}>(opcional)</span>
+                      </span>
+                      <span className="text-[10px]" style={{ color: MUTED }}>{delivForm.notas.length}/200</span>
+                    </span>
+                    <textarea
+                      value={delivForm.notas}
+                      onChange={(e) => setDelivForm((f) => ({ ...f, notas: e.target.value.slice(0, 200) }))}
+                      rows={2}
+                      placeholder="Ej: sin cebolla, el timbre no sirve, llamar al llegar"
+                      className="w-full resize-none rounded-xl px-3 py-2 text-sm outline-none"
+                      style={{ background: "rgba(30,30,30,0.04)", border: `1px solid ${LINE}`, color: C.dark }}
+                    />
+                  </label>
                 </section>
                 <section className="p-6 rounded-2xl" style={CARD_ST}>
                   <h2 className="font-bold text-lg mb-5" style={{ color: C.dark }}>
@@ -6490,7 +6530,7 @@ function CheckoutPage({
                         </div>
                         <div
                           className="font-black text-xl"
-                          style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
+                          style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
                         >
                           {fmt(subtotal)}
                         </div>
@@ -6647,31 +6687,13 @@ function CheckoutPage({
               className="flex justify-between items-baseline font-black text-lg pt-4 mt-4"
               style={{
                 borderTop: `1px solid ${LINE}`,
-                fontFamily: "Montserrat, sans-serif",
+                fontFamily: "League Spartan, sans-serif",
                 color: C.dark,
               }}
             >
               <span>Total</span>
               <span style={{ color: C.mustard }}>{fmt(subtotal)}</span>
             </div>
-            {user && checkoutStep >= 2 && (
-              <label className="mt-4 block">
-                <span className="mb-1.5 flex items-baseline justify-between gap-2">
-                  <span className="text-xs font-semibold" style={{ color: C.dark }}>
-                    Notas para el pedido <span className="font-normal" style={{ color: MUTED }}>(opcional)</span>
-                  </span>
-                  <span className="text-[10px]" style={{ color: MUTED }}>{delivForm.notas.length}/200</span>
-                </span>
-                <textarea
-                  value={delivForm.notas}
-                  onChange={(e) => setDelivForm((f) => ({ ...f, notas: e.target.value.slice(0, 200) }))}
-                  rows={2}
-                  placeholder="Ej: sin cebolla, el timbre no sirve, llamar al llegar"
-                  className="w-full resize-none rounded-xl px-3 py-2 text-sm outline-none"
-                  style={{ background: "rgba(30,30,30,0.04)", border: `1px solid ${LINE}`, color: C.dark }}
-                />
-              </label>
-            )}
             <FieldError msg={orderError} />
             {cta ? (
               <button
@@ -6720,7 +6742,7 @@ function CheckoutPage({
             <div className="flex items-center justify-between mb-4">
               <h2
                 className="font-black text-xl"
-                style={{ fontFamily: "Montserrat, sans-serif", color: C.dark }}
+                style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
               >
                 Agrega algo más
               </h2>
@@ -6919,8 +6941,6 @@ function ProfilePage({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected = orders.find((o) => o.id === selectedId)
-  const AVATARS = ["👨‍💼", "👩‍💼", "🧑‍🍳", "👨‍🦱", "👩‍🦰", "🙋", "🧑‍💻"]
-  const [avatarIdx, setAvatarIdx] = useState(0)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({
     name: user.name,
@@ -7046,7 +7066,7 @@ function ProfilePage({
   return (
     <div
       className="min-h-screen"
-      style={{ background: BG, fontFamily: "Poppins, sans-serif" }}
+      style={{ background: BG, fontFamily: "DM Sans, sans-serif" }}
     >
       <div className="max-w-2xl mx-auto px-4 py-6">
         <div className="flex items-center gap-3 mb-6">
@@ -7059,7 +7079,7 @@ function ProfilePage({
           </button>
           <h1
             className="font-black text-2xl"
-            style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
           >
             Mi perfil
           </h1>
@@ -7071,10 +7091,11 @@ function ProfilePage({
         >
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="w-20 h-20 rounded-full flex items-center justify-center text-4xl mb-1 cursor-pointer hover:opacity-80 overflow-hidden"
+            className="w-20 h-20 rounded-full flex items-center justify-center mb-1 cursor-pointer hover:opacity-80 overflow-hidden [&_svg]:h-8 [&_svg]:w-8"
             style={{
               background: `${C.mustard}18`,
               border: `2px solid ${C.mustard}`,
+              color: C.mustard,
             }}
           >
             {profilePhoto ? (
@@ -7084,7 +7105,7 @@ function ProfilePage({
                 className="w-full h-full object-cover"
               />
             ) : (
-              AVATARS[avatarIdx]
+              Ico.user
             )}
           </button>
           <input
@@ -7103,7 +7124,7 @@ function ProfilePage({
           </div>
           <div
             className="font-black text-xl"
-            style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
           >
             {user.name}
           </div>
@@ -7430,10 +7451,15 @@ function ProfilePage({
               boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
             }}
           >
-            <div className="text-4xl mb-3">🚪</div>
+            <div
+              className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full [&_svg]:h-6 [&_svg]:w-6"
+              style={{ background: `${C.mustard}18`, color: C.mustard }}
+            >
+              {Ico.logout}
+            </div>
             <h3
               className="font-black text-lg mb-2"
-              style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+              style={{ fontFamily: "League Spartan, sans-serif", color: "#1A1714" }}
             >
               ¿Cerrar sesión?
             </h3>
@@ -7478,10 +7504,15 @@ function ProfilePage({
               boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
             }}
           >
-            <div className="text-4xl mb-3">⚠️</div>
+            <div
+              className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full [&_svg]:h-6 [&_svg]:w-6"
+              style={{ background: `${C.red}12`, color: C.red }}
+            >
+              {Ico.alert}
+            </div>
             <h3
               className="font-black text-lg mb-2"
-              style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+              style={{ fontFamily: "League Spartan, sans-serif", color: "#1A1714" }}
             >
               ¿Eliminar cuenta?
             </h3>
@@ -7531,7 +7562,7 @@ function ProfilePage({
             <div className="flex items-center justify-between mb-4">
               <h3
                 className="font-black text-lg"
-                style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+                style={{ fontFamily: "League Spartan, sans-serif", color: "#1A1714" }}
               >
                 Cambiar contraseña
               </h3>
@@ -7641,7 +7672,7 @@ function ClientApp({
   return (
     <div
       className="min-h-screen flex flex-col"
-      style={{ background: BG, fontFamily: "Poppins, sans-serif", color: TEXT }}
+      style={{ background: BG, fontFamily: "DM Sans, sans-serif", color: TEXT }}
     >
       {/* Header */}
       <header
@@ -7665,13 +7696,13 @@ function ClientApp({
             <img
               src={logoImg}
               alt="El Parche"
-              className="h-11 w-11 object-contain"
+              className="h-12 w-12 object-contain"
             />
             <div>
               <div
                 className="font-black text-sm leading-none"
                 style={{
-                  fontFamily: "Montserrat, sans-serif",
+                  fontFamily: "League Spartan, sans-serif",
                   color: C.mustard,
                 }}
               >
@@ -7824,7 +7855,7 @@ function ClientApp({
             <div className="mb-5">
               <h2
                 className="font-black text-2xl"
-                style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+                style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
               >
                 Nuestro Menú
               </h2>
@@ -7846,7 +7877,7 @@ function ClientApp({
                 border: `1px solid ${C.forest}22`,
               }}
             >
-              <span className="inline-flex text-2xl" style={{ color: C.forest }}>{Ico.leaf}</span>
+              <span className="inline-flex text-2xl" style={{ color: C.mustard }}>{Ico.onion}</span>
               <span className="text-sm font-medium" style={{ color: C.forest }}>
                 Especialidad: <strong>cebolla marinada</strong> — 100% gratis
                 con tu pedido.
@@ -7858,7 +7889,7 @@ function ClientApp({
           <div className="max-w-2xl mx-auto">
             <h2
               className="font-black text-2xl mb-5"
-              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+              style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
             >
               Mis pedidos
             </h2>
@@ -8003,6 +8034,27 @@ function LandingPage({
     window.addEventListener("scroll", fn)
     return () => window.removeEventListener("scroll", fn)
   }, [])
+  useEffect(() => {
+    const elements = document.querySelectorAll<HTMLElement>("[data-reveal]")
+    if (!("IntersectionObserver" in window)) {
+      elements.forEach((element) => {
+        element.dataset.visible = "true"
+      })
+      return
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return
+          entry.target.setAttribute("data-visible", "true")
+          observer.unobserve(entry.target)
+        })
+      },
+      { threshold: 0.12, rootMargin: "0px 0px -24px 0px" },
+    )
+    elements.forEach((element) => observer.observe(element))
+    return () => observer.disconnect()
+  }, [])
   const addToCart = (
     p: Product,
     qty: number,
@@ -8035,7 +8087,7 @@ function LandingPage({
 
   return (
     <div
-      style={{ background: BG, fontFamily: "Poppins, sans-serif", color: TEXT }}
+      style={{ background: BG, fontFamily: "DM Sans, sans-serif", color: TEXT }}
     >
       {/* HEADER */}
       <header
@@ -8046,30 +8098,27 @@ function LandingPage({
           backdropFilter: scrolled ? "blur(14px)" : "none",
         }}
       >
-        <div className="max-w-7xl mx-auto px-5 sm:px-8 flex items-center justify-between h-16 md:h-20">
+        <div className="max-w-7xl mx-auto px-5 sm:px-8 flex items-center justify-between h-20 md:h-24">
           <a href="#inicio" className="flex items-center gap-2.5">
             <img
               src={logoImg}
               alt="El Parche"
-              className="h-14 w-14 sm:h-16 sm:w-16 object-contain"
+              className="h-20 w-20 sm:h-24 sm:w-24 object-contain"
             />
             <div>
               <div
-                className="font-black text-base sm:text-lg leading-tight"
-                style={{
-                  fontFamily: "Montserrat, sans-serif",
-                  color: C.mustard,
-                }}
+                className="landing-brand-title font-black text-lg sm:text-xl leading-tight"
+                style={{ color: C.mustard }}
               >
-                El Parche
+                EL PARCHE
               </div>
               <div
+                className="landing-brand-subtitle"
                 style={{
                   color: scrolled ? MUTED : "rgba(255,255,255,0.65)",
-                  fontSize: "0.62rem",
                 }}
               >
-                Mini Burguer
+                MINI BURGUER
               </div>
             </div>
           </a>
@@ -8078,8 +8127,8 @@ function LandingPage({
               <a
                 key={l.href}
                 href={l.href}
-                className="text-base hover:opacity-60 transition-opacity"
-                style={{ color: scrolled ? TEXT : "#fff", fontFamily: "Maname, serif" }}
+                className="text-base font-medium hover:opacity-60 transition-opacity"
+                style={{ color: scrolled ? TEXT : "#fff" }}
               >
                 {l.label}
               </a>
@@ -8115,7 +8164,7 @@ function LandingPage({
             </button>
             <button
               onClick={onLogin}
-              className="hidden sm:inline-flex px-3.5 py-2 rounded-full text-xs font-semibold cursor-pointer hover:opacity-80"
+              className="hidden sm:inline-flex min-h-11 px-5 py-2.5 rounded-full text-base font-semibold cursor-pointer hover:opacity-80"
               style={{
                 color: scrolled ? TEXT : "#fff",
                 border: `1px solid ${
@@ -8127,7 +8176,7 @@ function LandingPage({
             </button>
             <button
               onClick={goToMenu}
-              className="hidden sm:inline-flex px-5 py-2.5 rounded-full text-sm font-bold cursor-pointer hover:opacity-90"
+              className="landing-order-button hidden sm:inline-flex min-h-11 px-5 py-2.5 rounded-full text-base font-bold cursor-pointer"
               style={{ background: C.mustard, color: "#fff" }}
             >
               Pide Ahora
@@ -8159,8 +8208,8 @@ function LandingPage({
                 key={l.href}
                 href={l.href}
                 onClick={() => setMenuOpen(false)}
-                className="text-base py-3 px-3 rounded-xl"
-                style={{ color: TEXT, borderBottom: `1px solid ${BORDER}`, fontFamily: "Maname, serif" }}
+                className="text-base font-semibold py-3 px-3 rounded-xl"
+                style={{ color: TEXT, borderBottom: `1px solid ${BORDER}` }}
               >
                 {l.label}
               </a>
@@ -8171,7 +8220,7 @@ function LandingPage({
                   setMenuOpen(false)
                   onLogin()
                 }}
-                className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+                className="w-full py-3.5 rounded-2xl font-semibold text-base cursor-pointer"
                 style={{ color: TEXT, border: `1px solid ${BORDER}` }}
               >
                 Iniciar sesión
@@ -8181,7 +8230,7 @@ function LandingPage({
                   setMenuOpen(false)
                   goToMenu()
                 }}
-                className="w-full py-3.5 rounded-2xl font-bold text-sm cursor-pointer"
+                className="landing-order-button w-full py-3.5 rounded-2xl font-bold text-base cursor-pointer"
                 style={{ background: C.mustard, color: "#fff" }}
               >
                 Pide Ahora
@@ -8194,24 +8243,25 @@ function LandingPage({
       {/* HERO */}
       <section
         id="inicio"
-        className="relative min-h-screen flex items-center overflow-hidden"
+        className="relative min-h-screen flex items-center overflow-hidden bg-[#080d0f]"
       >
         <img
-          src="https://images.unsplash.com/photo-1550547660-d9450f859349?w=1600&h=900&fit=crop&auto=format"
+          src={landingBackgroundImg}
           alt="Burger artesanal"
           className="absolute inset-0 w-full h-full object-cover"
+          style={{ objectPosition: "center 65%" }}
         />
         <div
           className="absolute inset-0"
           style={{
             background:
-              "linear-gradient(135deg, rgba(10,8,5,0.82) 0%, rgba(15,10,5,0.55) 60%, rgba(20,14,8,0.35) 100%)",
+              "linear-gradient(90deg, rgba(10,8,5,0.9) 0%, rgba(10,8,5,0.78) 36%, rgba(10,8,5,0.38) 70%, rgba(10,8,5,0.18) 100%)",
           }}
         />
         <div className="relative z-10 max-w-7xl mx-auto px-5 sm:px-8 w-full pt-20 pb-16">
-          <div className="max-w-2xl">
+          <div className="max-w-[28rem]">
             <div
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6 text-xs font-semibold"
+              className="landing-enter landing-enter-1 inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6 text-xs font-semibold"
               style={{
                 background: "rgba(182,140,28,0.2)",
                 border: "1px solid rgba(182,140,28,0.35)",
@@ -8222,56 +8272,35 @@ function LandingPage({
               Desde 2013 en Bello, Antioquia
             </div>
             <h1
+              className="landing-display-title landing-enter landing-enter-2"
               style={{
-                fontFamily: "'Alfa Slab One', serif",
+                fontFamily: '"Alfa Slab One", Rockwell, Georgia, serif',
                 fontWeight: 400,
-                fontSize: "clamp(2.2rem,9vw,4.2rem)",
-                lineHeight: 1,
+                fontSize: "clamp(2.25rem,5vw,4.5rem)",
+                lineHeight: 1.08,
                 color: "#FAF3E0",
+                letterSpacing: "0.015em",
+                wordSpacing: "0.04em",
                 textTransform: "uppercase",
-                whiteSpace: "nowrap",
+                textShadow: "0 7px 15px rgba(0,0,0,0.35)",
               }}
             >
-              El sabor que
-              <span className="mt-1 block" style={{ color: C.mustard, fontSize: "0.85em", letterSpacing: "0.06em" }}>
-                te reúne
-              </span>
+              <span style={{ fontSize: "1.02em" }}>EL SABOR QUE</span>
+              <br />
+              <span style={{ color: C.mustard }}>TE REÚNE</span>
             </h1>
             <p
-              className="mt-4 mb-8 text-base sm:text-lg leading-relaxed"
+              className="landing-enter landing-enter-3 mt-5 mb-8 text-lg sm:text-xl leading-relaxed"
               style={{
-                color: "rgba(250,243,224,0.62)",
-                maxWidth: "480px",
+                color: "#fff",
+                maxWidth: "400px",
                 fontWeight: 300,
               }}
             >
               Mini burgers artesanales preparadas al momento con ingredientes
               frescos. Local y domicilio en Bello.
             </p>
-            <div className="flex flex-wrap gap-3">
-              <button
-                onClick={goToMenu}
-                className="flex items-center gap-2 px-7 py-4 rounded-2xl font-bold text-base cursor-pointer hover:opacity-90"
-                style={{ background: C.mustard, color: "#fff" }}
-              >
-                Pedir ahora
-              </button>
-              <a
-                href={`https://wa.me/${WA}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-7 py-4 rounded-2xl font-semibold text-base"
-                style={{
-                  background: "rgba(255,255,255,0.1)",
-                  border: "1.5px solid rgba(255,255,255,0.25)",
-                  color: "#fff",
-                  backdropFilter: "blur(8px)",
-                }}
-              >
-                WhatsApp
-              </a>
-            </div>
-            <div className="flex items-center gap-8 mt-8">
+            <div className="landing-enter landing-enter-4 flex items-center gap-8 mt-8">
               {[
                 ["4.9", "Calificación"],
                 ["200+", "Reseñas"],
@@ -8279,16 +8308,16 @@ function LandingPage({
               ].map(([val, lbl]) => (
                 <div key={lbl}>
                   <div
-                    className="font-black text-xl"
+                    className="font-black text-2xl"
                     style={{
-                      fontFamily: "Montserrat, sans-serif",
+                      fontFamily: "League Spartan, sans-serif",
                       color: C.amber,
                     }}
                   >
                     {val}
                   </div>
                   <div
-                    className="text-xs"
+                    className="text-sm"
                     style={{ color: "rgba(250,243,224,0.4)" }}
                   >
                     {lbl}
@@ -8304,43 +8333,57 @@ function LandingPage({
       <section className="py-6 px-5 sm:px-8" style={{ background: BG }}>
         <div className="max-w-7xl mx-auto grid sm:grid-cols-2 gap-4">
           <div
-            className="rounded-2xl px-6 py-5 flex items-center gap-5"
-            style={{ background: C.forest }}
+            data-reveal
+            className="landing-reveal landing-promo-card rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5 border shadow-sm"
+            style={{
+              background: "#FFFDF7",
+              borderColor: "rgba(58,109,94,0.2)",
+              boxShadow: "0 8px 24px rgba(43,33,18,0.06)",
+            }}
           >
-            <div className="flex-shrink-0 text-white">{Ico.delivery}</div>
+            <div
+              className="landing-icon-bounce flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
+              style={{ background: "rgba(58,109,94,0.11)", color: C.mustard }}
+            >
+              {Ico.delivery}
+            </div>
             <div>
               <div
-                className="font-black text-lg text-white"
-                style={{ fontFamily: "Montserrat, sans-serif" }}
+                className="font-extrabold text-lg sm:text-xl"
+                style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
               >
                 Domicilios por toda la zona
               </div>
-              <div
-                className="text-sm mt-0.5"
-                style={{ color: "rgba(255,255,255,0.75)" }}
-              >
+              <div className="text-base mt-1 leading-relaxed" style={{ color: "#71695D" }}>
                 Consulta la cobertura y el costo del envío al realizar tu pedido.
               </div>
             </div>
           </div>
           <div
-            className="rounded-2xl px-6 py-5 flex items-center gap-5"
-            style={{ background: C.red }}
+            data-reveal
+            className="landing-reveal landing-promo-card rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5 border shadow-sm"
+            style={{
+              background: "#FFFDF7",
+              borderColor: "rgba(165,65,49,0.2)",
+              boxShadow: "0 8px 24px rgba(43,33,18,0.06)",
+            }}
           >
-            <div className="flex-shrink-0 text-white">{Ico.leaf}</div>
+            <div
+              className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
+              style={{ background: "rgba(165,65,49,0.1)", color: C.mustard }}
+            >
+              {Ico.onion}
+            </div>
             <div>
               <div
-                className="font-black text-lg text-white"
-                style={{ fontFamily: "Montserrat, sans-serif" }}
+                className="font-extrabold text-lg sm:text-xl"
+                style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
               >
                 Cebolla Marinada
               </div>
-              <div
-                className="text-sm mt-0.5"
-                style={{ color: "rgba(255,255,255,0.8)" }}
-              >
+              <div className="text-base mt-1 leading-relaxed" style={{ color: "#71695D" }}>
                 Nuestra especialidad —{" "}
-                <strong style={{ color: "#fff" }}>100% Gratis</strong>.
+                <strong style={{ color: C.red }}>100% Gratis</strong>.
               </div>
             </div>
           </div>
@@ -8352,14 +8395,16 @@ function LandingPage({
         <div className="max-w-7xl mx-auto px-5 sm:px-8">
           <div className="mb-8">
             <div
-              className="inline-block text-xs font-bold tracking-widest uppercase px-4 py-1.5 rounded-full mb-3"
+              className="inline-block text-sm font-bold tracking-widest uppercase px-4 py-1.5 rounded-full mb-3"
               style={{ background: `${C.mustard}15`, color: C.mustard }}
             >
               Nuestro Menú
             </div>
             <h2
+              data-reveal
+              className="landing-display-title landing-reveal"
               style={{
-                fontFamily: "Montserrat, sans-serif",
+                fontFamily: "League Spartan, sans-serif",
                 fontWeight: 800,
                 color: TEXT,
                 fontSize: "clamp(2rem,6vw,3.5rem)",
@@ -8412,9 +8457,10 @@ function LandingPage({
       >
         <div className="max-w-5xl mx-auto">
           <h2
-            className="mb-10"
+            data-reveal
+            className="landing-display-title landing-reveal mb-10"
             style={{
-              fontFamily: "Montserrat, sans-serif",
+              fontFamily: "League Spartan, sans-serif",
               fontWeight: 800,
               color: "#FAF3E0",
               fontSize: "clamp(2rem,6vw,3.5rem)",
@@ -8442,31 +8488,64 @@ function LandingPage({
               },
             ].map((s, i) => (
               <div
+                data-reveal
                 key={i}
-                className="p-6 sm:p-8 rounded-2xl"
+                className="landing-reveal landing-how-card p-6 sm:p-8 rounded-2xl"
                 style={{
-                  background: "rgba(250,243,224,0.04)",
-                  border: "1px solid rgba(250,243,224,0.07)",
+                  background: [`rgba(182,140,28,0.17)`, `rgba(165,65,49,0.2)`, `rgba(58,109,94,0.23)`][i],
+                  border: `1px solid ${[C.mustard, C.red, C.forest][i]}70`,
                 }}
               >
+                <span className={`landing-how-food landing-how-food-${i + 1}`} aria-hidden="true">
+                  <svg viewBox="0 0 80 80" fill="none">
+                    {i === 0 && (
+                      <>
+                        <path d="M14 34c1-12 12-21 26-21s25 9 26 21H14Z" fill="currentColor" fillOpacity=".15" />
+                        <path d="M16 38h48" strokeWidth="4" />
+                        <path d="M16 41c4-3 8-3 12 0s8 3 12 0 8-3 12 0 8 3 12 0" strokeWidth="3" />
+                        <path d="m18 45 44-2-5 7H23l-5-5Z" fill="currentColor" fillOpacity=".3" />
+                        <path d="M17 53c2 8 10 12 23 12s21-4 23-12H17Z" fill="currentColor" fillOpacity=".15" />
+                        <path d="m27 22 1-1m11-4 1 1m11 4 1 1" strokeWidth="2.5" />
+                      </>
+                    )}
+                    {i === 1 && (
+                      <>
+                        <path d="m25 36-4-22q-.5-4 3-4h3q3 0 3.5 4l3 23" />
+                        <path d="m36 36-1-27q0-4 3.5-4h3q3 0 3 4l-.5 27" />
+                        <path d="m47 36 3-23q.5-4 3.5-3.5l3 .5q3 .5 2.5 4l-4 24" />
+                        <path d="M14 32q26 14 52 0l-6 35q-20 7-40 0l-6-35Z" />
+                        <path d="M14 32q26 14 52 0" />
+                      </>
+                    )}
+                    {i === 2 && (
+                      <>
+                        <path d="m25 24 4 42h22l4-42H25Z" fill="currentColor" fillOpacity=".18" />
+                        <path d="M23 24h34M25 31h30l-3 35H29l-4-35Z" />
+                        <path d="m37 24 2-13 11 2" />
+                        <path d="M28 43h26" strokeWidth="2.5" />
+                        <path d="M34 37h.1m8 0h.1m8 0h.1" strokeWidth="3.5" />
+                      </>
+                    )}
+                  </svg>
+                </span>
                 <div
                   className="font-black text-5xl mb-4"
                   style={{
-                    fontFamily: "Montserrat, sans-serif",
-                    color: `${C.mustard}22`,
+                    fontFamily: "League Spartan, sans-serif",
+                    color: [C.amber, "#E67B66", "#7FBBA8"][i],
                   }}
                 >
                   {s.n}
                 </div>
                 <h3
-                  className="font-semibold text-base mb-2"
+                    className="landing-display-title font-semibold text-lg mb-2"
                   style={{ color: "#FAF3E0" }}
                 >
                   {s.t}
                 </h3>
                 <p
-                  className="text-sm leading-relaxed"
-                  style={{ color: "rgba(250,243,224,0.45)", fontWeight: 300 }}
+                  className="max-w-[calc(100%-3.5rem)] text-sm leading-relaxed"
+                  style={{ color: "rgba(250,243,224,0.82)", fontWeight: 400 }}
                 >
                   {s.d}
                 </p>
@@ -8492,9 +8571,9 @@ function LandingPage({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-start mb-12">
             <div>
               <h2
-                className="mb-4"
+                className="landing-display-title mb-4"
                 style={{
-                  fontFamily: "Montserrat, sans-serif",
+                  fontFamily: "League Spartan, sans-serif",
                   fontWeight: 800,
                   color: TEXT,
                   fontSize: "clamp(1.8rem,5vw,3rem)",
@@ -8523,25 +8602,26 @@ function LandingPage({
                 Ingredientes frescos, recetas propias y el calor de siempre.
               </p>
             </div>
-            <div className="relative">
-              <img
-                src="https://images.unsplash.com/photo-1554919428-20d72fa44a99?w=700&h=520&fit=crop&auto=format"
-                alt="Interior El Parche"
-                className="rounded-3xl object-cover w-full"
-                style={{ height: "280px" }}
-              />
-              <div
-                className="absolute bottom-4 right-4 p-4 rounded-2xl"
-                style={{ background: C.mustard }}
-              >
+            <div className="landing-story-media relative">
+              <div className="landing-story-frame relative ml-auto w-full max-w-[440px]">
+                <img
+                  src={storyBelloImg}
+                  alt="Fachada de El Parche de las Mini Burguer en Bello"
+                  className="landing-story-image rounded-3xl object-contain w-full h-auto"
+                />
                 <div
-                  className="font-black text-2xl text-white"
-                  style={{ fontFamily: "Montserrat, sans-serif" }}
+                  className="landing-story-badge absolute bottom-4 right-4 rounded-2xl p-3 sm:p-4"
+                  style={{ background: C.mustard }}
                 >
-                  2013
-                </div>
-                <div className="text-xs text-white opacity-80">
-                  Fundados en Bello
+                  <div
+                    className="font-black text-xl sm:text-2xl text-white"
+                    style={{ fontFamily: "League Spartan, sans-serif" }}
+                  >
+                    2013
+                  </div>
+                  <div className="text-[11px] sm:text-xs text-white opacity-80">
+                    Fundados en Bello
+                  </div>
                 </div>
               </div>
             </div>
@@ -8566,13 +8646,13 @@ function LandingPage({
               },
             ].map((v) => (
               <div
+                data-reveal
                 key={v.title}
-                className="p-6 rounded-2xl"
+                className="landing-reveal landing-info-card landing-mission-card p-6 rounded-2xl"
                 style={{
-                  background: dark
-                    ? "rgba(255,255,255,0.04)"
-                    : "rgba(30,30,30,0.04)",
-                  border: `1px solid ${BORDER}`,
+                  background: dark ? "#211D17" : "#FFFDF7",
+                  border: `1px solid ${dark ? "rgba(210,154,66,0.28)" : "rgba(182,140,28,0.2)"}`,
+                  boxShadow: dark ? "0 8px 24px rgba(0,0,0,0.18)" : "0 8px 24px rgba(43,33,18,0.06)",
                 }}
               >
                 <div
@@ -8582,14 +8662,14 @@ function LandingPage({
                   {aboutIcon(24, v.icon)}
                 </div>
                 <h3
-                  className="font-black text-lg mb-2"
-                  style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+                  className="landing-display-title font-black text-xl mb-2"
+                  style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
                 >
                   {v.title}
                 </h3>
                 <p
-                  className="text-sm leading-relaxed"
-                  style={{ color: MUTED, fontWeight: 300 }}
+                  className="text-[15px] leading-relaxed"
+                  style={{ color: dark ? "rgba(240,232,214,0.78)" : "#62594D", fontWeight: 400 }}
                 >
                   {v.text}
                 </p>
@@ -8598,8 +8678,8 @@ function LandingPage({
           </div>
           {/* Equipo */}
           <h3
-            className="font-black text-xl mb-5"
-            style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+            className="landing-display-title font-black text-xl mb-5"
+            style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
           >
             Nuestro equipo
           </h3>
@@ -8623,12 +8703,13 @@ function LandingPage({
               { name: "Repartidores", role: "Domicilios Express", icon: ABOUT_ICONS.domicilios },
             ].map((m) => (
               <div
+                data-reveal
                 key={m.name}
-                className="p-5 rounded-2xl text-center"
+                className="landing-reveal landing-info-card p-5 rounded-2xl text-center"
                 style={{
-                  background: dark
-                    ? "rgba(255,255,255,0.04)"
-                    : "rgba(30,30,30,0.04)",
+                  background: dark ? "#211D17" : "#FFFDF7",
+                  border: `1px solid ${dark ? "rgba(210,154,66,0.28)" : "rgba(182,140,28,0.2)"}`,
+                  boxShadow: dark ? "0 8px 24px rgba(0,0,0,0.18)" : "0 8px 24px rgba(43,33,18,0.06)",
                 }}
               >
                 <div
@@ -8637,10 +8718,10 @@ function LandingPage({
                 >
                   {aboutIcon(26, m.icon)}
                 </div>
-                <div className="font-bold text-sm" style={{ color: TEXT }}>
+                <div className="font-bold text-base" style={{ color: TEXT }}>
                   {m.name}
                 </div>
-                <div className="text-xs mt-0.5" style={{ color: MUTED }}>
+                <div className="text-sm mt-1" style={{ color: dark ? "rgba(240,232,214,0.72)" : "#62594D" }}>
                   {m.role}
                 </div>
               </div>
@@ -8652,14 +8733,13 @@ function LandingPage({
       {/* CTA */}
       <section
         id="pedidos"
-        className="py-16 sm:py-24 px-5 sm:px-8"
-        style={{ background: dark ? "#0A0805" : C.dark }}
+        className="landing-cta py-16 sm:py-24 px-5 sm:px-8"
       >
         <div className="max-w-xl mx-auto text-center">
           <h2
-            className="mb-4"
+            className="landing-display-title mb-4"
             style={{
-              fontFamily: "Montserrat, sans-serif",
+              fontFamily: "League Spartan, sans-serif",
               fontWeight: 800,
               color: "#FAF3E0",
               fontSize: "clamp(2rem,7vw,3.5rem)",
@@ -8682,7 +8762,7 @@ function LandingPage({
                   .getElementById("menu")
                   ?.scrollIntoView({ behavior: "smooth" })
               }
-              className="px-8 py-4 rounded-2xl font-bold text-base cursor-pointer hover:opacity-90"
+              className="landing-order-button px-8 py-4 rounded-2xl font-bold text-base cursor-pointer"
               style={{ background: C.mustard, color: "#fff" }}
             >
               Ver el menú
@@ -8707,8 +8787,7 @@ function LandingPage({
       {/* FOOTER */}
       <footer
         id="contacto"
-        className="pt-14 pb-6 px-5 sm:px-8"
-        style={{ background: "#0E0C09" }}
+        className="landing-footer pt-14 pb-6 px-5 sm:px-8"
       >
         <div className="max-w-7xl mx-auto">
           <div
@@ -8726,7 +8805,7 @@ function LandingPage({
                 <div
                   className="font-black text-xl leading-tight"
                   style={{
-                    fontFamily: "Montserrat, sans-serif",
+                    fontFamily: "League Spartan, sans-serif",
                     color: C.mustard,
                   }}
                 >
@@ -8762,7 +8841,7 @@ function LandingPage({
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="w-10 h-10 rounded-full flex items-center justify-center hover:opacity-80"
+                    className="landing-social-link w-10 h-10 rounded-full flex items-center justify-center"
                     style={{ background: bg }}
                   >
                     <svg
@@ -8779,16 +8858,16 @@ function LandingPage({
             </div>
             <div>
               <h4
-                className="font-bold text-sm mb-5 uppercase tracking-wider"
+                className="font-bold text-base mb-5 uppercase tracking-wider"
                 style={{
-                  fontFamily: "Montserrat, sans-serif",
+                  fontFamily: "League Spartan, sans-serif",
                   color: "#FAF3E0",
                   letterSpacing: "0.08em",
                 }}
               >
                 Contacto
               </h4>
-              <ul className="flex flex-col gap-3 text-sm">
+              <ul className="flex flex-col gap-3 text-base">
                 <li className="flex gap-2.5 items-start">
                   <span className="mt-0.5" style={{ color: C.amber }}>{Ico.mapPin}</span>
                   <span style={{ color: "rgba(250,243,224,0.45)" }}>
@@ -8805,7 +8884,7 @@ function LandingPage({
                   <span style={{ color: C.amber }}>{Ico.mail}</span>
                   <a
                     href="mailto:Elparchedelasminiburguers@gmail.com"
-                    style={{ color: C.amber, fontSize: "0.72rem" }}
+                    style={{ color: C.amber }}
                   >
                     Elparchedelasminiburguers@gmail.com
                   </a>
@@ -8814,9 +8893,9 @@ function LandingPage({
             </div>
             <div>
               <h4
-                className="font-bold text-sm mb-5 uppercase tracking-wider"
+                className="font-bold text-base mb-5 uppercase tracking-wider"
                 style={{
-                  fontFamily: "Montserrat, sans-serif",
+                  fontFamily: "League Spartan, sans-serif",
                   color: "#FAF3E0",
                   letterSpacing: "0.08em",
                 }}
@@ -8832,20 +8911,20 @@ function LandingPage({
               >
                 <div className="flex justify-between py-1">
                   <span
-                    className="text-sm"
+                    className="text-base"
                     style={{ color: "rgba(250,243,224,0.5)" }}
                   >
                     Lun – Dom
                   </span>
                   <span
-                    className="text-sm font-semibold"
+                    className="text-base font-semibold"
                     style={{ color: C.amber }}
                   >
                     6:00pm a 11:30pm
                   </span>
                 </div>
                 <div
-                  className="mt-3 pt-3 text-xs"
+                  className="mt-3 pt-3 text-sm"
                   style={{
                     color: "rgba(250,243,224,0.3)",
                     borderTop: "1px solid rgba(250,243,224,0.06)",
@@ -8858,9 +8937,9 @@ function LandingPage({
             </div>
             <div>
               <h4
-                className="font-bold text-sm mb-5 uppercase tracking-wider"
+                className="font-bold text-base mb-5 uppercase tracking-wider"
                 style={{
-                  fontFamily: "Montserrat, sans-serif",
+                  fontFamily: "League Spartan, sans-serif",
                   color: "#FAF3E0",
                   letterSpacing: "0.08em",
                 }}
@@ -8871,7 +8950,7 @@ function LandingPage({
                 <li>
                   <button
                     onClick={() => setLegalModal("envios")}
-                    className="text-sm cursor-pointer hover:opacity-70 text-left"
+                    className="text-base cursor-pointer hover:opacity-70 text-left"
                     style={{
                       color: "rgba(250,243,224,0.4)",
                       background: "none",
@@ -8884,7 +8963,7 @@ function LandingPage({
                 <li>
                   <button
                     onClick={() => setLegalModal("legal")}
-                    className="text-sm cursor-pointer hover:opacity-70 text-left"
+                    className="text-base cursor-pointer hover:opacity-70 text-left"
                     style={{
                       color: "rgba(250,243,224,0.4)",
                       background: "none",
@@ -8898,7 +8977,7 @@ function LandingPage({
             </div>
           </div>
           <div
-            className="pt-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs"
+            className="pt-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm"
             style={{ color: "rgba(250,243,224,0.2)" }}
           >
             <span>© 2024 El Parche de las Mini Burguer · Bello, Antioquia</span>
@@ -8979,7 +9058,7 @@ function LandingPage({
       <button
         type="button"
         onClick={goToMenu}
-        className="fixed bottom-28 left-4 right-20 z-40 rounded-full py-3 text-sm font-bold text-white shadow-lg sm:hidden"
+        className="landing-order-button fixed bottom-28 left-4 right-20 z-40 rounded-full py-3 text-sm font-bold text-white shadow-lg sm:hidden"
         style={{ background: C.mustard }}
       >
         Pide Ahora
@@ -9200,14 +9279,14 @@ function AdminProfilePage({
     >
       <div
         className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl"
-        style={{ background: BG, fontFamily: "Poppins, sans-serif" }}
+        style={{ background: BG, fontFamily: "DM Sans, sans-serif" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
             <h1
               className="font-black text-2xl"
-              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+              style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
             >
               Mi perfil
             </h1>
@@ -9258,7 +9337,7 @@ function AdminProfilePage({
             </div>
             <div
               className="font-black text-xl"
-              style={{ fontFamily: "Montserrat, sans-serif", color: TEXT }}
+              style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
             >
               {user.name}
             </div>
@@ -9545,11 +9624,7 @@ function AdminProfilePage({
           <div className="flex flex-col gap-2">
             <button
               onClick={() => setShowDeleteModal(true)}
-              className="w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
-              style={{
-                background: "rgba(30,30,30,0.05)",
-                color: "rgba(30,30,30,0.4)",
-              }}
+              className="admin-delete-account w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
             >
               Eliminar cuenta
             </button>
@@ -9568,10 +9643,15 @@ function AdminProfilePage({
                 boxShadow: "0 8px 40px rgba(0,0,0,0.18)",
               }}
             >
-              <div className="text-4xl mb-3">⚠️</div>
+              <div
+                className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full [&_svg]:h-6 [&_svg]:w-6"
+                style={{ background: `${C.red}12`, color: C.red }}
+              >
+                {Ico.alert}
+              </div>
               <h3
                 className="font-black text-lg mb-2"
-                style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+                style={{ fontFamily: "League Spartan, sans-serif", color: "#1A1714" }}
               >
                 ¿Eliminar cuenta de administrador?
               </h3>
@@ -9621,7 +9701,7 @@ function AdminProfilePage({
               <div className="flex items-center justify-between mb-4">
                 <h3
                   className="font-black text-lg"
-                  style={{ fontFamily: "Montserrat, sans-serif", color: "#1A1714" }}
+                  style={{ fontFamily: "League Spartan, sans-serif", color: "#1A1714" }}
                 >
                   Cambiar contraseña
                 </h3>
@@ -10110,6 +10190,7 @@ function AdminPanel({
   const [technicalSheetError, setTechnicalSheetError] = useState("")
   const [pedidoProductoSelect, setPedidoProductoSelect] = useState("")
   const [pedidoProductCategory, setPedidoProductCategory] = useState("Todas")
+  const [pedidoProductSearch, setPedidoProductSearch] = useState("")
   const [pedidoProductQuantity, setPedidoProductQuantity] = useState("1")
   const [pedidoAdditionsFor, setPedidoAdditionsFor] = useState("")
   const [pedidoOrderLines, setPedidoOrderLines] = useState<AdminOrderLine[]>([])
@@ -11007,6 +11088,7 @@ function AdminPanel({
     setFormTried(false)
     setTouchedFields({})
     setPedidoProductoSelect("")
+    setPedidoProductSearch("")
     if (sec === "pedidos") {
       setPedidoOrderLines([])
       setPedidoProductCategory("Todas")
@@ -11097,6 +11179,7 @@ function AdminPanel({
       const orderLines = getAdminOrderLines(row)
       setPedidoOrderLines(orderLines)
       setPedidoProductCategory("Todas")
+      setPedidoProductSearch("")
       setPedidoProductQuantity("1")
       setPedidoAdditionsFor("")
     }
@@ -11105,6 +11188,7 @@ function AdminPanel({
     setFormTried(false)
     setTouchedFields({})
     setPedidoProductoSelect("")
+    setPedidoProductSearch("")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
     // Only a real photo: the bundled bottle of a soda is just shown, never saved as its photo
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
@@ -12855,7 +12939,7 @@ function AdminPanel({
             background: value === "Producto no conforme" ? `${C.red}10` : value === "Terminado" ? "rgba(58,109,94,0.10)" : t.input,
             border: `1px solid ${value === "Producto no conforme" ? `${C.red}30` : t.inputB}`,
             color: statusColor,
-            fontFamily: "Poppins, sans-serif",
+            fontFamily: "DM Sans, sans-serif",
           }}
         >
           {/* Recibida → Iniciada → En cocina → Terminado: the current one and the next (the earlier ones are gone) */}
@@ -13148,7 +13232,7 @@ function AdminPanel({
             </div>
             <div
               className="break-words font-black text-xl sm:text-2xl"
-              style={{ fontFamily: "Montserrat, sans-serif", color: t.text }}
+              style={{ fontFamily: "League Spartan, sans-serif", color: t.text }}
             >
               {val}
             </div>
@@ -13194,14 +13278,14 @@ function AdminPanel({
             </div>
             <div className="flex max-w-full flex-col items-end gap-2">
               <div
-                className="flex max-w-full flex-wrap gap-1 rounded-lg p-0.5"
+                className="flex max-w-full flex-wrap gap-1 rounded-xl p-1 shadow-sm"
                 style={{ background: t.input, border: `1px solid ${t.border}` }}
               >
                 {([["hoy", "Día"], ["semana", "Semana"], ["mes", "Mes"], ["año", "Año"]] as const).map(([f, label]) => (
                   <button
                     key={f}
                     onClick={() => setChartFilter(f)}
-                    className="px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
                     style={{
                       background: chartFilter === f ? C.mustard : "transparent",
                       color: chartFilter === f ? "#fff" : t.muted,
@@ -13217,7 +13301,7 @@ function AdminPanel({
                   type="button"
                   onClick={() => setChartAnchor(shiftDashAnchor(chartFilter, chartAnchor, -1))}
                   aria-label="Periodo anterior"
-                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-xs font-bold"
+                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-base font-bold transition-colors"
                   style={{ background: t.input, color: t.muted, border: `1px solid ${t.border}` }}
                 >
                   ‹
@@ -13226,9 +13310,18 @@ function AdminPanel({
                   <input
                     type="date"
                     value={toIsoDate(chartAnchor)}
-                    onChange={(e) => e.target.value && setChartAnchor(new Date(`${e.target.value}T00:00:00`))}
+                    max={toIsoDate(new Date())}
+                    onClick={(e) => {
+                      const input = e.currentTarget
+                      if (typeof input.showPicker === "function") input.showPicker()
+                    }}
+                    onChange={(e) => {
+                      if (!e.target.value) return
+                      const selected = new Date(`${e.target.value}T00:00:00`)
+                      setChartAnchor(isFutureDashAnchor("hoy", selected) ? new Date() : selected)
+                    }}
                     aria-label={chartFilter === "hoy" ? "Elegir día" : "Elegir un día de la semana"}
-                    className="h-7 rounded-md px-2 text-xs outline-none"
+                    className="h-9 w-40 cursor-pointer rounded-lg px-2.5 text-sm font-medium outline-none transition-colors"
                     style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
                   />
                 )}
@@ -13237,11 +13330,20 @@ function AdminPanel({
                     value={chartAnchor.getMonth()}
                     onChange={(e) => setChartAnchor(new Date(chartAnchor.getFullYear(), Number(e.target.value), 1))}
                     aria-label="Elegir mes"
-                    className="h-7 cursor-pointer rounded-md px-2 text-xs outline-none"
+                    className="h-9 cursor-pointer rounded-lg px-3 text-sm outline-none"
                     style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
                   >
                     {MONTHS_SHORT.map((m, i) => (
-                      <option key={m} value={i}>{new Date(2000, i, 1).toLocaleDateString("es-CO", { month: "long" })}</option>
+                      <option
+                        key={m}
+                        value={i}
+                        disabled={
+                          chartAnchor.getFullYear() === new Date().getFullYear() &&
+                          i > new Date().getMonth()
+                        }
+                      >
+                        {new Date(2000, i, 1).toLocaleDateString("es-CO", { month: "long" })}
+                      </option>
                     ))}
                   </select>
                 )}
@@ -13250,7 +13352,7 @@ function AdminPanel({
                     value={chartAnchor.getFullYear()}
                     onChange={(e) => setChartAnchor(new Date(Number(e.target.value), chartFilter === "mes" ? chartAnchor.getMonth() : 0, 1))}
                     aria-label="Elegir año"
-                    className="h-7 cursor-pointer rounded-md px-2 text-xs outline-none"
+                    className="h-9 cursor-pointer rounded-lg px-3 text-sm outline-none"
                     style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
                   >
                     {Array.from({ length: 6 }, (_, i) => new Date().getFullYear() - 5 + i).map((y) => (
@@ -13261,8 +13363,9 @@ function AdminPanel({
                 <button
                   type="button"
                   onClick={() => setChartAnchor(shiftDashAnchor(chartFilter, chartAnchor, 1))}
+                  disabled={isFutureDashAnchor(chartFilter, shiftDashAnchor(chartFilter, chartAnchor, 1))}
                   aria-label="Periodo siguiente"
-                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-xs font-bold"
+                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-base font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ background: t.input, color: t.muted, border: `1px solid ${t.border}` }}
                 >
                   ›
@@ -13270,8 +13373,8 @@ function AdminPanel({
                 <button
                   type="button"
                   onClick={() => setChartAnchor(new Date())}
-                  className="h-7 cursor-pointer rounded-md px-2 text-xs font-semibold"
-                  style={{ color: C.mustard }}
+                  className="h-9 cursor-pointer rounded-lg px-3 text-sm font-semibold transition-colors"
+                  style={{ background: `${C.mustard}14`, color: C.mustard }}
                 >
                   Hoy
                 </button>
@@ -13301,7 +13404,7 @@ function AdminPanel({
                 <div
                   className="font-black text-sm"
                   style={{
-                    fontFamily: "Montserrat,sans-serif",
+                    fontFamily: "League Spartan,sans-serif",
                     color: String(col),
                   }}
                 >
@@ -14067,10 +14170,10 @@ function AdminPanel({
       <div className="min-w-0">
         <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
           <div
-            className="flex w-full min-w-0 items-center gap-2 rounded-full px-3 py-2 sm:w-72"
-            style={{ background: t.input, border: `1.5px solid ${C.mustard}` }}
+            className="search-control flex w-full min-w-0 items-center gap-2 rounded-full px-3 py-2 sm:w-72"
+            style={{ background: t.input, border: `1px solid ${t.inputB}` }}
           >
-            <span className="flex-shrink-0" style={{ color: C.mustard }}>
+            <span className="flex-shrink-0">
               {Ico.search}
             </span>
             <input
@@ -14096,8 +14199,7 @@ function AdminPanel({
                   setSearch((current) => ({ ...current, [section]: "" }))
                   setP(0)
                 }}
-                className="flex h-4 w-4 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
-                style={{ background: `${C.mustard}18`, color: C.mustard }}
+                className="search-clear flex-shrink-0 cursor-pointer"
               >
                 ×
               </button>
@@ -14516,7 +14618,7 @@ function AdminPanel({
                 type="button"
                 disabled={cur === 0}
                 onClick={() => setP(cur - 1)}
-                className="h-7 w-7 rounded text-xs cursor-pointer disabled:opacity-30"
+                className="pagination-control h-7 w-7 rounded text-xs cursor-pointer disabled:opacity-30"
                 style={{ background: t.input, color: t.muted }}
               >
                 ←
@@ -14526,7 +14628,8 @@ function AdminPanel({
                   key={index}
                   type="button"
                   onClick={() => setP(index)}
-                  className="h-7 w-7 rounded text-xs font-semibold cursor-pointer"
+                  className="pagination-control h-7 w-7 rounded text-xs font-semibold cursor-pointer"
+                  aria-current={index === cur ? "page" : undefined}
                   style={{
                     background: index === cur ? C.mustard : "transparent",
                     color: index === cur ? "#fff" : t.muted,
@@ -14539,7 +14642,7 @@ function AdminPanel({
                 type="button"
                 disabled={cur >= totalPages - 1}
                 onClick={() => setP(cur + 1)}
-                className="h-7 w-7 rounded text-xs cursor-pointer disabled:opacity-30"
+                className="pagination-control h-7 w-7 rounded text-xs cursor-pointer disabled:opacity-30"
                 style={{ background: t.input, color: t.muted }}
               >
                 →
@@ -14774,7 +14877,7 @@ function AdminPanel({
       .filter(Boolean)
     const box = { background: t.input, border: `1px solid ${t.border}` }
     const sectionTitle = (text: string) => (
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted, fontFamily: "Montserrat, sans-serif" }}>
+      <div className="mb-2 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted, fontFamily: "League Spartan, sans-serif" }}>
         {text}
       </div>
     )
@@ -14994,6 +15097,7 @@ function AdminPanel({
     const isWideField = (f: FieldType) =>
       (f.key === "0" && (WIDE_FIRST_FIELD.includes(modal.section) || !isSupplier)) ||
       f.type === "textarea" ||
+      (isSales && f.key === "8") ||
       f.type === "checkbox" ||
       (modal.section === "proveedores" && (f.key === "5" || f.key === "7")) ||
       (modal.section === "perdidas" && f.key === "10") ||
@@ -15059,7 +15163,7 @@ function AdminPanel({
       const purchases = getSupplierPurchases(String(r[0] ?? ""))
       const purchasesTotal = purchases.reduce((sum, p) => sum + (Number(p[4]) || 0), 0)
       const sectionTitle = (title: string) => (
-        <h4 className="mb-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>
+        <h4 className="mb-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>
           {title}
         </h4>
       )
@@ -15233,7 +15337,7 @@ function AdminPanel({
       const good = profit > 0
       return (
         <div className="rounded-xl px-3 py-3" style={{ background: good ? "rgba(46,125,96,0.08)" : `${C.red}0d`, border: `1px solid ${good ? "rgba(46,125,96,0.25)" : `${C.red}30`}` }}>
-          <div className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: good ? "#2E7D60" : C.red, fontFamily: "Montserrat, sans-serif" }}>
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: good ? "#2E7D60" : C.red, fontFamily: "League Spartan, sans-serif" }}>
             Ganancias por unidad
           </div>
           {price > 0 ? (
@@ -15669,7 +15773,7 @@ function AdminPanel({
                             </span>
                           )}
                         </div>
-                        <h4 className="mt-2 break-words text-lg font-semibold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                        <h4 className="mt-2 break-words text-lg font-semibold" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                           {String(row[0] ?? "—")}
                         </h4>
                         <div className="text-xl font-semibold" style={{ color: C.mustard }}>
@@ -15887,7 +15991,7 @@ function AdminPanel({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                             Ficha técnica
                           </h4>
                           <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
@@ -16073,7 +16177,7 @@ function AdminPanel({
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
                           <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Productos de la orden</h4>
+                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>Productos de la orden</h4>
                         </div>
                         {productionItems.length > 0 && (
                           <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ background: `${C.mustard}14`, color: C.mustard }}>
@@ -16131,7 +16235,7 @@ function AdminPanel({
                         )}
                         <div className="relative flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
                           <label htmlFor="production-search">{productionKind === "adiciones" ? "Adición" : productionKind === "bebidas" ? "Gaseosa (sabor y tamaño)" : "Producto"}</label>
-                          <div className="flex items-center gap-2 rounded-xl px-3" style={controlSt}>
+                          <div className="search-control flex items-center gap-2 rounded-full px-3" style={controlSt}>
                             <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
                             <input
                               id="production-search"
@@ -16154,6 +16258,20 @@ function AdminPanel({
                               className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
                               style={{ color: t.text }}
                             />
+                            {(open ? productionSearch : productionProductSelect) && (
+                              <button
+                                type="button"
+                                className="search-clear"
+                                aria-label="Limpiar búsqueda de productos"
+                                onMouseDown={(event) => event.preventDefault()}
+                                onClick={() => {
+                                  setProductionSearch(null)
+                                  setProductionProductSelect("")
+                                }}
+                              >
+                                ×
+                              </button>
+                            )}
                           </div>
                           {open && (
                             <div
@@ -16366,7 +16484,7 @@ function AdminPanel({
                   return (
                     <section className="flex flex-col gap-2 rounded-2xl p-4 sm:col-span-2" style={{ background: `${C.mustard}0d`, border: `1px solid ${C.mustard}35` }}>
                       <div>
-                        <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                        <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                           ¿Viene de una orden de producción?
                         </h4>
                         <p className="text-[11px]" style={{ color: t.muted }}>
@@ -16479,7 +16597,7 @@ function AdminPanel({
                         </span>
                       </div>
                       <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
-                        <h4 className="mb-3 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>
+                        <h4 className="mb-3 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>
                           Información personal
                         </h4>
                         <div className="grid gap-3 sm:grid-cols-2">
@@ -16489,7 +16607,7 @@ function AdminPanel({
                         </div>
                       </div>
                       <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
-                        <h4 className="mb-3 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>
+                        <h4 className="mb-3 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>
                           Direcciones ({addresses.length})
                         </h4>
                         {addresses.length ? (
@@ -16519,7 +16637,7 @@ function AdminPanel({
                 })()}
                 {isPnc && isView && row && (
                   <div className="rounded-2xl px-4 py-3 sm:col-span-2" style={{ border: `1px solid ${t.border}` }}>
-                    <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>
+                    <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>
                       Productos o insumos que se dañaron
                     </h4>
                     {getNonconformingItems(row).map((item, index) => (
@@ -16583,7 +16701,7 @@ function AdminPanel({
                     <section className="flex flex-col gap-3 sm:col-span-2">
                       <div className="flex items-center gap-2">
                         <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                        <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>Productos o insumos que se dañaron</h4>
+                        <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>Productos o insumos que se dañaron</h4>
                       </div>
                       <div className="grid items-end gap-2 rounded-xl p-3 sm:grid-cols-[minmax(0,1fr)_5.5rem_7rem_auto]" style={{ background: t.cardAlt }}>
                         <div role="tablist" aria-label="Qué se dañó" className="flex gap-1.5 sm:col-span-4">
@@ -17515,7 +17633,7 @@ function AdminPanel({
                       {!isView && (
                         <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: fieldValidationError ? C.red : t.muted }}>
                           Busca la venta *
-                          <div className="flex items-center gap-2 rounded-xl px-3" style={{ background: t.input, border: `1.5px solid ${t.inputB}` }}>
+                          <div className="search-control flex items-center gap-2 rounded-full px-3">
                             <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
                             <input
                               list="return-sales"
@@ -17529,6 +17647,16 @@ function AdminPanel({
                               className="min-w-0 flex-1 bg-transparent py-2.5 text-sm font-normal outline-none"
                               style={{ color: t.text }}
                             />
+                            {saleCode && (
+                              <button
+                                type="button"
+                                className="search-clear"
+                                aria-label="Limpiar venta seleccionada"
+                                onClick={() => setFormData((current) => ({ ...current, "1": "", "6": "[]" }))}
+                              >
+                                ×
+                              </button>
+                            )}
                             <datalist id="return-sales">
                               {(rows.ventas || [])
                                 .filter((v) => !saleReturnBlock(v))
@@ -17802,7 +17930,7 @@ function AdminPanel({
                       </label>
                       <div className="flex items-center gap-2">
                         <div
-                          className="flex min-w-0 flex-1 cursor-text items-center gap-2 rounded-xl px-3 py-2"
+                          className="search-control flex min-w-0 flex-1 cursor-text items-center gap-2 rounded-full px-3 py-2"
                           style={{ background: t.input, border: `1.5px solid ${fieldValidationError ? C.red : menu ? C.mustard : t.inputB}` }}
                           onClick={(e) => openMenu(e.currentTarget)}
                         >
@@ -17828,6 +17956,17 @@ function AdminPanel({
                             className="min-w-0 flex-1 bg-transparent text-sm outline-none"
                             style={{ color: t.text }}
                           />
+                          {supplierSupplySearch && (
+                            <button
+                              type="button"
+                              className="search-clear"
+                              aria-label="Limpiar búsqueda de insumos"
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => setSupplierSupplySearch("")}
+                            >
+                              ×
+                            </button>
+                          )}
                           <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.chevDown}</span>
                         </div>
                         <button
@@ -17996,7 +18135,8 @@ function AdminPanel({
                   const product = rows.producto?.find((item) => item[0] === productName)
                   return (
                     Number(product?.[2]) > 0 &&
-                    (pedidoProductCategory === "Todas" || String(product?.[1] ?? "") === pedidoProductCategory)
+                    (pedidoProductCategory === "Todas" || String(product?.[1] ?? "") === pedidoProductCategory) &&
+                    productName.toLowerCase().includes(pedidoProductSearch.trim().toLowerCase())
                   )
                 })
                 const selectedOrderProduct = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
@@ -18097,7 +18237,7 @@ function AdminPanel({
                               style={{ background: t.card, border: `1px solid ${t.border}` }}
                             >
                               <div
-                                className="mb-1.5 flex items-center gap-2 rounded-lg px-2.5 py-1.5"
+                                className="search-control mb-1.5 flex items-center gap-2 rounded-full px-2.5 py-1.5"
                                 style={{ background: t.input, border: `1px solid ${t.inputB}` }}
                               >
                                 <span style={{ color: t.muted }}>{Ico.search}</span>
@@ -18177,7 +18317,7 @@ function AdminPanel({
                       style={{ borderColor: t.border }}
                     >
                       <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                         {f.key === "1" ? "Cliente y fecha" : "Datos de la venta"}
                       </h4>
                     </div>
@@ -18188,7 +18328,7 @@ function AdminPanel({
                       style={{ borderColor: t.border }}
                     >
                       <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                         {f.key === "0" ? "Cliente y pago" : f.key === "1" ? "Productos del pedido" : "Especificaciones"}
                       </h4>
                     </div>
@@ -18196,7 +18336,7 @@ function AdminPanel({
                   {isPnc && !isView && f.key === "3" && (
                     <div className="mt-1 flex items-center gap-2 border-t pt-4 sm:col-span-2" style={{ borderColor: t.border }}>
                       <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                         Detalles del registro
                       </h4>
                     </div>
@@ -18204,7 +18344,7 @@ function AdminPanel({
                   {isProduction && !isView && f.key === "3" && (
                     <div className="mt-1 flex items-center gap-2 border-t pt-4 sm:col-span-3" style={{ borderColor: t.border }}>
                       <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                         Detalles de la orden
                       </h4>
                     </div>
@@ -18218,7 +18358,7 @@ function AdminPanel({
                       }`}
                     >
                       <div className="mb-1 h-px" style={{ background: t.border }} />
-                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                      <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                         {f.key === "15"
                           ? "Datos del proveedor"
                           : f.key === "1"
@@ -18388,7 +18528,7 @@ function AdminPanel({
                       )
                     })() : isSales && f.key === "8" && !isView ? (
                       <div className="flex min-w-0 gap-2">
-                        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3" style={{ background: t.input, border: `1.5px solid ${t.inputB}` }}>
+                        <div className="search-control flex min-w-0 flex-1 items-center gap-2 rounded-full px-3">
                           <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
                           <input
                             list="sale-orders"
@@ -18407,6 +18547,16 @@ function AdminPanel({
                             className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
                             style={{ color: t.text }}
                           />
+                          {(val === "Sin pedido" ? "" : val) && (
+                            <button
+                              type="button"
+                              className="search-clear"
+                              aria-label="Limpiar pedido asociado"
+                              onClick={() => setFormData((current) => ({ ...current, "8": "" }))}
+                            >
+                              ×
+                            </button>
+                          )}
                           <datalist id="sale-orders">
                             {(rows.pedidos || [])
                               .filter((p) => !(rows.ventas || []).some((sale, i) => i !== modal.idx && String(sale[9]) === String(p[0])))
@@ -18436,7 +18586,7 @@ function AdminPanel({
                       </div>
                     ) : isSales && f.key === "1" && !isView ? (
                       <div className="flex min-w-0 gap-2">
-                        <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3" style={{ background: t.input, border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}` }}>
+                        <div className="search-control flex min-w-0 flex-1 items-center gap-2 rounded-full px-3">
                           <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
                           <input
                             list="sale-clients"
@@ -18448,6 +18598,16 @@ function AdminPanel({
                             className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
                             style={{ color: t.text }}
                           />
+                          {val && (
+                            <button
+                              type="button"
+                              className="search-clear"
+                              aria-label="Limpiar cliente"
+                              onClick={() => updateAdminField(modal.section, f.key, "")}
+                            >
+                              ×
+                            </button>
+                          )}
                           <datalist id="sale-clients">
                             {clientOptions.map((name) => <option key={name} value={name} />)}
                           </datalist>
@@ -18469,6 +18629,19 @@ function AdminPanel({
                     ) : isPedido && f.key === "1" && !isView ? (
                       <div className="flex flex-col gap-3">
                         <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                          <div className="search-control mb-2 flex min-w-0 items-center gap-2 rounded-full px-3">
+                            <span className="flex-shrink-0">{Ico.search}</span>
+                            <input
+                              type="text"
+                              value={pedidoProductSearch}
+                              onChange={(event) => setPedidoProductSearch(event.target.value)}
+                              placeholder="Buscar producto o adición..."
+                              aria-label="Buscar producto o adición"
+                              className="min-w-0 flex-1 bg-transparent py-2.5 text-xs outline-none"
+                              style={{ color: t.text }}
+                            />
+                            {pedidoProductSearch && <button type="button" className="search-clear" aria-label="Limpiar búsqueda" onClick={() => setPedidoProductSearch("")}>×</button>}
+                          </div>
                           {/* Wide enough so category and product names show complete */}
                           <div className="grid gap-2 sm:grid-cols-[minmax(150px,1fr)_minmax(0,1.7fr)_64px_auto]">
                             <select
@@ -18476,6 +18649,7 @@ function AdminPanel({
                               onChange={(event) => {
                                 setPedidoProductCategory(event.target.value)
                                 setPedidoProductoSelect("")
+                                setPedidoProductSearch("")
                               }}
                               className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none"
                               style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
@@ -18521,6 +18695,7 @@ function AdminPanel({
                                 }
                                 setPedidoOrderLines((current) => [...current, line])
                                 setPedidoProductoSelect("")
+                                setPedidoProductSearch("")
                                 setPedidoProductQuantity("1")
                                 // Ready to add its additions right away
                                 setPedidoAdditionsFor(isSelectedAddition ? "" : id)
@@ -19237,7 +19412,7 @@ function AdminPanel({
               )
               return (
                 <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ border: `1px solid ${t.border}` }}>
-                  <div className="mb-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>
+                  <div className="mb-2.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>
                     Productos en esta categoría ({products.length})
                   </div>
                   {products.length ? (
@@ -19295,7 +19470,7 @@ function AdminPanel({
                 </div>
               )
               const title = (text: string) => (
-                <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>{text}</h4>
+                <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>{text}</h4>
               )
               return (
                 <div className="grid gap-4 sm:col-span-2 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -19393,7 +19568,7 @@ function AdminPanel({
                     </div>
                   )
                   const title = (text: string) => (
-                    <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>{text}</h4>
+                    <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>{text}</h4>
                   )
                   const productionOrders = (rows.produccion || []).filter((order) => String(order[15] ?? "") === String(row[0]))
                   const groups = orderDetails
@@ -19638,7 +19813,7 @@ function AdminPanel({
                 </div>
               )
               const title = (text: string) => (
-                <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "Montserrat, sans-serif" }}>{text}</h4>
+                <h4 className="mb-2 text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>{text}</h4>
               )
               const groups = saleOrderLines
                 .filter((line) => !line.parentId)
@@ -19875,7 +20050,7 @@ function AdminPanel({
                   {Ico.undo}
                 </span>
                 <div className="min-w-0">
-                  <h3 id="loss-return-title" className="text-base font-semibold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                  <h3 id="loss-return-title" className="text-base font-semibold" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                     Devolver a compra
                   </h3>
                   <p className="text-xs" style={{ color: t.muted }}>
@@ -19987,7 +20162,7 @@ function AdminPanel({
                     {Ico.cart}
                   </span>
                   <div className="min-w-0">
-                    <h3 id="purchase-confirm-title" className="text-lg font-semibold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                    <h3 id="purchase-confirm-title" className="text-lg font-semibold" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                       Resumen de la compra
                     </h3>
                     <p className="truncate text-sm" style={{ color: t.muted }}>
@@ -20123,7 +20298,7 @@ function AdminPanel({
                     <>
                       <section className="flex flex-col gap-3">
                         <div>
-                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                             Insumos
                           </h4>
                           <p className="text-[11px]" style={{ color: t.muted }}>
@@ -20150,7 +20325,7 @@ function AdminPanel({
                             return (
                               <div className="relative flex min-w-0 flex-col gap-1 text-[11px]" style={{ color: t.muted }}>
                                 <label htmlFor="tech-supply-search">Insumo</label>
-                                <div className="flex items-center gap-2 rounded-lg px-2.5" style={controlSt}>
+                                <div className="search-control flex items-center gap-2 rounded-full px-2.5" style={controlSt}>
                                   <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
                                   <input
                                     id="tech-supply-search"
@@ -20173,6 +20348,20 @@ function AdminPanel({
                                     className="min-w-0 flex-1 bg-transparent py-2 text-sm outline-none"
                                     style={{ color: t.text }}
                                   />
+                                  {(open ? technicalIngredientSearch : technicalIngredientSelect) && (
+                                    <button
+                                      type="button"
+                                      className="search-clear"
+                                      aria-label="Limpiar búsqueda de insumos"
+                                      onMouseDown={(event) => event.preventDefault()}
+                                      onClick={() => {
+                                        setTechnicalIngredientSearch(null)
+                                        setTechnicalIngredientSelect("")
+                                      }}
+                                    >
+                                      ×
+                                    </button>
+                                  )}
                                 </div>
                                 {open && (
                                   <div
@@ -20337,7 +20526,7 @@ function AdminPanel({
                       </section>
                       <section className="flex flex-col gap-3 border-t pt-4" style={{ borderColor: t.border }}>
                         <div>
-                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                             Cómo se prepara
                           </h4>
                           <p className="text-[11px]" style={{ color: t.muted }}>Pasos en orden, del primero al último.</p>
@@ -20593,7 +20782,7 @@ function AdminPanel({
                     {Ico.alert}
                   </span>
                   <div className="min-w-0">
-                    <h3 id="loss-dialog-title" className="text-base font-semibold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+                    <h3 id="loss-dialog-title" className="text-base font-semibold" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                       Enviar a pérdida de insumos
                     </h3>
                     <p className="text-xs" style={{ color: t.muted }}>Lo que se pierda se descuenta del stock.</p>
@@ -20716,7 +20905,7 @@ function AdminPanel({
       background: t.input,
       border: `1px solid ${t.inputB}`,
       color: t.text,
-      fontFamily: "Poppins, sans-serif",
+      fontFamily: "DM Sans, sans-serif",
     }
     const updatePncField = (key: string, value: string) => {
       setPncForm((current) => ({ ...current, [key]: value }))
@@ -20743,7 +20932,7 @@ function AdminPanel({
             background: t.card,
             border: `1px solid ${t.border}`,
             boxShadow: "0 24px 70px rgba(0,0,0,0.28)",
-            fontFamily: "Poppins, sans-serif",
+            fontFamily: "DM Sans, sans-serif",
           }}
           onClick={(event) => event.stopPropagation()}
         >
@@ -20755,7 +20944,7 @@ function AdminPanel({
               {Ico.alert}
             </span>
             <div className="min-w-0 flex-1">
-              <h3 className="text-base font-semibold" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+              <h3 className="text-base font-semibold" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
                 Producto no conforme · {pncForm["0"]}
               </h3>
               <p className="mt-0.5 text-xs" style={{ color: t.muted }}>
@@ -20828,7 +21017,7 @@ function AdminPanel({
               const sectionTitle = (title: string, color: string = C.mustard) => (
                 <div className="mb-3 flex items-center gap-2">
                   <span className="h-4 w-1 rounded-full" style={{ background: color }} />
-                  <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>{title}</h4>
+                  <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>{title}</h4>
                 </div>
               )
               const fieldLabel = "flex min-w-0 flex-col gap-1.5 text-xs font-medium"
@@ -21095,7 +21284,7 @@ function AdminPanel({
             <button type="button" onClick={() => setPncTarget(null)} className="rounded-xl px-5 py-2.5 text-sm font-semibold cursor-pointer" style={{ background: t.input, color: t.muted }}>
               Cancelar
             </button>
-            <button type="button" onClick={saveProductionPnc} className="rounded-xl px-5 py-2.5 text-sm font-bold cursor-pointer" style={{ background: C.red, color: "#fff", fontFamily: "Montserrat, sans-serif" }}>
+            <button type="button" onClick={saveProductionPnc} className="rounded-xl px-5 py-2.5 text-sm font-bold cursor-pointer" style={{ background: C.red, color: "#fff", fontFamily: "League Spartan, sans-serif" }}>
               Registrar y reiniciar orden
             </button>
           </div>
@@ -21415,12 +21604,12 @@ function AdminPanel({
           <img
             src={logoImg}
             alt="Logo"
-            className={`object-contain flex-shrink-0 ${sidebarCollapsed ? "w-11 h-11 lg:w-10 lg:h-10" : "w-11 h-11"}`}
+            className={`object-contain flex-shrink-0 ${sidebarCollapsed ? "w-12 h-12 lg:w-11 lg:h-11" : "w-12 h-12"}`}
           />
           <div className={`min-w-0 ${hideOnMini}`}>
             <div
               className="font-semibold text-sm truncate"
-              style={{ fontFamily: "Montserrat, sans-serif", color: C.mustard }}
+              style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
             >
               El Parche
             </div>
@@ -21564,7 +21753,7 @@ function AdminPanel({
   return (
     <div
       className="flex h-screen overflow-hidden"
-      style={{ background: t.bg, fontFamily: "Poppins, sans-serif" }}
+      style={{ background: t.bg, fontFamily: "DM Sans, sans-serif" }}
     >
       {sidebarOpen && (
         <div
