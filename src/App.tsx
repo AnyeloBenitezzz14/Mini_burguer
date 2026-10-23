@@ -1413,12 +1413,7 @@ const PRODUCT_CAT_LABEL: Record<string, string> = {
 // "Arepa Burger" was merged into "Arepa Rellena": products the database still lists under the
 // old category are shown as Arepa Rellena (and saved that way on their next edit)
 const RENAMED_CATEGORIES: Record<string, string> = { "Arepa Burger": "Arepa Rellena" }
-const currentCategory = (name: string) => {
-  const raw = String(name ?? "")
-  const normalized = normalizeName(raw)
-  if (normalized === "bebidas" || normalized === "gaseosas") return "Gaseosas"
-  return RENAMED_CATEGORIES[raw] ?? raw
-}
+const currentCategory = (name: string) => RENAMED_CATEGORIES[name] ?? name
 
 // ── Admin config ───────────────────────────────────────────────────────────────
 type ModConfig = {
@@ -1642,7 +1637,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [
       ["Hamburguesas", "Burgers artesanales de la casa", "Activa"],
       ["Adiciones", "Extras para agregar a los productos", "Activa"],
-      ["Gaseosas", "Gaseosas y presentaciones disponibles para la venta", "Activa"],
+      ["Bebidas", "Bebidas y presentaciones disponibles para la venta", "Activa"],
       ["Salchipapas", "Papas fritas con salchicha", "Activa"],
       ["Perros Calientes", "Hot dogs", "Activa"],
       ["Perras", "Versiones especiales", "Activa"],
@@ -1672,8 +1667,7 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Patacones",
           "Arepa Rellena",
           "Salsas",
-          "Gaseosas",
-          "Sabores de bebida",
+          "Bebidas",
           "Producto de insumo",
         ],
       },
@@ -1937,52 +1931,13 @@ const supplyAsProduct = (row: (string | number)[]): (string | number)[] => [
 // no ficha técnica) and is bought as the insumo with that same name (its stock). The name matches the order line
 // the store sends ("Gaseosa Manzana (1.5 L)").
 const SODA_RE = /^Gaseosa (.+) \((.+)\)$/
-const SODA_PRODUCT = "Gaseosas"
-type SodaProductOverride = { price?: number; description?: string; status?: string }
-const SODA_PRODUCT_OVERRIDES_KEY = "sodaProductOverrides"
-const getSodaProductOverrides = () =>
-  loadLS<Record<string, SodaProductOverride>>(SODA_PRODUCT_OVERRIDES_KEY, {})
-const saveSodaProductOverride = (row: Row, patch: SodaProductOverride) => {
-  const name = String(row[0] ?? "")
-  if (!name) return
-  const overrides = getSodaProductOverrides()
-  overrides[name] = {
-    ...overrides[name],
-    ...patch,
-  }
-  saveLS(SODA_PRODUCT_OVERRIDES_KEY, overrides)
-}
+const SODA_PRODUCT = "Bebidas"
+// A bought soda with this many units or fewer shows a "Pocas gaseosas" alert
+const SODA_LOW_STOCK = 3
 const isSodaName = (name: string | number | undefined) => SODA_RE.test(String(name ?? ""))
-const isSodaProductRow = (row: Row | undefined) =>
-  !!row && isSodaName(row[0]) && currentCategory(String(row[1] ?? "")) === SODA_PRODUCT
-// One soda as the store shows it; sells at its size's price (category «Gaseosas»). insumo = its stock once bought
-const sodaAsProduct = (name: string, insumo: Row | undefined, products: Row[]): Row => {
-  const size = SODA_RE.exec(name)?.[2] ?? ""
-  const price = Number(products.find((p) => currentCategory(String(p[1])) === SODA_PRODUCT && String(p[0]) === size)?.[2]) || 0
-  const override = getSodaProductOverrides()[name]
-  return [
-    name,
-    SODA_PRODUCT,
-    override?.price ?? price,
-    override?.description ?? `Producto terminado: se compra y se vende igual, sin ficha técnica. ${
-      insumo ? `En stock: ${Number(insumo[4]) || 0} und.` : "Aún no se ha comprado: regístrala en Compras para tener stock."
-    }`,
-    override?.status ?? String(insumo?.[12] || "Activo"),
-    "", "", "", "", "[]", "Disponible",
-  ]
-}
-// Productos lists every soda of the store (active flavours × active sizes), bought or not
-const withSodaProducts = (producto: Row[], insumos: Row[]): Row[] => {
-  const base = producto.filter((row) => !isSodaProductRow(row))
-  const active = (category: string) =>
-    base
-      .filter((p) => normalizeName(currentCategory(String(p[1] ?? ""))) === category && isActiveStatus(p[4]))
-      .map((p) => String(p[0]))
-  const names = active("sabores de bebida").flatMap((flavor) => active("gaseosas").map((size) => `Gaseosa ${flavor} (${size})`))
-  return [
-    ...base,
-    ...names.map((name) => sodaAsProduct(name, insumos.find((i) => normalizeName(i[0]) === normalizeName(name)), base)),
-  ]
+const sodaImage = (name: string | number | undefined) => {
+  const m = SODA_RE.exec(String(name ?? ""))
+  return m ? beverageImage(m[1], m[2]) : undefined
 }
 
 // ── Orders → production ───────────────────────────────────────────────────────
@@ -3451,7 +3406,7 @@ function AddToCartModal({
             {([
               ["sauces", `Salsas ${selSauces.length}/4`],
               ["additions", `Adiciones ${ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)}`],
-              ["beverages", `Gaseosas ${selectedBeverageCount}`],
+              ["beverages", `Bebidas ${selectedBeverageCount}`],
             ] as const).map(([tab, label]) => (
               <button
                 key={tab}
@@ -4528,13 +4483,14 @@ const parsePurchaseLines = (value: string | number | undefined) =>
     .filter(([name]) => name)
     .map(([name, quantity, unitPrice]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0 }))
 
-const categorySpec = (path: string, productCategories = false): SyncSpec => ({
+// reloads: the module whose rows show the category by name (a rename must reach them)
+const categorySpec = (path: string, reloads: string[]): SyncSpec => ({
   path,
   update: "PUT",
   idIndex: 3,
   idOf: (c) => c.id_categoria,
   toRow: (c) =>
-    withId([productCategories ? currentCategory(c.nombre_categoria) : c.nombre_categoria, c.descripcion || "", c.estado === "ACTIVO" ? "Activa" : "Inactiva"], 3, c.id_categoria),
+    withId([c.nombre_categoria, c.descripcion || "", c.estado === "ACTIVO" ? "Activa" : "Inactiva"], 3, c.id_categoria),
   toBody: (row) => ({ nombre_categoria: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
   reloads,
 })
@@ -4626,7 +4582,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       descripcion: text(row[3]),
       estado: estadoOf(row[4]),
     }),
-    localOnly: (row) => row[1] === "Producto de insumo" || isSodaProductRow(row),
+    localOnly: (row) => row[1] === "Producto de insumo",
     afterSave: (id, row) => {
       // A soda has no ficha técnica
       if (row[1] === SODA_PRODUCT) return Promise.resolve()
@@ -4649,7 +4605,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       })
     },
   },
-  "cat-producto": categorySpec("/categorias-productos", true),
+  "cat-producto": categorySpec("/categorias-productos", ["producto"]),
   // [0 nombre, 1 tipo doc, 2 documento, 3 teléfono, 4 correo, 5 dirección, 6 de local (Sí/No), 7 estado]
   // Customers who registered in the app also show up here (their e-mail is their login).
   clientes: {
@@ -4734,23 +4690,13 @@ const DB_SYNC: Record<string, SyncSpec> = {
       ),
     toBody: async (row) => {
       const lines = parsePurchaseLines(row[6])
-      const find = (name: string) => insumos.find((i) => normalizeName(i.nombre) === normalizeName(name))
-      // A soda bought for the first time becomes an insumo (category «Gaseosas», und, no ficha técnica)
-      const newSodas = [...new Set(lines.map((l) => l.name).filter((name) => isSodaName(name) && !find(name)))]
-      if (newSodas.length) {
-        const cats = await api<DbRecord[]>("/categorias-insumos")
-        const id_categoria =
-          cats.find((c) => ["bebidas", "gaseosas"].includes(normalizeName(c.nombre_categoria)))?.id_categoria ??
-          (await api<DbRecord>("/categorias-insumos", "POST", {
-            nombre_categoria: "Gaseosas",
-            descripcion: "Gaseosas que se compran para revender",
-            estado: "ACTIVO",
-          })).id_categoria
-        for (const nombre of newSodas)
-          insumos.push(
-            await api<DbRecord>("/insumos", "POST", { nombre, id_categoria, medida: "und", minimo: 0, tiene_ficha_tecnica: false, estado: "ACTIVO" }),
-          )
-      }
+      // A soda is bought as its product of «Bebidas» (its stock goes there), the rest as insumos
+      const [insumos, productos] = await Promise.all([
+        api<DbRecord[]>("/insumos"),
+        lines.some((l) => isSodaName(l.name)) ? api<DbRecord[]>("/productos") : Promise.resolve([] as DbRecord[]),
+      ])
+      const find = (name: string) =>
+        (isSodaName(name) ? productos : insumos).find((i) => normalizeName(i.nombre) === normalizeName(name))
       const items = lines.map((line) => {
         const insumo = find(line.name)
         if (!insumo)
@@ -4769,8 +4715,8 @@ const DB_SYNC: Record<string, SyncSpec> = {
       }
     },
     setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", { estado: isActiveStatus(row[5]) ? "REGISTRADA" : "ANULADA" }),
-    // cat-insumos: the first soda purchase may create «Gaseosas»
-    reloads: ["insumos", "cat-insumos"],
+    // producto: a soda's stock and cost live in its product
+    reloads: ["insumos", "producto"],
   },
   // [0 insumo, 1 cantidad con unidad ("0.5 kg"), 2 motivo, 3 responsable, 4 fecha, 5 origen]
   // The backend takes the quantity out of the insumo's stock.
@@ -4990,21 +4936,14 @@ const withPanelId = (row: Row, idIndex: number, id: string | number) => {
 }
 
 // Backend categories that feed the customization options instead of the menu
-const EXTRA_CATS = ["Adiciones", "Salsas", "Gaseosas", "Sabores de bebida"]
+const EXTRA_CATS = ["Adiciones", "Salsas", "Bebidas", "Sabores de bebida"]
 
 // shortcut: replaces the menu arrays in place so every screen reading them shows the backend data;
 // move them into state/context when the admin panel edits them live.
 async function loadMenu() {
   const items = await api<CatalogItem[]>("/catalogo")
-  const sodaOverrides = getSodaProductOverrides()
   const activeItems = items
     .map((item) => ({ ...item, categoria: currentCategory(item.categoria) }))
-    .map((item) => {
-      const override = sodaOverrides[item.nombre]
-      return override
-        ? { ...item, precio: override.price ?? item.precio, descripcion: override.description ?? item.descripcion, estado: override.status ?? item.estado }
-        : item
-    })
     .filter(
       (item) => !["INACTIVO", "INACTIVA", "ANULADO", "ANULADA"].includes(String(item.estado ?? "").trim().toUpperCase()),
     )
@@ -5012,13 +4951,35 @@ async function loadMenu() {
   ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio })))
   SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
   const rank = (f: string) => (BEVERAGE_ORDER.indexOf(f) + 1 || 99)
-  BEVERAGES.splice(0, BEVERAGES.length, ...flavors.sort((a, b) => rank(a) - rank(b)))
-  const sizes = inCat("Gaseosas").map((p) => ({ id: p.nombre, label: p.nombre, price: p.precio }))
-  BEVERAGE_SIZES.splice(0, BEVERAGE_SIZES.length, ...sizes)
-  // Bought sodas without stock show «Agotada» (an older backend without this route just shows them all)
-  const soldOut = await api<string[]>("/catalogo/gaseosas-agotadas").catch(() => [])
-  SOLD_OUT_SODAS.clear()
-  soldOut.forEach((name) => SOLD_OUT_SODAS.add(normalizeName(name)))
+  // Each soda is a product of «Bebidas» named "Gaseosa <sabor> (<tamaño>)": flavours, sizes, prices and photos come from them
+  // (other drinks there, without that name, aren't offered as sodas)
+  const sodaProducts = inCat("Bebidas").flatMap((p) => {
+    const m = SODA_RE.exec(p.nombre.trim())
+    return m ? [{ name: p.nombre, flavor: m[1], size: m[2], price: p.precio, img: p.imagenes[0] ? imageUrl(p.imagenes[0]) : "" }] : []
+  })
+  // Bought sodas with no stock left (an older backend without this route sells them all)
+  const soldOut = new Set(
+    (await api<{ nombre: string; agotada: boolean }[]>("/catalogo/gaseosas").catch(() => []))
+      .filter((g) => g.agotada)
+      .map((g) => normalizeName(g.nombre)),
+  )
+  SODA_INFO.clear()
+  if (sodaProducts.length) {
+    sodaProducts.forEach((s) =>
+      SODA_INFO.set(normalizeName(`Gaseosa ${s.flavor} (${s.size})`), { precio: s.price, img: s.img, agotada: soldOut.has(normalizeName(s.name)) }),
+    )
+    BEVERAGES.splice(0, BEVERAGES.length, ...[...new Set(sodaProducts.map((s) => s.flavor))].sort((a, b) => rank(a) - rank(b)))
+    // Size buttons from small to big, each showing its cheapest soda
+    const sizes = [...new Set(sodaProducts.map((s) => s.size))].sort((a, b) => sizeMl(a) - sizeMl(b))
+    BEVERAGE_SIZES.splice(
+      0,
+      BEVERAGE_SIZES.length,
+      ...sizes.map((size) => ({ id: size, label: size, price: Math.min(...sodaProducts.filter((s) => s.size === size).map((s) => s.price)) })),
+    )
+  } else {
+    // No sodas for sale: the Bebidas tab says so
+    BEVERAGES.splice(0, BEVERAGES.length)
+  }
   PRODUCTS.splice(
     0,
     PRODUCTS.length,
@@ -10419,7 +10380,7 @@ function AdminPanel({
     (rows.compras || []).some((c) => parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === normalizeName(name)))
 
   // Every soda for sale, named like the order line (Productos already lists them)
-  const sodaOptions = (rows.producto || []).filter(isSodaProductRow).map((p) => String(p[0]))
+  const sodaOptions = (rows.producto || []).filter((p) => p[1] === SODA_PRODUCT && isSodaName(p[0])).map((p) => String(p[0]))
 
   const getAvailableInsumos = () =>
     [...new Set((rows.insumos || []).map((row) => String(row[0] ?? "").trim()).filter(Boolean))].sort((a, b) =>
@@ -10935,7 +10896,7 @@ function AdminPanel({
         return finalError ? [[key, finalError]] : []
       }),
     )
-    if (sec === "producto" && mode === "add" && !imgPreview.trim()) {
+    if (sec === "producto" && mode === "add" && !imgPreview.trim() && !sodaImage(draft["0"])) {
       return { ...errors, img: "Sube una imagen del producto." }
     }
     return errors
@@ -11145,13 +11106,21 @@ function AdminPanel({
     setTouchedFields({})
     setPedidoProductoSelect("")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
+    // Only a real photo: the bundled bottle of a soda is just shown, never saved as its photo
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
     setModal({ mode: "edit", section: sec, idx })
   }
   // Stock history of the insumo open in "Ver detalle" (loaded when it opens)
   const [stockMoves, setStockMoves] = useState<{ id: string; rows: DbRecord[] | null; error?: string } | null>(null)
   const openView = (sec: string, idx: number) => {
-    setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
+    const insumoId = sec === "insumos" ? String(rows.insumos?.[idx]?.[DB_SYNC.insumos.idIndex] ?? "") : ""
+    if (insumoId) {
+      setStockMoves({ id: insumoId, rows: null })
+      api<DbRecord[]>(`/movimientos-stock/${insumoId}`)
+        .then((list) => setStockMoves((cur) => (cur?.id === insumoId ? { id: insumoId, rows: list } : cur)))
+        .catch((err) => setStockMoves((cur) => (cur?.id === insumoId ? { ...cur, error: `No se pudo cargar el historial: ${(err as Error).message}` } : cur)))
+    }
+    setImgPreview(sec === "producto" ? prodImgs[idx] || sodaImage(rows.producto?.[idx]?.[0]) || "" : "")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
     if (sec === "producto") {
       setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
@@ -11746,13 +11715,6 @@ function AdminPanel({
 
       return { ...current, [sec]: updated }
     })
-    if (sec === "producto" && isSodaProductRow(newRow)) {
-      saveSodaProductOverride(newRow, {
-        price: Number(newRow[2]) || 0,
-        description: String(newRow[3] ?? ""),
-      })
-      window.dispatchEvent(new Event("products-updated"))
-    }
     // The photo is sent only when it changed (new upload or new URL)
     const previousImg = modal.idx !== null ? prodImgs[modal.idx] : ""
     const savePhoto = sec === "producto" && imgPreview && imgPreview !== previousImg
@@ -12165,12 +12127,6 @@ function AdminPanel({
       const syncedRow = [...currentRow]
       syncedRow[statusIndex] = nextValue
       syncRow(sec, syncedRow, false, true)
-    }
-    if (sec === "producto" && isSodaProductRow(currentRow)) {
-      const updatedSoda = [...currentRow]
-      updatedSoda[statusIndex] = nextValue
-      saveSodaProductOverride(updatedSoda, { status: nextValue })
-      window.dispatchEvent(new Event("products-updated"))
     }
 
     setRows((current) => {
@@ -13956,6 +13912,8 @@ function AdminPanel({
         section === "usuarios" &&
         String(rows.usuarios?.[rowIndex]?.[8] ?? "") === "Principal"
       const deleteBlocked = !deleteAssessment.allowed
+      // Sodas (category «Bebidas») are the only products that can be deleted
+      const isSodaProduct = section === "producto" && rows.producto?.[rowIndex]?.[1] === SODA_PRODUCT
       const deleteButton = (
         <button
           type="button"
@@ -14398,9 +14356,9 @@ function AdminPanel({
                             className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-lg"
                             style={{ background: t.input }}
                           >
-                            {prodImgs[originalIndex] ? (
+                            {prodImgs[originalIndex] || sodaImage(row[0]) ? (
                               <img
-                                src={prodImgs[originalIndex]}
+                                src={prodImgs[originalIndex] || sodaImage(row[0])}
                                 alt=""
                                 className="h-full w-full object-cover"
                               />
@@ -14492,9 +14450,9 @@ function AdminPanel({
                           className="h-11 w-11 flex-shrink-0 overflow-hidden rounded-xl"
                           style={{ background: t.input }}
                         >
-                          {prodImgs[originalIndex] ? (
+                          {prodImgs[originalIndex] || sodaImage(row[0]) ? (
                             <img
-                              src={prodImgs[originalIndex]}
+                              src={prodImgs[originalIndex] || sodaImage(row[0])}
                               alt=""
                               className="h-full w-full object-cover"
                             />
@@ -15055,7 +15013,7 @@ function AdminPanel({
     const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void) => {
       const groups = new Map<string, string[]>()
       names.forEach((name) => {
-        const category = currentCategory(String(supplyInfo(name)?.[1] ?? "").trim()) || (isSodaName(name) ? "Gaseosas" : "Sin categoría")
+        const category = currentCategory(String(supplyInfo(name)?.[1] ?? "").trim()) || (isSodaName(name) ? "Bebidas" : "Sin categoría")
         groups.set(category, [...(groups.get(category) || []), name])
       })
       return (
@@ -15316,9 +15274,8 @@ function AdminPanel({
     const statusValue =
       cfg.statusIndex !== undefined && row ? String(row[cfg.statusIndex] ?? "") : ""
     const dataFields = cfg.fields.filter((f) => f.type !== "image")
-    const isLocalSodaProduct = isProduct && isSodaProductRow(row ?? undefined)
     const productCategory = normalizeName(currentCategory(String(isView ? row?.[1] ?? "" : formData["1"] ?? "")))
-    const hideProductTechnicalSheet = isProduct && ["gaseosas", "bebidas", normalizeName(SODA_PRODUCT)].includes(productCategory)
+    const hideProductTechnicalSheet = isProduct && productCategory === normalizeName(SODA_PRODUCT)
     const showSupplyTechnicalSheet =
       isSupply &&
       String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
@@ -15742,7 +15699,7 @@ function AdminPanel({
                     // Photo in the same place as in the detail; click (or drop) to change it
                     <div className="flex flex-col gap-2">
                       <label className="text-xs font-semibold" style={{ color: formFieldErrors.img ? C.red : t.muted }}>
-                        Foto del producto{modal.mode === "add" && " *"}
+                        Foto del producto{modal.mode === "add" && !sodaImage(formData["0"]) && " *"}
                       </label>
                       <div
                         role="button"
@@ -15817,125 +15774,16 @@ function AdminPanel({
                       <FieldError msg={formFieldErrors.img} />
                     </div>
                   )}
-                  {/* Two fields per row (name and description full width) so the form barely scrolls */}
-                  <div className={isView ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
-                  {productMainFields.map((f) => {
-                    if (isView) return null
-                    const val = isView
-                      ? String(row ? (row[Number(f.key)] ?? "—") : "—")
-                      : formData[f.key] || ""
-                    // Categories come only from "Categ. Producto" (active), deduplicated
-                    // ignoring case/accents so the same category never appears twice
-                    const productFieldOptions =
-                      f.key === "1"
-                        ? [
-                            ...(rows["cat-producto"] || [])
-                              .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
-                              .map((category) => String(category[0] ?? "").trim())
-                              .filter(Boolean),
-                            ...(isLocalSodaProduct ? [SODA_PRODUCT] : []),
-                            "Producto de insumo",
-                          ]
-                            .filter(
-                              (name, index, all) =>
-                                all.findIndex((other) => normalizeName(other) === normalizeName(name)) === index,
-                            )
-                            .sort((a, b) => a.localeCompare(b))
-                        : f.options
-                    return (
-                      <div key={f.key} className={`flex min-w-0 flex-col gap-1.5 ${f.key === "0" || f.key === "3" ? "sm:col-span-2" : ""}`}>
-                        <label
-                          className="text-xs font-semibold"
-                          style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
-                        >
-                          {f.label}
-                          {(isRequiredField(f.key) ||
-                            getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)) && " *"}
-                        </label>
-                        {isView ? (
-                          <div
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
-                            style={{ background: t.input, color: t.text }}
-                          >
-                            {val}
-                          </div>
-                        ) : f.type === "select" ? (
-                          <select
-                            value={val}
-                            disabled={(isPedido && f.key === "7") || (isLocalSodaProduct && ["0", "1"].includes(f.key))}
-                            onChange={(e) =>
-                              updateAdminField(modal.section, f.key, e.target.value)
-                            }
-                            onBlur={() =>
-                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
-                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
-                            }
-                            aria-invalid={!!formFieldErrors[f.key]}
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
-                            title={
-                              isPedido && f.key === "7"
-                                ? "El pago solo cambia al aprobar o rechazar el comprobante en el detalle del pedido."
-                                : undefined
-                            }
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
-                              color: val ? t.text : t.muted,
-                              opacity: isPedido && f.key === "7" ? 0.7 : 1,
-                            }}
-                          >
-                            <option value="">Selecciona...</option>
-                            {productFieldOptions?.map((o) => (
-                              <option key={o} value={o}>
-                                {o}
-                              </option>
-                            ))}
-                          </select>
-                        ) : f.type === "textarea" ? (
-                          <textarea
-                            value={val}
-                            onChange={(e) =>
-                              updateAdminField(modal.section, f.key, e.target.value)
-                            }
-                            onBlur={() =>
-                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
-                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
-                            }
-                            aria-invalid={!!formFieldErrors[f.key]}
-                            rows={isPurchaseModule || isProduct ? 2 : 3}
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
-                              color: t.text,
-                            }}
-                          />
-                        ) : (
-                          <input
-                            type={f.type}
-                            value={val}
-                            disabled={isLocalSodaProduct && ["0", "1"].includes(f.key)}
-                            onChange={(e) =>
-                              updateAdminField(modal.section, f.key, e.target.value)
-                            }
-                            onBlur={() =>
-                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
-                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
-                            }
-                            aria-invalid={!!formFieldErrors[f.key]}
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
-                              color: t.text,
-                            }}
-                          />
-                        )}
-                        <FieldError msg={shownFieldError(f.key) || formFieldErrors[f.key]} />
-                      </div>
-                    )
-                  })}
-                  </div>
+                  {/* Two fields per row (name and description full width) so the form barely scrolls; a drink has them on the right */}
+                  {!isDrinkForm && renderProductFields()}
+                  {isDrinkForm && (
+                    <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}>
+                      <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Producto terminado</div>
+                      <p className="mt-0.5 text-xs leading-snug" style={{ color: t.muted }}>
+                        Sin ficha técnica: se compra en Compras y se vende tal cual. Con tamaño es una gaseosa de la tienda y cada venta descuenta 1 und.
+                      </p>
+                    </div>
+                  )}
                   {/* Editing: the profit stays in this column too (updates with the price and the ficha técnica) */}
                   {!isView && !hideProductTechnicalSheet && technicalIngredients.length > 0 &&
                     renderProfit(
@@ -15951,9 +15799,9 @@ function AdminPanel({
                   // Creating or editing a drink: no ficha técnica at all, its fields take this column
                   if (isDrinkForm) return <div className="flex flex-col gap-3">{renderProductFields()}</div>
                   // A resale soda has no ficha técnica: show its stock and margin instead
-                  if (isView && row && isSodaProductRow(row)) {
-                    const soda = rows.insumos?.find((item) => item[0] === row[0])
-                    const cost = Number(soda?.[3]) || 0
+                  if (isView && row?.[1] === SODA_PRODUCT) {
+                    // Its purchases set its stock and cost on the product itself
+                    const cost = Number(row[13]) || 0
                     const price = Number(row[2]) || 0
                     return (
                       <section className="flex flex-col gap-3 rounded-2xl px-4 py-4" style={{ border: `1px solid ${t.border}` }}>
@@ -16139,7 +15987,7 @@ function AdminPanel({
                     const category = normalizeName(String(product?.[1] ?? ""))
                     if (category === "salsas") return ["bolsita", "bolsitas"]
                     if (category === "adiciones") return ["porción", "porciones"]
-                    if (category === "gaseosas" || category === "sabores de bebida") return ["botella", "botellas"]
+                    if (category === "bebidas" || category === "gaseosas") return ["botella", "botellas"]
                     if (category === "producto de insumo") {
                       const unit = String(supplyInfo(name)?.[2] ?? "und")
                       return [unit, unit]
@@ -16159,16 +16007,14 @@ function AdminPanel({
                     (rows.producto || [])
                       .filter((item) => normalizeName(currentCategory(String(item[1] ?? ""))) === category && isActiveStatus(item[4]))
                       .map((item) => String(item[0]))
-                  const sodas = activeIn("sabores de bebida").flatMap((flavor) =>
-                    activeIn("gaseosas").map((size) => `Gaseosa ${flavor} (${size})`),
-                  )
+                  const sodas = activeIn("bebidas").filter(isSodaName) // each soda is a product of «Bebidas»
                   const tabOptions =
                     productionKind === "bebidas"
                       ? sodas
                       : availableItemOptions.filter((name) =>
                           productionKind === "adiciones"
                             ? categoryOf(name) === "adiciones"
-                            : !["adiciones", "gaseosas", "sabores de bebida"].includes(categoryOf(name)),
+                            : !["adiciones", "bebidas", "gaseosas"].includes(categoryOf(name)),
                         )
                   const options = tabOptions
                     .filter((name) => productionKind === "adiciones" || !productionItems.some((item) => item.name === name))
@@ -16200,7 +16046,7 @@ function AdminPanel({
                         name: productionProductSelect,
                         quantity: draftQty,
                         unit: productionItemUnit || unitsOf(productionProductSelect)[0],
-                        category: String(selectedRow?.[1] ?? (productionKind === "bebidas" ? "Gaseosas" : "")),
+                        category: String(selectedRow?.[1] ?? (productionKind === "bebidas" ? "Bebidas" : "")),
                         ...(productionKind === "adiciones" ? { parentId: productionAdditionParentId } : {}),
                         ...(productionKind !== "adiciones" && productionSelectedSauces.length
                           ? { sauces: productionSelectedSauces }
@@ -16258,7 +16104,7 @@ function AdminPanel({
                                 className="cursor-pointer rounded-full px-4 py-1.5 text-xs font-semibold"
                                 style={on ? { background: C.mustard, color: "#fff" } : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }}
                               >
-                                {kind === "productos" ? "Productos" : kind === "adiciones" ? "Adiciones" : "Gaseosas"}
+                                {kind === "productos" ? "Productos" : kind === "adiciones" ? "Adiciones" : "Bebidas"}
                               </button>
                             )
                           })}
@@ -16697,12 +16543,12 @@ function AdminPanel({
                 {isPnc && (modal.mode !== "add" || pncManual) && !isView && (() => {
                   const categoryOf = (name: string) => normalizeName(currentCategory(String(rows.producto?.find((item) => item[0] === name)?.[1] ?? "")))
                   const isDrink = (name: string) =>
-                    name.startsWith("Gaseosa ") || ["gaseosas", "sabores de bebida"].includes(categoryOf(name))
+                    name.startsWith("Gaseosa ") || ["bebidas", "gaseosas"].includes(categoryOf(name))
                   const activeIn = (category: string) =>
                     (rows.producto || [])
                       .filter((item) => normalizeName(currentCategory(String(item[1] ?? ""))) === category && isActiveStatus(item[4]))
                       .map((item) => String(item[0]))
-                  const sodas = activeIn("sabores de bebida").flatMap((flavor) => activeIn("gaseosas").map((size) => `Gaseosa ${flavor} (${size})`))
+                  const sodas = activeIn("bebidas").filter(isSodaName) // each soda is a product of «Bebidas»
                   const options = (
                     productionKind === "bebidas"
                       ? sodas
@@ -16758,7 +16604,7 @@ function AdminPanel({
                                 className="cursor-pointer rounded-full px-4 py-1.5 text-xs font-semibold"
                                 style={on ? { background: C.mustard, color: "#fff" } : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }}
                               >
-                                {kind === "productos" ? "Productos" : kind === "adiciones" ? "Adiciones" : "Gaseosas"}
+                                {kind === "productos" ? "Productos" : kind === "adiciones" ? "Adiciones" : "Bebidas"}
                               </button>
                             )
                           })}
@@ -17936,7 +17782,7 @@ function AdminPanel({
                   // Sodas not bought yet (no insumo): offered too, the first purchase creates them
                   sodaOptions
                     .filter((name) => !supplyInfo(name) && (!query || normalizeName(name).includes(query)))
-                    .forEach((name) => groups.set("Gaseosas", [...(groups.get("Gaseosas") || []), name]))
+                    .forEach((name) => groups.set("Bebidas", [...(groups.get("Bebidas") || []), name]))
                   const categories = [...groups.keys()].sort((x, y) => x.localeCompare(y))
                   const menu = supplierSupplyOpen
                   const openMenu = (box: HTMLElement) => setSupplierSupplyOpen(box.getBoundingClientRect())
@@ -19421,11 +19267,11 @@ function AdminPanel({
               // Products first, then additions, then drinks
               const groupOf = (item: ProductionItem) => {
                 const category = normalizeName(String(item.category || rows.producto?.find((p) => p[0] === item.name)?.[1] || ""))
-                if (item.name.startsWith("Gaseosa ") || category === "gaseosas" || category === "sabores de bebida") return 2
+                if (item.name.startsWith("Gaseosa ") || category === "bebidas" || category === "gaseosas") return 2
                 if (item.parentId || category === "adiciones") return 1
                 return 0
               }
-              const groups = ["Productos", "Adiciones", "Gaseosas"]
+              const groups = ["Productos", "Adiciones", "Bebidas"]
                 .map((title, g) => ({ title, list: items.filter((item) => groupOf(item) === g) }))
                 .filter((group) => group.list.length)
               const history = parseProductionHistory(row[12])
