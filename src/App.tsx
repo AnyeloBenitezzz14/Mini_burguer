@@ -9936,6 +9936,57 @@ function AdminPanel({
   const panelLoaded = useRef<Record<string, boolean>>({})
   // Last saved version of each row, by backend id (to only send real changes)
   const panelSaved = useRef<Record<string, Map<string | number, string>>>({})
+  const savePncAndReplacement = async (
+    pncRow: Row,
+    productionRow: Row,
+    affectedProduction?: { id: number; row: Row },
+  ) => {
+    const productionIdIndex = PANEL_SYNC.produccion.idIndex
+    const saved = await api<{
+      id_producto_no_conforme: number
+      id_orden_produccion: number
+    }>("/productos-no-conformes/con-reposicion", "POST", {
+      producto_no_conforme: pncRow.slice(0, PANEL_SYNC["producto-no-conforme"].idIndex),
+      orden_produccion: productionRow.slice(0, productionIdIndex),
+      ...(affectedProduction
+        ? {
+            orden_produccion_afectada: {
+              id: affectedProduction.id,
+              datos_panel: affectedProduction.row.slice(0, productionIdIndex),
+            },
+          }
+        : {}),
+    })
+    const persistedPnc = withPanelId(
+      pncRow,
+      PANEL_SYNC["producto-no-conforme"].idIndex,
+      saved.id_producto_no_conforme,
+    )
+    const persistedProduction = withPanelId(
+      productionRow,
+      PANEL_SYNC.produccion.idIndex,
+      saved.id_orden_produccion,
+    )
+    for (const [section, row, idIndex] of [
+      ["producto-no-conforme", persistedPnc, PANEL_SYNC["producto-no-conforme"].idIndex],
+      ["produccion", persistedProduction, PANEL_SYNC.produccion.idIndex],
+    ] as const) {
+      if (!panelSaved.current[section]) panelSaved.current[section] = new Map()
+      panelSaved.current[section].set(row[idIndex], JSON.stringify(row))
+    }
+    if (affectedProduction && panelSaved.current.produccion) {
+      const persistedAffected = withPanelId(
+        affectedProduction.row,
+        productionIdIndex,
+        affectedProduction.id,
+      )
+      panelSaved.current.produccion.set(
+        affectedProduction.id,
+        JSON.stringify(persistedAffected),
+      )
+    }
+    return { pncRow: persistedPnc, productionRow: persistedProduction }
+  }
   useEffect(() => {
     Object.entries(PANEL_SYNC).forEach(([sec, spec]) =>
       api<DbRecord[]>(spec.path)
@@ -10068,6 +10119,7 @@ function AdminPanel({
   const [productionProductSelect, setProductionProductSelect] = useState("")
   // Nuevo producto no conforme: production order chosen to register it from
   const [pncOrderPick, setPncOrderPick] = useState("")
+  const [pncSaving, setPncSaving] = useState(false)
   // Order detail: products whose additions and drinks are shown ("Más detalles")
   const [orderDetailOpen, setOrderDetailOpen] = useState<string[]>([])
   // ...or "sin orden": only then the manual form shows (keeps the window short)
@@ -10864,6 +10916,8 @@ function AdminPanel({
     }
     if (sec === "producto-no-conforme") {
       initialFields["6"] = "und"
+      initialFields["3"] = "Producto perdido"
+      initialFields["4"] = getCurrentDateTimeParts().date
       setPncManual(false)
       setPncOrderPick("")
       setProductionKind("productos")
@@ -10882,7 +10936,7 @@ function AdminPanel({
     }
     setFormValidationAttempted(false)
     setFormFieldErrors({})
-    if (sec === "produccion" || sec === "producto-no-conforme") {
+    if (sec === "produccion") {
       const currentDateTime = getCurrentDateTimeParts()
       setProductionItems([])
       setProductionProductSelect("")
@@ -11198,7 +11252,7 @@ function AdminPanel({
     setModal({ mode: null, section: "", idx: null })
   }
 
-  const saveModal = () => {
+  const saveModal = async () => {
     const sec = modal.section
     const config = MOD_CFG[sec]
     if (!config) return
@@ -11411,7 +11465,10 @@ function AdminPanel({
       newRow[2] = JSON.stringify(productionItems)
       newRow[3] = productionItems.reduce((total, item) => total + item.quantity, 0)
       newRow[4] = formData["3"] ?? ""
-      newRow[5] = formData["4"] ?? ""
+      newRow[5] =
+        modal.mode === "add"
+          ? getCurrentDateTimeParts().date
+          : previousRow?.[5] ?? formData["4"] ?? ""
       newRow[6] = formData["5"] ?? ""
       newRow[7] = productionItems[0]?.unit ?? "und"
     }
@@ -11461,6 +11518,55 @@ function AdminPanel({
     // Keep the backend id so the edit updates the same record
     const idIndex = syncIdIndex(sec)
     if (idIndex !== undefined) newRow[idIndex] = previousRow?.[idIndex] ?? ""
+
+    if (sec === "producto-no-conforme" && modal.mode === "add") {
+      const currentDateTime = getCurrentDateTimeParts()
+      const lines: AdminOrderLine[] = productionItems.map((item, index) => ({
+        id: item.id ?? `${item.name}-${index}`,
+        product: item.name,
+        category: item.category ?? "",
+        quantity: item.quantity,
+        unitPrice: 0,
+        ...(item.parentId ? { parentId: item.parentId } : {}),
+        ...(item.sauces?.length ? { sauces: item.sauces } : {}),
+      }))
+      const replacementOrder = buildProductionRows(lines, rows.produccion || [], "")[0]
+      if (!replacementOrder) {
+        setProductionFormError("No se pudo preparar la orden de reposición.")
+        return
+      }
+      replacementOrder[4] = currentDateTime.date
+      replacementOrder[5] = currentDateTime.time
+      replacementOrder[6] = currentDateTime.date
+      replacementOrder[7] = currentDateTime.time
+      replacementOrder[12] = JSON.stringify([
+        { status: "Recibida", date: currentDateTime.date, time: currentDateTime.time },
+      ])
+      newRow[0] = String(replacementOrder[0])
+      newRow[5] = currentDateTime.date
+      setPncSaving(true)
+      try {
+        const persisted = await savePncAndReplacement(newRow, replacementOrder)
+        setRows((current) => ({
+          ...current,
+          "producto-no-conforme": [
+            persisted.pncRow,
+            ...(current["producto-no-conforme"] || []),
+          ],
+          produccion: [
+            persisted.productionRow,
+            ...(current.produccion || []),
+          ],
+        }))
+        setProductionFormError("")
+        setModal({ mode: null, section: "", idx: null })
+      } catch (error) {
+        setProductionFormError(`No se pudo guardar el producto no conforme ni su orden de reposición: ${(error as Error).message}`)
+      } finally {
+        setPncSaving(false)
+      }
+      return
+    }
 
     // Suppliers picked in the insumo form get it on their "insumos que suministra" list (row[7])
     // and the unpicked ones lose it, so it shows in Proveedores and in that supplier's purchases
@@ -12344,7 +12450,8 @@ function AdminPanel({
       return []
     }
   }
-  const saveProductionPnc = () => {
+  const saveProductionPnc = async () => {
+    if (pncSaving) return
     if (pncTarget === null) return
     const order = rows.produccion?.[pncTarget]
     if (!order) return
@@ -12359,9 +12466,6 @@ function AdminPanel({
     if (!entries.length) validationErrors.items = "Agrega al menos un producto dañado."
     if (!String(pncForm["4"] ?? "").trim()) {
       validationErrors["4"] = "Selecciona el motivo."
-    }
-    if (!String(pncForm["5"] ?? "").trim()) {
-      validationErrors["5"] = "Selecciona la fecha del registro."
     }
     setPncFieldErrors(validationErrors)
     if (Object.keys(validationErrors).length) {
@@ -12383,99 +12487,116 @@ function AdminPanel({
         : entry.parts.map((part) => ({ ...part, product: entry.product })),
     )
     const pncRecord: (string | number)[] = [
-      pncForm["0"] || order[0],
+      "",
       affectedProduct,
       JSON.stringify(damaged),
       quantity,
       String(pncForm["4"]).trim(),
-      String(pncForm["5"]).trim(),
+      currentDateTime.date,
       "",
       "und",
       "Activo",
     ]
-
-    setRows((current) => {
-      const productionRows = [...(current.produccion || [])]
-      const updatedOrder = [...productionRows[pncTarget]]
-      const history = parseProductionHistory(updatedOrder[12])
-      history.push({
-        status: nextStatus,
-        date: currentDateTime.date,
-        time: currentDateTime.time,
-      })
-      updatedOrder[4] = currentDateTime.date
-      updatedOrder[5] = currentDateTime.time
-      updatedOrder[6] = currentDateTime.date
-      updatedOrder[7] = currentDateTime.time
-      updatedOrder[8] = nextStatus
-      updatedOrder[9] = ""
-      updatedOrder[10] = 0
-      updatedOrder[11] = "Sí"
-      updatedOrder[12] = JSON.stringify(history)
-      productionRows[pncTarget] = updatedOrder
-
-      const nextPriority =
-        Math.max(0, ...productionRows.map((row) => Number(row[3]) || 0)) + 1
-      // Every product of the order comes back: damaged ones are made again (whole recipe, or only the
-      // damaged insumos); the rest is reused and takes nothing out of stock
-      const wholeLeft = new Map<string, number>()
-      const partsLeft = new Map<string, PncEntry[]>()
-      for (const entry of entries) {
-        if (entry.whole) wholeLeft.set(entry.product, (wholeLeft.get(entry.product) ?? 0) + entry.quantity)
-        else partsLeft.set(entry.product, [...(partsLeft.get(entry.product) ?? []), entry])
-      }
-      const remadeItems: ProductionItem[] = getProductionOrderItems(updatedOrder).flatMap((item) => {
-        if (item.parentId) return [{ ...item, reuse: true }]
-        const lines: ProductionItem[] = []
-        let quantity = item.quantity
-        const whole = Math.min(quantity, wholeLeft.get(item.name) ?? 0)
-        if (whole) {
-          lines.push({ ...item, quantity: whole })
-          wholeLeft.set(item.name, (wholeLeft.get(item.name) ?? 0) - whole)
-          quantity -= whole
-        }
-        const partEntries = partsLeft.get(item.name) ?? []
-        while (quantity > 0 && partEntries.length) {
-          lines.push({ ...item, quantity: 1, onlySupplies: partEntries.shift()!.parts })
-          quantity -= 1
-        }
-        if (quantity > 0) lines.push({ ...item, quantity, reuse: true })
-        return lines
-      })
-      const restartedOrder: (string | number)[] = [
-        getNextProductionCode(productionRows),
-        updatedOrder[1],
-        updatedOrder[2],
-        nextPriority,
-        currentDateTime.date,
-        currentDateTime.time,
-        currentDateTime.date,
-        currentDateTime.time,
-        "Recibida",
-        "",
-        0,
-        "Sí",
-        JSON.stringify([{ status: "Recibida", date: currentDateTime.date, time: currentDateTime.time }]),
-        JSON.stringify(remadeItems),
-        "No",
-        String(updatedOrder[15] ?? ""),
-        "",
-      ]
-      productionRows.push(restartedOrder)
-
-      return {
-        ...current,
-        produccion: productionRows,
-        "producto-no-conforme": [
-          pncRecord,
-          ...(current["producto-no-conforme"] || []),
-        ],
-      }
+    const updatedOrder = [...order]
+    const history = parseProductionHistory(updatedOrder[12])
+    history.push({
+      status: nextStatus,
+      date: currentDateTime.date,
+      time: currentDateTime.time,
     })
-    setPncTarget(null)
-    setPncForm({})
-    setPncError("")
-    setPncFieldErrors({})
+    updatedOrder[4] = currentDateTime.date
+    updatedOrder[5] = currentDateTime.time
+    updatedOrder[6] = currentDateTime.date
+    updatedOrder[7] = currentDateTime.time
+    updatedOrder[8] = nextStatus
+    updatedOrder[9] = ""
+    updatedOrder[10] = 0
+    updatedOrder[11] = "Sí"
+    updatedOrder[12] = JSON.stringify(history)
+
+    const productionRows = rows.produccion || []
+    const nextPriority = Math.max(0, ...productionRows.map((row) => Number(row[3]) || 0)) + 1
+    // Damaged items are made again; unaffected products and additions are reused.
+    const wholeLeft = new Map<string, number>()
+    const partsLeft = new Map<string, PncEntry[]>()
+    for (const entry of entries) {
+      if (entry.whole) wholeLeft.set(entry.product, (wholeLeft.get(entry.product) ?? 0) + entry.quantity)
+      else partsLeft.set(entry.product, [...(partsLeft.get(entry.product) ?? []), entry])
+    }
+    const remadeItems: ProductionItem[] = getProductionOrderItems(updatedOrder).flatMap((item) => {
+      if (item.parentId) return [{ ...item, reuse: true }]
+      const lines: ProductionItem[] = []
+      let remaining = item.quantity
+      const whole = Math.min(remaining, wholeLeft.get(item.name) ?? 0)
+      if (whole) {
+        lines.push({ ...item, quantity: whole })
+        wholeLeft.set(item.name, (wholeLeft.get(item.name) ?? 0) - whole)
+        remaining -= whole
+      }
+      const partEntries = partsLeft.get(item.name) ?? []
+      while (remaining > 0 && partEntries.length) {
+        lines.push({ ...item, quantity: 1, onlySupplies: partEntries.shift()!.parts })
+        remaining -= 1
+      }
+      if (remaining > 0) lines.push({ ...item, quantity: remaining, reuse: true })
+      return lines
+    })
+    const restartedOrder: (string | number)[] = [
+      getNextProductionCode(productionRows),
+      updatedOrder[1],
+      updatedOrder[2],
+      nextPriority,
+      currentDateTime.date,
+      currentDateTime.time,
+      currentDateTime.date,
+      currentDateTime.time,
+      "Recibida",
+      "",
+      0,
+      "Sí",
+      JSON.stringify([{ status: "Recibida", date: currentDateTime.date, time: currentDateTime.time }]),
+      JSON.stringify(remadeItems),
+      "No",
+      String(updatedOrder[15] ?? ""),
+      "",
+    ]
+    pncRecord[0] = String(restartedOrder[0])
+
+    setPncSaving(true)
+    try {
+      const affectedProductionId = Number(order[PANEL_SYNC.produccion.idIndex])
+      const affectedProduction =
+        Number.isSafeInteger(affectedProductionId) && affectedProductionId > 0
+          ? { id: affectedProductionId, row: updatedOrder }
+          : undefined
+      const persisted = await savePncAndReplacement(
+        pncRecord,
+        restartedOrder,
+        affectedProduction,
+      )
+      setRows((current) => {
+        const nextProduction = [...(current.produccion || [])]
+        const sourceIndex = nextProduction.findIndex((row) => String(row[0]) === String(order[0]))
+        if (sourceIndex >= 0) nextProduction[sourceIndex] = updatedOrder
+        nextProduction.unshift(persisted.productionRow)
+        return {
+          ...current,
+          produccion: nextProduction,
+          "producto-no-conforme": [
+            persisted.pncRow,
+            ...(current["producto-no-conforme"] || []),
+          ],
+        }
+      })
+      setPncTarget(null)
+      setPncForm({})
+      setPncError("")
+      setPncFieldErrors({})
+    } catch (error) {
+      setPncError(`No se pudo registrar el producto no conforme ni su orden de reposición: ${(error as Error).message}`)
+    } finally {
+      setPncSaving(false)
+    }
   }
 
   const changeProductionStatus = async (
@@ -16391,6 +16512,7 @@ function AdminPanel({
                 )}
                 {formDataFields.map((f) => {
                 if (isPnc && modal.mode === "add" && !pncManual) return null
+                if (isPnc && !isView && f.key === "4") return null
                 // Insumo and supplier details have their own layout (supplyDetail, supplierDetail)
                 if (isView && (isSupply || isSupplier)) return null
                 if (isView && isPurchase) return null // the purchase ticket shows everything
@@ -20191,22 +20313,6 @@ function AdminPanel({
                         </select>
                         {pncFieldErrors["4"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["4"]}</span>}
                       </label>
-                      <label className={fieldLabel} style={{ color: t.muted }}>
-                        Fecha
-                        <input
-                          type="date"
-                          max={getCurrentDateTimeParts().date}
-                          value={pncForm["5"] || ""}
-                          onChange={(event) => {
-                            const today = getCurrentDateTimeParts().date
-                            updatePncField("5", event.target.value > today ? today : event.target.value)
-                          }}
-                          aria-invalid={!!pncFieldErrors["5"]}
-                          className="w-full min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
-                          style={pncStyle("5")}
-                        />
-                        {pncFieldErrors["5"] && <span role="alert" className="text-[10px]" style={{ color: C.red }}>{pncFieldErrors["5"]}</span>}
-                      </label>
                     </div>
 
                     {product && (
@@ -20410,11 +20516,11 @@ function AdminPanel({
           </div>
 
           <div className="flex flex-col-reverse gap-2 px-4 py-3 sm:flex-row sm:justify-end sm:px-6" style={{ borderTop: `1px solid ${t.border}` }}>
-            <button type="button" onClick={() => setPncTarget(null)} className="rounded-xl px-5 py-2.5 text-sm font-semibold cursor-pointer" style={{ background: t.input, color: t.muted }}>
+            <button type="button" disabled={pncSaving} onClick={() => setPncTarget(null)} className="rounded-xl px-5 py-2.5 text-sm font-semibold cursor-pointer disabled:cursor-default disabled:opacity-50" style={{ background: t.input, color: t.muted }}>
               Cancelar
             </button>
-            <button type="button" onClick={saveProductionPnc} className="rounded-xl px-5 py-2.5 text-sm font-bold cursor-pointer" style={{ background: C.red, color: "#fff", fontFamily: "Montserrat, sans-serif" }}>
-              Registrar y reiniciar orden
+            <button type="button" disabled={pncSaving} onClick={saveProductionPnc} className="rounded-xl px-5 py-2.5 text-sm font-bold cursor-pointer disabled:cursor-default disabled:opacity-50" style={{ background: C.red, color: "#fff", fontFamily: "Montserrat, sans-serif" }}>
+              {pncSaving ? "Guardando..." : "Registrar y crear orden de reposición"}
             </button>
           </div>
         </div>
