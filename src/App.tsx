@@ -242,8 +242,18 @@ const BEVERAGE_INFO: Record<string, { label: string; color: string }> = {
   Naranja: { label: "Naranja Postobón", color: "#F07C12" },
 }
 const BEVERAGE_ORDER = ["Coca-Cola", "Colombiana", "Pepsi", "Manzana", "Uva", "Naranja"]
-// Normalized "Gaseosa <sabor> (<tamaño>)" names with no stock (filled by loadMenu)
-const SOLD_OUT_SODAS = new Set<string>()
+// The sodas for sale (normalized "Gaseosa <sabor> (<tamaño>)" → its product's price and photo, and whether it's
+// sold out). Filled by loadMenu; empty = old data, every flavour × size sells at the size price
+const SODA_INFO = new Map<string, { precio: number; img: string; agotada: boolean }>()
+const sodaInfo = (flavor: string, sizeLabel: string) => SODA_INFO.get(normalizeName(`Gaseosa ${flavor} (${sizeLabel})`))
+// What one soda costs in the store: its product's price (old data: its size's)
+const sodaPrice = (flavor: string, size: { label: string; price: number }) => sodaInfo(flavor, size.label)?.precio || size.price
+// "Personal" / "1.5 L" / "400 ml" → millilitres, to order the size buttons
+const sizeMl = (label: string) => {
+  const m = label.match(/(\d+(?:[.,]\d+)?)\s*(ml|l)\b/i)
+  if (!m) return /personal/i.test(label) ? 400 : 99999
+  return parseFloat(m[1].replace(",", ".")) * (m[2].toLowerCase() === "l" ? 1000 : 1)
+}
 const beverageLabel = (flavor: string) => BEVERAGE_INFO[flavor]?.label ?? flavor
 // Product photos per flavour and bottle size: src/imports/bebidas/<sabor>-<personal|1500|2500|3000>.jpg
 // (a plain <sabor>.jpg still works as a single photo for every size)
@@ -272,7 +282,8 @@ const beverageImage = (flavor: string, sizeLabel?: string) => {
 }
 // The bottle photo for that flavour and size, or a bottle drawn in its colour while there is none
 const BeverageArt = ({ flavor, size }: { flavor: string; size?: string }) => {
-  const img = beverageImage(flavor, size)
+  // The photo uploaded to that soda's product, else the bundled bottle photo
+  const img = (size && sodaInfo(flavor, size)?.img) || beverageImage(flavor, size)
   if (img)
     return <img src={img} alt={`${beverageLabel(flavor)}${size ? ` ${size}` : ""}`} className="h-full w-full object-contain" />
   const color = BEVERAGE_INFO[flavor]?.color ?? C.mustard
@@ -1340,6 +1351,32 @@ function badgeSt(val: string | number) {
   return null
 }
 
+// Quantities typed as "0,5" or "0.5" (a number input drops the comma in some browsers); NaN if not a number
+const toDecimal = (value: string | number | undefined) => {
+  const text = String(value ?? "").trim().replace(",", ".")
+  return /^\d*\.?\d+$|^\d+\.$/.test(text) ? Number(text) : NaN
+}
+
+// How each stock movement origin (movimientos_stock.origen) reads in the insumo's history
+const STOCK_ORIGIN: Record<string, string> = {
+  SALDO_INICIAL: "Saldo inicial",
+  COMPRA: "Compra",
+  EDICION_COMPRA: "Compra editada",
+  ANULACION_COMPRA: "Compra anulada",
+  REACTIVACION_COMPRA: "Compra reactivada",
+  PERDIDA: "Pérdida",
+  EDICION_PERDIDA: "Pérdida editada",
+  DEVOLUCION_PERDIDA: "Devuelto a la compra",
+  PRODUCCION: "Producción",
+  AJUSTE: "Ajuste manual",
+}
+
+// Purchases and losses can't be dated before the shop opened ("Desde 2013 en Bello")
+const FIRST_DAY = "2013-01-01"
+
+// Highest unit cost / price accepted (the database keeps 10 digits before the decimals)
+const MAX_PRICE = 999_999_999
+
 function fmt(n: number) {
   return `$${n.toLocaleString("es-CO")}`
 }
@@ -1490,7 +1527,7 @@ const MOD_CFG: Record<string, ModConfig> = {
         type: "select",
         options: ["kg", "g", "L", "ml", "und", "paq"],
       },
-      { key: "3", label: "Costo estimado (opcional)", type: "number" },
+      { key: "3", label: "Costo unitario", type: "number" },
       { key: "4", label: "Stock actual", type: "number" },
       { key: "5", label: "Stock mínimo", type: "number" },
       // row[6] (old "Stock máximo") is no longer used; kept so later indexes don't shift
@@ -1564,6 +1601,8 @@ const MOD_CFG: Record<string, ModConfig> = {
   perdidas: {
     columns: ["Insumo", "Cantidad", "Motivo", "Responsable", "Fecha", "Estado"],
     fields: [
+      // The purchase it was lost from (row[10] = id_compra): chosen first, it fills the rest
+      { key: "10", label: "Compra", type: "select", options: [] },
       {
         key: "0",
         label: "Insumo",
@@ -1585,7 +1624,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [],
     noExport: true,
     noDelete: true,
-    hiddenCellIndexes: [5, 7, 8],
+    hiddenCellIndexes: [5, 7, 8, 10],
   },
   "cat-producto": {
     // No description: its cell (row[1]) shows how many products use the category
@@ -1625,7 +1664,6 @@ const MOD_CFG: Record<string, ModConfig> = {
           "Arepa Rellena",
           "Salsas",
           "Bebidas",
-          "Sabores de bebida",
           "Producto de insumo",
         ],
       },
@@ -1885,40 +1923,17 @@ const supplyAsProduct = (row: (string | number)[]): (string | number)[] => [
   String(row[11] || "Insumo producto con ficha técnica y control de inventario."),
 ]
 
-// Resale sodas: bought as the insumo «Gaseosa <sabor> (<tamaño>)» and sold as-is (finished product, no ficha técnica).
-// The name matches the order line the store sends ("Gaseosa Manzana (1.5 L)").
+// Resale sodas: each is a product of the category «Bebidas» named "Gaseosa <sabor> (<tamaño>)" (price, photo,
+// no ficha técnica) and is bought as the insumo with that same name (its stock). The name matches the order line
+// the store sends ("Gaseosa Manzana (1.5 L)").
 const SODA_RE = /^Gaseosa (.+) \((.+)\)$/
-const SODA_PRODUCT = "Gaseosas"
+const SODA_PRODUCT = "Bebidas"
+// A bought soda with this many units or fewer shows a "Pocas gaseosas" alert
+const SODA_LOW_STOCK = 3
 const isSodaName = (name: string | number | undefined) => SODA_RE.test(String(name ?? ""))
 const sodaImage = (name: string | number | undefined) => {
   const m = SODA_RE.exec(String(name ?? ""))
   return m ? beverageImage(m[1], m[2]) : undefined
-}
-// One soda as the store shows it; sells at its size's price (category «Bebidas»). insumo = its stock once bought
-const sodaAsProduct = (name: string, insumo: Row | undefined, products: Row[]): Row => {
-  const size = SODA_RE.exec(name)?.[2] ?? ""
-  const price = Number(products.find((p) => normalizeName(p[1]) === "bebidas" && String(p[0]) === size)?.[2]) || 0
-  return [
-    name,
-    SODA_PRODUCT,
-    price,
-    `Producto terminado: se compra y se vende igual, sin ficha técnica. ${
-      insumo ? `En stock: ${Number(insumo[4]) || 0} und.` : "Aún no se ha comprado: regístrala en Compras para tener stock."
-    }`,
-    String(insumo?.[12] || "Activo"),
-    "", "", "", "", "[]", "Disponible",
-  ]
-}
-// Productos lists every soda of the store (active flavours × active sizes), bought or not
-const withSodaProducts = (producto: Row[], insumos: Row[]): Row[] => {
-  const base = producto.filter((r) => r[1] !== SODA_PRODUCT)
-  const active = (category: string) =>
-    base.filter((p) => normalizeName(p[1]) === category && isActiveStatus(p[4])).map((p) => String(p[0]))
-  const names = active("sabores de bebida").flatMap((flavor) => active("bebidas").map((size) => `Gaseosa ${flavor} (${size})`))
-  return [
-    ...base,
-    ...names.map((name) => sodaAsProduct(name, insumos.find((i) => normalizeName(i[0]) === normalizeName(name)), base)),
-  ]
 }
 
 // ── Orders → production ───────────────────────────────────────────────────────
@@ -3198,7 +3213,7 @@ function AddToCartModal({
       BEVERAGE_SIZES.reduce(
         (sizeTotal, size) =>
           sizeTotal +
-          (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0) * size.price,
+          (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0) * sodaPrice(flavor, size),
         0,
       ),
     0,
@@ -3227,7 +3242,7 @@ function AddToCartModal({
       ).map((size) => ({
         name: `Gaseosa ${flavor} (${size.label})`,
         qty: addQtys[`Gaseosa ${flavor} ${size.id}`],
-        price: size.price,
+        price: sodaPrice(flavor, size),
       })),
     )
     onAdd(product, qty, selSauces, [...adds, ...beverages])
@@ -3412,7 +3427,12 @@ function AddToCartModal({
             </div>
           </div>
           )}
-          {customizationTab === "beverages" && (
+          {customizationTab === "beverages" && !BEVERAGES.length && (
+            <p className="rounded-xl px-3 py-4 text-center text-sm" style={{ background: dark ? "rgba(244,238,220,0.05)" : "rgba(30,30,30,0.04)", color: MUTED }}>
+              Por ahora no hay gaseosas disponibles.
+            </p>
+          )}
+          {customizationTab === "beverages" && BEVERAGES.length > 0 && (
           <div>
             {/* Size as visible buttons: the bottle photos below change with it */}
             <div
@@ -3450,7 +3470,12 @@ function AddToCartModal({
                 const size = selectedBeverageSize
                 const key = `Gaseosa ${flavor} ${size.id}`
                 const quantity = addQtys[key] || 0
-                const soldOut = SOLD_OUT_SODAS.has(normalizeName(`Gaseosa ${flavor} (${size.label})`))
+                const info = sodaInfo(flavor, size.label)
+                // Only the sodas that exist as products (that flavour may not come in this size)
+                if (SODA_INFO.size && !info) return null
+                const unavailable = info?.agotada ? "Agotada" : ""
+                const soldOut = !!unavailable
+                const price = sodaPrice(flavor, size)
                 return (
                   <div
                     key={flavor}
@@ -3481,7 +3506,7 @@ function AddToCartModal({
                       </span>
                       <div className="flex items-center justify-between gap-1">
                         <span className="text-[11px] font-semibold" style={{ color: soldOut ? C.red : quantity > 0 ? C.mustard : MUTED }}>
-                          {soldOut ? "Agotada" : quantity > 0 ? `+${fmt(size.price * quantity)}` : fmt(size.price)}
+                          {soldOut ? unavailable : quantity > 0 ? `+${fmt(price * quantity)}` : fmt(price)}
                         </span>
                         <div className="flex flex-shrink-0 items-center gap-1">
                           <button
@@ -3502,7 +3527,7 @@ function AddToCartModal({
                           <button
                             onClick={() => changeAdd(key, 1)}
                             disabled={soldOut}
-                            aria-label={soldOut ? `Gaseosa ${flavor} ${size.label} agotada` : `Agregar gaseosa ${flavor} ${size.label}`}
+                            aria-label={soldOut ? `Gaseosa ${flavor} ${size.label}: ${unavailable.toLowerCase()}` : `Agregar gaseosa ${flavor} ${size.label}`}
                             className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
                             style={{ background: C.mustard, color: "#fff" }}
                           >
@@ -4344,7 +4369,8 @@ const parsePurchaseLines = (value: string | number | undefined) =>
     .filter(([name]) => name)
     .map(([name, quantity, unitPrice]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0 }))
 
-const categorySpec = (path: string): SyncSpec => ({
+// reloads: the module whose rows show the category by name (a rename must reach them)
+const categorySpec = (path: string, reloads: string[]): SyncSpec => ({
   path,
   update: "PUT",
   idIndex: 3,
@@ -4352,6 +4378,7 @@ const categorySpec = (path: string): SyncSpec => ({
   toRow: (c) =>
     withId([c.nombre_categoria, c.descripcion || "", c.estado === "ACTIVO" ? "Activa" : "Inactiva"], 3, c.id_categoria),
   toBody: (row) => ({ nombre_categoria: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
+  reloads,
 })
 
 // Backend role names are uppercase (ADMINISTRADOR); the admin shows them as "Administrador"
@@ -4413,15 +4440,15 @@ const DB_SYNC: Record<string, SyncSpec> = {
       }
     },
   },
-  // [0 nombre, 1 categoría, 2 precio, 3 descripción, 4 estado, 5-9 ficha técnica, 10 disponibilidad]
-  // Ficha técnica and disponibilidad are not in the backend yet.
+  // [0 nombre, 1 categoría, 2 precio, 3 descripción, 4 estado, 5-9 ficha técnica, 10 disponibilidad, 11 id,
+  //  12 stock y 13 costo (solo cambian en las gaseosas: los mueven sus compras y ventas)]
   producto: {
     path: "/productos",
     update: "PATCH",
     idIndex: 11,
     idOf: (p) => p.id_insumo_producto,
-    toRow: (p) =>
-      withId(
+    toRow: (p) => {
+      const row = withId(
         [p.nombre, currentCategory(p.nombre_categoria), p.precio, p.descripcion || "", p.estado === "ACTIVO" ? "Activo" : "Inactivo",
           p.ficha?.nombre || `Ficha ${p.nombre}`, p.ficha?.version || "v1.0", p.ficha?.insumos_principales || "",
           p.ficha?.preparacion || "",
@@ -4429,7 +4456,11 @@ const DB_SYNC: Record<string, SyncSpec> = {
           "Disponible"],
         11,
         p.id_insumo_producto,
-      ),
+      )
+      row[12] = Number(p.stock) || 0
+      row[13] = Number(p.costo) || 0
+      return row
+    },
     toBody: async (row) => ({
       nombre: text(row[0]),
       id_categoria: await categoryIdByName("/categorias-productos", row[1]),
@@ -4437,8 +4468,10 @@ const DB_SYNC: Record<string, SyncSpec> = {
       descripcion: text(row[3]),
       estado: estadoOf(row[4]),
     }),
-    localOnly: (row) => row[1] === "Producto de insumo" || row[1] === SODA_PRODUCT,
+    localOnly: (row) => row[1] === "Producto de insumo",
     afterSave: (id, row) => {
+      // A soda has no ficha técnica
+      if (row[1] === SODA_PRODUCT) return Promise.resolve()
       let recipe: TechnicalIngredient[] = []
       try {
         recipe = JSON.parse(String(row[9] || "[]"))
@@ -4456,7 +4489,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       })
     },
   },
-  "cat-producto": categorySpec("/categorias-productos"),
+  "cat-producto": categorySpec("/categorias-productos", ["producto"]),
   // [0 nombre, 1 tipo doc, 2 documento, 3 teléfono, 4 correo, 5 dirección, 6 de local (Sí/No), 7 estado]
   // Customers who registered in the app also show up here (their e-mail is their login).
   clientes: {
@@ -4484,7 +4517,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
     }),
     reloads: ["usuarios"],
   },
-  "cat-insumos": categorySpec("/categorias-insumos"),
+  "cat-insumos": categorySpec("/categorias-insumos", ["insumos"]),
   // [0 nombre, 1 categoría, 2 unidad, 3 costo, 4 stock, 5 mínimo, 6 (sin uso), 7 producto de insumo,
   //  8-11 ficha técnica, 12 estado]. The ficha técnica texts are not in the backend yet.
   insumos: {
@@ -4540,28 +4573,22 @@ const DB_SYNC: Record<string, SyncSpec> = {
         c.id_compra,
       ),
     toBody: async (row) => {
-      const insumos = await api<DbRecord[]>("/insumos")
       const lines = parsePurchaseLines(row[6])
-      const find = (name: string) => insumos.find((i) => normalizeName(i.nombre) === normalizeName(name))
-      // A soda bought for the first time becomes an insumo (category «Bebidas», und, no ficha técnica)
-      const newSodas = [...new Set(lines.map((l) => l.name).filter((name) => isSodaName(name) && !find(name)))]
-      if (newSodas.length) {
-        const cats = await api<DbRecord[]>("/categorias-insumos")
-        const id_categoria =
-          cats.find((c) => normalizeName(c.nombre_categoria) === "bebidas")?.id_categoria ??
-          (await api<DbRecord>("/categorias-insumos", "POST", {
-            nombre_categoria: "Bebidas",
-            descripcion: "Gaseosas y bebidas que se compran para revender",
-            estado: "ACTIVO",
-          })).id_categoria
-        for (const nombre of newSodas)
-          insumos.push(
-            await api<DbRecord>("/insumos", "POST", { nombre, id_categoria, medida: "und", minimo: 0, tiene_ficha_tecnica: false, estado: "ACTIVO" }),
-          )
-      }
+      // A soda is bought as its product of «Bebidas» (its stock goes there), the rest as insumos
+      const [insumos, productos] = await Promise.all([
+        api<DbRecord[]>("/insumos"),
+        lines.some((l) => isSodaName(l.name)) ? api<DbRecord[]>("/productos") : Promise.resolve([] as DbRecord[]),
+      ])
+      const find = (name: string) =>
+        (isSodaName(name) ? productos : insumos).find((i) => normalizeName(i.nombre) === normalizeName(name))
       const items = lines.map((line) => {
         const insumo = find(line.name)
-        if (!insumo) throw new Error(`El insumo «${line.name}» no existe en la base de datos.`)
+        if (!insumo)
+          throw new Error(
+            isSodaName(line.name)
+              ? `La gaseosa «${line.name}» no existe en Productos → Bebidas.`
+              : `El insumo «${line.name}» no existe en la base de datos.`,
+          )
         return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice }
       })
       return {
@@ -4572,8 +4599,8 @@ const DB_SYNC: Record<string, SyncSpec> = {
       }
     },
     setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", { estado: isActiveStatus(row[5]) ? "REGISTRADA" : "ANULADA" }),
-    // cat-insumos: the first soda purchase may create «Bebidas»
-    reloads: ["insumos", "cat-insumos"],
+    // producto: a soda's stock and cost live in its product
+    reloads: ["insumos", "producto"],
   },
   // [0 insumo, 1 cantidad con unidad ("0.5 kg"), 2 motivo, 3 responsable, 4 fecha, 5 origen]
   // The backend takes the quantity out of the insumo's stock.
@@ -4582,24 +4609,33 @@ const DB_SYNC: Record<string, SyncSpec> = {
     update: "PUT",
     idIndex: 9,
     idOf: (p) => p.id_perdida,
-    toRow: (p) =>
-      withId(
+    // [.., 9 id, 10 id_compra (the purchase it was sent from)]
+    toRow: (p) => {
+      const row = withId(
         [p.insumo, `${p.cantidad} ${p.medida || ""}`.trim(), p.motivo || "", p.responsable || "", p.fecha, p.observacion || "",
           p.estado === "DEVUELTA" ? RETURNED_LOSS : p.cantidad_devuelta > 0 ? "Devuelta en parte" : "Registrada",
           p.motivo_devolucion || "", p.cantidad_devuelta ? `${p.cantidad_devuelta} ${p.medida || ""}`.trim() : ""],
         9,
         p.id_perdida,
-      ),
+      )
+      row[10] = p.id_compra ?? ""
+      return row
+    },
     toBody: async (row) => {
       const cantidad = parseFloat(String(row[1]).replace(",", "."))
       if (!(cantidad > 0)) throw new Error(`La cantidad «${row[1]}» no es válida.`)
       return {
-        id_insumo_producto: await idByName("/insumos", "nombre", "id_insumo_producto", row[0], "El insumo"),
+        // a soda sent to loss from its purchase is its product of «Bebidas»
+        id_insumo_producto: isSodaName(row[0])
+          ? await idByName("/productos", "nombre", "id_insumo_producto", row[0], "La gaseosa")
+          : await idByName("/insumos", "nombre", "id_insumo_producto", row[0], "El insumo"),
         cantidad,
         motivo: text(row[2]),
         responsable: text(row[3]),
         fecha: text(row[4]) || undefined,
         observacion: text(row[5]),
+        // Only set when sent from a purchase; an edit leaves the saved link as it is
+        id_compra: Number(row[10]) || undefined,
       }
     },
     // perdidas too: the new row gets its estado from the backend
@@ -4764,7 +4800,7 @@ const TABLE_FILTERS: Record<string, { label: string; index: number }[]> = {
   perdidas: [{ label: "Motivo", index: 2 }],
   "cat-producto": [{ label: "Estado", index: 2 }],
   producto: [{ label: "Categoría", index: 1 }, { label: "Estado", index: 4 }],
-  produccion: [{ label: "Estado", index: 8 }],
+  // produccion: day and status have their own controls (see GenericTable)
   "producto-no-conforme": [{ label: "Estado", index: 8 }],
   clientes: [{ label: "Estado", index: 7 }],
   ventas: [{ label: "Método de pago", index: 5 }, { label: "Estado del pedido", index: 10 }],
@@ -4793,16 +4829,36 @@ async function loadMenu() {
   const inCat = (cat: string) => items.filter((p) => p.categoria === cat)
   ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio })))
   SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
-  const flavors = inCat("Sabores de bebida").map((p) => p.nombre)
   const rank = (f: string) => (BEVERAGE_ORDER.indexOf(f) + 1 || 99)
-  BEVERAGES.splice(0, BEVERAGES.length, ...flavors.sort((a, b) => rank(a) - rank(b)))
-  // The customizer always needs at least one size, so keep the built-in ones if none are active
-  const sizes = inCat("Bebidas").map((p) => ({ id: p.nombre, label: p.nombre, price: p.precio }))
-  if (sizes.length) BEVERAGE_SIZES.splice(0, BEVERAGE_SIZES.length, ...sizes)
-  // Bought sodas without stock show «Agotada» (an older backend without this route just shows them all)
-  const soldOut = await api<string[]>("/catalogo/gaseosas-agotadas").catch(() => [])
-  SOLD_OUT_SODAS.clear()
-  soldOut.forEach((name) => SOLD_OUT_SODAS.add(normalizeName(name)))
+  // Each soda is a product of «Bebidas» named "Gaseosa <sabor> (<tamaño>)": flavours, sizes, prices and photos come from them
+  // (other drinks there, without that name, aren't offered as sodas)
+  const sodaProducts = inCat("Bebidas").flatMap((p) => {
+    const m = SODA_RE.exec(p.nombre.trim())
+    return m ? [{ name: p.nombre, flavor: m[1], size: m[2], price: p.precio, img: p.imagenes[0] ? imageUrl(p.imagenes[0]) : "" }] : []
+  })
+  // Bought sodas with no stock left (an older backend without this route sells them all)
+  const soldOut = new Set(
+    (await api<{ nombre: string; agotada: boolean }[]>("/catalogo/gaseosas").catch(() => []))
+      .filter((g) => g.agotada)
+      .map((g) => normalizeName(g.nombre)),
+  )
+  SODA_INFO.clear()
+  if (sodaProducts.length) {
+    sodaProducts.forEach((s) =>
+      SODA_INFO.set(normalizeName(`Gaseosa ${s.flavor} (${s.size})`), { precio: s.price, img: s.img, agotada: soldOut.has(normalizeName(s.name)) }),
+    )
+    BEVERAGES.splice(0, BEVERAGES.length, ...[...new Set(sodaProducts.map((s) => s.flavor))].sort((a, b) => rank(a) - rank(b)))
+    // Size buttons from small to big, each showing its cheapest soda
+    const sizes = [...new Set(sodaProducts.map((s) => s.size))].sort((a, b) => sizeMl(a) - sizeMl(b))
+    BEVERAGE_SIZES.splice(
+      0,
+      BEVERAGE_SIZES.length,
+      ...sizes.map((size) => ({ id: size, label: size, price: Math.min(...sodaProducts.filter((s) => s.size === size).map((s) => s.price)) })),
+    )
+  } else {
+    // No sodas for sale: the Bebidas tab says so
+    BEVERAGES.splice(0, BEVERAGES.length)
+  }
   PRODUCTS.splice(
     0,
     PRODUCTS.length,
@@ -9636,6 +9692,25 @@ function AdminPanel({
           }]
         : [],
     ),
+    // Bought sodas running out (their stock is on the product). shortcut: fixed threshold of SODA_LOW_STOCK und,
+    // until a soda gets its own minimum in its form
+    ...(rows.producto || []).flatMap((p, i) => {
+      const stock = Number(p[12]) || 0
+      const bought = (rows.compras || []).some((c) => parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === normalizeName(p[0])))
+      return p[1] === SODA_PRODUCT && isSodaName(p[0]) && isActiveStatus(p[4]) && bought && stock <= SODA_LOW_STOCK
+        ? [{
+            id: 7000 + i,
+            type: stock <= 0 ? ("danger" as const) : ("warn" as const),
+            title: stock <= 0 ? "Gaseosa agotada" : "Pocas gaseosas",
+            message: stock <= 0
+              ? `${String(p[0])} se agotó: en la tienda sale «Agotada» hasta la próxima compra.`
+              : `De ${String(p[0])} quedan ${stock} und.`,
+            module: "Productos",
+            time: "Ahora",
+            target: "producto" as const,
+          }]
+        : []
+    }),
     ...orderNotifications,
   ]
   const unreadNotifications = notifications.filter((n) => !readNotifications.has(n.id)).length
@@ -9667,9 +9742,6 @@ function AdminPanel({
               ...(current.producto || []).filter((row) => row[1] !== "Producto de insumo"),
               ...next.insumos.filter((row) => text(row[7]).toLowerCase() === "sí").map(supplyAsProduct),
             ]
-          // Sodas depend on both: flavours/sizes/prices (producto) and stock (insumos)
-          if (sec === "insumos" || sec === "producto")
-            next.producto = withSodaProducts(next.producto || [], next.insumos || [])
           return next
         })
         // Backend products come first in the table, so their row index matches the record order
@@ -9850,6 +9922,9 @@ function AdminPanel({
   const [paymentProofDraft, setPaymentProofDraft] = useState("")
   const [search, setSearch] = useState<Record<string, string>>({})
   const [tableFilter, setTableFilter] = useState<Record<string, string>>({})
+  // Órdenes de producción: filter by day ("YYYY-MM-DD") and by status ("" = all)
+  const [prodDay, setProdDay] = useState("")
+  const [prodStatus, setProdStatus] = useState("")
   const [pg, setPg] = useState<Record<string, number>>({})
   const [modal, setModal] = useState<{
     mode: ModalMode
@@ -9908,6 +9983,8 @@ function AdminPanel({
     responsable: string
     fecha: string
     origin: string
+    // The purchase's number: the loss is linked to it (id_compra)
+    purchaseId: string
   } | null>(null)
   const [lossError, setLossError] = useState("")
   const [purchaseNotice, setPurchaseNotice] = useState("")
@@ -10106,8 +10183,40 @@ function AdminPanel({
   }
 
   // Only real insumos (from the backend) can go in a ficha técnica
+  // "Compra a <proveedor> del <fecha larga>": the origin text a loss sent from that purchase shows
+  const purchaseLabel = (purchase: Row) => {
+    const date = new Date(`${String(purchase[1] ?? "").slice(0, 10)}T00:00:00`)
+    const label = Number.isNaN(date.getTime())
+      ? String(purchase[1] ?? "")
+      : date.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
+    return `Compra a ${String(purchase[0])} del ${label}`
+  }
+  // Did this loss come from that purchase? By its number (row[10] = id_compra); older losses only have the text
+  const isLossOfPurchase = (loss: Row, purchase: Row) =>
+    loss[10] ? String(loss[10]) === String(purchase[DB_SYNC.compras.idIndex]) : String(loss[5] ?? "") === purchaseLabel(purchase)
+  const isLossPurchaseAnnulled = (loss?: Row) => {
+    const matches = loss ? (rows.compras || []).filter((c) => isLossOfPurchase(loss, c)) : []
+    return matches.length > 0 && matches.every((c) => !isActiveStatus(c[5]))
+  }
+
+  // What carries stock: an insumo, or a resale soda (its product of «Bebidas»: row[12] stock, row[13] cost)
+  const sodaProductRow = (name: string | number) =>
+    isSodaName(name) ? (rows.producto || []).find((p) => p[1] === SODA_PRODUCT && normalizeName(p[0]) === normalizeName(name)) : undefined
+  const stockOf = (name: string | number) => {
+    const insumo = rows.insumos?.find((i) => normalizeName(i[0]) === normalizeName(name))
+    return insumo ? Number(insumo[4]) : Number(sodaProductRow(name)?.[12])
+  }
+  // Unit cost: the insumo's, or a soda's (on its product, set by its latest purchase)
+  const costOf = (name: string | number) => {
+    const insumo = rows.insumos?.find((i) => normalizeName(i[0]) === normalizeName(name))
+    return Number(insumo ? insumo[3] : sodaProductRow(name)?.[13]) || 0
+  }
+  // A soda only has its stock controlled once it has been bought
+  const wasBought = (name: string | number) =>
+    (rows.compras || []).some((c) => parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === normalizeName(name)))
+
   // Every soda for sale, named like the order line (Productos already lists them)
-  const sodaOptions = (rows.producto || []).filter((p) => p[1] === SODA_PRODUCT).map((p) => String(p[0]))
+  const sodaOptions = (rows.producto || []).filter((p) => p[1] === SODA_PRODUCT && isSodaName(p[0])).map((p) => String(p[0]))
 
   const getAvailableInsumos = () =>
     [...new Set((rows.insumos || []).map((row) => String(row[0] ?? "").trim()).filter(Boolean))].sort((a, b) =>
@@ -10370,12 +10479,12 @@ function AdminPanel({
           ? ["8", "9"]
           : ["8", "9", "10", "11"]),
       ],
-      producto: ["5", "6", "7", "8", "10", ...(mode === "add" ? ["2"] : [])],
+      producto: ["5", "6", "7", "8", "10", ...(mode === "add" && draft["1"] !== SODA_PRODUCT ? ["2"] : [])],
       produccion: ["0", "1", "15"],
       "producto-no-conforme": ["0", "1", "2", "5", "6"],
       compras: ["2", "3", "4"],
-      // "Origen" is only filled when the loss is sent from a purchase
-      perdidas: ["5"],
+      // "Origen" is filled from the purchase; an old loss without a purchase can still be edited
+      perdidas: ["5", ...(mode === "edit" && !draft["10"] ? ["10"] : [])],
       "cat-insumos": ["1"],
       // 4 (modalidad) and 7 (estado de pago) are derived from the payment method
       pedidos: ["1", "4", "5", "7", "9", "11"],
@@ -10400,22 +10509,21 @@ function AdminPanel({
 
   // A loss sent from a purchase ("Compra a X del 17 de octubre de 2026") can't exceed what that
   // purchase brought, minus its other losses of the same insumo; null when it isn't from a purchase
-  const purchaseLossMax = (origin: string, insumo: string, exceptIdx: number | null) => {
-    if (!origin.trim()) return null
-    const purchase = (rows.compras || []).find((p) => {
-      const date = new Date(`${String(p[1] ?? "").slice(0, 10)}T00:00:00`)
-      const label = Number.isNaN(date.getTime())
-        ? String(p[1] ?? "")
-        : date.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
-      return `Compra a ${String(p[0])} del ${label}` === origin.trim() &&
-        parsePurchaseLines(p[6]).some((i) => i.name === insumo)
-    })
+  const purchaseLossMax = (origin: string, insumo: string, exceptIdx: number | null, purchaseId?: string | number) => {
+    if (!origin.trim() && !purchaseId) return null
+    // The purchase chosen in the form, or the one the edited loss knows by number; else found by the origin text
+    const linked = purchaseId || (exceptIdx !== null ? rows.perdidas?.[exceptIdx]?.[10] : undefined)
+    const purchase = (rows.compras || []).find(
+      (p) =>
+        (linked ? String(p[DB_SYNC.compras.idIndex]) === String(linked) : purchaseLabel(p) === origin.trim()) &&
+        parsePurchaseLines(p[6]).some((i) => i.name === insumo),
+    )
     if (!purchase) return null
     const bought = parsePurchaseLines(purchase[6])
       .filter((i) => i.name === insumo)
       .reduce((sum, i) => sum + i.quantity, 0)
     const lostElsewhere = (rows.perdidas || [])
-      .filter((l, idx) => idx !== exceptIdx && !isReturnedLoss(l) && String(l[5] ?? "") === origin && String(l[0]) === insumo)
+      .filter((l, idx) => idx !== exceptIdx && !isReturnedLoss(l) && isLossOfPurchase(l, purchase) && String(l[0]) === insumo)
       .reduce((sum, l) => sum + (parseFloat(String(l[1])) || 0), 0)
     return Math.max(0, bought - lostElsewhere)
   }
@@ -10494,9 +10602,14 @@ function AdminPanel({
         (sec === "proveedores" && ["2", "13"].includes(key))) {
       return EMAIL_PATTERN.test(trimmed) ? "" : "Escribe un correo electrónico válido."
     }
+    // Colombian numbers have 10 digits: mobile starts with 3, landline with 60
+    if (sec === "proveedores" && ["3", "12"].includes(key)) {
+      return /^(3\d{9}|60\d{8})$/.test(digitsOnly(trimmed))
+        ? ""
+        : "Escribe un teléfono de 10 dígitos: celular que empiece por 3 o fijo que empiece por 60."
+    }
     if ((sec === "clientes" && key === "3") ||
-        (sec === "usuarios" && ["9", "12"].includes(key)) ||
-        (sec === "proveedores" && ["3", "12"].includes(key))) {
+        (sec === "usuarios" && ["9", "12"].includes(key))) {
       return validatePhoneNumber(trimmed)
     }
     if (sec === "roles" && key === "0") {
@@ -10522,20 +10635,34 @@ function AdminPanel({
     if (sec === "perdidas" && key === "4" && trimmed > getCurrentDateTimeParts().date) {
       return "La fecha de la pérdida no puede ser posterior a hoy."
     }
+    // Nothing can be lost from a purchase before it arrived
+    if (sec === "perdidas" && key === "4" && draft["10"]) {
+      const purchase = (rows.compras || []).find((c) => String(c[DB_SYNC.compras.idIndex]) === String(draft["10"]))
+      if (purchase && trimmed < String(purchase[1]).slice(0, 10))
+        return `La pérdida no puede ser anterior a la compra (${String(purchase[1]).slice(0, 10)}).`
+    }
     if (sec === "perdidas" && key === "1") {
       const qty = parseFloat(trimmed.replace(",", "."))
       if (!(qty > 0)) return "Escribe cuánto se perdió."
       const supply = (rows.insumos || []).find((r) => String(r[0]) === String(draft["0"] ?? ""))
-      const stock = Number(supply?.[4] ?? 0)
-      const fromPurchase = purchaseLossMax(String(draft["5"] ?? ""), String(draft["0"] ?? ""), mode === "edit" ? modal.idx : null)
+      // an insumo, or a soda lost from its purchase (its stock is on its product)
+      const stock = supply ? Number(supply[4] ?? 0) : stockOf(String(draft["0"] ?? ""))
+      const fromPurchase = purchaseLossMax(String(draft["5"] ?? ""), String(draft["0"] ?? ""), mode === "edit" ? modal.idx : null, draft["10"])
       if (fromPurchase !== null && qty > fromPurchase)
         return `Viene de una compra: no puede ser más de ${fromPurchase.toLocaleString("es-CO")} ${String(supply?.[2] ?? "und")} (lo comprado menos lo ya perdido).`
-      // On edit the loss was already taken out of stock
-      if (mode === "add" && supply && qty > stock)
-        return `No hay tanto en stock: quedan ${stock.toLocaleString("es-CO")} ${String(supply[2] ?? "und")}.`
+      // On edit, what this loss already took out of the same insumo is available again
+      const before = mode === "edit" && modal.idx !== null ? rows.perdidas?.[modal.idx] : undefined
+      const alreadyTaken =
+        before && String(before[0]) === String(draft["0"] ?? "") ? parseFloat(String(before[1]).replace(",", ".")) || 0 : 0
+      const available = Math.round((stock + alreadyTaken) * 1000) / 1000
+      if ((supply || Number.isFinite(stock)) && qty > available)
+        return `No hay tanto en stock: ${mode === "edit" ? "puedes registrar hasta" : "quedan"} ${available.toLocaleString("es-CO")} ${String(supply?.[2] ?? "und")}.`
     }
     if (sec === "compras" && key === "1" && trimmed > getCurrentDateTimeParts().date) {
       return "La fecha de compra no puede ser posterior a hoy."
+    }
+    if ((sec === "compras" && key === "1") || (sec === "perdidas" && key === "4")) {
+      if (trimmed < FIRST_DAY) return "La fecha no puede ser anterior a 2013: el negocio abrió ese año."
     }
     return ""
   }
@@ -10786,6 +10913,12 @@ function AdminPanel({
       nextForm["9"] = String(row[9] ?? "[]")
       nextForm["10"] = String(row[10] ?? "Disponible")
       setTechnicalSheetError("")
+      // A soda is edited as flavour + size ("Gaseosa Coca-Cola (1.5 L)" → "Coca-Cola" and "1.5 L")
+      const soda = row[1] === SODA_PRODUCT ? SODA_RE.exec(String(row[0])) : null
+      if (soda) {
+        nextForm["0"] = soda[1]
+        nextForm.sodaSize = soda[2]
+      }
     }
     if (sec === "pedidos") {
       const orderLines = getAdminOrderLines(row)
@@ -10800,10 +10933,20 @@ function AdminPanel({
     setTouchedFields({})
     setPedidoProductoSelect("")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
-    setImgPreview(sec === "producto" ? prodImgs[idx] || sodaImage(rows.producto?.[idx]?.[0]) || "" : "")
+    // Only a real photo: the bundled bottle of a soda is just shown, never saved as its photo
+    setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
     setModal({ mode: "edit", section: sec, idx })
   }
+  // Stock history of the insumo open in "Ver detalle" (loaded when it opens)
+  const [stockMoves, setStockMoves] = useState<{ id: string; rows: DbRecord[] | null; error?: string } | null>(null)
   const openView = (sec: string, idx: number) => {
+    const insumoId = sec === "insumos" ? String(rows.insumos?.[idx]?.[DB_SYNC.insumos.idIndex] ?? "") : ""
+    if (insumoId) {
+      setStockMoves({ id: insumoId, rows: null })
+      api<DbRecord[]>(`/movimientos-stock/${insumoId}`)
+        .then((list) => setStockMoves((cur) => (cur?.id === insumoId ? { id: insumoId, rows: list } : cur)))
+        .catch((err) => setStockMoves((cur) => (cur?.id === insumoId ? { ...cur, error: `No se pudo cargar el historial: ${(err as Error).message}` } : cur)))
+    }
     setImgPreview(sec === "producto" ? prodImgs[idx] || sodaImage(rows.producto?.[idx]?.[0]) || "" : "")
     setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
     if (sec === "producto") {
@@ -10862,8 +11005,14 @@ function AdminPanel({
       if (dup) e["0"] = `Ya existe el insumo «${String(dup[0])}».`
       if (!v("1")) e["1"] = "Selecciona la categoría."
       if (!v("2")) e["2"] = "Selecciona la unidad de medida."
-      // Optional estimate: the first purchase sets the real cost
-      if (modal.mode === "add" && v("3") && !(n("3") > 0)) e["3"] = "El costo debe ser mayor que 0."
+      // Changing kg → g would turn 5 kg into "5 g": the unit is fixed once there is stock or purchases
+      const before = modal.mode === "edit" && modal.idx !== null ? rows.insumos?.[modal.idx] : undefined
+      if (
+        before && v("2") && v("2") !== String(before[2]) &&
+        (Number(before[4]) > 0 ||
+          (rows.compras || []).some((c) => parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === normalizeName(before[0]))))
+      )
+        e["2"] = `No puedes cambiar la unidad: «${String(before[0])}» ya tiene stock o compras en ${String(before[2])}. Si lo necesitas en otra unidad, crea un insumo nuevo.`
       if (modal.mode !== "add" && v("4") && !(n("4") >= 0))
         e["4"] = "El stock actual no puede ser negativo."
       if (!v("5")) e["5"] = "Escribe el stock mínimo."
@@ -10914,7 +11063,7 @@ function AdminPanel({
       // Sauces and drink flavors are included free, so they may cost 0
       const minPrice = ["Salsas", "Sabores de bebida"].includes(v("1")) ? 0 : 1
       if (!v("2")) {
-        if (modal.mode !== "add") e["2"] = "Escribe el precio."
+        if (modal.mode !== "add" || v("1") === SODA_PRODUCT) e["2"] = "Escribe el precio."
       } else if (!(n("2") >= minPrice))
         e["2"] = minPrice ? "El precio debe ser mayor que 0." : "El precio no puede ser negativo."
       else if (!Number.isInteger(n("2"))) e["2"] = "El precio debe ser un valor entero, sin decimales."
@@ -10977,7 +11126,7 @@ function AdminPanel({
     const id = row?.[DB_SYNC.perdidas.idIndex]
     const reason = String(lossReturnReason ?? "").trim()
     const lost = parseFloat(String(row?.[1] ?? "")) || 0
-    const qty = Number(lossReturnQty)
+    const qty = toDecimal(lossReturnQty)
     if (!(qty > 0)) return setLossReturnError("Escribe cuánto se devuelve a la compra.")
     if (qty > lost) return setLossReturnError(`No puedes devolver más de lo perdido: máximo ${lost.toLocaleString("es-CO")}.`)
     if (reason.length < 3) return setLossReturnError("Escribe por qué se devuelve a la compra.")
@@ -11121,6 +11270,19 @@ function AdminPanel({
       if (previousRow && String(previousRow[9] ?? "[]") !== serializedRecipe) {
         newRow[6] = nextTechVersion(String(previousRow[6] ?? ""))
       }
+      // A drink (category «Bebidas») has no ficha técnica. With a size it's a soda of the store:
+      // named "Gaseosa <sabor> (<tamaño>)" (links it to its purchases and the store); without one, as typed
+      if (newRow[1] === SODA_PRODUCT) {
+        // "(" or ")" would break the "Gaseosa X (Y)" name
+        const size = String(formData.sodaSize ?? "").replace(/[()]/g, "").trim()
+        if (size) {
+          const flavor = String(formData["0"] ?? "").trim().replace(/^gaseosa\s+/i, "")
+          newRow[0] = `Gaseosa ${flavor} (${size})`
+          const dup = (rows.producto || []).find((p, i) => i !== modal.idx && normalizeName(p[0]) === normalizeName(newRow[0]))
+          if (dup) return setFormFieldErrors((current) => ({ ...current, sodaSize: `Ya existe «${String(dup[0])}».` }))
+        }
+        newRow[9] = "[]"
+      }
     }
 
     if (sec === "insumos") {
@@ -11260,6 +11422,11 @@ function AdminPanel({
     // Keep the backend id so the edit updates the same record
     const idIndex = syncIdIndex(sec)
     if (idIndex !== undefined) newRow[idIndex] = previousRow?.[idIndex] ?? ""
+    // A product's stock and cost aren't in its form (purchases and sales move them)
+    if (sec === "producto") {
+      newRow[12] = previousRow?.[12] ?? 0
+      newRow[13] = previousRow?.[13] ?? 0
+    }
 
     // Suppliers picked in the insumo form get it on their "insumos que suministra" list (row[7])
     // and the unpicked ones lose it, so it shows in Proveedores and in that supplier's purchases
@@ -11276,6 +11443,16 @@ function AdminPanel({
         if (next.join(", ") === list.join(", ")) continue
         const updated = [...supplier]
         updated[7] = next.join(", ")
+        supplierChanges.set(supplier, updated)
+      }
+    }
+    // A soda renamed in Productos keeps its place in its suppliers' lists (so they can still sell it)
+    if (sec === "producto" && previousRow && isSodaName(previousRow[0]) && normalizeName(previousRow[0]) !== normalizeName(newRow[0])) {
+      for (const supplier of rows.proveedores || []) {
+        const list = splitNames(supplier[7])
+        if (!list.some((n) => normalizeName(n) === normalizeName(previousRow[0]))) continue
+        const updated = [...supplier]
+        updated[7] = list.map((n) => (normalizeName(n) === normalizeName(previousRow[0]) ? String(newRow[0]) : n)).join(", ")
         supplierChanges.set(supplier, updated)
       }
     }
@@ -11363,25 +11540,26 @@ function AdminPanel({
     })
     // The photo is sent only when it changed (new upload or new URL)
     const previousImg = modal.idx !== null ? prodImgs[modal.idx] : ""
+    const savePhoto = sec === "producto" && imgPreview && imgPreview !== previousImg
     syncRow(
       sec,
       newRow,
       modal.mode === "add",
       false,
-      sec === "producto" && imgPreview && imgPreview !== previousImg
-        ? (id) => api(`/productos/${id}/imagen`, "PUT", { imagen: imgPreview })
-        : sec === "insumos" && supplierChanges.size
-          ? // only once the insumo is saved: update the suppliers' lists here and in the database
-            async () => {
-              setRows((current) => ({
-                ...current,
-                proveedores: (current.proveedores || []).map((supplier) => supplierChanges.get(supplier) ?? supplier),
-              }))
-              supplierChanges.forEach((updated) => {
-                if (updated[DB_SYNC.proveedores.idIndex]) syncRow("proveedores", updated, false)
-              })
-            }
-          : undefined,
+      savePhoto || supplierChanges.size
+        ? // only once the record is saved: its photo, then the suppliers' lists (here and in the database)
+          async (id) => {
+            if (savePhoto) await api(`/productos/${id}/imagen`, "PUT", { imagen: imgPreview })
+            if (!supplierChanges.size) return
+            setRows((current) => ({
+              ...current,
+              proveedores: (current.proveedores || []).map((supplier) => supplierChanges.get(supplier) ?? supplier),
+            }))
+            supplierChanges.forEach((updated) => {
+              if (updated[DB_SYNC.proveedores.idIndex]) syncRow("proveedores", updated, false)
+            })
+          }
+        : undefined,
     )
     if (sec === "producto" && imgPreview) {
       const imageIndex = modal.mode === "add" ? 0 : modal.idx!
@@ -11486,6 +11664,24 @@ function AdminPanel({
         reason:
           "El registro ya no existe o fue eliminado por otra acción. Actualiza la lista para verificar el estado actual.",
       }
+    }
+
+    // A soda keeps its purchase history: once bought it can only be annulled
+    if (sec === "producto" && row[1] === SODA_PRODUCT) {
+      const bought = (rows.compras || []).filter((c) =>
+        parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === normalizeName(recordName)),
+      ).length
+      return bought
+        ? {
+            allowed: false,
+            targetLabel: `la gaseosa «${recordName}»`,
+            reason: `Tiene ${bought} ${bought === 1 ? "compra registrada" : "compras registradas"}: para no perder ese historial no se puede eliminar. Si ya no la vendes, anúlala.`,
+          }
+        : {
+            allowed: true,
+            targetLabel: `la gaseosa «${recordName}»`,
+            reason: "Nunca se ha comprado: se quita de Productos y de la tienda.",
+          }
     }
 
     if (sec === "clientes") {
@@ -11685,6 +11881,21 @@ function AdminPanel({
     }
 
     if (sec === "compras") {
+      // Annulling takes back what it added: not possible if part of it was already used (production, losses)
+      const bought = new Map<string, number>()
+      parsePurchaseLines(row[6]).forEach((l) => bought.set(l.name, (bought.get(l.name) || 0) + l.quantity))
+      const used = [...bought].flatMap(([name, quantity]) => {
+        // an insumo, or a soda (its stock is on its product)
+        const stock = stockOf(name)
+        const unit = isSodaName(name) ? "und" : String(rows.insumos?.find((i) => normalizeName(i[0]) === normalizeName(name))?.[2] ?? "")
+        return Number.isFinite(stock) && stock < quantity ? [`de «${name}» quedan ${stock} ${unit} y la compra sumó ${quantity}`] : []
+      })
+      if (used.length)
+        return {
+          allowed: false,
+          targetLabel,
+          reason: `Parte de lo comprado ya se usó en producción o pérdidas: ${used.join("; ")}. Anularla descuadraría el inventario.`,
+        }
       return {
         allowed: true,
         targetLabel,
@@ -12288,12 +12499,11 @@ function AdminPanel({
           }
           continue
         }
-        // A resale soda is its own insumo: one sold = one out of stock (only once it has been bought)
+        // A resale soda carries its own stock (its product): one sold = one out, once it has ever been bought
         if (isSodaName(item.name)) {
-          const soda = rows.insumos?.find((candidate) => candidate[0] === item.name)
-          if (soda) {
+          if (wasBought(item.name)) {
             const current = requiredSupplies.get(item.name)
-            requiredSupplies.set(item.name, { quantity: (current?.quantity ?? 0) + item.quantity, unit: String(soda[2] || "und") })
+            requiredSupplies.set(item.name, { quantity: (current?.quantity ?? 0) + item.quantity, unit: "und" })
           }
           continue
         }
@@ -12313,8 +12523,7 @@ function AdminPanel({
         }
       }
       for (const [name, requirement] of requiredSupplies) {
-        const supply = rows.insumos?.find((candidate) => candidate[0] === name)
-        const stock = Number(supply?.[4])
+        const stock = stockOf(name)
         if (!Number.isFinite(stock) || stock < requirement.quantity) {
           window.alert(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
           return false
@@ -12648,8 +12857,7 @@ function AdminPanel({
   }
   // Pérdidas row: [0 insumo, 1 "0.5 kg", 4 fecha]; valued at the insumo's unit cost (fully returned = no loss)
   const lossValue = (r: (string | number)[]) =>
-    isReturnedLoss(r) ? 0 : (parseFloat(String(r[1] ?? "").replace(",", ".")) || 0) *
-    (Number((rows.insumos || []).find((i) => normalizeName(i[0]) === normalizeName(r[0]))?.[3]) || 0)
+    isReturnedLoss(r) ? 0 : (parseFloat(String(r[1] ?? "").replace(",", ".")) || 0) * costOf(r[0])
   const sumIn = (start: Date, end: Date) => ({
     sales: validSales.filter((r) => within(r[3], start, end)).reduce((t, r) => t + saleTotal(r), 0),
     losses: (rows.perdidas || []).filter((r) => within(r[4], start, end)).reduce((t, r) => t + lossValue(r), 0),
@@ -13270,14 +13478,20 @@ function AdminPanel({
     // Stored as "<cell index>::<value>"
     const filterValue = tableFilter[section] || ""
     const [filterCell, filterText] = filterValue ? filterValue.split("::") : []
-    const filtered = sRows.filter(
-        ({ row }) =>
-          (!q || row.some((cell) => String(cell).toLowerCase().includes(q))) &&
-          (!filterValue ||
-            (filterCell === "low"
-              ? Number(row[4]) <= Number(row[5])
-              : String(row[Number(filterCell)] ?? "").trim() === filterText)),
-      )
+    const isProductionList = section === "produccion"
+    // Production orders: [4] creation date "YYYY-MM-DD…", [8] status (empty = Recibida)
+    const orderStatus = (row: Row) => String(row[8] || "Recibida")
+    const matchesSearch = (row: Row) =>
+      // Ignores accents and case: «lacteos» finds «Lácteos»
+      (!q || row.some((cell) => normalizeName(cell).includes(normalizeName(q)))) &&
+      (!filterValue ||
+        (filterCell === "low"
+          ? Number(row[4]) <= Number(row[5])
+          : String(row[Number(filterCell)] ?? "").trim() === filterText)) &&
+      (!isProductionList || !prodDay || String(row[4] ?? "").slice(0, 10) === prodDay)
+    // Status counts follow the search and the day, so each button says how many it would show
+    const beforeStatus = sRows.filter(({ row }) => matchesSearch(row))
+    const filtered = beforeStatus.filter(({ row }) => !isProductionList || !prodStatus || orderStatus(row) === prodStatus)
     const cur = pg[section] || 0
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
     const pageRows = filtered.slice(cur * PAGE_SIZE, (cur + 1) * PAGE_SIZE)
@@ -13325,8 +13539,9 @@ function AdminPanel({
         `"${String(value).replace(/"/g, '""')}"`
       const exportData = filtered.map(({ row }) => getDisplayCells(row))
       const csv = [visibleColumns, ...exportData]
-        .map((line) => line.map(csvCell).join(","))
-        .join("\n")
+        // ";" because Excel in Spanish (Colombia) uses "," for decimals and ";" between columns
+        .map((line) => line.map(csvCell).join(";"))
+        .join("\r\n")
       const blob = new Blob(["\ufeff" + csv], {
         type: "text/csv;charset=utf-8;",
       })
@@ -13411,6 +13626,25 @@ function AdminPanel({
     }
 
     // Product categories: how many products belong to each one (in place of the old description)
+    // A soda's price cell: sale price, plus what it cost to buy and its stock (purchases move those, not the price)
+    const renderSodaPrice = (row: Row) => {
+      const price = Number(row[2]) || 0
+      const cost = Number(row[13]) || 0
+      return (
+        <div className="flex flex-col gap-0.5">
+          <span style={{ color: t.text }}>{price > 0 ? fmt(price) : "Sin precio"}</span>
+          <span className="text-[10px]" style={{ color: t.muted }}>
+            {cost ? `Costo ${fmt(cost)}` : "Sin compras"} · {Number(row[12]) || 0} und
+          </span>
+          {cost > 0 && cost >= price && (
+            <span className="text-[10px] font-semibold" style={{ color: C.red }}>
+              ⚠ Se vende {price === cost ? "a lo mismo que" : "por debajo de lo que"} cuesta
+            </span>
+          )}
+        </div>
+      )
+    }
+
     const renderCategoryProductCount = (row: Row) => {
       const count = getCategoryRecords("cat-producto", String(row[0] ?? "")).length
       return (
@@ -13497,7 +13731,7 @@ function AdminPanel({
         section === "usuarios" &&
         String(rows.usuarios?.[rowIndex]?.[8] ?? "") === "Principal"
       const deleteBlocked = !deleteAssessment.allowed
-      // Resale sodas come from Insumos/Compras: in Productos they're view-only
+      // Sodas (category «Gaseosas») are the only products that can be deleted
       const isSodaProduct = section === "producto" && rows.producto?.[rowIndex]?.[1] === SODA_PRODUCT
       const deleteButton = (
         <button
@@ -13533,7 +13767,7 @@ function AdminPanel({
           >
             {Ico.eye}
           </button>
-          {!isAnulled && !isSodaProduct && canDo(section, "EDITAR") && !(section === "perdidas" && isReturnedLoss(rows.perdidas?.[rowIndex])) &&
+          {!isAnulled && canDo(section, "EDITAR") && !(section === "perdidas" && isReturnedLoss(rows.perdidas?.[rowIndex])) &&
             // An annulled purchase is history: not editable (its stock was already taken back)
             !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) && (
             <button
@@ -13549,7 +13783,7 @@ function AdminPanel({
           )}
           {section === "perdidas" && canDo(section, "EDITAR") && (() => {
             const lossRow = rows.perdidas?.[rowIndex]
-            if (!String(lossRow?.[5] ?? "").startsWith("Compra a ") || isReturnedLoss(lossRow)) return null
+            if (!String(lossRow?.[5] ?? "").startsWith("Compra a ") || isReturnedLoss(lossRow) || isLossPurchaseAnnulled(lossRow)) return null
             return (
               <button
                 type="button"
@@ -13569,7 +13803,7 @@ function AdminPanel({
               </button>
             )
           })()}
-          {cfg.statusIndex !== undefined && section !== "produccion" && !isSodaProduct && canDo(section, "ELIMINAR") && (() => {
+          {cfg.statusIndex !== undefined && section !== "produccion" && canDo(section, "ELIMINAR") && (() => {
             const statusRow = rows[section]?.[rowIndex]
             const entity = String(statusRow?.[0] ?? "registro")
             const active = isStatusActive(statusRow?.[cfg.statusIndex!] ?? "Activo")
@@ -13604,7 +13838,8 @@ function AdminPanel({
           })()}
           {!canDo(section, "ELIMINAR") ? null : cfg.statusIndex !== undefined ? (
             section === "producto" ? (
-              null
+              // Of the products only a soda can be deleted (while it has never been bought)
+              isSodaProduct ? deleteButton : null
             ) : (
               !isPrincipalAdmin &&
               !noDelete &&
@@ -13715,6 +13950,55 @@ function AdminPanel({
               ))}
             </select>
           )}
+          {isProductionList && (
+            <div
+              className="flex items-center gap-1.5 rounded-xl px-3 py-1.5"
+              style={{ background: prodDay ? `${C.mustard}18` : t.input, border: `1px solid ${prodDay ? C.mustard : t.inputB}` }}
+            >
+              <label htmlFor="production-day" className="text-xs font-semibold" style={{ color: prodDay ? C.mustard : t.muted }}>
+                Día
+              </label>
+              <input
+                id="production-day"
+                type="date"
+                value={prodDay}
+                onChange={(event) => {
+                  setProdDay(event.target.value)
+                  setP(0)
+                }}
+                className="cursor-pointer bg-transparent text-xs outline-none"
+                style={{ color: t.text }}
+              />
+              {prodDay !== getCurrentDateTimeParts().date && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProdDay(getCurrentDateTimeParts().date)
+                    setP(0)
+                  }}
+                  className="cursor-pointer rounded-lg px-2 py-0.5 text-[11px] font-bold"
+                  style={{ background: `${C.mustard}18`, color: C.mustard }}
+                >
+                  Hoy
+                </button>
+              )}
+              {prodDay && (
+                <button
+                  type="button"
+                  aria-label="Ver todos los días"
+                  title="Ver todos los días"
+                  onClick={() => {
+                    setProdDay("")
+                    setP(0)
+                  }}
+                  className="cursor-pointer px-1 text-sm"
+                  style={{ color: t.muted }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          )}
           {/* Short search on the left, action buttons pushed to the right */}
           <div className="hidden sm:block sm:flex-1" />
           {section === "perdidas" && (
@@ -13751,6 +14035,40 @@ function AdminPanel({
             </button>
           )}
         </div>
+        {isProductionList && (
+          // One button per status with how many orders it has (for the search and day chosen)
+          <div role="radiogroup" aria-label="Filtrar por estado" className="-mt-1 mb-4 flex flex-wrap gap-1.5">
+            {[["", "Todos"] as const, ...PRODUCTION_STATUSES.map((status) => [status, status] as const)].map(([value, label]) => {
+              const on = prodStatus === value
+              const count = value ? beforeStatus.filter(({ row }) => orderStatus(row) === value).length : beforeStatus.length
+              const badge = value ? badgeSt(value) : null
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  onClick={() => {
+                    setProdStatus(value)
+                    setP(0)
+                  }}
+                  className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
+                  style={
+                    on
+                      ? { background: C.mustard, color: "#fff", border: `1px solid ${C.mustard}` }
+                      : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }
+                  }
+                >
+                  {badge && !on && <span className="h-2 w-2 rounded-full" style={{ background: badge.color }} />}
+                  {label}
+                  <span className="rounded-full px-1.5 text-[10px] font-bold" style={{ background: on ? "rgba(255,255,255,0.25)" : t.card }}>
+                    {count}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
 
         <div
           className="min-w-0 overflow-hidden rounded-2xl"
@@ -13881,6 +14199,8 @@ function AdminPanel({
                           >
                             {rowCellIndex === cfg.statusIndex && !isPrincipalAdmin ? (
                               renderStatusControl(originalIndex, rowCellIndex)
+                            ) : isProducto && rowCellIndex === 2 && isSodaName(row[0]) ? (
+                              renderSodaPrice(row)
                             ) : section === "cat-producto" && rowCellIndex === 1 ? (
                               renderCategoryProductCount(row)
                             ) : cellIndex === 0 && (isSupplyProduct || isLocalClient || isSuperAdmin || isLow || section === "cat-insumos") ? (
@@ -13991,6 +14311,8 @@ function AdminPanel({
                             >
                               {rowCellIndex === cfg.statusIndex && !isPrincipalAdmin ? (
                                 renderStatusControl(originalIndex, rowCellIndex)
+                              ) : isProducto && rowCellIndex === 2 && isSodaName(row[0]) ? (
+                                renderSodaPrice(row)
                               ) : section === "cat-producto" && rowCellIndex === 1 ? (
                                 renderCategoryProductCount(row)
                               ) : (
@@ -14285,32 +14607,41 @@ function AdminPanel({
     )
     return (
       <div className="flex flex-col gap-4 sm:col-span-2">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-lg font-black break-words" style={{ color: t.text, fontFamily: "Montserrat, sans-serif" }}>
+        {/* One header (name, status, category, unit), like the purchase detail */}
+        <div className="flex items-center gap-3 rounded-xl px-4 py-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+          <span
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl"
+            style={{ background: `${C.mustard}14`, color: C.mustard }}
+          >
+            {Ico.shopping}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-base font-bold break-words" style={{ color: t.text }}>
               {String(row[0])}
             </div>
             <div className="mt-1 flex flex-wrap gap-1.5">
-              <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: t.input, color: t.muted }}>
-                {String(row[1] || "Sin categoría")}
-              </span>
+              {[String(row[1] || "Sin categoría"), `Se mide en ${unit}`].map((label) => (
+                <span key={label} className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: t.input, color: t.muted }}>
+                  {label}
+                </span>
+              ))}
               {isProductSupply && (
                 <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
-                  Producto de insumo
+                  Lo preparamos nosotros
                 </span>
               )}
-              <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-bold"
-                style={
-                  isActiveStatus(row[12])
-                    ? { background: "rgba(58,109,94,0.14)", color: "#2E7D60" }
-                    : { background: `${C.red}14`, color: C.red }
-                }
-              >
-                {String(row[12] || "Activo")}
-              </span>
             </div>
           </div>
+          <span
+            className="flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold"
+            style={
+              isActiveStatus(row[12])
+                ? { background: "rgba(58,109,94,0.14)", color: "#2E7D60" }
+                : { background: `${C.red}14`, color: C.red }
+            }
+          >
+            {String(row[12] || "Activo")}
+          </span>
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {[
@@ -14446,6 +14777,8 @@ function AdminPanel({
     const isPedido = modal.section === "pedidos"
     const isPurchase = modal.section === "compras"
     const isSupply = modal.section === "insumos"
+    // "Lo preparamos nosotros" checked: on wide screens the ficha técnica goes beside the insumo's fields (no long scroll)
+    const sheetBeside = isSupply && modal.mode !== "view" && String(formData["7"] ?? "").toLowerCase() === "sí"
     const isProduction = modal.section === "produccion"
     const isPnc = modal.section === "producto-no-conforme"
     const isSales = modal.section === "ventas"
@@ -14490,6 +14823,7 @@ function AdminPanel({
       f.type === "textarea" ||
       f.type === "checkbox" ||
       (modal.section === "proveedores" && (f.key === "5" || f.key === "7")) ||
+      (modal.section === "perdidas" && f.key === "10") ||
       (modal.section === "clientes" && f.key === "5")
     const splitList = (value: string) =>
       value.split(",").map((item) => item.trim()).filter(Boolean)
@@ -14499,7 +14833,9 @@ function AdminPanel({
     const supplierSupplies = (supplierName: string) => {
       const supplier = (rows.proveedores || []).find((p) => String(p[0]) === supplierName)
       // A soda can be bought before it exists as an insumo (the purchase creates it)
-      return splitList(String(supplier?.[7] ?? "")).filter((name) => supplyInfo(name) || isSodaName(name))
+      return splitList(String(supplier?.[7] ?? "")).filter(
+        (name) => supplyInfo(name) || isSodaName(name),
+      )
     }
     const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void) => {
       const groups = new Map<string, string[]>()
@@ -14792,6 +15128,8 @@ function AdminPanel({
             (field) =>
               // "Stock actual" isn't entered when creating: it starts at 0
               !(modal.mode === "add" && field.key === "4") &&
+              // The unit cost is set by each purchase (its unit price): only the detail shows it
+              !(modal.mode !== "view" && field.key === "3") &&
               (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
           )
       : isUser
@@ -14806,9 +15144,162 @@ function AdminPanel({
       ? dataFields.filter(
           (field) =>
             ["0", "1", "2", "3", "10"].includes(field.key) &&
-            !(modal.mode === "add" && field.key === "2"),
+            // A soda needs its price from the start (the store sells it at that price)
+            !(modal.mode === "add" && field.key === "2" && formData["1"] !== SODA_PRODUCT),
         )
       : dataFields
+    // A drink (category «Bebidas») is a finished product: no ficha técnica, its own compact layout
+    const isDrinkForm = isProduct && !isView && formData["1"] === SODA_PRODUCT
+    const isDrinkView = isProduct && isView && row?.[1] === SODA_PRODUCT
+    // The product form fields (name, category, price, description): left column, or right for a drink
+    const renderProductFields = () => (
+      <div className={isView ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
+      {productMainFields.map((f) => {
+        if (isView) return null
+        const val = isView
+          ? String(row ? (row[Number(f.key)] ?? "—") : "—")
+          : formData[f.key] || ""
+        // Categories come only from "Categ. Producto" (active), deduplicated
+        // ignoring case/accents so the same category never appears twice
+        const productFieldOptions =
+          f.key === "1"
+            ? [
+                ...(rows["cat-producto"] || [])
+                  .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
+                  .map((category) => String(category[0] ?? "").trim())
+                  .filter(Boolean),
+                "Producto de insumo",
+              ]
+                .filter(
+                  (name, index, all) =>
+                    all.findIndex((other) => normalizeName(other) === normalizeName(name)) === index,
+                )
+                .sort((a, b) => a.localeCompare(b))
+            : f.options
+        return (
+          <div key={f.key} className={`flex min-w-0 flex-col gap-1.5 ${f.key === "0" || f.key === "3" ? "sm:col-span-2" : ""}`}>
+            <label
+              className="text-xs font-semibold"
+              style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
+            >
+              {f.key === "0" && formData["1"] === SODA_PRODUCT && !isView ? "Nombre (sabor o marca si es gaseosa)" : f.label}
+              {(isRequiredField(f.key) ||
+                getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)) && " *"}
+            </label>
+            {isView ? (
+              <div
+                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
+                style={{ background: t.input, color: t.text }}
+              >
+                {val}
+              </div>
+            ) : f.type === "select" ? (
+              <select
+                value={val}
+                disabled={isPedido && f.key === "7"}
+                onChange={(e) =>
+                  updateAdminField(modal.section, f.key, e.target.value)
+                }
+                onBlur={() =>
+                  getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                  setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                }
+                aria-invalid={!!formFieldErrors[f.key]}
+                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
+                title={
+                  isPedido && f.key === "7"
+                    ? "El pago solo cambia al aprobar o rechazar el comprobante en el detalle del pedido."
+                    : undefined
+                }
+                style={{
+                  background: t.input,
+                  border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
+                  color: val ? t.text : t.muted,
+                  opacity: isPedido && f.key === "7" ? 0.7 : 1,
+                }}
+              >
+                <option value="">Selecciona...</option>
+                {productFieldOptions?.map((o) => (
+                  <option key={o} value={o}>
+                    {o}
+                  </option>
+                ))}
+              </select>
+            ) : f.type === "textarea" ? (
+              <textarea
+                value={val}
+                onChange={(e) =>
+                  updateAdminField(modal.section, f.key, e.target.value)
+                }
+                onBlur={() =>
+                  getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                  setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                }
+                aria-invalid={!!formFieldErrors[f.key]}
+                rows={isPurchaseModule || isProduct ? 2 : 3}
+                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
+                style={{
+                  background: t.input,
+                  border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
+                  color: t.text,
+                }}
+              />
+            ) : (
+              <input
+                type={f.type}
+                value={val}
+                onChange={(e) =>
+                  updateAdminField(modal.section, f.key, e.target.value)
+                }
+                onBlur={() =>
+                  getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
+                  setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                }
+                aria-invalid={!!formFieldErrors[f.key]}
+                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
+                style={{
+                  background: t.input,
+                  border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
+                  color: t.text,
+                }}
+              />
+            )}
+            <FieldError msg={shownFieldError(f.key) || formFieldErrors[f.key]} />
+            {/* A soda is "Gaseosa <sabor> (<tamaño>)": its size goes right under the flavour */}
+            {f.key === "0" && !isView && formData["1"] === SODA_PRODUCT && (
+              <label className="mt-1 flex flex-col gap-1.5 text-xs font-semibold" style={{ color: formFieldErrors.sodaSize ? C.red : t.muted }}>
+                Tamaño (solo gaseosas)
+                <input
+                  list="soda-size-options"
+                  value={formData.sodaSize ?? ""}
+                  onChange={(e) => {
+                    setFormData((current) => ({ ...current, sodaSize: e.target.value }))
+                    setFormFieldErrors((current) => ({ ...current, sodaSize: "" }))
+                  }}
+                  placeholder="Ej: Personal, 1.5 L, 3 L"
+                  className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm font-normal outline-none"
+                  style={{ background: t.input, border: `1.5px solid ${formFieldErrors.sodaSize ? C.red : t.inputB}`, color: t.text }}
+                />
+                <datalist id="soda-size-options">
+                  {[...new Set((rows.producto || []).flatMap((p) => (p[1] === SODA_PRODUCT ? [SODA_RE.exec(String(p[0]))?.[2] ?? ""] : [])))]
+                    .filter(Boolean)
+                    .map((size) => (
+                      <option key={size} value={size} />
+                    ))}
+                </datalist>
+                <FieldError msg={formFieldErrors.sodaSize} />
+                <span className="text-[11px] font-normal">
+                  {String(formData.sodaSize ?? "").trim()
+                    ? `Se guarda como «Gaseosa ${String(formData["0"] || "sabor").trim()} (${String(formData.sodaSize).trim()})» y aparece en las gaseosas de la tienda.`
+                    : "Sin tamaño se guarda tal cual (otra bebida) y no aparece en las gaseosas de la tienda."}
+                </span>
+              </label>
+            )}
+          </div>
+        )
+      })}
+      </div>
+    )
     const productTechFields = isProduct
       ? dataFields.filter((field) => ["5", "6", "7", "8"].includes(field.key))
       : []
@@ -14861,7 +15352,7 @@ function AdminPanel({
         onClick={closeModal}
       >
         <div
-          className={`flex min-w-0 w-full ${isRoles ? "max-w-6xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales || (isPurchase && isView) ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+          className={`flex min-w-0 w-full ${isRoles ? "max-w-6xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
           style={{
             background: t.card,
             border: `1px solid ${t.border}`,
@@ -14905,7 +15396,12 @@ function AdminPanel({
                   ? `grid min-h-0 flex-1 content-start gap-x-4 gap-y-3 ${
                       // Supplier: 4 columns on large screens — supplier data spans the left two,
                       // contact person goes two fields per row on the right (keeps "Cargo" in view)
-                      isSupplier ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4" : (isProduction || isPedido || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
+                      isSupplier
+                        ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4"
+                        : sheetBeside
+                          ? // left rows fit their fields; the ficha's extra height goes to the last (1fr) row
+                            "sm:grid-cols-2 lg:grid-cols-4 lg:grid-rows-[repeat(7,min-content)_1fr]"
+                          : (isProduction || isPedido || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
                     }`
                   : isProduct
                     ? "flex min-h-0 flex-1 flex-col gap-3"
@@ -14918,7 +15414,8 @@ function AdminPanel({
             }}
           >
             {/* Purchase module detail header: record name + status */}
-            {isView && isPurchaseModule && !isPurchase && !isSupplier && !isClient && !isPedido && !isSales && row && (
+            {isView && isPurchaseModule && !isPurchase && !isSupply && !isSupplier && !isClient && !isPedido && !isSales &&
+              modal.section !== "cat-insumos" && modal.section !== "perdidas" && row && (
               <div
                 className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-4 py-3 sm:col-span-2"
                 style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}
@@ -15046,17 +15543,30 @@ function AdminPanel({
                           if (file) handleFile(file)
                         }}
                       >
-                        {imgPreview ? (
-                          <>
-                            <img src={imgPreview} alt="" className="h-44 w-full rounded-2xl object-cover" />
-                            <span
-                              className="absolute right-2 bottom-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
-                              style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}
-                            >
-                              {Ico.upload} Cambiar foto
-                            </span>
-                          </>
-                        ) : (
+                        {(() => {
+                          // A soda without its own photo shows its bundled bottle (only shown, not saved)
+                          const bottle = isDrinkForm && !imgPreview
+                            ? sodaImage(`Gaseosa ${String(formData["0"] ?? "").trim().replace(/^gaseosa\s+/i, "")} (${String(formData.sodaSize ?? "").trim()})`)
+                            : undefined
+                          const shown = imgPreview || bottle
+                          return shown ? (
+                            <>
+                              <img
+                                src={shown}
+                                alt=""
+                                className={`w-full rounded-2xl ${isDrinkForm ? "h-60 object-contain" : "h-44 object-cover"}`}
+                                style={isDrinkForm ? { background: "#fff" } : undefined}
+                              />
+                              <span
+                                className="absolute right-2 bottom-2 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold"
+                                style={{ background: "rgba(0,0,0,0.6)", color: "#fff" }}
+                              >
+                                {Ico.upload} {imgPreview ? "Cambiar foto" : "Subir foto propia"}
+                              </span>
+                            </>
+                          ) : null
+                        })()}
+                        {!imgPreview && !(isDrinkForm && sodaImage(`Gaseosa ${String(formData["0"] ?? "").trim().replace(/^gaseosa\s+/i, "")} (${String(formData.sodaSize ?? "").trim()})`)) && (
                           <div
                             className="flex h-36 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-xs"
                             style={{ borderColor: t.inputB, color: t.muted }}
@@ -15087,128 +15597,21 @@ function AdminPanel({
                       />
                     </div>
                   )}
-                  {modal.mode === "add" && (
+                  {modal.mode === "add" && formData["1"] !== SODA_PRODUCT && (
                     <p className="text-xs" style={{ color: t.muted }}>
                       Puedes agregar el precio después desde la opción Editar.
                     </p>
                   )}
-                  {/* Two fields per row (name and description full width) so the form barely scrolls */}
-                  <div className={isView ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
-                  {productMainFields.map((f) => {
-                    if (isView) return null
-                    const val = isView
-                      ? String(row ? (row[Number(f.key)] ?? "—") : "—")
-                      : formData[f.key] || ""
-                    // Categories come only from "Categ. Producto" (active), deduplicated
-                    // ignoring case/accents so the same category never appears twice
-                    const productFieldOptions =
-                      f.key === "1"
-                        ? [
-                            ...(rows["cat-producto"] || [])
-                              .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
-                              .map((category) => String(category[0] ?? "").trim())
-                              .filter(Boolean),
-                            "Producto de insumo",
-                          ]
-                            .filter(
-                              (name, index, all) =>
-                                all.findIndex((other) => normalizeName(other) === normalizeName(name)) === index,
-                            )
-                            .sort((a, b) => a.localeCompare(b))
-                        : f.options
-                    return (
-                      <div key={f.key} className={`flex min-w-0 flex-col gap-1.5 ${f.key === "0" || f.key === "3" ? "sm:col-span-2" : ""}`}>
-                        <label
-                          className="text-xs font-semibold"
-                          style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
-                        >
-                          {f.label}
-                          {(isRequiredField(f.key) ||
-                            getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key)) && " *"}
-                        </label>
-                        {isView ? (
-                          <div
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm"
-                            style={{ background: t.input, color: t.text }}
-                          >
-                            {val}
-                          </div>
-                        ) : f.type === "select" ? (
-                          <select
-                            value={val}
-                            disabled={isPedido && f.key === "7"}
-                            onChange={(e) =>
-                              updateAdminField(modal.section, f.key, e.target.value)
-                            }
-                            onBlur={() =>
-                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
-                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
-                            }
-                            aria-invalid={!!formFieldErrors[f.key]}
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none cursor-pointer"
-                            title={
-                              isPedido && f.key === "7"
-                                ? "El pago solo cambia al aprobar o rechazar el comprobante en el detalle del pedido."
-                                : undefined
-                            }
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
-                              color: val ? t.text : t.muted,
-                              opacity: isPedido && f.key === "7" ? 0.7 : 1,
-                            }}
-                          >
-                            <option value="">Selecciona...</option>
-                            {productFieldOptions?.map((o) => (
-                              <option key={o} value={o}>
-                                {o}
-                              </option>
-                            ))}
-                          </select>
-                        ) : f.type === "textarea" ? (
-                          <textarea
-                            value={val}
-                            onChange={(e) =>
-                              updateAdminField(modal.section, f.key, e.target.value)
-                            }
-                            onBlur={() =>
-                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
-                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
-                            }
-                            aria-invalid={!!formFieldErrors[f.key]}
-                            rows={isPurchaseModule || isProduct ? 2 : 3}
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none resize-none"
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
-                              color: t.text,
-                            }}
-                          />
-                        ) : (
-                          <input
-                            type={f.type}
-                            value={val}
-                            onChange={(e) =>
-                              updateAdminField(modal.section, f.key, e.target.value)
-                            }
-                            onBlur={() =>
-                              getRequiredFormKeys(modal.section, formData, modal.mode).includes(f.key) &&
-                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
-                            }
-                            aria-invalid={!!formFieldErrors[f.key]}
-                            className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm outline-none"
-                            style={{
-                              background: t.input,
-                              border: `1.5px solid ${formFieldErrors[f.key] ? C.red : t.inputB}`,
-                              color: t.text,
-                            }}
-                          />
-                        )}
-                        <FieldError msg={shownFieldError(f.key) || formFieldErrors[f.key]} />
-                      </div>
-                    )
-                  })}
-                  </div>
+                  {/* Two fields per row (name and description full width) so the form barely scrolls; a drink has them on the right */}
+                  {!isDrinkForm && renderProductFields()}
+                  {isDrinkForm && (
+                    <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}>
+                      <div className="text-[11px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Producto terminado</div>
+                      <p className="mt-0.5 text-xs leading-snug" style={{ color: t.muted }}>
+                        Sin ficha técnica: se compra en Compras y se vende tal cual. Con tamaño es una gaseosa de la tienda y cada venta descuenta 1 und.
+                      </p>
+                    </div>
+                  )}
                   {/* Editing: the profit stays in this column too (updates with the price and the ficha técnica) */}
                   {!isView && technicalIngredients.length > 0 &&
                     renderProfit(
@@ -15221,10 +15624,12 @@ function AdminPanel({
                     )}
                 </div>
                 {(() => {
+                  // Creating or editing a drink: no ficha técnica at all, its fields take this column
+                  if (isDrinkForm) return <div className="flex flex-col gap-3">{renderProductFields()}</div>
                   // A resale soda has no ficha técnica: show its stock and margin instead
                   if (isView && row?.[1] === SODA_PRODUCT) {
-                    const soda = rows.insumos?.find((item) => item[0] === row[0])
-                    const cost = Number(soda?.[3]) || 0
+                    // Its purchases set its stock and cost on the product itself
+                    const cost = Number(row[13]) || 0
                     const price = Number(row[2]) || 0
                     return (
                       <section className="flex flex-col gap-3 rounded-2xl px-4 py-4" style={{ border: `1px solid ${t.border}` }}>
@@ -15234,16 +15639,64 @@ function AdminPanel({
                         </p>
                         <div className="grid grid-cols-3 gap-2">
                           {[
-                            ["En stock", `${Number(soda?.[4]) || 0} und`],
+                            ["En stock", isSodaName(row[0]) ? `${Number(row[12]) || 0} und` : "No lleva stock"],
                             ["Costo de compra", cost ? fmt(cost) : "Sin compras"],
-                            ["Ganancia por unidad", cost ? fmt(price - cost) : "—"],
+                            ["Ganancia por unidad", !cost ? "—" : price >= cost ? fmt(price - cost) : `−${fmt(cost - price)}`],
                           ].map(([label, value]) => (
                             <div key={label} className="rounded-xl px-3 py-2.5" style={{ background: t.cardAlt }}>
                               <div className="text-[10px] font-semibold" style={{ color: t.muted }}>{label}</div>
-                              <div className="mt-0.5 text-sm font-bold" style={{ color: t.text }}>{value}</div>
+                              <div
+                                className="mt-0.5 text-sm font-bold"
+                                style={{ color: label === "Ganancia por unidad" && cost && price - cost <= 0 ? C.red : t.text }}
+                              >
+                                {value}
+                              </div>
                             </div>
                           ))}
                         </div>
+                        {cost > 0 && price - cost <= 0 && (
+                          <p className="rounded-lg px-3 py-2 text-xs font-medium" style={{ background: `${C.red}10`, color: C.red }} role="alert">
+                            Se vende a {fmt(price)} y cuesta {fmt(cost)}: pierdes {fmt(cost - price)} por unidad. Sube el precio con «Editar».
+                          </p>
+                        )}
+                        {(() => {
+                          // Its latest purchases: where its stock and cost come from
+                          const bought = (rows.compras || [])
+                            .flatMap((c) =>
+                              parsePurchaseLines(c[6])
+                                .filter((l) => normalizeName(l.name) === normalizeName(row[0]))
+                                .map((l) => ({ supplier: String(c[0]), date: String(c[1]), qty: l.quantity, price: l.unitPrice, annulled: !isActiveStatus(c[5]) })),
+                            )
+                            .sort((a, b) => b.date.localeCompare(a.date))
+                          return (
+                            <div>
+                              <div className="mb-1.5 text-[11px] font-semibold" style={{ color: t.muted }}>Últimas compras</div>
+                              {bought.length ? (
+                                <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
+                                  {bought.slice(0, 4).map((b, i) => (
+                                    <div
+                                      key={i}
+                                      className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
+                                      style={{ borderTop: i ? `1px solid ${t.border}` : undefined, opacity: b.annulled ? 0.5 : 1 }}
+                                    >
+                                      <span className="min-w-0 truncate" style={{ color: t.text }}>
+                                        {b.date} · {b.supplier}
+                                        {b.annulled && <span style={{ color: C.red }}> · Anulada</span>}
+                                      </span>
+                                      <span className="flex-shrink-0" style={{ color: t.muted }}>
+                                        {b.qty} und × {fmt(b.price)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="rounded-xl px-3 py-3 text-center text-xs" style={{ background: t.cardAlt, color: t.muted }}>
+                                  Aún no se ha comprado: regístrala en Compras para tener stock.
+                                </p>
+                              )}
+                            </div>
+                          )
+                        })()}
                       </section>
                     )
                   }
@@ -15361,7 +15814,7 @@ function AdminPanel({
                     const category = normalizeName(String(product?.[1] ?? ""))
                     if (category === "salsas") return ["bolsita", "bolsitas"]
                     if (category === "adiciones") return ["porción", "porciones"]
-                    if (category === "bebidas" || category === "sabores de bebida") return ["botella", "botellas"]
+                    if (category === "bebidas" || category === "gaseosas") return ["botella", "botellas"]
                     if (category === "producto de insumo") {
                       const unit = String(supplyInfo(name)?.[2] ?? "und")
                       return [unit, unit]
@@ -15381,16 +15834,14 @@ function AdminPanel({
                     (rows.producto || [])
                       .filter((item) => normalizeName(String(item[1] ?? "")) === category && isActiveStatus(item[4]))
                       .map((item) => String(item[0]))
-                  const sodas = activeIn("sabores de bebida").flatMap((flavor) =>
-                    activeIn("bebidas").map((size) => `Gaseosa ${flavor} (${size})`),
-                  )
+                  const sodas = activeIn("bebidas").filter(isSodaName) // each soda is a product of «Bebidas»
                   const tabOptions =
                     productionKind === "gaseosas"
                       ? sodas
                       : availableItemOptions.filter((name) =>
                           productionKind === "adiciones"
                             ? categoryOf(name) === "adiciones"
-                            : !["adiciones", "bebidas", "sabores de bebida"].includes(categoryOf(name)),
+                            : !["adiciones", "bebidas", "gaseosas"].includes(categoryOf(name)),
                         )
                   const options = tabOptions
                     .filter((name) => !productionItems.some((item) => item.name === name))
@@ -15856,12 +16307,12 @@ function AdminPanel({
                 {isPnc && (modal.mode !== "add" || pncManual) && !isView && (() => {
                   const categoryOf = (name: string) => normalizeName(String(rows.producto?.find((item) => item[0] === name)?.[1] ?? ""))
                   const isDrink = (name: string) =>
-                    name.startsWith("Gaseosa ") || ["bebidas", "sabores de bebida"].includes(categoryOf(name))
+                    name.startsWith("Gaseosa ") || ["bebidas", "gaseosas"].includes(categoryOf(name))
                   const activeIn = (category: string) =>
                     (rows.producto || [])
                       .filter((item) => normalizeName(String(item[1] ?? "")) === category && isActiveStatus(item[4]))
                       .map((item) => String(item[0]))
-                  const sodas = activeIn("sabores de bebida").flatMap((flavor) => activeIn("bebidas").map((size) => `Gaseosa ${flavor} (${size})`))
+                  const sodas = activeIn("bebidas").filter(isSodaName) // each soda is a product of «Bebidas»
                   const options = (
                     productionKind === "gaseosas"
                       ? sodas
@@ -16113,7 +16564,8 @@ function AdminPanel({
                 {formDataFields.map((f) => {
                 if (isPnc && modal.mode === "add" && !pncManual) return null
                 // Insumo and supplier details have their own layout (supplyDetail, supplierDetail)
-                if (isView && (isSupply || isSupplier)) return null
+                // These details have their own layout below
+                if (isView && (isSupply || isSupplier || modal.section === "cat-insumos" || modal.section === "perdidas")) return null
                 if (isView && isPurchase) return null // the purchase ticket shows everything
                 if (isPurchase && !isView && f.key === "2") return null
                 // Shown in the detail header (with autoId, row[0] is the code, so field "0" stays)
@@ -16217,7 +16669,7 @@ function AdminPanel({
                   return (
                     <section
                       key="ficha-tecnica"
-                      className="rounded-xl p-4 sm:col-span-2"
+                      className={`rounded-xl p-4 sm:col-span-2 ${sheetBeside ? "lg:col-start-3 lg:row-span-8 lg:row-start-1" : ""}`}
                       style={{ background: `${C.mustard}0D`, border: `1.5px solid ${C.mustard}55` }}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -16236,7 +16688,7 @@ function AdminPanel({
                           {src("9") || "v1.0"}
                         </span>
                       </div>
-                      {!isView && (
+                      {!isView && !sheetBeside && (
                         <p className="mt-1 text-xs" style={{ color: t.muted }}>
                           Esta ficha se crea junto con el insumo y también aparecerá en el módulo Productos.
                         </p>
@@ -16442,11 +16894,12 @@ function AdminPanel({
                     setPurchaseFormError("")
                   }
                   const addItem = () => {
-                    const qty = Number(purchaseItemQty)
+                    const qty = toDecimal(purchaseItemQty)
                     const price = Number(purchaseItemPrice)
                     if (!purchaseItemSelect) return setPurchaseFormError("Elige el insumo que vas a agregar.")
                     if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
                     if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
+                    if (price > MAX_PRICE) return setPurchaseFormError(`El precio unitario puede ser máximo ${fmt(MAX_PRICE)}.`)
                     const existing = items.find(
                       (i) => i.name === purchaseItemSelect && Number(i.unitPrice) === price,
                     )
@@ -16458,17 +16911,21 @@ function AdminPanel({
                     setPurchaseItemSelect("")
                     setPurchaseItemQty("1")
                     setPurchaseItemPrice("")
-                    setPurchaseFormError("")
+                    // A soda bought at or above its sale price would sell at a loss: say so (it still gets added)
+                    const salePrice = Number(sodaProductRow(purchaseItemSelect)?.[2]) || 0
+                    setPurchaseFormError(
+                      isSodaName(purchaseItemSelect) && salePrice > 0 && price >= salePrice
+                        ? `Ojo: «${purchaseItemSelect}» se vende a ${fmt(salePrice)} y la estás comprando a ${fmt(price)} por unidad: se vendería a pérdida. Revisa si el precio es por unidad o sube su precio de venta en Productos.`
+                        : "",
+                    )
                   }
                   const controlSt = { background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }
                   // "Enviar a pérdida": only for items already saved in this purchase (edit mode)
                   const savedItems = modal.mode === "edit" ? parsePurchaseItems(row?.[6]) : []
-                  const lossOrigin = row
-                    ? `Compra a ${String(row[0])} del ${formatViewValue(cfg.fields[1], String(row[1] ?? ""))}`
-                    : ""
+                  const lossOrigin = row ? purchaseLabel(row) : ""
                   const lostSoFar = (name: string) =>
                     (rows.perdidas || [])
-                      .filter((l) => !isReturnedLoss(l) && String(l[5] ?? "") === lossOrigin && String(l[0]) === name)
+                      .filter((l) => !isReturnedLoss(l) && !!row && isLossOfPurchase(l, row) && String(l[0]) === name)
                       .reduce((sum, l) => sum + (parseFloat(String(l[1])) || 0), 0)
                   const openLoss = (name: string) => {
                     const bought = savedItems
@@ -16491,6 +16948,7 @@ function AdminPanel({
                       responsable: user?.name ?? "",
                       fecha: [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-"),
                       origin: lossOrigin,
+                      purchaseId: String(row?.[DB_SYNC.compras.idIndex] ?? ""),
                     })
                   }
                   return (
@@ -16536,9 +16994,8 @@ function AdminPanel({
                             <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                               Cantidad
                               <input
-                                type="number"
-                                min="0"
-                                step="any"
+                                type="text"
+                                inputMode="decimal"
                                 value={purchaseItemQty}
                                 onChange={(e) => setPurchaseItemQty(e.target.value)}
                                 className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
@@ -16594,9 +17051,8 @@ function AdminPanel({
                               {purchaseItemEdit?.index === index ? (
                                 <>
                                   <input
-                                    type="number"
-                                    min="0"
-                                    step="any"
+                                    type="text"
+                                    inputMode="decimal"
                                     aria-label={`Cantidad de ${item.name}`}
                                     value={purchaseItemEdit.qty}
                                     onChange={(e) => setPurchaseItemEdit({ ...purchaseItemEdit, qty: e.target.value })}
@@ -16617,10 +17073,11 @@ function AdminPanel({
                                     title="Guardar cambios"
                                     aria-label={`Guardar cambios de ${item.name}`}
                                     onClick={() => {
-                                      const qty = Number(purchaseItemEdit.qty)
+                                      const qty = toDecimal(purchaseItemEdit.qty)
                                       const price = Number(purchaseItemEdit.price)
                                       if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
                                       if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
+                                      if (price > MAX_PRICE) return setPurchaseFormError(`El precio unitario puede ser máximo ${fmt(MAX_PRICE)}.`)
                                       setItems(items.map((i, n) => (n === index ? { ...i, quantity: String(qty), unitPrice: String(price) } : i)))
                                       setPurchaseItemEdit(null)
                                       setPurchaseFormError("")
@@ -16666,6 +17123,15 @@ function AdminPanel({
                                 type="button"
                                 aria-label={`Quitar ${item.name}`}
                                 onClick={() => {
+                                  // Losses sent from this purchase need what was bought to stay in it
+                                  const lost = savedItems.length ? lostSoFar(item.name) : 0
+                                  const left = items
+                                    .filter((other, i) => i !== index && other.name === item.name)
+                                    .reduce((sum, other) => sum + Number(other.quantity || 0), 0)
+                                  if (lost > left)
+                                    return setPurchaseFormError(
+                                      `No puedes quitar «${item.name}»: ya hay ${lost.toLocaleString("es-CO")} ${String(supplyInfo(item.name)?.[2] ?? "und")} registrados como pérdida de esta compra.`,
+                                    )
                                   setItems(items.filter((_, i) => i !== index))
                                   setPurchaseItemEdit(null)
                                 }}
@@ -17225,9 +17691,7 @@ function AdminPanel({
                 const fieldLabel =
                   naturalSupplier && f.key === "0"
                     ? "Nombre completo"
-                    : isSupply && f.key === "3" && modal.mode !== "add"
-                      ? "Costo unitario"
-                      : isSupply && f.key === "7"
+                    : isSupply && f.key === "7"
                         ? "¿Lo preparan ustedes?"
                         : f.label
                 const fieldRowIndex = Number(f.key) + rowOffset
@@ -17244,10 +17708,24 @@ function AdminPanel({
                           (isReturns && f.key === "2")
                         ? clientOptions
                         : isPurchase && f.key === "0" && namesOf("proveedores").length
-                          ? namesOf("proveedores")
+                          ? // Only active suppliers, plus the one an existing purchase already has
+                            [...new Set([
+                              ...(rows.proveedores || []).filter((r) => isActiveStatus(r[6])).map((r) => String(r[0])),
+                              ...(formData["0"] ? [String(formData["0"])] : []),
+                            ])]
+                          : modal.section === "perdidas" && f.key === "0" && formData["10"]
+                            ? // Only what came in the chosen purchase
+                              [...new Set([
+                                ...parsePurchaseLines(
+                                  (rows.compras || []).find((c) => String(c[DB_SYNC.compras.idIndex]) === String(formData["10"]))?.[6],
+                                ).map((l) => l.name),
+                                ...(formData["0"] ? [String(formData["0"])] : []),
+                              ])]
                           : modal.section === "perdidas" && f.key === "0" && namesOf("insumos").length
                             ? [...new Set([
                                 ...(rows.insumos || []).filter((r) => isActiveStatus(r[12])).map((r) => String(r[0])),
+                                // a soda (a broken bottle) is lost from its product's stock
+                                ...(rows.producto || []).filter((p) => p[1] === SODA_PRODUCT && isSodaName(p[0]) && isActiveStatus(p[4])).map((p) => String(p[0])),
                                 ...(formData["0"] ? [String(formData["0"])] : []),
                               ])]
                             : modal.section === "perdidas" && f.key === "3"
@@ -17578,7 +18056,57 @@ function AdminPanel({
                           {f.key === "3" ? "Se toma de la última compra" : "Suma con compras"}
                         </span>
                       </div>
-                    ) : modal.section === "perdidas" && f.key === "1" && !isView ? (() => {
+                    ) : modal.section === "perdidas" && f.key === "10" && !isView ? (() => {
+                      // Active purchases, newest first; the one an existing loss already has stays even if annulled
+                      const options = (rows.compras || [])
+                        .filter((c) => isActiveStatus(c[5]) || String(c[DB_SYNC.compras.idIndex]) === String(formData["10"] ?? ""))
+                        .filter((c) => c[DB_SYNC.compras.idIndex])
+                        .sort((a, b) => String(b[1]).localeCompare(String(a[1])))
+                      const chosen = options.find((c) => String(c[DB_SYNC.compras.idIndex]) === String(formData["10"] ?? ""))
+                      const items = chosen ? parsePurchaseLines(chosen[6]) : []
+                      return (
+                        <>
+                          <select
+                            value={String(formData["10"] ?? "")}
+                            // A loss already registered keeps its purchase (its stock was taken from it)
+                            disabled={modal.mode === "edit" && !!formData["10"]}
+                            onChange={(e) => {
+                              const purchase = options.find((c) => String(c[DB_SYNC.compras.idIndex]) === e.target.value)
+                              const names = [...new Set(parsePurchaseLines(purchase?.[6]).map((l) => l.name))]
+                              setFormData((current) => ({
+                                ...current,
+                                "10": e.target.value,
+                                "5": purchase ? purchaseLabel(purchase) : "",
+                                // a purchase with a single insumo picks it; otherwise the user chooses
+                                "0": names.length === 1 ? names[0] : names.includes(String(current["0"] ?? "")) ? String(current["0"]) : "",
+                              }))
+                              setFormFieldErrors((current) => ({ ...current, "10": "", "0": "" }))
+                            }}
+                            aria-invalid={!!formFieldErrors["10"]}
+                            className="w-full min-w-0 cursor-pointer rounded-xl px-3.5 py-2.5 text-sm outline-none disabled:cursor-default disabled:opacity-80"
+                            style={{ background: t.input, border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`, color: formData["10"] ? t.text : t.muted }}
+                          >
+                            <option value="">Elige la compra de la que se perdió...</option>
+                            {options.map((c) => {
+                              const id = String(c[DB_SYNC.compras.idIndex])
+                              const what = [...new Set(parsePurchaseLines(c[6]).map((l) => l.name))]
+                              return (
+                                <option key={id} value={id}>
+                                  Compra #{id} · {String(c[0])} · {String(c[1]).slice(0, 10)} · {what.slice(0, 2).join(", ")}
+                                  {what.length > 2 ? ` y ${what.length - 2} más` : ""}
+                                </option>
+                              )
+                            })}
+                          </select>
+                          {chosen && (
+                            <span className="text-[11px]" style={{ color: t.muted }}>
+                              {String(chosen[0])} · {formatViewValue(MOD_CFG.compras.fields.find((field) => field.key === "1")!, String(chosen[1]))} ·{" "}
+                              {items.map((l) => `${l.name} (${l.quantity.toLocaleString("es-CO")})`).join(", ")}
+                            </span>
+                          )}
+                        </>
+                      )
+                    })() : modal.section === "perdidas" && f.key === "1" && !isView ? (() => {
                       const supply = supplyInfo(String(formData["0"] ?? ""))
                       const unit = String(supply?.[2] ?? "und")
                       const qty = String(formData["1"] ?? "").split(" ")[0]
@@ -17589,9 +18117,8 @@ function AdminPanel({
                             style={{ background: t.input, border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}` }}
                           >
                             <input
-                              type="number"
-                              min="0"
-                              step="any"
+                              type="text"
+                              inputMode="decimal"
                               value={qty}
                               onChange={(e) => updateAdminField("perdidas", "1", e.target.value ? `${e.target.value} ${unit}` : "")}
                               placeholder="0"
@@ -17602,20 +18129,21 @@ function AdminPanel({
                             <span className="text-xs" style={{ color: t.muted }}>{unit}</span>
                           </div>
                           {(() => {
-                            const max = purchaseLossMax(String(formData["5"] ?? ""), String(formData["0"] ?? ""), modal.mode === "edit" ? modal.idx : null)
+                            const max = purchaseLossMax(String(formData["5"] ?? ""), String(formData["0"] ?? ""), modal.mode === "edit" ? modal.idx : null, formData["10"])
                             return max !== null ? (
                               <span className="text-[11px]" style={{ color: t.muted }}>
                                 Máximo {max.toLocaleString("es-CO")} {unit}: lo comprado en esa compra menos lo ya perdido
                               </span>
-                            ) : supply ? (
+                            ) : Number.isFinite(stockOf(String(formData["0"] ?? ""))) ? (
+                              // an insumo, or a soda (its stock is on its product)
                               <span className="text-[11px]" style={{ color: t.muted }}>
-                                En stock: {Number(supply[4] || 0).toLocaleString("es-CO")} {unit}
+                                En stock: {stockOf(String(formData["0"] ?? "")).toLocaleString("es-CO")} {unit}
                               </span>
                             ) : null
                           })()}
-                          {Number(qty) > 0 && Number(supply?.[3]) > 0 && (
+                          {Number(qty) > 0 && costOf(String(formData["0"] ?? "")) > 0 && (
                             <span className="text-[11px] font-semibold" style={{ color: C.red }}>
-                              Valor de la pérdida: {fmt(Math.round(Number(qty) * Number(supply?.[3])))}
+                              Valor de la pérdida: {fmt(Math.round(Number(qty) * costOf(String(formData["0"] ?? ""))))}
                             </span>
                           )}
                         </>
@@ -18050,6 +18578,7 @@ function AdminPanel({
                       <input
                         type={f.type}
                         max={(isPurchase && f.key === "1") || (modal.section === "perdidas" && f.key === "4") || (isProduction && f.key === "3") || (isReturns && f.key === "5") ? getCurrentDateTimeParts().date : undefined}
+                        min={(isPurchase && f.key === "1") || (modal.section === "perdidas" && f.key === "4") ? FIRST_DAY : undefined}
                         value={val}
                         inputMode={
                           (modal.section === "usuarios" && f.key === "2") ||
@@ -18096,14 +18625,79 @@ function AdminPanel({
             {/* Section-specific view detail extras */}
             {/* Purchase module: real related data */}
             {isView && modal.section === "cat-insumos" && row && (() => {
-              const supplies = (rows.insumos || []).filter((s) => String(s[1]) === String(row[0]))
+              // The category at a glance: what it is, how its insumos are doing and which they are
+              const supplies = (rows.insumos || []).filter((s) => normalizeName(s[1]) === normalizeName(row[0]))
+              const low = supplies.filter((s) => isActiveStatus(s[12]) && Number(s[4]) <= Number(s[5]))
+              const value = supplies.reduce((sum, s) => sum + (Number(s[4]) || 0) * (Number(s[3]) || 0), 0)
+              const active = isActiveStatus(row[2] || "Activa")
+              const description = String(row[1] ?? "").trim()
               return (
-                <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                  <div className="text-xs font-semibold mb-1.5" style={{ color: t.muted }}>
-                    Insumos en esta categoría ({supplies.length})
+                <div className="flex flex-col gap-3 sm:col-span-2">
+                  <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                      {Ico.shopping}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-base font-bold break-words" style={{ color: t.text }}>{String(row[0])}</div>
+                      <p className="mt-0.5 text-xs leading-snug" style={{ color: description ? t.muted : t.subtle }}>
+                        {description || "Sin descripción."}
+                      </p>
+                    </div>
+                    <span
+                      className="flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold"
+                      style={active ? { background: "rgba(58,109,94,0.14)", color: "#2E7D60" } : { background: `${C.red}14`, color: C.red }}
+                    >
+                      {String(row[2] || "Activa")}
+                    </span>
                   </div>
-                  <div style={{ color: t.text }}>
-                    {supplies.length ? supplies.map((s) => String(s[0])).join(", ") : "Ningún insumo usa esta categoría todavía."}
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      ["Insumos", String(supplies.length), t.text],
+                      ["Con stock bajo", String(low.length), low.length ? C.red : t.text],
+                      ["Valor en stock", fmt(Math.round(value)), C.mustard],
+                    ].map(([label, text, color]) => (
+                      <div key={label} className="rounded-xl px-3 py-2.5" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+                        <div className="text-[10px] font-semibold" style={{ color: t.muted }}>{label}</div>
+                        <div className="mt-0.5 text-sm font-bold" style={{ color }}>{text}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
+                    <div className="px-3 py-2 text-[11px] font-semibold" style={{ background: t.cardAlt, color: t.muted }}>
+                      Insumos en esta categoría
+                    </div>
+                    {supplies.length === 0 ? (
+                      <p className="px-3 py-3 text-center text-xs" style={{ color: t.muted }}>Ningún insumo usa esta categoría todavía.</p>
+                    ) : (
+                      // Its own scroll, so a big category doesn't stretch the window
+                      <div className="max-h-56 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
+                        {supplies.map((s) => {
+                          const isLow = isActiveStatus(s[12]) && Number(s[4]) <= Number(s[5])
+                          return (
+                            <div
+                              key={String(s[0])}
+                              className="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs"
+                              style={{ borderColor: t.border, opacity: isActiveStatus(s[12]) ? 1 : 0.5 }}
+                            >
+                              <span className="min-w-0 truncate font-medium" style={{ color: t.text }}>
+                                {String(s[0])}
+                                {!isActiveStatus(s[12]) && <span style={{ color: t.muted }}> · Inactivo</span>}
+                              </span>
+                              <span className="flex flex-shrink-0 items-center gap-2" style={{ color: t.muted }}>
+                                {isLow && (
+                                  <span className="rounded-full px-1.5 py-0.5 text-[9px] font-bold" style={{ background: `${C.red}18`, color: C.red }}>
+                                    ⚠ Stock bajo
+                                  </span>
+                                )}
+                                <strong style={{ color: isLow ? C.red : t.text }}>
+                                  {(Number(s[4]) || 0).toLocaleString("es-CO")} {String(s[2] ?? "")}
+                                </strong>
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -18167,29 +18761,158 @@ function AdminPanel({
                 </div>
               )
             })()}
-            {isView && modal.section === "perdidas" && row && lossValue(row) > 0 && (
-              <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: `${C.red}10`, border: `1px solid ${C.red}30` }}>
-                <div className="text-xs font-semibold" style={{ color: C.red }}>Valor de la pérdida</div>
-                <div className="mt-0.5 font-bold" style={{ color: t.text }}>
-                  {fmt(Math.round(lossValue(row)))}
-                  <span className="ml-1 text-xs font-normal" style={{ color: t.muted }}>(cantidad × costo unitario actual del insumo)</span>
+            {isView && modal.section === "insumos" && row && (() => {
+              // Stock history from the backend: every entry and exit with where it came from
+              const unit = String(row[2] ?? "und")
+              const moves = stockMoves?.id === String(row[DB_SYNC.insumos.idIndex]) ? stockMoves.rows : null
+              const stock = Number(row[4]) || 0
+              return (
+                <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
+                  <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-xs font-semibold" style={{ color: t.muted }}>Movimientos de stock</span>
+                    {moves && moves.length > 0 && (
+                      // The newest movement leaves the stock it should have: a different value means something changed it outside the history
+                      Math.abs(Number(moves[0].stock_resultante) - stock) < 0.001 ? (
+                        <span className="text-xs font-semibold" style={{ color: "#2E7D60" }}>✓ El stock cuadra con sus movimientos</span>
+                      ) : (
+                        <span className="text-xs font-semibold" style={{ color: C.red }}>
+                          ⚠ Descuadre: el historial dice {Number(moves[0].stock_resultante).toLocaleString("es-CO")} {unit}
+                        </span>
+                      )
+                    )}
+                  </div>
+                  {moves === null ? (
+                    <div style={{ color: t.muted }}>{stockMoves?.error || "Cargando…"}</div>
+                  ) : moves.length === 0 ? (
+                    <div style={{ color: t.text }}>Todavía no tiene movimientos.</div>
+                  ) : (
+                    moves.slice(0, 15).map((m) => {
+                      const qty = Number(m.cantidad)
+                      return (
+                        <div
+                          key={String(m.id_movimiento)}
+                          className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
+                          style={{ borderColor: t.border }}
+                        >
+                          <span className="min-w-0" style={{ color: t.text }}>
+                            <strong>{STOCK_ORIGIN[String(m.origen)] ?? String(m.origen)}</strong>
+                            {m.referencia ? ` · ${String(m.referencia)}` : ""}
+                            <span style={{ color: t.muted }}> · {String(m.fecha)}</span>
+                          </span>
+                          <span style={{ color: t.muted }}>
+                            <strong style={{ color: qty >= 0 ? "#2E7D60" : C.red }}>
+                              {qty >= 0 ? "+" : "−"}{Math.abs(qty).toLocaleString("es-CO")} {unit}
+                            </strong>{" "}
+                            → {Number(m.stock_resultante).toLocaleString("es-CO")} {unit}
+                          </span>
+                        </div>
+                      )
+                    })
+                  )}
                 </div>
-              </div>
-            )}
-            {isView && modal.section === "perdidas" && String(row?.[7] ?? "").trim() && (
-              <div
-                className="rounded-xl px-4 py-3 text-sm sm:col-span-2"
-                style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}
-              >
-                <div className="text-xs font-semibold" style={{ color: C.mustard }}>
-                  {isReturnedLoss(row ?? undefined) ? RETURNED_LOSS : "Devuelto a compra"}
-                  {row?.[8] ? ` · ${String(row[8])} en total` : ""}
+              )
+            })()}
+            {isView && modal.section === "perdidas" && row && (() => {
+              // [0 insumo, 1 cantidad ("2 kg"), 2 motivo, 3 responsable, 4 fecha, 5 origen, 6 estado,
+              //  7 devoluciones ("N kg: motivo" por línea), 8 total devuelto, 10 id_compra]
+              const unit = String(row[1]).split(" ").slice(1).join(" ") || "und"
+              const qtyNow = parseFloat(String(row[1]).replace(",", ".")) || 0
+              const returned = parseFloat(String(row[8] ?? "").replace(",", ".")) || 0
+              const fullyReturned = isReturnedLoss(row)
+              // A full return keeps the original quantity; a partial one lowers it by what went back
+              const lostAtFirst = fullyReturned ? qtyNow : qtyNow + returned
+              const stillLost = fullyReturned ? 0 : qtyNow
+              const purchase = (rows.compras || []).find((c) => isLossOfPurchase(row, c))
+              const bought = purchase
+                ? parsePurchaseLines(purchase[6]).filter((l) => normalizeName(l.name) === normalizeName(row[0]))
+                : []
+              const returns = String(row[7] ?? "").split("\n").map((l) => l.trim()).filter(Boolean)
+              const status = String(row[6] || "Registrada")
+              const n = (v: number) => `${v.toLocaleString("es-CO")} ${unit}`
+              const box = { background: t.input, border: `1px solid ${t.border}` }
+              const title = (text: string) => (
+                <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>{text}</div>
+              )
+              return (
+                <div className="flex flex-col gap-3 sm:col-span-2">
+                  <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.red}12`, color: C.red }}>
+                      {Ico.alert}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-base font-bold break-words" style={{ color: t.text }}>{String(row[0])}</div>
+                      <div className="mt-0.5 text-xs" style={{ color: t.muted }}>
+                        {String(row[2] || "Sin motivo")} · {String(row[4] || "—")} · {String(row[3] || "Sin responsable")}
+                      </div>
+                    </div>
+                    <span
+                      className="flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold"
+                      style={{ background: badgeSt(status)?.bg ?? t.input, color: badgeSt(status)?.color ?? t.muted }}
+                    >
+                      {status}
+                    </span>
+                  </div>
+                  <div>
+                    {title("Qué se perdió")}
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        ["Se perdió", n(lostAtFirst), t.text],
+                        ["Sigue perdido", n(stillLost), stillLost ? C.red : "#2E7D60"],
+                        ["Valor perdido", lossValue(row) > 0 ? fmt(Math.round(lossValue(row))) : "—", stillLost ? C.red : t.text],
+                      ].map(([label, text, color]) => (
+                        <div key={label} className="rounded-xl px-3 py-2.5" style={box}>
+                          <div className="text-[10px] font-semibold" style={{ color: t.muted }}>{label}</div>
+                          <div className="mt-0.5 text-sm font-bold" style={{ color }}>{text}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    {title("Compra de origen")}
+                    {purchase ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-xs" style={box}>
+                        <span style={{ color: t.text }}>
+                          <strong>Compra #{String(purchase[DB_SYNC.compras.idIndex] ?? "—")}</strong> · {String(purchase[0])} · {String(purchase[1])}
+                          {!isActiveStatus(purchase[5]) && <span style={{ color: C.red }}> · Anulada</span>}
+                        </span>
+                        <span style={{ color: t.muted }}>
+                          {bought.length
+                            ? `Se compraron ${bought.reduce((s, l) => s + l.quantity, 0).toLocaleString("es-CO")} ${unit} × ${fmt(bought[0].unitPrice)}`
+                            : "Ese insumo ya no está en la compra"}
+                        </span>
+                      </div>
+                    ) : (
+                      <p className="rounded-xl px-3 py-2.5 text-xs" style={{ ...box, color: t.muted }}>
+                        {String(row[5] ?? "").trim() || "Pérdida registrada sin una compra asociada."}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    {title(`Devuelto a la compra${returned ? ` · ${n(returned)}` : ""}`)}
+                    {returns.length ? (
+                      <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${C.mustard}40` }}>
+                        {returns.map((line, i) => {
+                          // "3 kg: el proveedor lo cambió"
+                          const [amount, ...why] = line.split(":")
+                          return (
+                            <div
+                              key={i}
+                              className="flex items-start gap-3 px-3 py-2 text-xs"
+                              style={{ background: `${C.mustard}0D`, borderTop: i ? `1px solid ${C.mustard}30` : undefined }}
+                            >
+                              <strong className="flex-shrink-0" style={{ color: C.mustard }}>{why.length ? amount.trim() : "—"}</strong>
+                              <span className="min-w-0 break-words" style={{ color: t.text }}>{(why.length ? why.join(":") : line).trim()}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <p className="rounded-xl px-3 py-2.5 text-xs" style={{ ...box, color: t.muted }}>No se ha devuelto nada a la compra.</p>
+                    )}
+                  </div>
                 </div>
-                {String(row?.[7]).split("\n").map((line, index) => (
-                  <div key={index} className="mt-1" style={{ color: t.text }}>{line}</div>
-                ))}
-              </div>
-            )}
+              )
+            })()}
             {isView && isPurchase && (() => {
               const items = parsePurchaseItems(row?.[6])
               const annulled = String(row?.[5]) === "Anulado"
@@ -18306,7 +19029,7 @@ function AdminPanel({
               // Products first, then additions, then drinks
               const groupOf = (item: ProductionItem) => {
                 const category = normalizeName(String(item.category || rows.producto?.find((p) => p[0] === item.name)?.[1] || ""))
-                if (item.name.startsWith("Gaseosa ") || category === "bebidas" || category === "sabores de bebida") return 2
+                if (item.name.startsWith("Gaseosa ") || category === "bebidas" || category === "gaseosas") return 2
                 if (item.parentId || category === "adiciones") return 1
                 return 0
               }
@@ -18840,7 +19563,7 @@ function AdminPanel({
                 {Ico.undo} Registrar devolución
               </button>
             )}
-            {isView && (isPurchaseModule || isProduct) && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && !(isProduct && row?.[1] === SODA_PRODUCT) && (
+            {isView && (isPurchaseModule || isProduct) && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
               <button
                 onClick={() => openEdit(modal.section, modal.idx!)}
                 className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
@@ -18849,7 +19572,7 @@ function AdminPanel({
                 Editar
               </button>
             )}
-            {modal.section === "perdidas" && modal.mode !== "add" && canDo("perdidas", "EDITAR") && String(row?.[5] ?? "").startsWith("Compra a ") && !isReturnedLoss(row ?? undefined) && (
+            {modal.section === "perdidas" && modal.mode !== "add" && canDo("perdidas", "EDITAR") && String(row?.[5] ?? "").startsWith("Compra a ") && !isReturnedLoss(row ?? undefined) && !isLossPurchaseAnnulled(row ?? undefined) && (
               <button
                 type="button"
                 onClick={() => {
@@ -18923,9 +19646,8 @@ function AdminPanel({
                     style={{ background: t.input, border: `1.5px solid ${t.inputB}` }}
                   >
                     <input
-                      type="number"
-                      min="0"
-                      step="any"
+                      type="text"
+                      inputMode="decimal"
                       value={lossReturnQty}
                       onChange={(e) => {
                         setLossReturnQty(e.target.value)
@@ -19561,7 +20283,7 @@ function AdminPanel({
             setLossDraft((current) => (current ? { ...current, ...patch } : current))
           }
           const confirmLoss = () => {
-            const qty = Number(lossDraft.qty)
+            const qty = toDecimal(lossDraft.qty)
             if (!(qty > 0)) return setLossError("Escribe cuánto se perdió.")
             if (qty > lossDraft.max)
               return setLossError(
@@ -19579,6 +20301,8 @@ function AdminPanel({
               lossDraft.responsable.trim(),
               lossDraft.fecha,
               lossDraft.origin,
+              "", "", "", "", // estado, devolución, cantidad devuelta, id (the backend fills them)
+              lossDraft.purchaseId,
             ]
             setRows((current) => ({ ...current, perdidas: [lossRow, ...(current.perdidas || [])] }))
             syncRow("perdidas", lossRow, true)
@@ -19639,9 +20363,8 @@ function AdminPanel({
                       style={controlSt}
                     >
                       <input
-                        type="number"
-                        min="0"
-                        step="any"
+                        type="text"
+                        inputMode="decimal"
                         autoFocus
                         value={lossDraft.qty}
                         onChange={(e) => updateLoss({ qty: e.target.value })}
