@@ -2634,7 +2634,8 @@ function LoginPage({
       }}
     >
       <AuthPhotoBackground src={loginBackgroundImg} />
-      <div className="relative z-10 grid w-full max-w-5xl items-center gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-14">
+      <AccessBackButton onClick={onBack} />
+      <div className="relative z-10 grid w-full max-w-6xl items-center gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-14">
         <div className="hidden px-4 lg:block">
           <img
             src={logoImg}
@@ -2662,7 +2663,7 @@ function LoginPage({
           </p>
         </div>
         <div
-          className="mx-auto w-full max-w-md rounded-3xl p-4 sm:p-5"
+          className="mx-auto w-full max-w-lg rounded-3xl p-5 sm:p-6"
           style={{
             background: "#fff",
             boxShadow: "0 18px 55px rgba(0,0,0,0.28)",
@@ -2672,7 +2673,7 @@ function LoginPage({
             <img
               src={logoImg}
               alt="El Parche"
-              className="h-36 w-36 object-contain"
+              className="h-28 w-28 object-contain"
             />
           </div>
           <h2
@@ -2853,7 +2854,8 @@ function RegisterPage({
       }}
     >
       <AuthPhotoBackground src={authFoodBackgroundImg} />
-      <div className="relative z-10 grid w-full max-w-7xl items-center gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-12">
+      <AccessBackButton onClick={onBack} />
+      <div className="relative z-10 grid w-full max-w-6xl items-center gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-10">
         <div className="hidden px-5 text-white lg:block">
           <AccessLogo
             onClick={onLoginLink}
@@ -2871,7 +2873,7 @@ function RegisterPage({
           </p>
         </div>
         <div
-          className={`mx-auto w-full rounded-3xl ${verificationPending ? "max-w-[23rem] p-5 lg:justify-self-center" : "max-w-[640px] p-6 sm:p-7 lg:p-8 lg:justify-self-end"}`}
+          className={`mx-auto w-full rounded-3xl ${verificationPending ? "max-w-[23rem] p-5 lg:justify-self-center" : "max-w-[600px] p-5 sm:p-6 lg:justify-self-center"}`}
           style={{
             background: "#fff",
             boxShadow: "0 18px 55px rgba(0,0,0,0.28)",
@@ -2881,7 +2883,7 @@ function RegisterPage({
             <div className="mb-4 flex justify-center lg:hidden">
               <AccessLogo
                 onClick={onLoginLink}
-                className="h-24 w-40 object-contain"
+                className="h-20 w-32 object-contain"
               />
             </div>
           )}
@@ -2914,7 +2916,7 @@ function RegisterPage({
               Inicia sesión
             </button></>}
           </div>
-          <form onSubmit={verificationPending ? verifyRegistration : submitForm} noValidate className={`flex flex-col ${verificationPending ? "gap-3" : "gap-3"} [&_input]:px-4 [&_input]:py-3 [&_select]:px-4 [&_select]:py-3`}>
+          <form onSubmit={verificationPending ? verifyRegistration : submitForm} noValidate className={`flex flex-col gap-2.5 [&_input]:px-4 [&_input]:py-2.5 [&_select]:px-4 [&_select]:py-2.5`}>
             {verificationPending ? (
               <>
                 <PinCodeField
