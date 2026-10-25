@@ -6,7 +6,7 @@ import registerBackgroundImg from "@/imports/auth-register-background.png"
 import forgotBackgroundImg from "@/imports/auth-forgot-background.png"
 import landingBackgroundImg from "@/imports/landing-background.png"
 import storyBelloImg from "@/imports/story-bello.png"
-import { neighborhoodNameFromAddress, normalizeNeighborhood } from "@/data/barrios"
+import { BELLO_NEIGHBORHOODS, neighborhoodNameFromAddress, normalizeNeighborhood } from "@/data/barrios"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "app" | "admin"
@@ -42,11 +42,12 @@ type CartItem = {
   additions?: { name: string; qty: number; price: number }[]
 }
 // ── Delivery zone ──────────────────────────────────────────────────────────────
-// The shop is in Santa Ana (Bello, Antioquia); deliveries only up to DELIVERY_RADIUS_KM from there
+// The shop is in Santa Ana (Bello, Antioquia).
 const SHOP_LOCATION = { lat: 6.3295, lon: -75.5627 }
-const DELIVERY_RADIUS_KM = 5
 const DELIVERY_ESTIMATE_ENDPOINT = "/pedidos/estimacion"
 const BUILDING_TYPES = ["Departamento", "Edificio residencial", "Urbanización", "Hotel", "Oficinas", "Otro"]
+const deliveryCostByDistance = (distanceKm: number) =>
+  distanceKm <= 2 ? 4000 : distanceKm <= 4 ? 6000 : 8000
 // Straight-line distance in km between two points (haversine)
 function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
   const rad = (d: number) => (d * Math.PI) / 180
@@ -85,14 +86,35 @@ function addressPartsFromAddress(address: string) {
 async function geocodeAddress(queries: string[], signal: AbortSignal) {
   for (const q of queries.filter(Boolean)) {
     const url =
-      "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=co&viewbox=-75.75,6.55,-75.35,6.10&q=" +
+      "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=co&viewbox=-75.75,6.55,-75.35,6.10&q=" +
       encodeURIComponent(`${q.replace(/#|No\.|N°/gi, " ").replace(/\s+/g, " ").trim()}, Antioquia, Colombia`)
     const res = await fetch(url, { signal, headers: { "Accept-Language": "es" } })
     if (!res.ok) throw new Error(`Mapa no disponible (${res.status})`)
-    const [hit] = (await res.json()) as { lat: string; lon: string }[]
-    if (hit) return { lat: Number(hit.lat), lon: Number(hit.lon) }
+    const [hit] = (await res.json()) as {
+      lat: string
+      lon: string
+      address?: Record<string, string>
+    }[]
+    if (hit) {
+      const neighborhood = hit.address
+        ? [
+            hit.address.neighbourhood,
+            hit.address.suburb,
+            hit.address.city_district,
+            hit.address.quarter,
+          ].find(Boolean)
+        : undefined
+      return { lat: Number(hit.lat), lon: Number(hit.lon), neighborhood }
+    }
   }
   return null
+}
+
+const formatDuration = (minutes: number) => {
+  const hours = Math.floor(minutes / 60)
+  const remainingMinutes = minutes % 60
+  if (!hours) return `${minutes} min`
+  return remainingMinutes ? `${hours} h ${remainingMinutes} min` : `${hours} h`
 }
 
 // A long address shown one part per line ("Calle 50 # 45-20" / "Barrio Santa Ana" / "Torre 2 apto 301")
@@ -120,8 +142,10 @@ function addCartItem(items: CartItem[], item: CartItem): CartItem[] {
 type DeliveryInfo = {
   nombre: string
   telefono: string
+  tipoEntrega: "local" | "domicilio" | "recoger"
   barrio?: string
-  barrioId?: number
+  barrioId?: number | null
+  distanciaKm?: number
   costoDomicilio?: number | null
   direccion: string
   notas: string
@@ -129,16 +153,22 @@ type DeliveryInfo = {
   voucher?: string
 }
 type DeliveryNeighborhood = {
-  id_barrio: number
+  id_barrio: number | null
   nombre: string
-  costo_domicilio_cop: number | null
+  costo_domicilio_cop?: number | null
 }
 type DeliveryEstimate = {
   minimumMinutes: number | null
   maximumMinutes: number | null
   estimatedMinutes: number | null
-  deliveryCost: number | null
-  message: string
+  deliveryCost?: number | null
+  message: string | null
+  components?: {
+    kitchenWaitMinutes: number | null
+    preparationMinutes: number | null
+    dispatchWaitMinutes: number | null
+    travelMinutes: number | null
+  }
 }
 type Order = DeliveryInfo & {
   id: string
@@ -5101,6 +5131,7 @@ const orderFromDb = (p: DbRecord): Order => ({
   date: new Date(p.creado_en).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }),
   nombre: p.nombre_contacto || p.cliente,
   telefono: p.telefono_contacto || "",
+  tipoEntrega: p.tipo_entrega || "domicilio",
   direccion: p.direccion_entrega || "",
   barrio: p.barrio || neighborhoodNameFromAddress(p.direccion_entrega || "") || undefined,
   barrioId: p.id_barrio || undefined,
@@ -5680,7 +5711,7 @@ function NeighborhoodSearch({
   loading: boolean
   loadError: string
   onQueryChange: (query: string) => void
-  onSelect: (neighborhood: DeliveryNeighborhood | null) => void
+  onSelect: (neighborhood: DeliveryNeighborhood | string | null) => void
   error?: string
 }) {
   const MUTED = "rgba(30,30,30,0.55)"
@@ -5691,6 +5722,11 @@ function NeighborhoodSearch({
   const matches = neighborhoods.filter((neighborhood) =>
     normalizeNeighborhood(neighborhood.nombre).includes(normalizeNeighborhood(query)),
   )
+  const hasExactMatch = matches.some(
+    (neighborhood) => normalizeNeighborhood(neighborhood.nombre) === normalizeNeighborhood(query),
+  )
+  const hasCustomOption = !!query.trim() && !hasExactMatch
+  const optionCount = matches.length + Number(hasCustomOption)
 
   useEffect(() => {
     const closeOnOutsideClick = (event: PointerEvent) => {
@@ -5703,6 +5739,14 @@ function NeighborhoodSearch({
   const choose = (neighborhood: DeliveryNeighborhood) => {
     onQueryChange(neighborhood.nombre)
     onSelect(neighborhood)
+    setOpen(false)
+    setActiveIndex(0)
+  }
+  const chooseCustom = () => {
+    const customNeighborhood = query.trim()
+    if (!customNeighborhood) return
+    onQueryChange(customNeighborhood)
+    onSelect(customNeighborhood)
     setOpen(false)
     setActiveIndex(0)
   }
@@ -5721,7 +5765,7 @@ function NeighborhoodSearch({
           aria-autocomplete="list"
           aria-expanded={open}
           aria-controls="bello-neighborhood-options"
-          aria-activedescendant={open && matches.length ? `bello-neighborhood-${activeIndex}` : undefined}
+          aria-activedescendant={open && optionCount ? `bello-neighborhood-${activeIndex}` : undefined}
           autoComplete="off"
           placeholder="Busca tu barrio en Bello"
           value={query}
@@ -5735,17 +5779,18 @@ function NeighborhoodSearch({
             setOpen(true)
           }}
           onKeyDown={(event) => {
-            if (event.key === "ArrowDown" && matches.length) {
+            if (event.key === "ArrowDown" && optionCount) {
               event.preventDefault()
               setOpen(true)
-              setActiveIndex((index) => (index + 1) % matches.length)
-            } else if (event.key === "ArrowUp" && matches.length) {
+              setActiveIndex((index) => (index + 1) % optionCount)
+            } else if (event.key === "ArrowUp" && optionCount) {
               event.preventDefault()
               setOpen(true)
-              setActiveIndex((index) => (index - 1 + matches.length) % matches.length)
-            } else if (event.key === "Enter" && open && matches.length) {
+              setActiveIndex((index) => (index - 1 + optionCount) % optionCount)
+            } else if (event.key === "Enter" && open && optionCount) {
               event.preventDefault()
-              choose(matches[activeIndex] || matches[0])
+              if (activeIndex < matches.length) choose(matches[activeIndex] || matches[0])
+              else chooseCustom()
             } else if (event.key === "Escape") {
               setOpen(false)
             }
@@ -5781,30 +5826,45 @@ function NeighborhoodSearch({
           className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border bg-white p-1 shadow-lg"
           style={{ borderColor: LINE }}
         >
-          {matches.length ? (
-            matches.map((neighborhood, index) => (
-              <li
-                key={neighborhood.id_barrio}
-                id={`bello-neighborhood-${index}`}
-                role="option"
-                aria-selected={neighborhood.nombre === value}
-                onMouseEnter={() => setActiveIndex(index)}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => choose(neighborhood)}
-                className="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-sm"
-                style={{
-                  background: index === activeIndex ? `${C.mustard}18` : "#fff",
-                  color: C.dark,
-                }}
-              >
-                {neighborhood.nombre}
-                {neighborhood.nombre === value && <span aria-hidden="true" style={{ color: C.forest }}>✓</span>}
-              </li>
-            ))
-          ) : loadError ? (
-            <li className="px-3 py-2.5 text-sm" style={{ color: C.red }} role="status">
-              {loadError}
-            </li>
+          {optionCount ? (
+            <>
+              {matches.map((neighborhood, index) => (
+                <li
+                  key={neighborhood.id_barrio ?? neighborhood.nombre}
+                  id={`bello-neighborhood-${index}`}
+                  role="option"
+                  aria-selected={neighborhood.nombre === value}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => choose(neighborhood)}
+                  className="flex cursor-pointer items-center justify-between rounded-lg px-3 py-2.5 text-sm"
+                  style={{
+                    background: index === activeIndex ? `${C.mustard}18` : "#fff",
+                    color: C.dark,
+                  }}
+                >
+                  {neighborhood.nombre}
+                  {neighborhood.nombre === value && <span aria-hidden="true" style={{ color: C.forest }}>✓</span>}
+                </li>
+              ))}
+              {hasCustomOption && (
+                <li
+                  id={`bello-neighborhood-${matches.length}`}
+                  role="option"
+                  aria-selected={false}
+                  onMouseEnter={() => setActiveIndex(matches.length)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={chooseCustom}
+                  className="cursor-pointer rounded-lg px-3 py-2.5 text-sm"
+                  style={{
+                    background: activeIndex === matches.length ? `${C.mustard}18` : "#fff",
+                    color: C.dark,
+                  }}
+                >
+                  Usar barrio: {query.trim()}
+                </li>
+              )}
+            </>
           ) : loading ? (
             <li className="px-3 py-2.5 text-sm" style={{ color: MUTED }} role="status">
               Cargando barrios...
@@ -5816,6 +5876,7 @@ function NeighborhoodSearch({
           )}
         </ul>
       )}
+      {loadError && <span className="mt-1 block text-xs" style={{ color: C.red }} role="alert">{loadError}</span>}
       {error && <span className="mt-1 block text-xs" style={{ color: C.red }} role="alert">{error}</span>}
     </div>
   )
@@ -5857,10 +5918,23 @@ function CheckoutPage({
     notas: "",
     pago: "Efectivo",
   })
+  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryInfo["tipoEntrega"]>("domicilio")
+  const isDelivery = deliveryMethod === "domicilio"
+  const deliveryMethodLabel =
+    deliveryMethod === "local"
+      ? "Comer en el local"
+      : deliveryMethod === "recoger"
+        ? "Pasar por él"
+        : "Pedir a domicilio"
   // Address typed in parts; `direccion` is built from them (see composeDeliveryAddress)
   const [addressParts, setAddressParts] = useState({ barrio: "", calle: "", tipoEdificio: "", nombreEdificio: "", unidad: "" })
   const [neighborhoodQuery, setNeighborhoodQuery] = useState("")
-  const [neighborhoods, setNeighborhoods] = useState<DeliveryNeighborhood[]>([])
+  const neighborhoodManuallySelected = useRef(false)
+  const fallbackNeighborhoods: DeliveryNeighborhood[] = BELLO_NEIGHBORHOODS.map((nombre) => ({
+    id_barrio: null,
+    nombre,
+  }))
+  const [neighborhoods, setNeighborhoods] = useState<DeliveryNeighborhood[]>(fallbackNeighborhoods)
   const [neighborhoodsLoading, setNeighborhoodsLoading] = useState(true)
   const [neighborhoodsError, setNeighborhoodsError] = useState("")
   const selectedNeighborhood = neighborhoods.find(
@@ -5873,22 +5947,33 @@ function CheckoutPage({
       return next
     })
   // Where the address is on the map and whether it's inside the delivery zone
-  const [geo, setGeo] = useState<{ status: "idle" | "loading" | "ok" | "far" | "notfound" | "error"; lat?: number; lon?: number; km?: number }>({ status: "idle" })
+  const [geo, setGeo] = useState<{ status: "idle" | "loading" | "ok" | "notfound" | "error"; lat?: number; lon?: number; km?: number }>({ status: "idle" })
   const [deliveryEstimate, setDeliveryEstimate] = useState({
     status: "idle" as "idle" | "loading" | "ready",
     label: "Por confirmar",
     deliveryCost: null as number | null,
+    components: null as DeliveryEstimate["components"] | null,
   })
+  const [deliveryEstimateError, setDeliveryEstimateError] = useState("")
+  const [estimateRefresh, setEstimateRefresh] = useState(0)
   useEffect(() => {
+    if (!user) {
+      setNeighborhoods(fallbackNeighborhoods)
+      setNeighborhoodsLoading(false)
+      setNeighborhoodsError("")
+      return
+    }
     const controller = new AbortController()
     setNeighborhoodsLoading(true)
+    setNeighborhoodsError("")
     api<DeliveryNeighborhood[]>("/barrios", "GET", undefined, controller.signal)
       .then((items) => {
         setNeighborhoods(items)
-        setNeighborhoodsError("")
+        if (!items.length) setNeighborhoodsError("No hay barrios activos configurados en el servidor.")
       })
       .catch((error) => {
         if ((error as Error).name !== "AbortError") {
+          setNeighborhoods(fallbackNeighborhoods)
           setNeighborhoodsError((error as Error).message || "No se pudieron cargar los barrios.")
         }
       })
@@ -5896,28 +5981,46 @@ function CheckoutPage({
         if (!controller.signal.aborted) setNeighborhoodsLoading(false)
       })
     return () => controller.abort()
-  }, [])
+  }, [user?.email])
   const [editingAddress, setEditingAddress] = useState(
     () => !(user?.addresses?.length),
   )
   // Locate the address (1 s after the last change: OpenStreetMap allows ~1 search per second)
   const geoQueries = editingAddress
-    ? [addressParts.calle && addressParts.barrio && `${addressParts.calle}, ${addressParts.barrio}`, addressParts.barrio]
+    ? [
+        addressParts.calle && addressParts.barrio && `${addressParts.calle}, ${addressParts.barrio}`,
+        addressParts.calle,
+        addressParts.barrio,
+      ]
     : [delivForm.direccion, /Barrio ([^,]+)/.exec(delivForm.direccion)?.[1] ?? ""]
   const geoKey = geoQueries.join("|")
   useEffect(() => {
+    if (!isDelivery) {
+      setGeo({ status: "idle" })
+      return
+    }
     if (!geoQueries.some(Boolean)) {
       setGeo({ status: "idle" })
       return
     }
     const controller = new AbortController()
     setGeo({ status: "loading" })
+    setDeliveryEstimate((current) => ({ ...current, status: "loading", label: "Calculando..." }))
     const timer = setTimeout(() => {
       geocodeAddress(geoQueries as string[], controller.signal)
         .then((point) => {
           if (!point) return setGeo({ status: "notfound" })
           const km = distanceKm(SHOP_LOCATION, point)
-          setGeo({ status: km <= DELIVERY_RADIUS_KM ? "ok" : "far", ...point, km })
+          setGeo({ status: "ok", ...point, km })
+          const detectedNeighborhood = point.neighborhood
+            ? neighborhoods.find(
+                (item) => normalizeNeighborhood(item.nombre) === normalizeNeighborhood(point.neighborhood!),
+              )
+            : undefined
+          if (detectedNeighborhood && !addressParts.barrio && !neighborhoodManuallySelected.current) {
+            setNeighborhoodQuery(detectedNeighborhood.nombre)
+            setAddressPart("barrio", detectedNeighborhood.nombre)
+          }
         })
         .catch((err) => {
           if ((err as Error).name !== "AbortError") setGeo({ status: "error" })
@@ -5927,40 +6030,77 @@ function CheckoutPage({
       clearTimeout(timer)
       controller.abort()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [geoKey])
+  }, [geoKey, neighborhoods, addressParts.barrio, isDelivery])
   useEffect(() => {
-    if (!selectedNeighborhood) {
-      setDeliveryEstimate({ status: "idle", label: "Por confirmar", deliveryCost: null })
+    if (isDelivery && !selectedNeighborhood) {
+      setDeliveryEstimate({ status: "idle", label: "Selecciona barrio y dirección", deliveryCost: null, components: null })
+      setDeliveryEstimateError("")
+      return
+    }
+    if (!user) {
+      setDeliveryEstimate({
+        status: "idle",
+        label: "Inicia sesión para calcular",
+        deliveryCost: isDelivery ? selectedNeighborhood?.costo_domicilio_cop ?? null : null,
+        components: null,
+      })
+      setDeliveryEstimateError("")
       return
     }
     const controller = new AbortController()
+    setDeliveryEstimateError("")
     setDeliveryEstimate((current) => ({ ...current, status: "loading", label: "Consultando..." }))
     api<DeliveryEstimate>(
       DELIVERY_ESTIMATE_ENDPOINT,
       "POST",
-      { id_barrio: selectedNeighborhood.id_barrio, direccion: delivForm.direccion },
+      {
+        tipo_entrega: deliveryMethod,
+        ...(isDelivery && selectedNeighborhood
+          ? selectedNeighborhood.id_barrio !== null
+            ? { id_barrio: selectedNeighborhood.id_barrio }
+            : { nombre_barrio: selectedNeighborhood.nombre }
+          : {}),
+        ...(isDelivery ? { direccion: delivForm.direccion } : {}),
+        ...(isDelivery && geo.status === "ok" && geo.km !== undefined
+          ? { distancia_km: geo.km }
+          : {}),
+      },
       controller.signal,
     )
       .then((estimate) => {
         const range = estimate.minimumMinutes !== null && estimate.maximumMinutes !== null
-          ? `${estimate.minimumMinutes}–${estimate.maximumMinutes} min`
-          : estimate.estimatedMinutes !== null
-            ? `${estimate.estimatedMinutes} min`
-            : ""
+          ? `${formatDuration(estimate.minimumMinutes)}–${formatDuration(estimate.maximumMinutes)}`
+          : ""
+        const totalLabel = estimate.estimatedMinutes !== null
+          ? `${formatDuration(estimate.estimatedMinutes)}${range ? ` (rango ${range})` : ""}`
+          : estimate.message || "Por confirmar"
         setDeliveryEstimate({
           status: "ready",
-          label: range || estimate.message || "Por confirmar",
-          deliveryCost: estimate.deliveryCost,
+          label: totalLabel,
+          deliveryCost: isDelivery
+            ? estimate.deliveryCost ?? selectedNeighborhood?.costo_domicilio_cop ?? null
+            : null,
+          components: estimate.components ?? null,
         })
       })
       .catch((error) => {
         if ((error as Error).name !== "AbortError") {
-          setDeliveryEstimate({ status: "ready", label: "Por confirmar", deliveryCost: null })
+          setDeliveryEstimateError((error as Error).message || "No se pudo consultar el tiempo estimado.")
+          setDeliveryEstimate({
+            status: "ready",
+            label: "Por confirmar",
+            deliveryCost: isDelivery ? selectedNeighborhood?.costo_domicilio_cop ?? null : null,
+            components: null,
+          })
         }
       })
     return () => controller.abort()
-  }, [selectedNeighborhood?.id_barrio, delivForm.direccion])
+  }, [selectedNeighborhood?.id_barrio, selectedNeighborhood?.nombre, delivForm.direccion, geo.km, user?.email, estimateRefresh, isDelivery, deliveryMethod])
+  useEffect(() => {
+    if (!user) return
+    const interval = window.setInterval(() => setEstimateRefresh((value) => value + 1), 30_000)
+    return () => window.clearInterval(interval)
+  }, [user?.email])
   const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(false)
   const [saveAddress, setSaveAddress] = useState(
     () => !(user?.addresses?.length),
@@ -6007,6 +6147,7 @@ function CheckoutPage({
   const activeCart = cart.filter((item) => item.qty > 0)
   const [orderError, setOrderError] = useState("")
   const [placing, setPlacing] = useState(false)
+  const [showOutOfRangeDialog, setShowOutOfRangeDialog] = useState(false)
   const placeOrder = async () => {
     setDeliveryTried(true)
     if (placing || !user || !delivFilled || !deliveryCostConfigured || !payReady || cart.length === 0) return
@@ -6016,12 +6157,19 @@ function CheckoutPage({
       const confirmedTotal = await onPlaceOrder(
         {
           ...delivForm,
-          barrio: addressParts.barrio,
-          barrioId: selectedNeighborhood?.id_barrio,
-          costoDomicilio: deliveryEstimate.deliveryCost,
+          tipoEntrega: deliveryMethod,
+          direccion: isDelivery
+            ? delivForm.direccion
+            : deliveryMethod === "local"
+              ? "Consumo en el local"
+              : "Recoger en el local",
+          barrio: isDelivery ? addressParts.barrio : undefined,
+          barrioId: isDelivery ? selectedNeighborhood?.id_barrio ?? undefined : undefined,
+          distanciaKm: isDelivery ? geo.km : undefined,
+          costoDomicilio: isDelivery ? displayedDeliveryCost : 0,
           voucher: needsVoucher ? voucher : undefined,
         },
-        saveAddress || !(user.addresses?.length),
+        isDelivery && (saveAddress || !(user.addresses?.length)),
       )
       setPlacedTotal(
         typeof confirmedTotal === "number" && Number.isFinite(confirmedTotal)
@@ -6037,21 +6185,66 @@ function CheckoutPage({
   }
   const continueToReview = () => {
     setDeliveryTried(true)
-    if (!delivFilled || !deliveryCostConfigured || !payReady) return
+    if (!customerInfoFilled || !payReady) return
+    if (isDelivery && neighborhoodsLoading) return
+    if (neighborhoodOutOfRange) {
+      setShowOutOfRangeDialog(true)
+      return
+    }
+    if (!delivFilled || !deliveryCostConfigured) return
     setCheckoutStep(3)
   }
   // Nequi / Daviplata must attach the payment receipt before continuing
   const needsVoucher = delivForm.pago !== "Efectivo"
   const payReady = !needsVoucher || !!voucher
-  const deliveryCostConfigured = deliveryEstimate.deliveryCost !== null && deliveryEstimate.status === "ready"
-  const orderTotal = subtotal + (deliveryEstimate.deliveryCost ?? 0)
-  const delivFilled =
+  const deliveryCostConfigured = !isDelivery || (
+    deliveryEstimate.deliveryCost !== null &&
+    deliveryEstimate.status === "ready" &&
+    geo.status === "ok" &&
+    geo.km !== undefined
+  )
+  const displayedDeliveryCost =
+    !isDelivery
+      ? null
+      : geo.status === "ok" && geo.km !== undefined
+        ? deliveryCostByDistance(geo.km)
+        : deliveryEstimate.deliveryCost
+  const orderTotal = subtotal + (displayedDeliveryCost ?? 0)
+  const neighborhoodInput = addressParts.barrio.trim() || neighborhoodQuery.trim()
+  const neighborhoodOutOfRange =
+    isDelivery &&
+    !neighborhoodsLoading &&
+    !!neighborhoodInput &&
+    !selectedNeighborhood &&
+    !neighborhoods.some(
+      (item) => normalizeNeighborhood(item.nombre) === normalizeNeighborhood(neighborhoodInput),
+    )
+  const estimatedKitchenMinutes =
+    deliveryEstimate.components?.kitchenWaitMinutes !== null &&
+    deliveryEstimate.components?.kitchenWaitMinutes !== undefined &&
+    deliveryEstimate.components?.preparationMinutes !== null &&
+    deliveryEstimate.components?.preparationMinutes !== undefined
+      ? deliveryEstimate.components.kitchenWaitMinutes + deliveryEstimate.components.preparationMinutes
+      : null
+  const deliveryTimeParts = [
+    deliveryEstimate.components?.dispatchWaitMinutes,
+    deliveryEstimate.components?.travelMinutes,
+  ].filter((minutes): minutes is number => minutes !== null && minutes !== undefined)
+  const estimatedDeliveryMinutes = deliveryTimeParts.length
+    ? deliveryTimeParts.reduce((total, minutes) => total + minutes, 0)
+    : null
+  const customerInfoFilled =
     !!delivForm.nombre.trim() &&
-    !validatePhoneNumber(delivForm.telefono) &&
-    !!delivForm.direccion.trim() &&
-    !!selectedNeighborhood &&
-    (!editingAddress || !!addressParts.calle.trim()) &&
-    (geo.status === "ok" || geo.status === "error")
+    !validatePhoneNumber(delivForm.telefono)
+  const delivFilled = customerInfoFilled && (
+    !isDelivery ||
+    (
+      !!delivForm.direccion.trim() &&
+      !!selectedNeighborhood &&
+      (!editingAddress || !!addressParts.calle.trim()) &&
+      (geo.status === "ok" || geo.status === "error")
+    )
+  )
   const canOrder = user && delivFilled && deliveryCostConfigured
 
   // Errors show after the first submit of each form and update while typing
@@ -6184,7 +6377,8 @@ function CheckoutPage({
             style={{ background: "rgba(30,30,30,0.03)" }}
           >
             {[
-              ["Entrega en", delivForm.direccion],
+              ["Tipo de pedido", deliveryMethodLabel],
+              ...(isDelivery ? [["Entrega en", delivForm.direccion]] : []),
               ["Recibe", delivForm.nombre],
               ["Método de pago", delivForm.pago],
             ].map(([k, v]) => (
@@ -6534,8 +6728,38 @@ function CheckoutPage({
               <>
                 <section className="p-6 rounded-2xl" style={CARD_ST}>
                   <h2 className="font-bold text-lg mb-3" style={{ color: C.dark }}>
-                    Datos de entrega
+                    Datos del pedido
                   </h2>
+                  <fieldset className="mb-5">
+                    <legend className="mb-2 text-xs font-semibold" style={{ color: MUTED }}>
+                      ¿Cómo quieres recibir tu pedido?
+                    </legend>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      {([
+                        ["local", "Comer en el local"],
+                        ["domicilio", "Pedir a domicilio"],
+                        ["recoger", "Pasar por él"],
+                      ] as const).map(([method, label]) => {
+                        const selected = deliveryMethod === method
+                        return (
+                          <button
+                            key={method}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => setDeliveryMethod(method)}
+                            className="rounded-xl border px-3 py-3 text-sm font-semibold transition-colors"
+                            style={{
+                              borderColor: selected ? C.mustard : LINE,
+                              background: selected ? `${C.mustard}12` : "#fff",
+                              color: selected ? C.dark : MUTED,
+                            }}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </fieldset>
                   <button
                     type="button"
                     role="switch"
@@ -6591,7 +6815,8 @@ function CheckoutPage({
                       </div>
                     ))}
                   </div>
-                  <div className="mt-3">
+                  {isDelivery && (
+                    <div className="mt-3">
                     <div className="flex items-center justify-between gap-3 mb-1">
                       <button
                         type="button"
@@ -6617,12 +6842,22 @@ function CheckoutPage({
                         loading={neighborhoodsLoading}
                         loadError={neighborhoodsError}
                         onQueryChange={(query) => {
+                          neighborhoodManuallySelected.current = false
                           setNeighborhoodQuery(query)
                           if (addressParts.barrio) setAddressPart("barrio", "")
                         }}
-                        onSelect={(neighborhood) => setAddressPart("barrio", neighborhood?.nombre || "")}
+                        onSelect={(neighborhood) => {
+                          neighborhoodManuallySelected.current = neighborhood !== null
+                          setAddressPart(
+                            "barrio",
+                            typeof neighborhood === "string" ? neighborhood : neighborhood?.nombre || "",
+                          )
+                        }}
                         error={deliveryTried && !addressParts.barrio ? "Selecciona un barrio de la lista." : undefined}
                       />
+                      <p className="mt-1 text-xs" style={{ color: MUTED }}>
+                        Si el mapa no reconoce el barrio o sugiere uno incorrecto, búscalo y selecciónalo manualmente.
+                      </p>
                     </div>
                     {editingAddress ? (
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -6699,7 +6934,7 @@ function CheckoutPage({
                         ))}
                       </div>
                     )}
-                    {/* Map of the address + delivery zone (up to DELIVERY_RADIUS_KM from Santa Ana, Bello) */}
+                    {/* Map of the address and its distance from the shop */}
                     {geo.status !== "idle" && (
                       <div className="mt-3 overflow-hidden rounded-xl" style={{ border: `1px solid ${LINE}` }}>
                         {geo.lat !== undefined && geo.lon !== undefined && (
@@ -6720,8 +6955,6 @@ function CheckoutPage({
                           }}
                         >
                           {geo.status === "loading" && "Ubicando la dirección en el mapa..."}
-                          {geo.status === "far" &&
-                            `Esta dirección está fuera de nuestra zona de domicilio (hasta ${DELIVERY_RADIUS_KM} km de Santa Ana, Bello), así que no podemos llevar este pedido.`}
                           {geo.status === "notfound" && "No encontramos esta dirección en el mapa. Revisa el barrio y la dirección (ej: Calle 50 # 45-20)."}
                           {geo.status === "error" && "No pudimos cargar el mapa en este momento; el local confirmará la zona al recibir tu pedido."}
                         </p>
@@ -6742,7 +6975,8 @@ function CheckoutPage({
                           : "Esta primera dirección se guardará en tu perfil para futuras compras"}
                       </span>
                     </label>
-                  </div>
+                    </div>
+                  )}
                   <label className="mt-5 block">
                     <span className="mb-1.5 flex items-baseline justify-between gap-2">
                       <span className="text-xs font-semibold" style={{ color: C.dark }}>
@@ -6842,12 +7076,17 @@ function CheckoutPage({
                 </h2>
                 {[
                   {
-                    title: "Entrega",
+                    title: "Pedido",
                     rows: [
+                      ["Tipo", deliveryMethodLabel],
                       ["Recibe", delivForm.nombre],
                       ["Teléfono", delivForm.telefono],
-                      ["Barrio", addressParts.barrio],
-                      ["Dirección", delivForm.direccion],
+                      ...(isDelivery
+                        ? [
+                            ["Barrio", addressParts.barrio],
+                            ["Dirección", delivForm.direccion],
+                          ]
+                        : []),
                       ...(delivForm.notas ? [["Notas", delivForm.notas]] : []),
                     ],
                   },
@@ -6961,24 +7200,68 @@ function CheckoutPage({
               <div className="flex justify-between" style={{ color: MUTED }}>
                 <span>Domicilio</span>
                 <span style={{ color: MUTED }}>
-                  {deliveryEstimate.status === "loading"
-                    ? "Consultando..."
-                    : deliveryCostConfigured
-                      ? fmt(deliveryEstimate.deliveryCost ?? 0)
-                      : "Por confirmar"}
+                  {neighborhoodOutOfRange
+                    ? "Fuera de cobertura"
+                    : !isDelivery
+                      ? "No aplica"
+                      : geo.status === "ok" && displayedDeliveryCost !== null
+                        ? fmt(displayedDeliveryCost)
+                        : geo.status === "loading" || deliveryEstimate.status === "loading"
+                          ? "Calculando..."
+                          : displayedDeliveryCost !== null
+                            ? fmt(displayedDeliveryCost)
+                            : "Por confirmar"}
                 </span>
               </div>
-              <div className="flex justify-between" style={{ color: MUTED }}>
-                <span>Tiempo estimado</span>
+              {isDelivery && deliveryEstimateError && (
+                <p className="mt-2 text-xs" style={{ color: C.red }} role="alert">
+                  No se pudo calcular la entrega: {deliveryEstimateError}
+                </p>
+              )}
+              <div className="flex items-baseline justify-between gap-4">
+                <span className="font-bold" style={{ color: C.dark }}>Tiempo total estimado</span>
                 <span
-                  className="font-semibold"
-                  style={{ color: deliveryEstimate.status === "loading" ? MUTED : C.dark }}
+                  className="max-w-[70%] break-words text-right text-base font-bold"
+                  style={{ color: deliveryEstimate.status === "loading" ? MUTED : C.mustard }}
                   role="status"
                   aria-live="polite"
                 >
-                  {deliveryEstimate.label}
+                  {neighborhoodOutOfRange
+                    ? "Tu barrio no está en el rango de domicilio"
+                    : deliveryEstimate.label}
                 </span>
               </div>
+              <div className="space-y-1 pl-2 text-xs" style={{ color: MUTED, opacity: 0.72 }}>
+                <div className="flex justify-between gap-4">
+                  <span>Tiempo de cocina</span>
+                  <span className="text-right">
+                    {estimatedKitchenMinutes !== null
+                      ? formatDuration(estimatedKitchenMinutes)
+                      : deliveryEstimate.status === "loading"
+                        ? "Calculando..."
+                        : "Por confirmar"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span>Tiempo de domicilio</span>
+                  <span className="text-right">
+                    {neighborhoodOutOfRange
+                      ? "Fuera de cobertura"
+                      : !isDelivery
+                        ? "No aplica"
+                        : estimatedDeliveryMinutes !== null
+                          ? formatDuration(estimatedDeliveryMinutes)
+                          : deliveryEstimate.status === "loading"
+                            ? "Calculando..."
+                            : "Por confirmar"}
+                  </span>
+                </div>
+              </div>
+              {user && deliveryEstimate.status === "ready" && (
+                <p className="text-right text-[11px]" style={{ color: MUTED, opacity: 0.7 }}>
+                  Se actualiza automáticamente cada 30 segundos
+                </p>
+              )}
             </div>
             <div
               className="flex justify-between items-baseline font-black text-lg pt-4 mt-4"
@@ -6990,9 +7273,18 @@ function CheckoutPage({
             >
               <span>Total</span>
               <span style={{ color: C.mustard }}>
-                {deliveryCostConfigured ? fmt(orderTotal) : "Por confirmar"}
+                {neighborhoodOutOfRange
+                  ? fmt(subtotal)
+                  : deliveryCostConfigured
+                    ? fmt(orderTotal)
+                    : "Por confirmar"}
               </span>
             </div>
+            {neighborhoodOutOfRange && (
+              <p className="mt-2 text-right text-xs" style={{ color: MUTED }}>
+                Si continúas para recoger, no se suma el domicilio.
+              </p>
+            )}
             <FieldError msg={orderError} />
             {cta ? (
               <button
@@ -7014,23 +7306,85 @@ function CheckoutPage({
             {user && checkoutStep >= 2 && (!delivFilled || !deliveryCostConfigured || !payReady) && (
               <p className="mt-3 text-xs text-center" style={{ color: MUTED }}>
                 {!delivFilled
-                  ? geo.status === "far"
-                    ? `Tu dirección está fuera de la zona de domicilio (máximo ${DELIVERY_RADIUS_KM} km).`
-                    : geo.status === "notfound"
-                      ? "Revisa el barrio y la dirección: no la encontramos en el mapa."
-                      : geo.status === "loading"
-                        ? "Ubicando tu dirección..."
-                        : "Completa nombre, teléfono, barrio y dirección para continuar."
+                  ? !customerInfoFilled
+                    ? "Completa el nombre y el teléfono para continuar."
+                    : neighborhoodsLoading && isDelivery
+                      ? "Cargando los barrios habilitados..."
+                      : neighborhoodOutOfRange
+                        ? "Al continuar, te preguntaremos si deseas recoger el pedido en el local."
+                        : geo.status === "notfound"
+                          ? "Revisa el barrio y la dirección: no la encontramos en el mapa."
+                          : geo.status === "loading"
+                            ? "Ubicando tu dirección..."
+                            : "Completa nombre, teléfono, barrio y dirección para continuar."
                   : !deliveryCostConfigured
-                    ? deliveryEstimate.status === "loading"
-                      ? "Calculando el costo del domicilio..."
-                      : "El costo de domicilio está por confirmar para este barrio."
+                    ? geo.status === "loading"
+                      ? "Calculando la tarifa del domicilio..."
+                      : "No se pudo calcular la tarifa. Verifica la dirección de entrega."
                     : `Sube el comprobante de ${delivForm.pago} para continuar.`}
               </p>
             )}
           </aside>
         </div>
       </div>
+      {showOutOfRangeDialog && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 py-6"
+          onClick={() => setShowOutOfRangeDialog(false)}
+        >
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="out-of-range-title"
+            aria-describedby="out-of-range-description"
+            className="w-full max-w-md rounded-3xl p-6 shadow-2xl"
+            style={{ background: "#fff", border: `1px solid ${LINE}` }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              className="mb-4 flex h-12 w-12 items-center justify-center rounded-full text-xl font-bold"
+              style={{ background: `${C.red}12`, color: C.red }}
+              aria-hidden="true"
+            >
+              !
+            </div>
+            <h2
+              id="out-of-range-title"
+              className="mb-2 font-black text-xl"
+              style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
+            >
+              Barrio fuera del rango de domicilio
+            </h2>
+            <p id="out-of-range-description" className="mb-6 text-sm leading-relaxed" style={{ color: MUTED }}>
+              Tu barrio no está en el rango de domicilio, no podemos hacer el envío.
+              ¿Deseas continuar con tu pedido? Se asignará automáticamente para que
+              lo recojas en el local.
+            </p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setShowOutOfRangeDialog(false)}
+                className="rounded-xl px-4 py-3 text-sm font-semibold"
+                style={{ border: `1px solid ${LINE}`, color: C.dark, background: "#fff" }}
+              >
+                No, revisar dirección
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowOutOfRangeDialog(false)
+                  setDeliveryMethod("recoger")
+                  setCheckoutStep(3)
+                }}
+                className="rounded-xl px-4 py-3 text-sm font-bold"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                Continuar para recoger
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       {pickerOpen && (
         <div
           className="fixed inset-0 z-40 flex items-center justify-center px-4 py-6"
@@ -22715,8 +23069,11 @@ export default function App() {
           const created = await api<DbRecord>("/pedidos", "POST", {
             nombre: info.nombre,
             telefono: info.telefono,
+            tipo_entrega: info.tipoEntrega,
             direccion: info.direccion,
             id_barrio: info.barrioId,
+            distancia_km: info.distanciaKm,
+            nombre_barrio: info.barrio,
             notas: info.notas,
             pago: info.pago,
             comprobante: info.voucher,
