@@ -2854,7 +2854,7 @@ function RegisterPage({
       }}
     >
       <AuthPhotoBackground src={authFoodBackgroundImg} />
-      <AccessBackButton onClick={onBack} />
+      <AccessBackButton onClick={onLoginLink} />
       <div className="relative z-10 grid w-full max-w-6xl items-center gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-10">
         <div className="hidden px-5 text-white lg:block">
           <AccessLogo
