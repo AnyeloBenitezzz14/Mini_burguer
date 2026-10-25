@@ -1,11 +1,11 @@
 import { Fragment, useState, useRef, useEffect, useCallback } from "react"
 import logoImg from "@/imports/logo.png"
 import qrImg from "@/imports/image-4.png"
-import loginBackgroundImg from "@/imports/auth-login-background.jpg"
-import registerBackgroundImg from "@/imports/auth-register-background.png"
-import forgotBackgroundImg from "@/imports/auth-forgot-background.png"
+import loginBackgroundImg from "@/imports/auth-login-new.jpg"
+import authFoodBackgroundImg from "@/imports/auth-food-new.png"
 import landingBackgroundImg from "@/imports/landing-background.png"
 import storyBelloImg from "@/imports/story-bello.png"
+import traditionalBurgerImg from "@/imports/traditional-burger.png"
 import { BELLO_NEIGHBORHOODS, neighborhoodNameFromAddress, normalizeNeighborhood } from "@/data/barrios"
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -148,6 +148,7 @@ type DeliveryInfo = {
   distanciaKm?: number
   costoDomicilio?: number | null
   direccion: string
+  barrio?: string
   notas: string
   pago: string
   voucher?: string
@@ -201,6 +202,7 @@ type Product = {
   img: string
   cat: string
   badge: string
+  soldOut?: boolean
 }
 type TechnicalIngredient = {
   name: string
@@ -396,7 +398,7 @@ const PRODUCTS: Product[] = [
     desc: "Carne, queso cheddar y tocineta crujiente.",
     price: 16000,
     priceStr: "$16.000",
-    img: "https://images.unsplash.com/photo-1550317138-10000687a72b?w=500&h=400&fit=crop",
+    img: traditionalBurgerImg,
     cat: "hamburguesas",
     badge: "",
   },
@@ -681,6 +683,8 @@ const PRODUCTS: Product[] = [
     badge: "",
   },
 ]
+const MENU_EXTRAS: Product[] = []
+const allMenuProducts = () => [...PRODUCTS, ...MENU_EXTRAS]
 
 // icon: the paths of a line icon (drawn with aboutIcon), no emojis
 // Category icons: line drawings on a 24×24 grid (stroke from aboutIcon), one per dish
@@ -774,6 +778,26 @@ const MENU_CATS = [
         <path d="M4 13.5a8 7 0 0 0 16 0z" />
         <path d="M5.3 9.6A8 7 0 0 1 18.4 7.5" />
         <path d="M4.6 11.8c1.4-.9 2.4.8 3.8 0s2.4-.9 3.8 0 2.4.8 3.8 0 2.2-.7 3.4 0" />
+      </>
+    ),
+  },
+  {
+    id: "salsas",
+    label: "Salsas",
+    icon: (
+      <>
+        <path d="M8 3h8v3l-1 1v2l3 3v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-8l3-3V7L8 6z" />
+        <path d="M7 14h10M10 3v3" />
+      </>
+    ),
+  },
+  {
+    id: "bebidas",
+    label: "Bebidas",
+    icon: (
+      <>
+        <path d="M6 4h12l-1 16H7z" />
+        <path d="M8 8h8M14 4l2-2" />
       </>
     ),
   },
@@ -2378,41 +2402,168 @@ function InputField({
   )
 }
 
+function PinCodeField({
+  label,
+  value,
+  onChange,
+  error,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  error?: string
+}) {
+  const [focused, setFocused] = useState(false)
+
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="text-sm font-semibold" style={{ color: C.dark }}>
+        {label}
+      </label>
+      <div
+        className="relative"
+        onClick={(event) => event.currentTarget.querySelector("input")?.focus()}
+      >
+        <div className="grid w-fit grid-cols-6 gap-1.5 sm:gap-2" aria-hidden="true">
+          {Array.from({ length: 6 }, (_, index) => {
+            const activeIndex = Math.min(value.length, 5)
+            const active = focused && index === activeIndex
+            return (
+              <div
+                key={index}
+                className="flex h-9 w-9 items-center justify-center rounded-lg text-base font-bold transition-all sm:h-10 sm:w-10 sm:rounded-xl"
+                style={{
+                  background: "#FBF8F0",
+                  border: `1.5px solid ${error ? C.red : active ? C.mustard : "rgba(182,140,28,0.2)"}`,
+                  color: C.dark,
+                  boxShadow: active && !error ? "0 0 0 3px rgba(182,140,28,0.12)" : "0 2px 7px rgba(54,57,63,0.04)",
+                }}
+              >
+                {value[index] || ""}
+              </div>
+            )
+          })}
+        </div>
+        <input
+          type="text"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          pattern="[0-9]*"
+          maxLength={6}
+          value={value}
+          onChange={(event) => onChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          aria-label={label}
+          aria-invalid={!!error}
+          className="absolute inset-0 h-full w-full cursor-text opacity-0"
+        />
+      </div>
+      <FieldError msg={error} />
+    </div>
+  )
+}
+
+function AuthPhotoBackground({ src }: { src: string }) {
+  return (
+    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden bg-[#11100e]" aria-hidden="true">
+      <img
+        src={src}
+        alt=""
+        className="absolute inset-0 h-full w-full object-cover object-center"
+        style={{ objectPosition: "center 68%" }}
+      />
+      <div className="absolute inset-0 bg-black/35" />
+    </div>
+  )
+}
+
+function AccessBackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Volver"
+      title="Volver"
+      className="fixed left-4 top-4 z-50 flex h-11 w-11 items-center justify-center rounded-full border shadow-md transition-transform hover:-translate-x-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 sm:left-6 sm:top-6"
+      style={{
+        background: "#fff",
+        borderColor: "rgba(182,140,28,0.22)",
+        color: C.mustard,
+        outlineColor: C.mustard,
+      }}
+    >
+      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
+        <path d="m14.5 5-7 7 7 7M8 12h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  )
+}
+
+function AccessLogo({
+  onClick,
+  className,
+  style,
+}: {
+  onClick: () => void
+  className: string
+  style?: React.CSSProperties
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Ir al inicio de sesión"
+      title="Ir al inicio de sesión"
+      className="cursor-pointer rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2"
+      style={{ outlineColor: C.mustard }}
+    >
+      <img src={logoImg} alt="El Parche" className={className} style={style} />
+    </button>
+  )
+}
+
 function AuthLayout({
   children,
   title,
   sub,
   backgroundImage,
+  onBack,
+  onLogoClick,
+  compact = false,
 }: {
   children: React.ReactNode
   title: string
   sub: React.ReactNode
   backgroundImage?: string
+  onBack?: () => void
+  onLogoClick: () => void
+  compact?: boolean
 }) {
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [])
+
   return (
     <div
-      className="auth-access-page min-h-screen flex items-center justify-center px-4 py-8"
+      className="auth-access-page relative isolate min-h-screen flex items-center justify-center overflow-hidden px-4 py-8"
       style={{
-        background: backgroundImage ? undefined : "#FAF3E6",
-        backgroundImage: backgroundImage
-          ? `linear-gradient(rgba(8,13,15,0.48), rgba(8,13,15,0.48)), url(${backgroundImage})`
-          : undefined,
-        backgroundPosition: backgroundImage ? "center" : undefined,
-        backgroundSize: backgroundImage ? "cover" : undefined,
+        background: backgroundImage ? "#11100e" : "#FAF3E6",
         fontFamily: "DM Sans, sans-serif",
       }}
     >
-      <div className="w-full max-w-lg">
-        <div className="auth-brand flex flex-col items-center mb-5">
-          <img
-            src={logoImg}
-            alt="El Parche"
-            className="object-contain mb-2"
-            style={{ width: "152px", height: "152px" }}
+      {backgroundImage && <AuthPhotoBackground src={backgroundImage} />}
+      {onBack && <AccessBackButton onClick={onBack} />}
+      <div className={`relative z-10 w-full ${compact ? "max-w-[23rem]" : "max-w-lg"}`}>
+        <div className={`auth-brand flex flex-col items-center ${compact ? "mb-1" : "mb-5"}`}>
+          <AccessLogo
+            onClick={onLogoClick}
+            className="object-contain"
+            style={{ width: "144px", height: "144px" }}
           />
         </div>
         <div
-          className="p-6 rounded-3xl"
+          className={`${compact ? "p-5" : "p-6"} rounded-3xl`}
           style={{
             background: "#fff",
             boxShadow: "0 8px 40px rgba(30,30,30,0.1)",
@@ -2448,6 +2599,10 @@ function LoginPage({
   onForgot: () => void
   onBack: () => void
 }) {
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [])
+
   const [email, setEmail] = useState("")
   const [pass, setPass] = useState("")
   // Errors show after the first submit and update live while typing
@@ -2472,38 +2627,34 @@ function LoginPage({
   }
   return (
     <div
-      className="auth-access-page relative min-h-screen flex items-center justify-center overflow-hidden px-4 py-8 sm:px-8"
+      className="auth-access-page auth-login-page relative isolate min-h-screen flex items-center justify-center overflow-hidden px-4 py-8 sm:px-8"
       style={{
-        backgroundImage:
-          `linear-gradient(90deg, rgba(8,13,15,0.78) 0%, rgba(8,13,15,0.58) 48%, rgba(8,13,15,0.38) 100%), url(${loginBackgroundImg})`,
-        backgroundColor: "#080d0f",
-        backgroundPosition: "center",
-        backgroundSize: "cover",
-        backgroundRepeat: "no-repeat",
+        background: "#080d0f",
         fontFamily: "DM Sans, sans-serif",
       }}
     >
-      <div className="relative z-10 w-full max-w-5xl grid lg:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)] gap-6 lg:gap-8 items-center">
-        <div className="hidden lg:block px-4">
+      <AuthPhotoBackground src={loginBackgroundImg} />
+      <div className="relative z-10 grid w-full max-w-5xl items-center gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-14">
+        <div className="hidden px-4 lg:block">
           <img
             src={logoImg}
             alt="El Parche"
-            className="w-36 h-36 object-contain mb-5"
+            className="mb-5 h-36 w-36 object-contain"
           />
           <div
-            className="text-sm font-bold uppercase tracking-widest mb-3"
+            className="mb-3 text-sm font-bold uppercase tracking-widest"
             style={{ color: "#D6B44B" }}
           >
             Bienvenido a El Parche
           </div>
           <h1
-            className="font-black text-4xl leading-tight mb-4"
+            className="mb-4 text-4xl font-black leading-tight"
             style={{ fontFamily: "League Spartan, sans-serif", color: "#fff" }}
           >
             Tu próximo antojo empieza aquí.
           </h1>
           <p
-            className="text-lg leading-relaxed max-w-md"
+            className="max-w-md text-lg leading-relaxed"
             style={{ color: "rgba(255,255,255,0.88)" }}
           >
             Inicia sesión para guardar tus datos, repetir tus pedidos y seguir
@@ -2511,17 +2662,17 @@ function LoginPage({
           </p>
         </div>
         <div
-          className="w-full max-w-md mx-auto p-4 sm:p-5 rounded-3xl"
+          className="mx-auto w-full max-w-md rounded-3xl p-4 sm:p-5"
           style={{
             background: "#fff",
             boxShadow: "0 18px 55px rgba(0,0,0,0.28)",
           }}
         >
-          <div className="flex items-center gap-3 mb-4 lg:hidden">
+          <div className="mb-4 flex items-center justify-center gap-3 lg:hidden">
             <img
               src={logoImg}
               alt="El Parche"
-              className="w-20 h-20 object-contain"
+              className="h-36 w-36 object-contain"
             />
           </div>
           <h2
@@ -2621,7 +2772,13 @@ function RegisterPage({
   onLoginLink: () => void
   onBack: () => void
 }) {
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [])
+
   const [tried, setTried] = useState(false)
+  const [verificationPending, setVerificationPending] = useState(false)
+  const [verificationCode, setVerificationCode] = useState("")
   const [form, setForm] = useState({
     name: "",
     lastname: "",
@@ -2661,7 +2818,26 @@ function RegisterPage({
     if (busy || Object.keys(validateRegister(form)).length) return
     setBusy(true)
     try {
-      await apiRegister(newUser(), form.pass)
+      await requestRegistrationCode(newUser(), form.pass)
+      setVerificationPending(true)
+      setServerErr("")
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const verifyRegistration = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setServerErr("")
+    if (!/^\d{6}$/.test(verificationCode)) {
+      setServerErr("Escribe el código de 6 dígitos que te enviamos al correo.")
+      return
+    }
+    if (busy) return
+    setBusy(true)
+    try {
+      await verifyRegistrationCode(newUser().email, verificationCode)
       onVerify(newUser())
     } catch (err) {
       setServerErr((err as Error).message)
@@ -2671,70 +2847,109 @@ function RegisterPage({
   }
   return (
     <div
-      className="auth-access-page auth-register-page min-h-screen flex items-center justify-center px-4 py-8"
+      className="auth-access-page auth-register-page relative isolate min-h-screen flex items-center justify-center overflow-hidden px-4 py-8"
       style={{
-        backgroundImage:
-          `linear-gradient(90deg, rgba(8,13,15,0.76) 0%, rgba(8,13,15,0.56) 48%, rgba(8,13,15,0.36) 100%), url(${registerBackgroundImg})`,
-        backgroundPosition: "right center",
-        backgroundSize: "cover",
         fontFamily: "DM Sans, sans-serif",
       }}
     >
-      <div className="w-full max-w-6xl grid lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] gap-6 items-center">
-        <div className="hidden lg:block px-6">
-          <img
-            src={logoImg}
-            alt="El Parche"
-            className="w-36 h-36 object-contain mb-4"
+      <AuthPhotoBackground src={authFoodBackgroundImg} />
+      <div className="relative z-10 grid w-full max-w-7xl items-center gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-12">
+        <div className="hidden px-5 text-white lg:block">
+          <AccessLogo
+            onClick={onLoginLink}
+            className="mb-8 h-24 w-40 object-contain"
           />
           <h1
-            className="font-black text-4xl leading-tight mb-3"
+            className="mb-4 max-w-[400px] text-4xl font-black leading-tight"
             style={{ fontFamily: "League Spartan, sans-serif", color: "#fff" }}
           >
             Crea tu cuenta y pide más fácil.
           </h1>
-          <p
-            className="text-base leading-relaxed max-w-md"
-            style={{ color: "rgba(255,255,255,0.88)" }}
-          >
+          <p className="max-w-md text-lg leading-relaxed text-white/85">
             Guarda tus datos de entrega y disfruta tus hamburguesas favoritas
             sin repetir el proceso.
           </p>
         </div>
         <div
-          className="w-full max-w-2xl mx-auto p-6 sm:p-8 rounded-3xl"
+          className={`mx-auto w-full rounded-3xl ${verificationPending ? "max-w-[23rem] p-5 lg:justify-self-center" : "max-w-[640px] p-6 sm:p-7 lg:p-8 lg:justify-self-end"}`}
           style={{
             background: "#fff",
-            boxShadow: "0 12px 35px rgba(30,30,30,0.10)",
+            boxShadow: "0 18px 55px rgba(0,0,0,0.28)",
           }}
         >
-          <div className="flex items-center gap-3 mb-5 lg:hidden">
-            <img
-              src={logoImg}
-              alt="El Parche"
-              className="w-20 h-20 object-contain"
-            />
-          </div>
+          {!verificationPending && (
+            <div className="mb-4 flex justify-center lg:hidden">
+              <AccessLogo
+                onClick={onLoginLink}
+                className="h-24 w-40 object-contain"
+              />
+            </div>
+          )}
+          {verificationPending && (
+            <div className="mb-2 flex items-center justify-center">
+              <AccessLogo
+                onClick={onLoginLink}
+                className="h-36 w-36 object-contain"
+              />
+            </div>
+          )}
           <h2
             className="font-black text-xl mb-1"
             style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
           >
-            Crear cuenta
+            {verificationPending ? "Verifica tu correo" : "Crear cuenta"}
           </h2>
           <div
-            className="text-sm mb-6"
+            className={`text-sm ${verificationPending ? "mb-3" : "mb-6"}`}
             style={{ color: "rgba(30,30,30,0.45)" }}
           >
-            ¿Ya tienes cuenta?{" "}
+            {verificationPending
+              ? <>Enviamos un código de 6 dígitos a <strong>{form.email}</strong>.</>
+              : <>¿Ya tienes cuenta?{" "}
             <button
               onClick={onLoginLink}
               className="font-semibold cursor-pointer"
               style={{ color: C.mustard }}
             >
               Inicia sesión
-            </button>
+            </button></>}
           </div>
-          <form onSubmit={submitForm} noValidate className="flex flex-col gap-4 [&_input]:px-4 [&_input]:py-3 [&_select]:px-4 [&_select]:py-3">
+          <form onSubmit={verificationPending ? verifyRegistration : submitForm} noValidate className={`flex flex-col ${verificationPending ? "gap-3" : "gap-3"} [&_input]:px-4 [&_input]:py-3 [&_select]:px-4 [&_select]:py-3`}>
+            {verificationPending ? (
+              <>
+                <PinCodeField
+                  label="PIN de verificación"
+                  value={verificationCode}
+                  onChange={setVerificationCode}
+                  error={tried && !/^\d{6}$/.test(verificationCode) ? "El PIN debe tener 6 dígitos." : undefined}
+                />
+                <p className="text-xs" style={{ color: "rgba(30,30,30,0.55)" }}>
+                  Revisa también la carpeta de correo no deseado. El código vence en 15 minutos.
+                </p>
+                <FieldError msg={serverErr} />
+                <button
+                  type="submit"
+                  disabled={busy}
+                  className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  {busy ? "Verificando..." : "Verificar y crear cuenta"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerificationPending(false)
+                    setVerificationCode("")
+                    setServerErr("")
+                  }}
+                  className="w-full py-2 rounded-xl font-medium text-sm cursor-pointer"
+                  style={{ background: "rgba(30,30,30,0.05)", color: "rgba(30,30,30,0.5)" }}
+                >
+                  ← Corregir mis datos
+                </button>
+              </>
+            ) : (
+            <>
             {/* Document type first, its number right next to it */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <div className="flex flex-col gap-1 min-w-0">
@@ -2861,6 +3076,8 @@ function RegisterPage({
             >
               ← Volver al inicio
             </button>
+            </>
+            )}
           </form>
         </div>
       </div>
@@ -2887,6 +3104,9 @@ function ChooseOwnPasswordPage({
   return (
     <AuthLayout
       title="Crea tu contraseña"
+      backgroundImage={authFoodBackgroundImg}
+      onBack={onLogout}
+      onLogoClick={onLogout}
       sub={
         <>
           Hola <strong>{user.name}</strong>, cambia la contraseña provisional por una propia
@@ -2972,10 +3192,23 @@ function ForgotPage({
       <AuthLayout
         title="Revisa tu correo"
         sub="Si está registrado, te llegará un código"
-        backgroundImage={forgotBackgroundImg}
+        backgroundImage={authFoodBackgroundImg}
+        onBack={() => setSent(false)}
+        onLogoClick={onBack}
+        compact
       >
         <div className="text-center py-2">
-          <div className="text-5xl mb-3">📧</div>
+          <div className="mb-3 flex justify-center" aria-hidden="true">
+            <svg
+              viewBox="0 0 48 48"
+              fill="none"
+              className="h-12 w-12"
+              style={{ color: C.mustard }}
+            >
+              <rect x="5" y="9" width="38" height="30" rx="6" stroke="currentColor" strokeWidth="2.5" />
+              <path d="m7 13 17 13 17-13" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
           <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.55)" }}>
             Si <strong>{email}</strong> está registrado, se le enviará un código a su correo. Vence en 15 minutos;
             si no lo ves, revisa también la carpeta de spam.
@@ -2987,16 +3220,6 @@ function ForgotPage({
           >
             Continuar
           </button>
-          <button
-            onClick={onBack}
-            className="w-full py-2 rounded-xl text-sm cursor-pointer mt-2"
-            style={{
-              background: "rgba(30,30,30,0.05)",
-              color: "rgba(30,30,30,0.5)",
-            }}
-          >
-            ← Volver
-          </button>
         </div>
       </AuthLayout>
     )
@@ -3004,7 +3227,9 @@ function ForgotPage({
     <AuthLayout
       title="Recuperar contraseña"
       sub="Se enviará un código si el correo existe."
-      backgroundImage={forgotBackgroundImg}
+      backgroundImage={authFoodBackgroundImg}
+      onBack={onBack}
+      onLogoClick={onBack}
     >
       <form
         onSubmit={(e) => {
@@ -3047,24 +3272,14 @@ function ForgotPage({
         >
           {busy ? "Enviando..." : "Enviar código"}
         </button>
-        <button
-          type="button"
-          onClick={onBack}
-          className="w-full py-2 rounded-xl text-sm cursor-pointer"
-          style={{
-            background: "rgba(30,30,30,0.05)",
-            color: "rgba(30,30,30,0.5)",
-          }}
-        >
-          ← Volver
-        </button>
       </form>
     </AuthLayout>
   )
 }
 
-function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
+function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => void; onBack: () => void }) {
   const [code, setCode] = useState("")
+  const [verificationToken, setVerificationToken] = useState("")
   const [pass, setPass] = useState("")
   const [pass2, setPass2] = useState("")
   const [err, setErr] = useState("")
@@ -3072,7 +3287,14 @@ function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   if (ok)
     return (
-      <AuthLayout title="¡Listo!" sub="Contraseña actualizada">
+      <AuthLayout
+        title="¡Listo!"
+        sub="Contraseña actualizada"
+        backgroundImage={authFoodBackgroundImg}
+        onBack={onDone}
+        onLogoClick={onDone}
+        compact
+      >
         <div className="text-center py-2">
           <div className="text-5xl mb-3">✅</div>
           <button
@@ -3087,7 +3309,18 @@ function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
     )
   return (
     <AuthLayout
-      title="Nueva contraseña"
+      title={verificationToken ? "Nueva contraseña" : "Verifica tu correo"}
+      backgroundImage={authFoodBackgroundImg}
+      onBack={verificationToken
+        ? () => {
+            setVerificationToken("")
+            setPass("")
+            setPass2("")
+            setErr("")
+          }
+        : onBack}
+      onLogoClick={onDone}
+      compact
       sub={
         <>
           Para <strong>{email}</strong>
@@ -3095,56 +3328,85 @@ function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
       }
     >
       <form
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault()
-          if (!/^\d{6}$/.test(code.trim())) {
-            setErr("Escribe el código de 6 dígitos que te llegó al correo.")
+          if (!verificationToken) {
+            if (!/^\d{6}$/.test(code)) {
+              setErr("El PIN debe tener 6 dígitos.")
+              return
+            }
+            if (busy) return
+            setBusy(true)
+            setErr("")
+            try {
+              const result = await api<{ token: string }>("/auth/recuperar/verificar", "POST", {
+                correo: email.trim(),
+                codigo: code,
+              })
+              if (!result?.token) throw new Error("No se pudo validar el código. Solicita uno nuevo.")
+              setVerificationToken(result.token)
+            } catch (error) {
+              setErr((error as Error).message)
+            } finally {
+              setBusy(false)
+            }
             return
           }
           if (pass !== pass2) {
-            setErr("No coinciden.")
+            setErr("Las contraseñas no coinciden.")
             return
           }
-          if (pass.length < 8) {
-            setErr("Mínimo 8 caracteres.")
+          if (pass.length < 8 || !/[A-Z]/.test(pass) || !/[a-z]/.test(pass) || !/\d/.test(pass)) {
+            setErr("Usa al menos 8 caracteres, con una mayúscula, una minúscula y un número.")
             return
           }
           if (busy) return
           setBusy(true)
           setErr("")
-          api("/auth/restablecer", "POST", { correo: email.trim(), codigo: code.trim(), nueva: pass })
+          api("/auth/restablecer", "POST", { correo: email.trim(), token: verificationToken, nueva: pass })
             .then(() => setOk(true))
             .catch((error) => setErr((error as Error).message))
             .finally(() => setBusy(false))
         }}
         className="flex flex-col gap-3"
       >
-        <InputField
-          label="Código del correo"
-          type="text"
-          placeholder="123456"
-          value={code}
-          onChange={(value) => setCode(value.replace(/\D/g, "").slice(0, 6))}
-          required
-        />
-        <InputField
-          label="Nueva contraseña"
-          type="password"
-          placeholder="••••••••"
-          value={pass}
-          onChange={setPass}
-          required
-        />
-        <InputField
-          label="Confirmar"
-          type="password"
-          placeholder="••••••••"
-          value={pass2}
-          onChange={setPass2}
-          required
-        />
-        {err && (
-          <p className="text-xs" style={{ color: C.red }}>
+        {!verificationToken ? (
+          <>
+            <p className="text-sm" style={{ color: "rgba(30,30,30,0.55)" }}>
+              Ingresa el PIN de 6 dígitos enviado a <strong>{email}</strong>.
+            </p>
+            <PinCodeField
+              label="PIN de verificación"
+              value={code}
+              onChange={(value) => {
+                setCode(value)
+                if (err) setErr("")
+              }}
+              error={!verificationToken ? err : undefined}
+            />
+          </>
+        ) : (
+          <>
+            <InputField
+              label="Nueva contraseña"
+              type="password"
+              placeholder="••••••••"
+              value={pass}
+              onChange={setPass}
+              required
+            />
+            <InputField
+              label="Confirmar nueva contraseña"
+              type="password"
+              placeholder="••••••••"
+              value={pass2}
+              onChange={setPass2}
+              required
+            />
+          </>
+        )}
+        {err && verificationToken && (
+          <p className="text-sm" style={{ color: C.red }} role="alert">
             {err}
           </p>
         )}
@@ -3154,7 +3416,13 @@ function ResetPage({ email, onDone }: { email: string; onDone: () => void }) {
           className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
           style={{ background: C.mustard, color: "#fff" }}
         >
-          {busy ? "Guardando..." : "Guardar"}
+          {busy
+            ? verificationToken
+              ? "Guardando..."
+              : "Verificando..."
+            : verificationToken
+              ? "Cambiar contraseña"
+              : "Continuar"}
         </button>
       </form>
     </AuthLayout>
@@ -3258,8 +3526,8 @@ function AddToCartModal({
   const [product, setProduct] = useState(selectedProduct)
   useEffect(() => {
     const refreshProduct = () => {
-      const current = PRODUCTS.find((item) => item.id === selectedProduct.id) ??
-        PRODUCTS.find((item) => item.name === selectedProduct.name)
+      const current = allMenuProducts().find((item) => item.id === selectedProduct.id) ??
+        allMenuProducts().find((item) => item.name === selectedProduct.name)
       if (current) setProduct(current)
       else onClose()
     }
@@ -3278,6 +3546,7 @@ function AddToCartModal({
   // Drink whose picture is shown big (click again to close)
   const [zoomBeverage, setZoomBeverage] = useState<string | null>(null)
   const [customizationTab, setCustomizationTab] = useState<"sauces" | "additions" | "beverages">("sauces")
+  const isMenuExtra = ["salsas", "adiciones", "bebidas"].includes(product.cat)
   // Photo width ÷ height: a vertical or square photo goes beside the details on a computer (complete, no side
   // strips); a wide one stays on top. Read from the image itself, so it fits any photo the admin uploads
   const [photoRatio, setPhotoRatio] = useState<number | null>(null)
@@ -3299,7 +3568,9 @@ function AddToCartModal({
   // The tabs filter: only the chosen section shows. On a computer the three share one grid cell (the others
   // just invisible), so the column keeps the tallest one's height and nothing jumps when changing tabs
   const panelClass = (tab: typeof customizationTab) =>
-    `min-w-0 md:[grid-area:1/1] ${customizationTab === tab ? "block" : "hidden md:invisible md:block"}`
+    isMenuExtra
+      ? "hidden"
+      : `min-w-0 md:[grid-area:1/1] ${customizationTab === tab ? "block" : "hidden md:invisible md:block"}`
   const toggleSauce = (s: string) =>
     setSelSauces((p) => {
       if (p.includes(s)) return p.filter((x) => x !== s)
@@ -3338,6 +3609,7 @@ function AddToCartModal({
   const unitPrice = product.price + addTotal + beverageTotal
   const total = unitPrice * qty
   const handleAdd = () => {
+    if (product.soldOut) return
     const adds = ADDITIONS.filter((a) => (addQtys[a.name] || 0) > 0).map(
       (a) => ({ name: a.name, qty: addQtys[a.name], price: a.price }),
     )
@@ -3354,6 +3626,7 @@ function AddToCartModal({
     onClose()
   }
   const handleCheckout = () => {
+    if (product.soldOut) return
     handleAdd()
     onCheckout?.()
   }
@@ -3368,7 +3641,7 @@ function AddToCartModal({
         className="relative w-full max-w-md md:max-w-4xl rounded-3xl overflow-hidden flex flex-col md:flex-row"
         style={{
           background: CARD,
-          maxHeight: "98dvh",
+          maxHeight: "92dvh",
           boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
         }}
         onClick={(e) => e.stopPropagation()}
@@ -3430,7 +3703,7 @@ function AddToCartModal({
           className="@container min-h-0 flex-1 overflow-y-auto px-4 py-1.5 sm:px-5 md:px-6 md:pt-5"
           style={{ background: CARD }}
         >
-          <div className={`mb-1.5 grid grid-cols-3 gap-1 rounded-full p-1 md:mb-3 md:mr-10 ${dark ? "bg-white/5" : "bg-black/5"}`}>
+          {!isMenuExtra && <div className={`mb-1.5 grid grid-cols-3 gap-1 rounded-full p-1 md:mb-3 md:mr-10 ${dark ? "bg-white/5" : "bg-black/5"}`}>
             {([
               ["sauces", `Salsas ${selSauces.length}/4`],
               ["additions", `Adiciones ${ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)}`],
@@ -3449,7 +3722,7 @@ function AddToCartModal({
                 {label}
               </button>
             ))}
-          </div>
+          </div>}
           <div className="md:grid">
           <div className={panelClass("sauces")}>
             <div className="mb-1.5 text-[11px] font-semibold max-[379px]:hidden md:mb-2" style={{ color: selSauces.length === 4 ? C.amber : MUTED }}>
@@ -3727,13 +4000,11 @@ const visiblePaginationPages = (currentPage: number, totalPages: number, maxVisi
 
 // ── Product Catalog Grid (shared, landing + client) ────────────────────────────
 function ProductCatalog({
-  onInfoClick,
   onAddClick,
   dark,
   paginate = true,
   compact = false,
 }: {
-  onInfoClick: (p: Product) => void
   onAddClick: (p: Product) => void
   dark: boolean
   paginate?: boolean
@@ -3748,12 +4019,11 @@ function ProductCatalog({
     setPg(i)
     topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
-  const CARD = dark ? "#1E1C18" : "#fff"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
-  const BG = dark ? "#131210" : "#FAF5E8"
-  const filtered = PRODUCTS.filter(
+  const catalogProducts = allMenuProducts().filter((product) => product.cat !== "adiciones")
+  const filtered = catalogProducts.filter(
     (p) =>
       (activeCat === "todos" || p.cat === activeCat) &&
       (!search ||
@@ -3788,7 +4058,7 @@ function ProductCatalog({
               role="tab"
               aria-selected={active}
               onClick={() => switchCat(cat.id)}
-              className="flex flex-shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm font-semibold transition-all hover:-translate-y-px"
+              className={`flex flex-shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm font-semibold transition-all hover:-translate-y-px ${active ? "landing-menu-control" : ""}`}
               style={{
                 background: active ? C.mustard : dark ? "rgba(255,255,255,0.05)" : "#fff",
                 border: `1px solid ${active ? C.mustard : BORDER}`,
@@ -3848,7 +4118,6 @@ function ProductCatalog({
         {filtered.length} productos
         {shouldPaginate && <> · Página {pg + 1} de {Math.max(1, totalPages)}</>}
       </p>
-      {/* Grid — 3 cols, max 2 rows = 6 items */}
       <div className={`grid grid-cols-2 sm:grid-cols-3 ${compact ? "gap-2" : "gap-3"} mb-5`}>
         {pageItems.length === 0 && (
           <div
@@ -3860,66 +4129,63 @@ function ProductCatalog({
         )}
         {pageItems.map((p) => (
           <div
-            key={p.id}
-            className="group relative rounded-2xl overflow-hidden cursor-pointer"
+            key={`${p.cat}-${p.id}`}
+            className="group relative cursor-pointer overflow-hidden rounded-2xl"
             style={{
               aspectRatio: compact ? "3/2" : "4/3",
-              background: CARD,
+              background: dark ? "#1E1C18" : "#fff",
               boxShadow: dark
                 ? "0 2px 12px rgba(0,0,0,0.3)"
                 : "0 2px 12px rgba(0,0,0,0.07)",
             }}
-            onClick={() => onInfoClick(p)}
+              onClick={() => onAddClick(p)}
           >
             {p.img && (
               <img
                 src={p.img}
                 alt={p.name}
-                className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
               />
             )}
-            {/* Bottom banner — always visible */}
             <div
               className={`absolute bottom-0 left-0 right-0 ${compact ? "px-2 py-1.5" : "px-3 py-2.5"}`}
               style={{ background: C.mustard }}
             >
-              <div className={`font-bold ${compact ? "text-xs" : "text-sm"} text-white truncate leading-tight`}>
+              <div className={`truncate font-bold leading-tight text-white ${compact ? "text-xs" : "text-sm"}`}>
                 {p.name}
               </div>
             </div>
-            {/* Hover overlay */}
             <div
-              className="absolute inset-0 flex flex-col justify-center items-center p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+              className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center opacity-0 transition-opacity duration-300 group-hover:opacity-100"
               style={{ background: "rgba(10,8,5,0.85)" }}
             >
               {p.badge && (
                 <span
-                  className="font-label text-xs font-bold px-2 py-0.5 rounded-full mb-2"
+                  className="font-label mb-2 rounded-full px-2 py-0.5 text-xs font-bold"
                   style={{ background: C.mustard, color: "#fff" }}
                 >
                   {p.badge}
                 </span>
               )}
-              <div
-                className="font-price text-lg text-white mb-1 text-center"
-              >
+              <div className="font-price mb-1 text-lg text-white">
                 {p.priceStr}
               </div>
-              <p
-                className="text-xs text-center mb-3 leading-relaxed"
-                style={{ color: "rgba(255,255,255,0.72)" }}
-              >
-                {p.desc}
-              </p>
+              {p.desc && (
+                <p className="mb-3 text-xs leading-relaxed" style={{ color: "rgba(255,255,255,0.72)" }}>
+                  {p.desc}
+                </p>
+              )}
               <button
-                onClick={(e) => {
-                  e.stopPropagation()
+                type="button"
+                disabled={p.soldOut}
+                onClick={(event) => {
+                  event.stopPropagation()
                   onAddClick(p)
                 }}
-                className="px-4 py-2 rounded-full text-sm font-bold cursor-pointer hover:opacity-90"
-                style={{ background: C.mustard, color: "#fff" }}
+                className="cursor-pointer rounded-full px-4 py-2 text-sm font-bold text-white hover:opacity-90 disabled:cursor-not-allowed"
+                style={{ background: C.mustard, opacity: p.soldOut ? 0.55 : 1 }}
               >
-                + Agregar
+                {p.soldOut ? "Agotado" : "+ Agregar"}
               </button>
             </div>
           </div>
@@ -4998,28 +5264,57 @@ async function loadMenu() {
     // No sodas for sale: the Bebidas tab says so
     BEVERAGES.splice(0, BEVERAGES.length)
   }
+  MENU_EXTRAS.splice(
+    0,
+    MENU_EXTRAS.length,
+    ...activeItems
+      .filter((item) => ["Adiciones", "Salsas", "Bebidas"].includes(item.categoria))
+      .map((item) => {
+        const soda = item.categoria === "Bebidas" ? SODA_RE.exec(item.nombre.trim()) : null
+        return {
+          id: item.id,
+          name: item.nombre,
+          desc: item.descripcion || "",
+          price: item.precio,
+          priceStr: fmt(item.precio),
+          img: imageUrl(item.imagenes[0]) || (soda ? beverageImage(soda[1], soda[2]) || "" : ""),
+          cat: normalizeName(item.categoria).replace(/\s+/g, "-"),
+          badge: item.etiqueta || "",
+          soldOut: !!soda && soldOut.has(normalizeName(item.nombre)),
+        }
+      }),
+  )
   PRODUCTS.splice(
     0,
     PRODUCTS.length,
-    ...activeItems.filter((p) => !EXTRA_CATS.includes(p.categoria)).map((p) => ({
-      id: p.id,
-      name: p.nombre,
-      desc: p.descripcion || "",
-      price: p.precio,
-      priceStr: fmt(p.precio),
-      img: imageUrl(p.imagenes[0]),
-      cat: MENU_CAT_ID[currentCategory(p.categoria)] || p.categoria.toLowerCase(),
-      badge: p.etiqueta || "",
-    })),
+    ...activeItems.filter((p) => !EXTRA_CATS.includes(p.categoria)).map((p) => {
+      const fallbackProduct =
+        PRODUCTS.find((product) => product.id === p.id) ??
+        PRODUCTS.find((product) => normalizeName(product.name) === normalizeName(p.nombre))
+      const isTraditionalBurger = normalizeName(p.nombre) === normalizeName("Tradicional")
+      return {
+        id: p.id,
+        name: p.nombre,
+        desc: p.descripcion || "",
+        price: p.precio,
+        priceStr: fmt(p.precio),
+        img: isTraditionalBurger
+          ? traditionalBurgerImg
+          : imageUrl(p.imagenes[0]) || fallbackProduct?.img || "",
+        cat: MENU_CAT_ID[currentCategory(p.categoria)] || p.categoria.toLowerCase(),
+        badge: p.etiqueta || "",
+      }
+    }),
   )
 }
 
-const refreshCartProducts = (items: CartItem[]) =>
-  items.flatMap((item) => {
+const refreshCartProducts = (items: CartItem[]) => {
+  const products = allMenuProducts()
+  return items.flatMap((item) => {
     const product =
-      PRODUCTS.find((candidate) => candidate.id === item.productId) ??
-      PRODUCTS.find((candidate) => candidate.name === item.name) ??
-      PRODUCTS.find((candidate) => candidate.name === `Hamburguesa ${item.name}`)
+      products.find((candidate) => candidate.id === item.productId) ??
+      products.find((candidate) => candidate.name === item.name) ??
+      products.find((candidate) => candidate.name === `Hamburguesa ${item.name}`)
     if (!product) return []
     return [{
       ...item,
@@ -5034,18 +5329,20 @@ const refreshCartProducts = (items: CartItem[]) =>
       }),
     }]
   })
+}
 
-const apiRegister = async (u: User, password: string) =>
-  toUser(
-    await api<AuthData>("/auth/registro", "POST", {
-      correo: u.email,
-      contrasena: password,
-      nombre: u.name,
-      tipo_documento: u.docType || undefined,
-      documento: u.cedula || undefined,
-      telefono: u.phone || undefined,
-    }),
-  )
+const requestRegistrationCode = (u: User, password: string) =>
+  api<void>("/auth/registro/solicitar", "POST", {
+    correo: u.email,
+    contrasena: password,
+    nombre: u.name,
+    tipo_documento: u.docType || undefined,
+    documento: u.cedula || undefined,
+    telefono: u.phone || undefined,
+  })
+
+const verifyRegistrationCode = async (email: string, code: string) =>
+  api<AuthData>("/auth/registro/verificar", "POST", { correo: email, codigo: code })
 
 function getAdminAccountStatus(email: string): string | undefined {
   const statuses = loadLS<Record<string, string>>("adminUserStatuses", {})
@@ -5076,7 +5373,7 @@ const orderFromDb = (p: DbRecord): Order => ({
   pago: p.metodo_pago || "Efectivo",
   voucher: p.comprobante || undefined,
   items: p.items.map((it: DbRecord, i: number) => {
-    const product = PRODUCTS.find((x) => x.name === it.producto)
+    const product = allMenuProducts().find((x) => x.name === it.producto)
     return {
       id: i + 1,
       name: it.producto,
@@ -5869,6 +6166,8 @@ function CheckoutPage({
     pass: "",
     pass2: "",
   })
+  const [registrationPending, setRegistrationPending] = useState(false)
+  const [registrationCode, setRegistrationCode] = useState("")
   const [delivForm, setDelivForm] = useState({
     nombre: "",
     telefono: "",
@@ -5900,7 +6199,12 @@ function CheckoutPage({
   )
   const setAddressPart = (key: keyof typeof addressParts, value: string) =>
     setAddressParts((current) => {
-      const next = { ...current, [key]: value, ...(key === "tipoEdificio" && !value ? { nombreEdificio: "" } : {}) }
+      const next = {
+        ...current,
+        [key]: value,
+        ...(key === "tipoEdificio" && !value ? { nombreEdificio: "" } : {}),
+        ...(key === "calle" && current.calle.trim() && current.calle !== value && current.barrio ? { barrio: "" } : {}),
+      }
       setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(next) }))
       return next
     })
@@ -6243,8 +6547,34 @@ function CheckoutPage({
     }
     setBusy(true)
     try {
-      // Registering returns a token, so the client is logged in right away
-      onLogin(await apiRegister(u, regForm.pass))
+      await requestRegistrationCode(u, regForm.pass)
+      setRegistrationPending(true)
+      setServerErr("")
+    } catch (err) {
+      setServerErr((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const handleVerifyRegister = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setServerErr("")
+    if (!/^\d{6}$/.test(registrationCode)) {
+      setServerErr("El PIN debe tener 6 dígitos.")
+      return
+    }
+    if (busy) return
+    const u: User = {
+      name: regForm.name.trim(),
+      email: regForm.email.trim().toLowerCase(),
+      role: "user",
+      docType: regForm.docType,
+      phone: regForm.phone.replace(/\s/g, ""),
+      cedula: regForm.docNum.trim(),
+    }
+    setBusy(true)
+    try {
+      onLogin(toUser(await verifyRegistrationCode(u.email, registrationCode)))
       saveRegisteredClient(u)
       setCheckoutStep(2)
     } catch (err) {
@@ -6567,10 +6897,44 @@ function CheckoutPage({
                 )}
                 {authTab === "register" && (
                   <form
-                    onSubmit={handleRegisterForm}
+                    onSubmit={registrationPending ? handleVerifyRegister : handleRegisterForm}
                     noValidate
                     className="flex flex-col gap-2.5"
                   >
+                    {registrationPending ? (
+                      <>
+                        <p className="text-sm" style={{ color: MUTED }}>
+                          Ingresa el PIN de 6 dígitos que enviamos a <strong>{regForm.email}</strong>.
+                        </p>
+                        <PinCodeField
+                          label="PIN de verificación"
+                          value={registrationCode}
+                          onChange={(value) => setRegistrationCode(value)}
+                        />
+                        <FieldError msg={serverErr} />
+                        <button
+                          type="submit"
+                          disabled={busy}
+                          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
+                          style={{ background: C.mustard, color: "#fff" }}
+                        >
+                          {busy ? "Verificando..." : "Verificar y continuar"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRegistrationPending(false)
+                            setRegistrationCode("")
+                            setServerErr("")
+                          }}
+                          className="w-full py-2 rounded-xl text-sm cursor-pointer"
+                          style={{ background: "rgba(30,30,30,0.05)", color: MUTED }}
+                        >
+                          Corregir mis datos
+                        </button>
+                      </>
+                    ) : (
+                    <>
                     <div className="grid sm:grid-cols-2 gap-2.5 items-start">
                     <div className="flex flex-col gap-1 min-w-0">
                       <label
@@ -6675,8 +7039,10 @@ function CheckoutPage({
                       className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
                       style={{ background: C.mustard, color: "#fff" }}
                     >
-                      {busy ? "Creando cuenta..." : "Crear cuenta →"}
+                      {busy ? "Enviando PIN..." : "Enviar PIN y continuar"}
                     </button>
+                    </>
+                    )}
                   </form>
                 )}
               </section>
@@ -7372,7 +7738,6 @@ function CheckoutPage({
             </div>
             <ProductCatalog
               dark={false}
-              onInfoClick={setAddProduct}
               onAddClick={setAddProduct}
             />
           </div>
@@ -8474,7 +8839,7 @@ function ClientApp({
                 Nuestro Menú
               </h2>
               <p className="text-sm mt-0.5" style={{ color: MUTED }}>
-                Haz clic en cualquier producto para ver los detalles
+                Haz clic en cualquier producto para personalizarlo
               </p>
             </div>
             <ProductCatalog
@@ -8692,6 +9057,7 @@ function LandingPage({
 
   return (
     <div
+      className="landing-page"
       style={{ background: BG, fontFamily: "DM Sans, sans-serif", color: TEXT }}
     >
       {/* HEADER */}
@@ -8712,7 +9078,7 @@ function LandingPage({
             />
             <div>
               <div
-                className="landing-brand-title font-black text-lg sm:text-xl leading-tight"
+                className="landing-brand-title landing-gold-shimmer landing-gold-shimmer-brand font-black text-lg sm:text-xl leading-tight"
                 style={{ color: C.mustard }}
               >
                 EL PARCHE
@@ -8733,7 +9099,7 @@ function LandingPage({
                 key={l.href}
                 href={l.href}
                 className="text-base font-medium hover:opacity-60 transition-opacity"
-                style={{ color: scrolled ? TEXT : "#fff" }}
+                style={{ color: l.label === "Menú" ? (scrolled ? "#18140A" : "#fff") : scrolled ? TEXT : "#fff" }}
               >
                 {l.label}
               </a>
@@ -8781,7 +9147,7 @@ function LandingPage({
             </button>
             <button
               onClick={goToMenu}
-              className="landing-order-button hidden sm:inline-flex min-h-11 px-5 py-2.5 rounded-full text-base font-bold cursor-pointer"
+              className="landing-order-button landing-order-button-header hidden sm:inline-flex min-h-11 px-5 py-2.5 rounded-full text-base font-bold cursor-pointer"
               style={{ background: C.mustard, color: "#fff" }}
             >
               Pide Ahora
@@ -8814,7 +9180,7 @@ function LandingPage({
                 href={l.href}
                 onClick={() => setMenuOpen(false)}
                 className="text-base font-semibold py-3 px-3 rounded-xl"
-                style={{ color: TEXT, borderBottom: `1px solid ${BORDER}` }}
+                style={{ color: l.label === "Menú" ? "#18140A" : TEXT, borderBottom: `1px solid ${BORDER}` }}
               >
                 {l.label}
               </a>
@@ -8835,7 +9201,7 @@ function LandingPage({
                   setMenuOpen(false)
                   goToMenu()
                 }}
-                className="landing-order-button w-full py-3.5 rounded-2xl font-bold text-base cursor-pointer"
+                className="landing-order-button landing-order-button-mobile-menu w-full py-3.5 rounded-2xl font-bold text-base cursor-pointer"
                 style={{ background: C.mustard, color: "#fff" }}
               >
                 Pide Ahora
@@ -8874,7 +9240,7 @@ function LandingPage({
               }}
             >
               <span className="mr-1 inline-flex align-middle">{Ico.fire}</span>
-              Desde 2013 en Bello, Antioquia
+              <span className="landing-gold-shimmer landing-gold-shimmer-location">Desde 2013 en Bello, Antioquia</span>
             </div>
             <h1
               className="landing-display-title landing-enter landing-enter-2"
@@ -8892,7 +9258,7 @@ function LandingPage({
             >
               <span style={{ fontSize: "1.02em" }}>EL SABOR QUE</span>
               <br />
-              <span style={{ color: C.mustard }}>TE REÚNE</span>
+              <span className="landing-gold-shimmer landing-gold-shimmer-hero" style={{ color: C.mustard }}>TE REÚNE</span>
             </h1>
             <p
               className="landing-enter landing-enter-3 mt-5 mb-8 text-lg sm:text-xl leading-relaxed"
@@ -8910,10 +9276,10 @@ function LandingPage({
                 ["4.9", "Calificación"],
                 ["200+", "Reseñas"],
                 ["10+", "Años"],
-              ].map(([val, lbl]) => (
+              ].map(([val, lbl], i) => (
                 <div key={lbl}>
                   <div
-                    className="font-black text-2xl"
+                    className={`landing-gold-shimmer landing-gold-shimmer-stat landing-gold-shimmer-stat-${i + 1} font-black text-2xl`}
                     style={{
                       fontFamily: "League Spartan, sans-serif",
                       color: C.amber,
@@ -8939,7 +9305,7 @@ function LandingPage({
         <div className="max-w-7xl mx-auto grid sm:grid-cols-2 gap-4">
           <div
             data-reveal
-            className="landing-reveal landing-promo-card rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5 border shadow-sm"
+            className="landing-reveal landing-promo-card landing-promo-delivery rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5 border shadow-sm"
             style={{
               background: "#FFFDF7",
               borderColor: "rgba(58,109,94,0.2)",
@@ -8966,7 +9332,7 @@ function LandingPage({
           </div>
           <div
             data-reveal
-            className="landing-reveal landing-promo-card rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5 border shadow-sm"
+            className="landing-reveal landing-promo-card landing-promo-onion rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5 border shadow-sm"
             style={{
               background: "#FFFDF7",
               borderColor: "rgba(165,65,49,0.2)",
@@ -9003,7 +9369,7 @@ function LandingPage({
               className="inline-block text-sm font-bold tracking-widest uppercase px-4 py-1.5 rounded-full mb-3"
               style={{ background: `${C.mustard}15`, color: C.mustard }}
             >
-              Nuestro Menú
+              <span className="landing-gold-shimmer landing-gold-shimmer-menu">Nuestro Menú</span>
             </div>
             <h2
               data-reveal
@@ -9188,11 +9554,11 @@ function LandingPage({
               >
                 Más que un restaurante,
                 <br />
-                <span style={{ color: C.red }}>somos el parche</span>
+                <span className="landing-gold-shimmer landing-gold-shimmer-story" style={{ color: C.mustard }}>somos el parche</span>
               </h2>
               <p
                 className="text-base leading-relaxed mb-4"
-                style={{ color: MUTED, fontWeight: 300 }}
+                style={{ color: dark ? "rgba(240,232,214,0.78)" : "#62594D", fontWeight: 400 }}
               >
                 Desde 2013, El Parche de las Mini Burguer nació en el corazón de
                 Bello como un pequeño sueño familiar. Hoy somos uno de los
@@ -9200,7 +9566,7 @@ function LandingPage({
               </p>
               <p
                 className="text-base leading-relaxed"
-                style={{ color: MUTED, fontWeight: 300 }}
+                style={{ color: dark ? "rgba(240,232,214,0.78)" : "#62594D", fontWeight: 400 }}
               >
                 Cada hamburguesa, perro caliente o salchipapa que sale de
                 nuestra cocina lleva el mismo amor y cuidado del primer día.
@@ -9208,15 +9574,15 @@ function LandingPage({
               </p>
             </div>
             <div className="landing-story-media relative">
-              <div className="landing-story-frame relative ml-auto w-full max-w-[440px]">
+              <div className="landing-story-frame relative ml-auto aspect-[3/2] w-full max-w-[640px] overflow-hidden rounded-3xl">
                 <img
+                  data-reveal
                   src={storyBelloImg}
                   alt="Fachada de El Parche de las Mini Burguer en Bello"
-                  className="landing-story-image rounded-3xl object-contain w-full h-auto"
+                  className="landing-story-image landing-reveal absolute inset-0 h-full w-full rounded-3xl object-cover"
                 />
                 <div
                   className="landing-story-badge absolute bottom-4 right-4 rounded-2xl p-3 sm:p-4"
-                  style={{ background: C.mustard }}
                 >
                   <div
                     className="font-black text-xl sm:text-2xl text-white"
@@ -9224,7 +9590,7 @@ function LandingPage({
                   >
                     2013
                   </div>
-                  <div className="text-[11px] sm:text-xs text-white opacity-80">
+                  <div className="text-[11px] sm:text-xs text-white">
                     Fundados en Bello
                   </div>
                 </div>
@@ -9367,7 +9733,7 @@ function LandingPage({
                   .getElementById("menu")
                   ?.scrollIntoView({ behavior: "smooth" })
               }
-              className="landing-order-button px-8 py-4 rounded-2xl font-bold text-base cursor-pointer"
+              className="landing-order-button landing-order-button-story px-8 py-4 rounded-2xl font-bold text-base cursor-pointer"
               style={{ background: C.mustard, color: "#fff" }}
             >
               Ver el menú
@@ -9663,7 +10029,7 @@ function LandingPage({
       <button
         type="button"
         onClick={goToMenu}
-        className="landing-order-button fixed bottom-28 left-4 right-20 z-40 rounded-full py-3 text-sm font-bold text-white shadow-lg sm:hidden"
+        className="landing-order-button landing-order-button-floating fixed bottom-28 left-4 right-20 z-40 rounded-full py-3 text-sm font-bold text-white shadow-lg sm:hidden"
         style={{ background: C.mustard }}
       >
         Pide Ahora
@@ -10345,6 +10711,11 @@ function AdminPanel({
   // Desktop: menu with icons only (☰ in the header switches it); remembered in this browser
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => loadLS("adminSidebarCollapsed", false))
   useEffect(() => saveLS("adminSidebarCollapsed", sidebarCollapsed), [sidebarCollapsed])
+  const [dashboardIntroDone, setDashboardIntroDone] = useState(false)
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDashboardIntroDone(true), 2100)
+    return () => window.clearTimeout(timeout)
+  }, [])
   // Labels hide only on large screens (on a phone the menu is a full drawer)
   const hideOnMini = sidebarCollapsed ? "lg:hidden" : ""
   const [profileOpen, setProfileOpen] = useState(false)
@@ -13965,13 +14336,20 @@ function AdminPanel({
   const ALERTS = notifications
 
   const Dashboard = () => (
-    <div className="min-w-0 space-y-5">
-      <div className="flex items-start gap-4">
-        <div className="flex-1">
-          <h2 className="font-semibold text-lg" style={{ color: t.text }}>
-            Bienvenido, {user?.name?.split(" ")[0] ?? "Admin"}
+    <div className="admin-dashboard min-w-0 space-y-5">
+      <div className={`admin-dashboard-hero flex flex-wrap items-center justify-between gap-4 ${dashboardIntroDone ? "" : "admin-dashboard-hero-enter"}`}>
+        <div className="relative z-10">
+          <span className="admin-dashboard-eyebrow">Panel de control</span>
+          <h2 className="mt-2 font-bold text-2xl sm:text-3xl" style={{ color: t.text }}>
+            ¡Hola, {user?.name?.split(" ")[0] ?? "Admin"}!
           </h2>
-          <p className="text-xs mt-0.5 capitalize" style={{ color: t.muted }}>
+          <p className="mt-1 text-sm" style={{ color: t.muted }}>
+            Aquí tienes el resumen de tu negocio.
+          </p>
+        </div>
+        <div className="admin-dashboard-date relative z-10">
+          <span className="admin-dashboard-date-dot" />
+          <p className="text-sm font-semibold capitalize" style={{ color: t.text }}>
             {new Date().toLocaleDateString("es-CO", {
               weekday: "long",
               year: "numeric",
@@ -13987,13 +14365,19 @@ function AdminPanel({
         {KPI.map(({ icon, label, val, badge, good }) => (
           <div
             key={label}
-            className="min-w-0 rounded-2xl p-5"
-            style={{ background: t.card, border: `1px solid ${t.border}` }}
+            className="admin-dashboard-card min-w-0 rounded-2xl p-5"
+            style={{
+              background: t.card,
+              border: `1px solid ${t.border}`,
+            }}
           >
             <div className="flex items-start justify-between mb-3">
               <div
-                className="w-9 h-9 rounded-xl flex items-center justify-center"
-                style={{ background: t.input, color: C.mustard }}
+                  className="admin-dashboard-icon w-11 h-11 rounded-2xl flex items-center justify-center"
+                  style={{
+                    background: `${label === "Devoluciones" ? C.red : label === "N.º de ventas" ? C.forest : C.mustard}18`,
+                    color: label === "Devoluciones" ? C.red : label === "N.º de ventas" ? C.forest : C.mustard,
+                  }}
               >
                 {icon}
               </div>
@@ -14010,12 +14394,12 @@ function AdminPanel({
               </span>
             </div>
             <div
-              className="break-words font-black text-xl sm:text-2xl"
+              className="break-words font-black text-2xl sm:text-3xl"
               style={{ fontFamily: "League Spartan, sans-serif", color: t.text }}
             >
               {val}
             </div>
-            <div className="text-xs mt-0.5" style={{ color: t.muted }}>
+            <div className="text-sm mt-1" style={{ color: t.muted }}>
               {label}
             </div>
           </div>
@@ -14026,7 +14410,7 @@ function AdminPanel({
       <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_260px]">
         {/* Sales vs Losses */}
         <div
-          className="min-w-0 rounded-2xl p-5"
+          className="admin-dashboard-card min-w-0 rounded-2xl p-5"
           style={{ background: t.card, border: `1px solid ${t.border}` }}
         >
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -14038,7 +14422,7 @@ function AdminPanel({
                 <div className="flex items-center gap-1">
                   <div
                     className="w-2.5 h-2.5 rounded-sm"
-                    style={{ background: "#D2A84E" }}
+                    style={{ background: "#F2C230" }}
                   />
                   <span className="text-xs" style={{ color: t.muted }}>
                     Ventas
@@ -14047,7 +14431,7 @@ function AdminPanel({
                 <div className="flex items-center gap-1">
                   <div
                     className="w-2.5 h-2.5 rounded-sm"
-                    style={{ background: "#A54131" }}
+                    style={{ background: C.red }}
                   />
                   <span className="text-xs" style={{ color: t.muted }}>
                     Pérdidas
@@ -14066,8 +14450,8 @@ function AdminPanel({
                     onClick={() => setChartFilter(f)}
                     className="px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
                     style={{
-                      background: chartFilter === f ? C.mustard : "transparent",
-                      color: chartFilter === f ? "#fff" : t.muted,
+                      background: chartFilter === f ? "#F2C230" : "transparent",
+                      color: chartFilter === f ? "#36393F" : t.muted,
                     }}
                   >
                     {label}
@@ -14153,7 +14537,7 @@ function AdminPanel({
                   type="button"
                   onClick={() => setChartAnchor(new Date())}
                   className="h-9 cursor-pointer rounded-lg px-3 text-sm font-semibold transition-colors"
-                  style={{ background: `${C.mustard}14`, color: C.mustard }}
+                  style={{ background: "#FFF4CE", color: "#8D6910" }}
                 >
                   Hoy
                 </button>
@@ -14173,11 +14557,11 @@ function AdminPanel({
                 totals.sales ? `${Math.round(((totals.sales - totals.losses) / totals.sales) * 100)}%` : "—",
                 totals.sales >= totals.losses ? "#2E7D60" : "#A54131",
               ],
-              ["Promedio por venta", periodSales.length ? money(totals.sales / periodSales.length) : "—", C.mustard],
+              ["Promedio por venta", periodSales.length ? money(totals.sales / periodSales.length) : "—", "#D99E00"],
             ].map(([lbl, val, col]) => (
               <div
                 key={String(lbl)}
-                className="px-2 py-2 rounded-xl text-center"
+                className="admin-chart-stat px-2 py-2 rounded-xl text-center"
                 style={{ background: t.input }}
               >
                 <div
@@ -14198,7 +14582,7 @@ function AdminPanel({
               </div>
             ))}
           </div>
-          <div className="relative" style={{ height: "140px" }}>
+          <div className="admin-chart-area relative" style={{ height: "150px" }}>
             <div className="absolute inset-0 flex items-end gap-1">
               {chart.values.map((v, i) => {
                 const max = Math.max(1, ...chart.values, ...chart.values2) * 1.1
@@ -14218,27 +14602,29 @@ function AdminPanel({
                       <div className="flex-1 flex flex-col items-center justify-end">
                         <span
                           style={{
-                            fontSize: "0.5rem",
-                            color: "#D2A84E",
+                            fontSize: "0.65rem",
+                            color: "#D99E00",
                             fontWeight: 700,
                           }}
                         >
                           {valLabel}
                         </span>
                         <div
+                          className="admin-chart-bar"
                           style={{
                             width: "100%",
                             height: `${hV}px`,
-                            background: "#D2A84E",
-                            borderRadius: "3px 3px 0 0",
+                            background: "#F2C230",
+                            borderRadius: "6px 6px 2px 2px",
                             minHeight: "4px",
+                            animationDelay: `${i * 45}ms`,
                           }}
                         />
                       </div>
                       <div className="flex-1 flex flex-col items-center justify-end">
                         <span
                           style={{
-                            fontSize: "0.5rem",
+                            fontSize: "0.65rem",
                             color: "#A54131",
                             fontWeight: 700,
                           }}
@@ -14246,12 +14632,14 @@ function AdminPanel({
                           {lossLabel}
                         </span>
                         <div
+                          className="admin-chart-bar"
                           style={{
                             width: "100%",
                             height: `${hL}px`,
-                            background: "#A54131",
-                            borderRadius: "3px 3px 0 0",
+                            background: C.red,
+                            borderRadius: "6px 6px 2px 2px",
                             minHeight: "4px",
+                            animationDelay: `${i * 45 + 20}ms`,
                           }}
                         />
                       </div>
@@ -14259,7 +14647,7 @@ function AdminPanel({
                     <span
                       style={{
                         color: t.text,
-                        fontSize: "0.55rem",
+                        fontSize: "0.65rem",
                         fontWeight: 700,
                         whiteSpace: "nowrap",
                         overflow: "hidden",
@@ -14277,7 +14665,7 @@ function AdminPanel({
         </div>
         {/* Top products */}
         <div
-          className="min-w-0 rounded-2xl p-5"
+          className="admin-dashboard-card min-w-0 rounded-2xl p-5"
           style={{ background: t.card, border: `1px solid ${t.border}` }}
         >
           <div className="flex items-center gap-2 mb-4">
@@ -14331,7 +14719,7 @@ function AdminPanel({
       <div className="grid min-w-0 gap-5 lg:grid-cols-3">
         {/* Production times */}
         <div
-          className="min-w-0 rounded-2xl p-5"
+          className="admin-dashboard-card min-w-0 rounded-2xl p-5"
           style={{ background: t.card, border: `1px solid ${t.border}` }}
         >
           <div className="flex items-center gap-2 mb-4">
@@ -14366,7 +14754,7 @@ function AdminPanel({
         </div>
         {/* Return reasons */}
         <div
-          className="min-w-0 rounded-2xl p-5"
+          className="admin-dashboard-card min-w-0 rounded-2xl p-5"
           style={{ background: t.card, border: `1px solid ${t.border}` }}
         >
           <div className="flex items-center gap-2 mb-4">
@@ -14404,7 +14792,7 @@ function AdminPanel({
         </div>
         {/* Annual performance */}
         <div
-          className="min-w-0 rounded-2xl p-5"
+          className="admin-dashboard-card min-w-0 rounded-2xl p-5"
           style={{ background: t.card, border: `1px solid ${t.border}` }}
         >
           <div className="flex items-center gap-2 mb-4">
@@ -14440,7 +14828,7 @@ function AdminPanel({
 
       <div
         id="admin-alerts-section"
-        className="mt-5 rounded-2xl overflow-hidden"
+        className="admin-dashboard-card mt-5 rounded-2xl overflow-hidden"
         style={{ background: t.card, border: `1px solid ${t.border}` }}
       >
         <div
@@ -22628,7 +23016,7 @@ function AdminPanel({
                 }}
                 title={sidebarCollapsed ? g.label : undefined}
                 aria-label={g.label}
-                className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
+                className={`admin-nav-item w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
                 style={{
                   background: active
                     ? `${g.color}18`
@@ -22677,7 +23065,7 @@ function AdminPanel({
                       onClick={() => {
                         setSection(item.key as AdminSection)
                       }}
-                      className="w-full text-left pr-3 py-2 rounded-lg cursor-pointer"
+                      className="admin-subnav-item w-full text-left pr-3 py-2 rounded-lg cursor-pointer"
                       style={{
                         paddingLeft: "18.5px",
                         background:
@@ -22728,7 +23116,8 @@ function AdminPanel({
 
   return (
     <div
-      className="flex h-screen overflow-hidden"
+      className="admin-panel flex h-screen overflow-hidden"
+      data-theme={dark ? "dark" : "light"}
       style={{ background: t.bg, fontFamily: "DM Sans, sans-serif" }}
     >
       {sidebarOpen && (
@@ -23019,7 +23408,7 @@ function AdminPanel({
               {sectionLabel}
             </h1>
           </div>
-          {section === "dashboard" && <Dashboard />}
+          {section === "dashboard" && Dashboard()}
           {section !== "dashboard" && <GenericTable />}
         </main>
       </div>
@@ -23244,7 +23633,13 @@ export default function App() {
       />
     )
   if (page === "reset")
-    return <ResetPage email={forgotEmail} onDone={() => setPage("login")} />
+    return (
+      <ResetPage
+        email={forgotEmail}
+        onDone={() => setPage("login")}
+        onBack={() => setPage("forgot")}
+      />
+    )
   if (page === "guest-menu")
     return (
       <GuestMenuPage
