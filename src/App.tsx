@@ -231,7 +231,6 @@ const ADDITIONS = [
   { name: "Salchicha x3", price: 8000 },
   { name: "Cebolla", price: 8000 },
   { name: "1 Huevo", price: 900 },
-  { name: "5 Huevos", price: 4000 },
 ]
 const BEVERAGES = ["Coca-Cola", "Colombiana", "Pepsi", "Manzana", "Uva", "Naranja"]
 const BEVERAGE_SIZES = [
@@ -1836,13 +1835,8 @@ const MOD_CFG: Record<string, ModConfig> = {
         type: "select",
         options: ["Transferencia", "Efectivo"],
       },
+      // Comes from the order (shown read-only); the order's status (row[10]) follows the order by itself
       { key: "6", label: "Total", type: "number" },
-      {
-        key: "9",
-        label: "Estado del pedido",
-        type: "select",
-        options: ["Recibido", "En preparación", "En camino", "Entregado", "Cancelado"],
-      },
     ],
     seed: [],
     noDelete: true,
@@ -1869,13 +1863,13 @@ const MOD_CFG: Record<string, ModConfig> = {
         key: "2",
         label: "Tipo de pedido",
         type: "select",
-        options: ["Online", "Local"],
+        options: ["Local", "Domicilio", "Para recoger"],
       },
       {
         key: "3",
         label: "Método de pago",
         type: "select",
-        options: ["Transferencia", "Efectivo", "Pago en el local"],
+        options: ["Efectivo", "Transferencia"],
       },
       {
         key: "4",
@@ -1908,7 +1902,7 @@ const MOD_CFG: Record<string, ModConfig> = {
   },
   devoluciones: {
     columns: ["Código", "Cliente", "Motivo", "Fecha"],
-    // [0 código (automático), 1 venta asociada, 2 cliente (de la venta), 3 sin uso, 4 motivo, 5 fecha]
+    // [0 código (automático), 1 venta asociada, 2 cliente (de la venta), 3 comentario, 4 motivo, 5 fecha]
     fields: [
       { key: "1", label: "Venta asociada", type: "text" },
       {
@@ -1918,6 +1912,8 @@ const MOD_CFG: Record<string, ModConfig> = {
         options: ["Reembolso", "Reposición"],
       },
       { key: "5", label: "Fecha", type: "date" },
+      // 3: why it's returned (a Reposición takes it to its production order)
+      { key: "3", label: "Comentario (por qué se devuelve)", type: "textarea" },
     ],
     seed: [],
     noDelete: true,
@@ -1954,10 +1950,12 @@ const sodaImage = (name: string | number | undefined) => {
 
 // ── Orders → production ───────────────────────────────────────────────────────
 // Pedido payment rules: the method decides the modality and whether it's paid,
-// so the admin doesn't pick them by hand (e.g. Online + Efectivo = contraentrega, pendiente)
-function derivePedidoPayment(method: string, hasProof: boolean) {
+// so the admin doesn't pick them by hand. Cash in the shop is paid at the counter; cash for a delivery
+// or a pickup is paid on handover (it turns "Pagado" by itself when the order is "Entregado")
+function derivePedidoPayment(method: string, hasProof: boolean, orderType = "") {
   if (method === "Transferencia")
     return { modalidad: "Anticipado", estadoPago: hasProof ? "Pagado" : "Pendiente" }
+  if (method === "Efectivo" && orderType === "Local") return { modalidad: "Anticipado", estadoPago: "Pagado" }
   if (method === "Efectivo" || method === "Pago en el local")
     return { modalidad: "Contraentrega", estadoPago: "Pendiente" }
   return { modalidad: "", estadoPago: "" }
@@ -2012,7 +2010,7 @@ function clientOrderToPanelRow(order: Order, products: (string | number)[][]): R
     order.id,
     order.cliente,
     lines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${lines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
-    "Online",
+    "Domicilio",
     order.pago === "Efectivo" ? "Efectivo" : "Transferencia",
     order.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
     order.total,
@@ -3129,119 +3127,54 @@ function ZoomableImage({ src, alt, className }: { src: string; alt: string; clas
   )
 }
 
-// ── Product Info Modal (info only, centered) ───────────────────────────────────
-function ProductInfoModal({
-  product: selectedProduct,
-  onClose,
-  onAddToCart,
-  dark,
-}: {
-  product: Product
-  onClose: () => void
-  onAddToCart: (p: Product) => void
-  dark: boolean
+// ── Add to Cart Modal (centered, with sauces/additions) ────────────────────────
+// Compact "− amount +" where the amount can also be typed (0-99). While typing it may be empty; on leaving it
+// shows the real amount again
+function QtyStepper({ value, onChange, label, color, text, disabledPlus }: {
+  value: number
+  onChange: (n: number) => void
+  label: string
+  color: string
+  text: string
+  disabledPlus?: boolean
 }) {
-  const [product, setProduct] = useState(selectedProduct)
-  useEffect(() => {
-    const refreshProduct = () => {
-      const current = PRODUCTS.find((item) => item.id === selectedProduct.id) ??
-        PRODUCTS.find((item) => item.name === selectedProduct.name)
-      if (current) setProduct(current)
-      else onClose()
-    }
-    window.addEventListener("products-refreshed", refreshProduct)
-    return () => window.removeEventListener("products-refreshed", refreshProduct)
-  }, [selectedProduct.id, selectedProduct.name, onClose])
-  useEffect(() => setProduct(selectedProduct), [selectedProduct])
-  const CARD = dark ? "#1E1C18" : "#fff"
-  const TEXT = dark ? "#F4EEDC" : "#1A1714"
-  const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
-  const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
-  const cat = MENU_CATS.find((c) => c.id === product.cat)
+  const [draft, setDraft] = useState<string | null>(null)
+  const on = value > 0
+  const btn = "flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-sm leading-none transition-transform active:scale-90 disabled:cursor-default disabled:opacity-30"
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
-      style={{ background: "rgba(0,0,0,0.7)" }}
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-sm rounded-3xl overflow-hidden"
-        style={{ background: CARD, boxShadow: "0 20px 60px rgba(0,0,0,0.35)" }}
-        onClick={(e) => e.stopPropagation()}
+    <div className="flex flex-shrink-0 items-center gap-0.5">
+      <button type="button" onClick={() => onChange(Math.max(0, value - 1))} disabled={!on} aria-label={`Quitar ${label}`} className={btn} style={{ border: `1.5px solid ${text}40`, color: text }}>
+        −
+      </button>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={draft ?? String(value)}
+        onChange={(event) => {
+          const digits = event.target.value.replace(/\D/g, "").slice(0, 2)
+          setDraft(digits)
+          onChange(Number(digits) || 0)
+        }}
+        onFocus={(event) => event.target.select()}
+        onBlur={() => setDraft(null)}
+        aria-label={`Cantidad de ${label}`}
+        className="w-6 bg-transparent text-center text-sm font-bold tabular-nums outline-none"
+        style={{ color: on ? color : text }}
+      />
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(99, value + 1))}
+        disabled={disabledPlus || value >= 99}
+        aria-label={`Agregar ${label}`}
+        className={btn}
+        style={{ background: on ? color : "transparent", border: `1.5px solid ${on ? color : `${text}40`}`, color: on ? "#fff" : text }}
       >
-        <div className="relative" style={{ height: "200px", background: dark ? "#111" : "#1E1C18" }}>
-          {product.img && <ZoomableImage src={product.img} alt={product.name} className="w-full h-full object-cover" />}
-          {product.img && (
-            <div
-              className="absolute inset-0"
-              style={{
-                background:
-                  "linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%)",
-              }}
-            />
-          )}
-          <button
-            onClick={onClose}
-            className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center cursor-pointer"
-            style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
-          >
-            {Ico.x}
-          </button>
-          {product.badge && (
-            <span
-              className="font-label absolute top-3 left-3 text-xs font-bold px-2 py-0.5 rounded-full"
-              style={{ background: C.mustard, color: "#fff" }}
-            >
-              {product.badge}
-            </span>
-          )}
-          {cat && (
-            <span
-              className="absolute bottom-3 left-3 flex items-center gap-1 text-xs px-2 py-0.5 rounded-full"
-              style={{ background: "rgba(0,0,0,0.5)", color: "#fff" }}
-            >
-              {aboutIcon(13, cat.icon)} {cat.label}
-            </span>
-          )}
-        </div>
-        <div className="p-5">
-          <h2
-            className="font-black text-xl mb-1"
-            style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
-          >
-            {product.name}
-          </h2>
-          <p className="text-sm leading-relaxed mb-4" style={{ color: MUTED }}>
-            {product.desc}
-          </p>
-          <div
-            className="flex items-center justify-between pt-3"
-            style={{ borderTop: `1px solid ${BORDER}` }}
-          >
-            <span
-              className="font-price text-2xl"
-              style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
-            >
-              {product.priceStr}
-            </span>
-            <button
-              onClick={() => {
-                onClose()
-                onAddToCart(product)
-              }}
-              className="px-5 py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
-              style={{ background: C.mustard, color: "#fff" }}
-            >
-              Agregar al carrito
-            </button>
-          </div>
-        </div>
-      </div>
+        +
+      </button>
     </div>
   )
 }
 
-// ── Add to Cart Modal (centered, with sauces/additions) ────────────────────────
 function AddToCartModal({
   product: selectedProduct,
   onClose,
@@ -3273,23 +3206,46 @@ function AddToCartModal({
   }, [selectedProduct.id, selectedProduct.name, onClose])
   useEffect(() => setProduct(selectedProduct), [selectedProduct])
   const [qty, setQty] = useState(1)
+  // What is typed in the quantity box (null = not typing, it shows qty)
+  const [qtyDraft, setQtyDraft] = useState<string | null>(null)
+  const MAX_QTY = 99
+  const [descOpen, setDescOpen] = useState(false)
   const [selSauces, setSelSauces] = useState<string[]>([])
   const [addQtys, setAddQtys] = useState<Record<string, number>>({})
   const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0]?.id ?? "")
   // Drink whose picture is shown big (click again to close)
   const [zoomBeverage, setZoomBeverage] = useState<string | null>(null)
   const [customizationTab, setCustomizationTab] = useState<"sauces" | "additions" | "beverages">("sauces")
-  const CARD = dark ? "#1E1C18" : "#fff"
+  // Photo width ÷ height: a vertical or square photo goes beside the details on a computer (complete, no side
+  // strips); a wide one stays on top. Read from the image itself, so it fits any photo the admin uploads
+  const [photoRatio, setPhotoRatio] = useState<number | null>(null)
+  useEffect(() => {
+    setPhotoRatio(null)
+    if (!product.img) return
+    const probe = new Image()
+    probe.onload = () => setPhotoRatio(probe.naturalWidth / probe.naturalHeight || null)
+    probe.src = product.img
+  }, [product.img])
+  // Computer: the photo's column, sized from the photo's proportion so it shows complete at most ~300px tall
+  // (~300px tall; a wide photo gets up to 420px wide, a tall one at least 300px). Fixed per photo: nothing resizes as you use it
+  const photoColW = Math.round(Math.min(420, Math.max(300, 300 * (photoRatio ?? 1.25))))
+  // Cream card under the photo (the photo's curve blends into it)
+  const CARD = dark ? "#1E1C18" : "#FBF6E9"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
+  // The tabs filter: only the chosen section shows. On a computer the three share one grid cell (the others
+  // just invisible), so the column keeps the tallest one's height and nothing jumps when changing tabs
+  const panelClass = (tab: typeof customizationTab) =>
+    `min-w-0 md:[grid-area:1/1] ${customizationTab === tab ? "block" : "hidden md:invisible md:block"}`
   const toggleSauce = (s: string) =>
     setSelSauces((p) => {
       if (p.includes(s)) return p.filter((x) => x !== s)
       return p.length < 4 ? [...p, s] : p
     })
   const changeAdd = (name: string, d: number) =>
-    setAddQtys((p) => ({ ...p, [name]: Math.max(0, (p[name] || 0) + d) }))
+    setAddQtys((p) => ({ ...p, [name]: Math.min(99, Math.max(0, (p[name] || 0) + d)) }))
+  const setAdd = (name: string, n: number) => setAddQtys((p) => ({ ...p, [name]: n }))
   const addTotal = ADDITIONS.reduce(
     (s, a) => s + (addQtys[a.name] || 0) * a.price,
     0,
@@ -3347,7 +3303,7 @@ function AddToCartModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-3xl overflow-hidden flex flex-col"
+        className="relative w-full max-w-md md:max-w-4xl rounded-3xl overflow-hidden flex flex-col md:flex-row"
         style={{
           background: CARD,
           maxHeight: "98dvh",
@@ -3355,53 +3311,64 @@ function AddToCartModal({
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Photo fills the whole width (cover); tapping it still shows it complete */}
-        <div
-          className="relative flex-shrink-0 overflow-hidden"
-          style={{ height: "clamp(150px, 30vh, 260px)", background: dark ? "#111" : "#1E1C18" }}
+        {/* Close: the window's top-right corner (z-30 keeps it above the photo so the tap closes, not zooms) */}
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Cerrar"
+          className="absolute right-3 top-3 z-30 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full hover:opacity-90"
+          style={{ background: "rgba(0,0,0,0.55)", color: "#fff", backdropFilter: "blur(4px)" }}
         >
-          {product.img && <ZoomableImage src={product.img} alt={product.name} className="h-full w-full object-cover object-center" />}
-          {/* z-20 keeps the close button above the photo so the tap closes instead of zooming */}
-          <button
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="absolute top-3 right-3 z-20 w-9 h-9 rounded-full flex items-center justify-center cursor-pointer hover:opacity-90"
-            style={{ background: "rgba(0,0,0,0.55)", color: "#fff", backdropFilter: "blur(4px)" }}
-          >
-            {Ico.x}
-          </button>
-        </div>
+          {Ico.x}
+        </button>
+        {/* Left on a computer (top on a phone): the whole photo at its own proportion (no strips, no crop),
+            then name, price and description */}
         <div
-          className="flex items-center justify-between gap-3 px-5 py-2 flex-shrink-0"
-          style={{ background: dark ? "#1E1C18" : "#fff" }}
+          className="flex min-w-0 flex-shrink-0 flex-col md:w-[var(--photo-w)]"
+          style={{ "--photo-w": `${photoColW}px` } as React.CSSProperties}
         >
-          <div>
-            <div
-              className="font-black text-lg leading-tight"
-              style={{ color: TEXT }}
-            >
-              {product.name}
-            </div>
-            <div className="font-price text-sm" style={{ color: C.amber }}>
-              {product.priceStr}
-            </div>
-          </div>
-          {product.badge && (
-            <span
-              className="font-label text-xs font-bold px-2.5 py-1 rounded-full"
-              style={{ background: `${C.mustard}18`, color: C.mustard }}
-            >
-              {product.badge}
-            </span>
+        <div className="relative flex-shrink-0 p-3 pb-0 md:p-4 md:pr-0" style={{ background: CARD }}>
+          {product.img && (
+            <ZoomableImage
+              src={product.img}
+              alt={product.name}
+              className="mx-auto block h-auto max-h-[28vh] w-auto max-w-full rounded-2xl min-[380px]:max-h-[30vh] md:max-h-none md:w-full"
+            />
           )}
         </div>
-        <div
-          className="min-h-0 flex-1 overflow-hidden px-4 py-1.5 sm:px-5"
-        >
-          <p className="mb-1 line-clamp-1 text-xs leading-snug sm:text-sm" style={{ color: MUTED }}>
+        {/* Product info, like the reference: price, name, then the whole description (a phone shows 2 lines + «Ver más») */}
+        <div className="flex-shrink-0 px-5 pb-1 pt-2 min-[380px]:pb-2 min-[380px]:pt-3 md:px-5 md:pb-5 md:pt-4" style={{ background: CARD }}>
+          <div className="font-price text-lg font-bold leading-none md:text-xl" style={{ color: C.mustard }}>
+            {product.priceStr}
+          </div>
+          <h3 className="mt-1 font-black text-lg leading-tight min-[380px]:text-xl md:mt-1.5" style={{ color: TEXT }}>
+            {product.name}
+          </h3>
+          <p
+            className={`mt-1 text-sm leading-relaxed md:mt-2 ${descOpen ? "" : "line-clamp-1 min-[380px]:line-clamp-2 md:line-clamp-none"}`}
+            style={{ color: dark ? "rgba(244,238,220,0.62)" : "rgba(30,30,30,0.55)" }}
+          >
             {product.desc}
           </p>
-          <div className="mb-1.5 grid grid-cols-3 gap-1 rounded-xl p-1" style={{ background: dark ? "rgba(244,238,220,0.06)" : "rgba(30,30,30,0.05)" }}>
+          {product.desc.length > 90 && (
+            <button
+              type="button"
+              onClick={() => setDescOpen((open) => !open)}
+              className="mt-0.5 cursor-pointer text-xs font-bold hover:underline md:hidden"
+              style={{ color: C.mustard }}
+            >
+              {descOpen ? "Ver menos" : "Ver más"}
+            </button>
+          )}
+        </div>
+        </div>
+        {/* Right on a computer (below on a phone): the tabs, their options and the buttons */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          className="@container min-h-0 flex-1 overflow-y-auto px-4 py-1.5 sm:px-5 md:px-6 md:pt-5"
+          style={{ background: CARD }}
+        >
+          <div className={`mb-1.5 grid grid-cols-3 gap-1 rounded-full p-1 md:mb-3 md:mr-10 ${dark ? "bg-white/5" : "bg-black/5"}`}>
             {([
               ["sauces", `Salsas ${selSauces.length}/4`],
               ["additions", `Adiciones ${ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)}`],
@@ -3411,7 +3378,7 @@ function AddToCartModal({
                 key={tab}
                 type="button"
                 onClick={() => setCustomizationTab(tab)}
-                className="rounded-lg px-2 py-1.5 text-sm font-bold transition-colors"
+                className="cursor-pointer rounded-full px-2 py-1.5 text-sm font-bold transition-colors"
                 style={{
                   background: customizationTab === tab ? C.mustard : "transparent",
                   color: customizationTab === tab ? "#fff" : MUTED,
@@ -3421,111 +3388,83 @@ function AddToCartModal({
               </button>
             ))}
           </div>
-          {customizationTab === "sauces" && (
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <div className="font-bold text-sm" style={{ color: TEXT }}>Elige hasta 4 salsas gratis</div>
-              <span className="text-[11px] font-semibold" style={{ color: selSauces.length === 4 ? C.amber : MUTED }}>
-                {selSauces.length}/4
-              </span>
+          <div className="md:grid">
+          <div className={panelClass("sauces")}>
+            <div className="mb-1.5 text-[11px] font-semibold max-[379px]:hidden md:mb-2" style={{ color: selSauces.length === 4 ? C.amber : MUTED }}>
+              Elige hasta 4 salsas (gratis)
             </div>
-            <div
-              role="group"
-              aria-label="Salsas"
-              className="flex flex-wrap gap-1.5"
-            >
-              {SAUCES.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => toggleSauce(s)}
-                  disabled={!selSauces.includes(s) && selSauces.length >= 4}
-                  aria-pressed={selSauces.includes(s)}
-                  className="rounded-full px-2.5 py-1.5 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 sm:px-3 sm:text-xs"
-                  style={{
-                    background: selSauces.includes(s)
-                      ? C.mustard
-                      : dark
-                        ? "rgba(244,238,220,0.08)"
-                        : "rgba(30,30,30,0.07)",
-                    color: selSauces.includes(s) ? "#fff" : MUTED,
-                    border: `1.5px solid ${
-                      selSauces.includes(s) ? C.mustard : "transparent"
-                    }`,
-                  }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-          )}
-          {customizationTab === "additions" && (
-          <div>
-            <div className="grid grid-cols-2 gap-1">
-              {ADDITIONS.map((a) => {
-                const q = addQtys[a.name] || 0
+            <div role="group" aria-label="Salsas" className="grid grid-cols-2 gap-1 md:gap-1.5">
+              {SAUCES.map((s) => {
+                const on = selSauces.includes(s)
                 return (
                   <div
-                    key={a.name}
-                    className="flex min-w-0 items-center justify-between gap-1 rounded-xl px-2 py-1"
-                    style={{ border: `1px solid ${BORDER}`, background: dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
+                    key={s}
+                    className="flex min-w-0 items-center justify-between gap-1 rounded-full py-0.5 pl-3 pr-1 md:py-2.5"
+                    style={{ border: `1px solid ${on ? C.mustard : BORDER}`, background: on ? `${C.mustard}12` : dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
                   >
                     <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="text-xs leading-tight" style={{ color: TEXT }}>
-                        {a.name}
-                      </span>
-                      <span className="text-[11px] font-semibold leading-tight" style={{ color: q > 0 ? C.mustard : MUTED }}>
-                        {q > 0 ? `+${fmt(a.price * q)}` : fmt(a.price)}
-                      </span>
+                      <span className="truncate text-xs leading-tight md:text-[13px]" style={{ color: TEXT }}>{s}</span>
                     </div>
-                    <div className="flex flex-shrink-0 items-center gap-1">
-                      <button
-                        onClick={() => changeAdd(a.name, -1)}
-                        disabled={q === 0}
-                        aria-label={`Quitar ${a.name}`}
-                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
-                        style={{
-                          background: dark
-                            ? "rgba(244,238,220,0.1)"
-                            : "rgba(30,30,30,0.08)",
-                          color: TEXT,
-                        }}
-                      >
-                        −
-                      </button>
-                      <span
-                        className="w-5 text-center text-sm font-bold"
-                        style={{ color: TEXT }}
-                      >
-                        {q}
-                      </span>
-                      <button
-                        onClick={() => changeAdd(a.name, 1)}
-                        aria-label={`Agregar ${a.name}`}
-                        className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold"
-                        style={{ background: C.mustard, color: "#fff" }}
-                      >
-                        +
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => toggleSauce(s)}
+                      disabled={!on && selSauces.length >= 4}
+                      aria-pressed={on}
+                      aria-label={on ? `Quitar salsa ${s}` : `Agregar salsa ${s}`}
+                      className="flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ background: C.mustard, color: "#fff" }}
+                    >
+                      {on ? "✓" : "+"}
+                    </button>
                   </div>
                 )
               })}
             </div>
           </div>
-          )}
-          {customizationTab === "beverages" && !BEVERAGES.length && (
+          <div className={panelClass("additions")}>
+            <div className="mb-1.5 text-[11px] font-semibold max-[379px]:hidden md:mb-2" style={{ color: MUTED }}>
+              Agrégale lo que quieras a tu {product.name.toLowerCase()}
+            </div>
+            {/* Two compact columns: name and «+$ price», and a − amount + you can also type in */}
+            <div className="grid grid-cols-2 gap-1.5">
+              {ADDITIONS.map((a) => {
+                const q = addQtys[a.name] || 0
+                return (
+                  <div
+                    key={a.name}
+                    className="flex min-w-0 items-center justify-between gap-1.5 rounded-xl py-1.5 pl-2.5 pr-1.5 transition-colors"
+                    style={{
+                      border: `1px solid ${q ? C.mustard : BORDER}`,
+                      background: q ? `${C.mustard}12` : dark ? "rgba(244,238,220,0.04)" : "#fff",
+                    }}
+                  >
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-[13px] font-semibold leading-tight" style={{ color: TEXT }} title={a.name}>
+                        {a.name}
+                      </span>
+                      <span className="text-[11px] font-bold leading-tight" style={{ color: C.mustard }}>
+                        +{fmt(a.price)}
+                      </span>
+                    </div>
+                    <QtyStepper value={q} onChange={(n) => setAdd(a.name, n)} label={a.name} color={C.mustard} text={TEXT} />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          <div className={panelClass("beverages")}>
+          {!BEVERAGES.length && (
             <p className="rounded-xl px-3 py-4 text-center text-sm" style={{ background: dark ? "rgba(244,238,220,0.05)" : "rgba(30,30,30,0.04)", color: MUTED }}>
               Por ahora no hay gaseosas disponibles.
             </p>
           )}
-          {customizationTab === "beverages" && BEVERAGES.length > 0 && (
+          {BEVERAGES.length > 0 && (
           <div>
             {/* Size as visible buttons: the bottle photos below change with it */}
             <div
               role="radiogroup"
               aria-label="Tamaño de gaseosa"
-              className="mb-2 grid gap-1.5"
+              className="mb-1.5 grid gap-1.5 md:mb-2"
               style={{ gridTemplateColumns: `repeat(${BEVERAGE_SIZES.length}, minmax(0, 1fr))` }}
             >
               {BEVERAGE_SIZES.map((size) => {
@@ -3537,7 +3476,7 @@ function AddToCartModal({
                     role="radio"
                     aria-checked={on}
                     onClick={() => setBeverageSize(size.id)}
-                    className="flex cursor-pointer flex-col items-center rounded-xl px-1 py-1.5 leading-tight transition-colors"
+                    className="flex cursor-pointer flex-col items-center rounded-full px-1 py-1.5 leading-tight transition-colors"
                     style={{
                       background: on ? C.mustard : dark ? "rgba(244,238,220,0.05)" : "#fff",
                       border: `1px solid ${on ? C.mustard : BORDER}`,
@@ -3569,12 +3508,13 @@ function AddToCartModal({
                 const soldOut = !!unavailable
                 const price = sodaPrice(flavor, size)
                 return (
+                  // Compact: small bottle, flavour and price, and a − amount + you can also type in
                   <div
                     key={flavor}
-                    className="flex min-w-0 items-center gap-2 rounded-xl p-1.5 transition-colors"
+                    className="flex min-w-0 items-center gap-1.5 rounded-xl py-1 pl-1 pr-1.5 transition-colors"
                     style={{
                       border: `1px solid ${quantity > 0 ? C.mustard : BORDER}`,
-                      background: quantity > 0 ? `${C.mustard}12` : dark ? "rgba(244,238,220,0.03)" : "#fff",
+                      background: quantity > 0 ? `${C.mustard}12` : dark ? "rgba(244,238,220,0.04)" : "#fff",
                       opacity: soldOut ? 0.55 : 1,
                     }}
                   >
@@ -3582,52 +3522,28 @@ function AddToCartModal({
                       type="button"
                       onClick={() => setZoomBeverage(flavor)}
                       aria-label={`Ver ${beverageLabel(flavor)} ${size.label} más grande`}
-                      className="flex h-14 w-11 flex-shrink-0 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg"
+                      className="flex h-10 w-7 flex-shrink-0 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg max-[379px]:hidden"
                       style={{ background: "#fff" }}
                     >
                       <BeverageArt flavor={flavor} size={size.label} />
                     </button>
-                    <div className="flex min-w-0 flex-1 flex-col gap-1">
-                      {/* Flavour only (the brand is on the bottle); nowrap keeps "Coca-Cola" in one piece */}
-                      <span
-                        className="truncate whitespace-nowrap text-[13px] font-semibold leading-tight"
-                        style={{ color: TEXT }}
-                        title={beverageLabel(flavor)}
-                      >
+                    {/* Flavour only (the brand is on the bottle); nowrap keeps "Coca-Cola" in one piece */}
+                    <div className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate whitespace-nowrap text-[13px] font-semibold leading-tight" style={{ color: TEXT }} title={beverageLabel(flavor)}>
                         {flavor}
                       </span>
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="text-[11px] font-semibold" style={{ color: soldOut ? C.red : quantity > 0 ? C.mustard : MUTED }}>
-                          {soldOut ? unavailable : quantity > 0 ? `+${fmt(price * quantity)}` : fmt(price)}
-                        </span>
-                        <div className="flex flex-shrink-0 items-center gap-1">
-                          <button
-                            onClick={() => changeAdd(key, -1)}
-                            disabled={quantity === 0}
-                            aria-label={`Quitar gaseosa ${flavor} ${size.label}`}
-                            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-default disabled:opacity-30"
-                            style={{
-                              background: dark ? "rgba(244,238,220,0.1)" : "rgba(30,30,30,0.08)",
-                              color: TEXT,
-                            }}
-                          >
-                            −
-                          </button>
-                          <span className="w-4 text-center text-sm font-bold" style={{ color: TEXT }}>
-                            {quantity}
-                          </span>
-                          <button
-                            onClick={() => changeAdd(key, 1)}
-                            disabled={soldOut}
-                            aria-label={soldOut ? `Gaseosa ${flavor} ${size.label}: ${unavailable.toLowerCase()}` : `Agregar gaseosa ${flavor} ${size.label}`}
-                            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                            style={{ background: C.mustard, color: "#fff" }}
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
+                      <span className="text-[11px] font-bold leading-tight" style={{ color: soldOut ? C.red : C.mustard }}>
+                        {soldOut ? unavailable : fmt(price)}
+                      </span>
                     </div>
+                    <QtyStepper
+                      value={quantity}
+                      onChange={(n) => setAdd(key, soldOut ? Math.min(n, quantity) : n)}
+                      label={`gaseosa ${flavor} ${size.label}`}
+                      color={C.mustard}
+                      text={TEXT}
+                      disabledPlus={soldOut}
+                    />
                   </div>
                 )
               })}
@@ -3658,62 +3574,80 @@ function AddToCartModal({
             )}
           </div>
           )}
+          </div>
+          </div>
         </div>
+        {/* Purchase: total on the left; quantity and the two short buttons on the right (on a phone the
+            buttons go below, side by side) */}
         <div
-          className="flex w-full flex-shrink-0 flex-col gap-1.5 px-4 py-2"
+          className="flex w-full flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2.5 px-4 pb-4 pt-3 md:px-6 md:pb-5"
           style={{ borderTop: `1px solid ${BORDER}`, background: CARD }}
         >
-          <div className="mx-auto flex w-full max-w-[400px] flex-col gap-1.5">
-          <div className="flex items-center gap-2.5">
-            <div
-              className="flex flex-shrink-0 items-center gap-0.5 rounded-xl px-1 py-1"
-              style={{
-                background: dark
-                  ? "rgba(244,238,220,0.07)"
-                  : "rgba(30,30,30,0.06)",
-              }}
-            >
-              <button
-                onClick={() => setQty((q) => Math.max(1, q - 1))}
-                className="h-9 w-8 rounded-lg flex items-center justify-center font-bold cursor-pointer"
-                style={{ color: TEXT }}
-              >
-                −
-              </button>
-              <span
-                className="w-5 text-center font-black"
-                style={{ color: TEXT }}
-              >
-                {qty}
-              </span>
-              <button
-                onClick={() => setQty((q) => q + 1)}
-                className="h-9 w-8 rounded-lg flex items-center justify-center font-bold cursor-pointer"
-                style={{ color: TEXT }}
-              >
-                +
-              </button>
-            </div>
+          <div
+            className="flex flex-shrink-0 items-center rounded-full p-0.5"
+            style={{ background: dark ? "rgba(244,238,220,0.07)" : "rgba(30,30,30,0.06)" }}
+          >
             <button
-              onClick={handleAdd}
-              className="flex flex-1 cursor-pointer items-center justify-between rounded-xl px-4 py-2.5 text-sm font-bold hover:opacity-90"
+              type="button"
+              onClick={() => setQty((q) => Math.max(1, q - 1))}
+              disabled={qty <= 1}
+              aria-label="Una menos"
+              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-default disabled:opacity-35"
+              style={{ color: TEXT }}
+            >
+              −
+            </button>
+            {/* The quantity can be typed (1-99); while typing it may be empty, on leaving it goes back to a valid one */}
+            <input
+              type="text"
+              inputMode="numeric"
+              value={qtyDraft ?? String(qty)}
+              onChange={(event) => {
+                const digits = event.target.value.replace(/\D/g, "").slice(0, 2)
+                setQtyDraft(digits)
+                if (Number(digits) >= 1) setQty(Number(digits))
+              }}
+              onFocus={(event) => event.target.select()}
+              onBlur={() => setQtyDraft(null)}
+              aria-label="Cantidad"
+              className="w-9 bg-transparent text-center text-sm font-black outline-none"
+              style={{ color: TEXT }}
+            />
+            <button
+              type="button"
+              onClick={() => setQty((q) => Math.min(MAX_QTY, q + 1))}
+              disabled={qty >= MAX_QTY}
+              aria-label="Una más"
+              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-not-allowed disabled:opacity-40"
               style={{ background: C.mustard, color: "#fff" }}
             >
-              <span>Agregar al carrito</span>
-              <span className="font-extrabold">{fmt(total)}</span>
+              +
             </button>
           </div>
+          {/* The total lives only in the button: it goes up with the quantity, additions and drinks */}
+          <button
+            type="button"
+            onClick={handleAdd}
+            className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 whitespace-nowrap rounded-full py-2.5 pl-5 pr-5 text-sm font-bold transition-opacity hover:opacity-90 [&_svg]:h-4 [&_svg]:w-4"
+            style={{ background: C.mustard, color: "#fff", boxShadow: `0 4px 12px ${C.mustard}40` }}
+          >
+            <span className="flex items-center gap-1.5">
+              {Ico.check}
+              Agregar
+            </span>
+            <span className="font-price font-black tabular-nums">{fmt(total)}</span>
+          </button>
           {onCheckout && (
             <button
               type="button"
               onClick={handleCheckout}
-              className="w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
-              style={{ background: C.mustard, color: "#fff" }}
+              className="w-full cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-bold transition-colors md:w-auto"
+              style={{ border: `1.5px solid ${C.mustard}`, color: C.mustard, background: "transparent" }}
             >
               Finalizar compra
             </button>
           )}
-          </div>
+        </div>
         </div>
       </div>
     </div>
@@ -3994,7 +3928,6 @@ function GuestMenuPage({
   onBack: () => void
   onCheckout: () => void
 }) {
-  const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
   const cartCount = cart.reduce((sum, item) => sum + item.qty, 0)
   const addToCart = (
@@ -4104,21 +4037,10 @@ function GuestMenuPage({
           dark={false}
           paginate={false}
           compact
-          onInfoClick={setInfoProduct}
+          onInfoClick={setAddProduct}
           onAddClick={setAddProduct}
         />
       </main>
-      {infoProduct && (
-        <ProductInfoModal
-          product={infoProduct}
-          onClose={() => setInfoProduct(null)}
-          onAddToCart={(product) => {
-            setInfoProduct(null)
-            setAddProduct(product)
-          }}
-          dark={false}
-        />
-      )}
       {addProduct && (
         <AddToCartModal
           product={addProduct}
@@ -4571,6 +4493,8 @@ const DB_SYNC: Record<string, SyncSpec> = {
           : {}),
       }
     },
+    // clientes: a user with the Cliente role is also a client (it shows up there right away)
+    reloads: ["clientes"],
   },
   // [0 nombre, 1 categoría, 2 precio, 3 descripción, 4 estado, 5-9 ficha técnica, 10 disponibilidad, 11 id,
   //  12 stock y 13 costo (solo cambian en las gaseosas: los mueven sus compras y ventas)]
@@ -4679,8 +4603,9 @@ const DB_SYNC: Record<string, SyncSpec> = {
       tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
       estado: estadoOf(row[12]),
     }),
-    // Cost and stock come back from the backend (they don't change when editing)
-    reloads: ["insumos"],
+    // Cost and stock come back from the backend (they don't change when editing);
+    // producto: a new unit also reaches the fichas técnicas that use it (the backend aligns them)
+    reloads: ["insumos", "producto"],
     afterSave: (id, row) =>
       text(row[7]).toLowerCase() === "sí"
         ? api(`/insumos/${id}/ficha`, "PUT", {
@@ -4946,6 +4871,17 @@ const TABLE_FILTERS: Record<string, { label: string; index: number }[]> = {
   devoluciones: [{ label: "Motivo", index: 4 }],
 }
 const syncIdIndex = (sec: string) => (DB_SYNC[sec] ?? PANEL_SYNC[sec])?.idIndex
+// Sales made when an order was paid used to be saved one column off: [4 productos, 5 tipo, 6 método, 7-8 total,
+// 9 "Pendiente", 10 pedido, 11 estado, 12 productos JSON]. Read them in the usual columns (only on screen;
+// the backend keeps them as they are, so loading them doesn't save anything)
+const fixShiftedSale = (row: Row): Row => {
+  if (String(row[9]) !== "Pendiente" || !/^PED-/i.test(String(row[10] ?? ""))) return row
+  const fixed = [...row]
+  for (let i = 4; i <= 11; i++) fixed[i] = row[i + 1]
+  fixed[8] = ""
+  fixed[12] = ""
+  return fixed
+}
 // Pads the row so the id never leaves empty gaps before it
 const withPanelId = (row: Row, idIndex: number, id: string | number) => {
   const padded = Array.from({ length: Math.max(row.length, idIndex) }, (_, i) => row[i] ?? "")
@@ -5283,6 +5219,35 @@ function OrderList({
   )
 }
 
+// Photo of a soda by its name "Gaseosa <sabor> (<tamaño>)": the one uploaded for its product, else the bundled bottle
+const sodaPhoto = (name: string) => SODA_INFO.get(normalizeName(name))?.img || sodaImage(name) || ""
+
+// A product's photo in an order: tries each link in turn, retrying once after a moment (the backend may be
+// restarting); if none loads, a burger icon instead of an empty tile
+function OrderItemPhoto({ srcs, tile }: { srcs: (string | undefined)[]; tile: string }) {
+  const links = [...new Set(srcs.filter(Boolean) as string[])]
+  const [attempt, setAttempt] = useState(0)
+  const index = Math.floor(attempt / 2)
+  const src = links[index]
+  if (!src)
+    return (
+      <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl text-xl" style={{ background: tile }} aria-hidden="true">
+        🍔
+      </div>
+    )
+  return (
+    <img
+      key={attempt}
+      // The retry asks again without the cache (a failed load may have been cached)
+      src={attempt % 2 ? `${src}${src.includes("?") ? "&" : "?"}r=${attempt}` : src}
+      alt=""
+      className="h-12 w-12 flex-shrink-0 rounded-xl object-cover"
+      style={{ background: tile }}
+      onError={() => setTimeout(() => setAttempt((a) => a + 1), attempt % 2 ? 0 : 1200)}
+    />
+  )
+}
+
 function OrderDetailModal({
   order,
   dark,
@@ -5303,139 +5268,132 @@ function OrderDetailModal({
       ? ["Por confirmar", ...ORDER_STEPS.slice(1)]
       : ORDER_STEPS
   const step = steps.indexOf(order.status)
+  const field = (label: string, value: string | undefined, wide = false) =>
+    value ? (
+      <div className={`min-w-0 ${wide ? "col-span-2" : ""}`}>
+        <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>{label}</div>
+        <div className="break-words text-[13px] font-semibold leading-snug">{value}</div>
+      </div>
+    ) : null
+  const cardBg = dark ? "rgba(255,255,255,0.03)" : "#FBF6E9"
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6"
       style={{ background: "rgba(0,0,0,0.6)" }}
       onClick={onClose}
     >
+      {/* Computer: products on the left; delivery, payment and total on the right (no long scroll) */}
       <div
-        className="w-full max-w-md max-h-[90vh] overflow-y-auto rounded-3xl p-6"
+        className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-3xl md:max-w-3xl"
         style={{ background: dark ? "#1E1C18" : "#fff", color: TEXT }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-1">
-          <h3
-            className="font-black text-lg"
-            style={{ fontFamily: "League Spartan, sans-serif" }}
-          >
-            Pedido {order.id}
-          </h3>
-          <button
-            onClick={onClose}
-            className="cursor-pointer"
-            style={{ color: MUTED }}
-            aria-label="Cerrar"
-          >
-            {Ico.x}
-          </button>
-        </div>
-        <div className="text-xs mb-5" style={{ color: MUTED }}>
-          {order.date}
-        </div>
-
-        <div className="flex items-center mb-6">
-          {steps.map((s, i) => (
-            <div key={s} className="flex items-center flex-1">
-              <div className="flex flex-col items-center">
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{ background: i <= step ? C.mustard : BORDER }}
-                />
-                <div
-                  className="text-center mt-1"
-                  style={{
-                    color: i === step ? C.mustard : MUTED,
-                    fontSize: "0.56rem",
-                  }}
-                >
-                  {s}
-                </div>
-              </div>
-              {i < steps.length - 1 && (
-                <div
-                  className="h-0.5 flex-1 mb-4"
-                  style={{ background: i < step ? C.mustard : BORDER }}
-                />
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="space-y-3 mb-4">
-          {order.items.map((i) => (
-            <div
-              key={i.id}
-              className="p-3 rounded-xl"
-              style={{ background: dark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)" }}
-            >
-              <div className="flex justify-between gap-3 text-sm">
-                <div className="font-semibold">
-                  {i.name} <span style={{ color: MUTED }}>x{i.qty}</span>
-                </div>
-                <span className="font-semibold">{fmt(itemTotal(i))}</span>
-              </div>
-              <div className="mt-2 space-y-1 text-xs" style={{ color: MUTED }}>
-                <div className="flex justify-between gap-3">
-                  <span>Precio ({i.qty} x {fmt(i.price)})</span>
-                  <span>{fmt(i.price * i.qty)}</span>
-                </div>
-                <div>
-                  <span className="font-semibold" style={{ color: TEXT }}>Salsas:</span>{" "}
-                  {i.sauces?.length ? i.sauces.join(", ") : "Sin salsas adicionales"}
-                </div>
-                <div>
-                  <span className="font-semibold" style={{ color: TEXT }}>Adiciones:</span>{" "}
-                  {i.additions?.length
-                    ? i.additions.map((a) => `${a.name} x${a.qty} (+${fmt(a.price * a.qty * i.qty)})`).join(", ")
-                    : "Sin adiciones"}
-                </div>
-              </div>
-            </div>
-          ))}
-          <div className="flex justify-between font-black pt-2" style={{ borderTop: `2px solid ${BORDER}` }}>
-            <span>Total</span>
-            <span style={{ color: C.mustard }}>{fmt(order.total)}</span>
-          </div>
-        </div>
-
-        <div className="space-y-1 text-sm mb-4" style={{ color: MUTED }}>
-          <div>
-            <strong style={{ color: TEXT }}>Recibe:</strong> {order.nombre}
-          </div>
-          <div>
-            <strong style={{ color: TEXT }}>Dirección:</strong> {order.direccion}
-          </div>
-          <div>
-            <strong style={{ color: TEXT }}>Teléfono:</strong> {order.telefono}
-          </div>
-          {order.notas && (
+        <div className="flex-shrink-0 px-5 pb-3 pt-5 md:px-6" style={{ borderBottom: `1px solid ${BORDER}` }}>
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <strong style={{ color: TEXT }}>Notas:</strong> {order.notas}
+              <h3 className="text-lg font-black leading-tight" style={{ fontFamily: "League Spartan, sans-serif" }}>
+                Pedido {order.id}
+              </h3>
+              <div className="text-xs" style={{ color: MUTED }}>{order.date}</div>
             </div>
-          )}
-          <div>
-            <strong style={{ color: TEXT }}>Pago:</strong> {order.pago}
+            <div className="flex items-center gap-2">
+              <span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                {order.status}
+              </span>
+              <button onClick={onClose} className="cursor-pointer" style={{ color: MUTED }} aria-label="Cerrar">
+                {Ico.x}
+              </button>
+            </div>
           </div>
-          {order.paymentStatus && (
-            <div>
-              <strong style={{ color: TEXT }}>Estado del pago:</strong>{" "}
-              {order.paymentStatus}
-            </div>
-          )}
-          {order.paymentStatus === "Rechazado" && order.paymentRejectionReason && (
-            <div style={{ color: C.red }}>
-              <strong>Motivo de rechazo:</strong> {order.paymentRejectionReason}
-            </div>
-          )}
+          <div className="mt-3 flex items-center">
+            {steps.map((s, i) => (
+              <div key={s} className="flex flex-1 items-center last:flex-none">
+                <div className="flex flex-col items-center">
+                  <div className="h-2.5 w-2.5 rounded-full" style={{ background: i <= step ? C.mustard : BORDER }} />
+                  <div className="mt-1 whitespace-nowrap text-center" style={{ color: i === step ? C.mustard : MUTED, fontSize: "0.58rem", fontWeight: i === step ? 700 : 400 }}>
+                    {s}
+                  </div>
+                </div>
+                {i < steps.length - 1 && <div className="mb-4 h-0.5 flex-1" style={{ background: i < step ? C.mustard : BORDER }} />}
+              </div>
+            ))}
+          </div>
         </div>
 
-        {order.pago !== "Efectivo" && (
-          <VoucherInput
-            value={order.voucher}
-            onChange={(v) => onVoucher(order.id, v)}
-          />
-        )}
+        <div className="min-h-0 flex-1 overflow-y-auto md:grid md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] md:overflow-hidden">
+          {/* Products: photo, name, unit price and subtotal; below, one short line per sauce set, addition and soda */}
+          <div className="space-y-2 p-4 md:overflow-y-auto md:p-5">
+            {order.items.map((i) => {
+              // The product's current photo first: the one saved with the order may no longer exist (photo replaced)
+              const productImg =
+                PRODUCTS.find((p) => p.name === i.name || p.name === `Hamburguesa ${i.name}`)?.img || sodaPhoto(i.name) || i.img
+              const extras = i.additions || []
+              return (
+                <div key={i.id} className="rounded-2xl p-2.5" style={{ background: cardBg, border: `1px solid ${BORDER}` }}>
+                  <div className="flex items-center gap-2.5">
+                    <OrderItemPhoto srcs={[productImg, i.img]} tile={BORDER} />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-bold">{i.name}</div>
+                      <div className="text-xs" style={{ color: MUTED }}>{i.qty} × {fmt(i.price)}</div>
+                    </div>
+                    <span className="flex-shrink-0 text-sm font-black" style={{ color: C.mustard }}>{fmt(itemTotal(i))}</span>
+                  </div>
+                  {(i.sauces?.length || extras.length) ? (
+                    <div className="mt-2 space-y-1 border-t pt-2 text-xs" style={{ borderColor: BORDER }}>
+                      {i.sauces?.length ? (
+                        <div className="flex gap-2">
+                          <span className="w-5 flex-shrink-0 text-center" style={{ color: MUTED }}>●</span>
+                          <span className="min-w-0 flex-1" style={{ color: MUTED }}>
+                            Salsas: <span style={{ color: TEXT }}>{i.sauces.join(", ")}</span>
+                          </span>
+                        </div>
+                      ) : null}
+                      {extras.map((a) => {
+                        const soda = isSodaName(a.name)
+                        const photo = soda ? sodaPhoto(a.name) : ""
+                        return (
+                          <div key={a.name} className="flex items-center gap-2">
+                            <span className="flex h-6 w-5 flex-shrink-0 items-center justify-center overflow-hidden rounded" style={{ background: soda ? "#fff" : "transparent", color: C.mustard }}>
+                              {photo ? <img src={photo} alt="" className="h-full w-full object-contain" /> : "+"}
+                            </span>
+                            <span className="min-w-0 flex-1 truncate">
+                              {soda ? a.name.replace(/^Gaseosa /, "") : a.name} <span style={{ color: MUTED }}>×{a.qty * i.qty}</span>
+                            </span>
+                            <span style={{ color: MUTED }}>+{fmt(a.price * a.qty * i.qty)}</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Delivery, payment, total and the transfer voucher */}
+          <div className="space-y-3 border-t p-4 md:overflow-y-auto md:border-l md:border-t-0 md:p-5" style={{ borderColor: BORDER }}>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
+              {field("Recibe", order.nombre)}
+              {field("Teléfono", order.telefono)}
+              {field("Dirección", order.direccion, true)}
+              {field("Pago", order.pago)}
+              {field("Estado del pago", order.paymentStatus)}
+              {field("Notas", order.notas, true)}
+            </div>
+            {order.paymentStatus === "Rechazado" && order.paymentRejectionReason && (
+              <div className="rounded-xl px-3 py-2 text-xs" style={{ background: `${C.red}12`, color: C.red }}>
+                <strong>Motivo de rechazo:</strong> {order.paymentRejectionReason}
+              </div>
+            )}
+            <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: `${C.mustard}14` }}>
+              <span className="text-sm font-bold">Total</span>
+              <span className="text-xl font-black" style={{ color: C.mustard }}>{fmt(order.total)}</span>
+            </div>
+            {order.pago !== "Efectivo" && (
+              <VoucherInput value={order.voucher} onChange={(v) => onVoucher(order.id, v)} />
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -7614,7 +7572,6 @@ function ClientApp({
   const selected = orders.find((o) => o.id === selectedId)
   const [theme, setTheme] = useState<Theme>("light")
   const [profileOpen, setProfileOpen] = useState(false)
-  const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
   const dropRef = useRef<HTMLDivElement>(null)
   const dark = theme === "dark"
@@ -7867,7 +7824,7 @@ function ClientApp({
               dark={dark}
               paginate={false}
               compact
-              onInfoClick={(p) => setInfoProduct(p)}
+              onInfoClick={(p) => setAddProduct(p)}
               onAddClick={(p) => setAddProduct(p)}
             />
             <div
@@ -7908,14 +7865,6 @@ function ClientApp({
           dark={dark}
           onClose={() => setSelectedId(null)}
           onVoucher={onVoucher}
-        />
-      )}
-      {infoProduct && (
-        <ProductInfoModal
-          product={infoProduct}
-          onClose={() => setInfoProduct(null)}
-          onAddToCart={(p) => setAddProduct(p)}
-          dark={dark}
         />
       )}
       {addProduct && (
@@ -8017,7 +7966,6 @@ function LandingPage({
   const [scrolled, setScrolled] = useState(false)
   const [waBubble, setWaBubble] = useState(true)
   const [legalModal, setLegalModal] = useState<"envios" | "legal" | null>(null)
-  const [infoProduct, setInfoProduct] = useState<Product | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
   const BG = dark ? "#13110E" : "#FAF4E8"
   const TEXT = dark ? "#F0E8D6" : "#18140A"
@@ -8416,7 +8364,7 @@ function LandingPage({
           </div>
           <ProductCatalog
             dark={dark}
-            onInfoClick={(p) => setInfoProduct(p)}
+            onInfoClick={(p) => setAddProduct(p)}
             onAddClick={(p) => setAddProduct(p)}
           />
           {cartCount > 0 && (
@@ -9064,17 +9012,6 @@ function LandingPage({
         Pide Ahora
       </button>
 
-      {infoProduct && (
-        <ProductInfoModal
-          product={infoProduct}
-          onClose={() => setInfoProduct(null)}
-          onAddToCart={(p) => {
-            setInfoProduct(null)
-            setAddProduct(p)
-          }}
-          dark={dark}
-        />
-      )}
       {addProduct && (
         <AddToCartModal
           product={addProduct}
@@ -10066,7 +10003,7 @@ function AdminPanel({
     Object.entries(PANEL_SYNC).forEach(([sec, spec]) =>
       api<DbRecord[]>(spec.path)
         .then((records) => {
-          const dbRows = records.map((r) => withPanelId(r.datos_panel, spec.idIndex, r.id))
+          const dbRows = records.map((r) => withPanelId(sec === "ventas" ? fixShiftedSale(r.datos_panel) : r.datos_panel, spec.idIndex, r.id))
           panelSaved.current[sec] = new Map(dbRows.map((r) => [r[spec.idIndex], JSON.stringify(r)]))
           setRows((current) => ({
             ...current,
@@ -10191,6 +10128,8 @@ function AdminPanel({
   const [pedidoProductoSelect, setPedidoProductoSelect] = useState("")
   const [pedidoProductCategory, setPedidoProductCategory] = useState("Todas")
   const [pedidoProductSearch, setPedidoProductSearch] = useState("")
+  // The product search's suggestion list is open
+  const [pedidoSearchOpen, setPedidoSearchOpen] = useState(false)
   const [pedidoProductQuantity, setPedidoProductQuantity] = useState("1")
   const [pedidoAdditionsFor, setPedidoAdditionsFor] = useState("")
   const [pedidoOrderLines, setPedidoOrderLines] = useState<AdminOrderLine[]>([])
@@ -10570,6 +10509,7 @@ function AdminPanel({
             quantity: Number(line.quantity),
             unitPrice: Number(line.unitPrice),
             ...(line.parentId ? { parentId: String(line.parentId) } : {}),
+            ...(Array.isArray(line.sauces) && line.sauces.length ? { sauces: line.sauces.map(String) } : {}),
           }))
           .filter((line) => line.product && line.quantity > 0 && line.unitPrice >= 0)
       }
@@ -10732,7 +10672,8 @@ function AdminPanel({
       "cat-insumos": ["1"],
       // 4 (modalidad) and 7 (estado de pago) are derived from the payment method
       pedidos: ["1", "4", "5", "7", "9", "11"],
-      ventas: ["8"],
+      // A new sale is made from an order (it brings the total); an old sale without one can still be edited
+      ventas: ["6", ...(mode === "edit" ? ["8"] : [])],
     }
     const managedRequiredKeys: Record<string, string[]> = {
       usuarios: ["0", "1", "2", "3", "4", ...(isStaffRole(draft["3"]) ? ["9", "10", "11"] : [])],
@@ -11035,6 +10976,7 @@ function AdminPanel({
     }
     if (sec === "ventas") {
       initialFields["0"] = sellerName
+      initialFields["2"] = getCurrentDateTimeParts().date
     }
     if (sec === "devoluciones") initialFields["5"] = getCurrentDateTimeParts().date
     if (sec === "insumos") {
@@ -11358,6 +11300,14 @@ function AdminPanel({
   const returnToParent = (created?: string, createdRow?: Row) => {
     if (!formReturn || modal.section !== formReturn.child) return false
     const { section, mode, idx, form } = formReturn
+    // An order that is already paid got its sale by itself: nothing left to fill in the sale form
+    if (section === "ventas" && created && String(createdRow?.[8]) === "Pagado") {
+      setFormReturn(null)
+      setSection("ventas")
+      setModal({ mode: null, section: "", idx: null })
+      window.alert(`El pedido ${created} quedó pagado, así que su venta se registró automáticamente.`)
+      return true
+    }
     // A supplier adds the new insumo to its list; a sale takes the new order (client and total);
     // a purchase picks the new supplier
     const next = !created
@@ -11365,7 +11315,14 @@ function AdminPanel({
       : section === "proveedores"
         ? { ...form, "7": [...new Set([...String(form["7"] ?? "").split(",").map((item) => item.trim()).filter(Boolean), created])].join(", ") }
         : section === "ventas"
-          ? { ...form, "8": created, "1": String(createdRow?.[1] ?? form["1"] ?? ""), "6": String(createdRow?.[6] ?? form["6"] ?? "") }
+          ? {
+              ...form,
+              "8": created,
+              "1": String(createdRow?.[1] ?? form["1"] ?? ""),
+              "6": String(createdRow?.[6] ?? form["6"] ?? ""),
+              "3": saleTypeOf(createdRow?.[3]) || String(form["3"] ?? ""),
+              "4": String(createdRow?.[4] ?? form["4"] ?? ""),
+            }
           : { ...form, "0": created }
     setFormReturn(null)
     setSection(section as AdminSection)
@@ -11571,16 +11528,23 @@ function AdminPanel({
           ? previousRow[0]
           : `DEV-${String(Math.max(0, ...(rows.devoluciones || []).map((d) => Number(/^DEV-(\d+)$/.exec(String(d[0] ?? ""))?.[1] ?? 0))) + 1).padStart(4, "0")}`
       newRow[2] = String(sale?.[2] ?? previousRow?.[2] ?? "")
-      newRow[3] = ""
+      newRow[3] = String(formData["3"] ?? "").trim()
       newRow[6] = String(formData["6"] || "[]")
     }
 
     if (sec === "ventas") {
       newRow[8] = String(formData["8"] ?? "").trim() || "Sin pedido"
+      // One sale per order (a paid order already got its own)
+      if (newRow[8] !== "Sin pedido" && (rows.ventas || []).some((sale, i) => i !== modal.idx && String(sale[9]) === newRow[8])) {
+        window.alert(`El pedido ${newRow[8]} ya tiene su venta registrada.`)
+        return
+      }
       // With an order, the sale takes its total
       const order = (rows.pedidos || []).find((p) => String(p[0]) === newRow[8])
       if (order) newRow[6] = Number(order[6]) || 0
       newRow[5] = Number(newRow[6] ?? formData["6"]) || 0
+      // The order's status (row[10] once the code goes first); it then follows the order
+      newRow[9] = order ? String(order[7] || "Recibido") : String(previousRow?.[10] ?? "")
     }
 
     if (sec === "pedidos") {
@@ -11594,7 +11558,7 @@ function AdminPanel({
       newRow[5] = total
       newRow[6] = "Recibido"
       // Modality follows the payment method; payment status too when creating (editing moves it forward)
-      const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
+      const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""))
       newRow[4] = payment.modalidad
       newRow[7] = modal.mode === "edit" && formData["7"] ? formData["7"] : payment.estadoPago
       // Orders created in the panel go to production on save (it starts at "Recibida");
@@ -11840,21 +11804,47 @@ function AdminPanel({
         return next
       })
     }
+    // A Reposición makes the returned products again: a new production order (linked to the return's code)
+    if (sec === "devoluciones" && modal.mode === "add" && newRow[4] === "Reposición") {
+      const saleLines = getSaleOrderLines((rows.ventas || []).find((v) => String(v[0]) === String(newRow[1])) ?? null)
+      let returned: { id: string; product: string; quantity: number }[] = []
+      try {
+        returned = JSON.parse(String(newRow[6] || "[]"))
+      } catch {
+        returned = []
+      }
+      // Each returned product with its sauces and its additions (in proportion to how many come back)
+      const lines: AdminOrderLine[] = returned.flatMap((item) => {
+        const main = saleLines.find((line) => line.id === item.id)
+        const ratio = main?.quantity ? item.quantity / main.quantity : 1
+        return [
+          { ...(main ?? { id: item.id, product: item.product, category: "", unitPrice: 0 }), quantity: item.quantity },
+          ...saleLines
+            .filter((line) => line.parentId === item.id)
+            .map((line) => ({ ...line, quantity: Math.max(1, Math.round(line.quantity * ratio)) })),
+        ]
+      })
+      if (lines.length)
+        setRows((current) => ({
+          ...current,
+          produccion: buildProductionRows(lines, current.produccion || [], String(newRow[0]), `Reposición por devolución ${newRow[0]}: ${newRow[3]}`),
+        }))
+    }
     if (sec === "pedidos" && String(newRow[8]) === "Pagado") {
       setRows((current) => {
         const salesRows = [...(current.ventas || [])]
         if (salesRows.some((sale) => sale[9] === newRow[0])) return current
+        // Same columns as a sale made in the form (see setOrderPayment)
         salesRows.unshift([
           nextAutoSaleCode(salesRows),
           sellerName,
           newRow[1],
           getCurrentDateTimeParts().date,
-          newRow[2],
           saleTypeOf(newRow[3]),
           newRow[4],
           newRow[6],
           newRow[6],
-          "Pendiente",
+          "",
           newRow[0],
           newRow[7],
           newRow[10] ?? "[]",
@@ -12375,18 +12365,19 @@ function AdminPanel({
       updated[8] = status
       pedidos[orderIndex] = updated
       if (status !== "Pagado" || (current.ventas || []).some((sale) => sale[9] === updated[0])) return { ...current, pedidos }
+      // Same columns as a sale made in the form: [0 código, 1 vendedor, 2 cliente, 3 fecha, 4 tipo,
+      //  5 método, 6 total, 7 total, 8 —, 9 pedido, 10 estado del pedido, 11 productos (JSON)]
       const ventas = [
         [
           nextAutoSaleCode(current.ventas || []),
           sellerName,
           updated[1],
           getCurrentDateTimeParts().date,
-          updated[2],
           saleTypeOf(updated[3]),
           updated[4],
           updated[6],
           updated[6],
-          "Pendiente",
+          "",
           updated[0],
           updated[7],
           updated[10] ?? "[]",
@@ -12426,7 +12417,17 @@ function AdminPanel({
         updated[7] = status
         return updated
       }),
+      // Its sale shows the order's status too (row[9] = pedido, row[10] = estado del pedido)
+      ventas: (current.ventas || []).map((sale) => {
+        if (String(sale[9]) !== orderId) return sale
+        const updated = [...sale]
+        updated[10] = status
+        return updated
+      }),
     }))
+    // Cash on delivery / on pickup: handing it over means it was paid (this also records its sale)
+    if (status === "Entregado" && String(order[5]) === "Contraentrega" && PAYMENT_NEXT[String(order[8] || "Pendiente")] === "Pagado")
+      setOrderPayment(orderIndex, "Pagado")
   }
 
   const rejectTransferPayment = () => {
@@ -13774,7 +13775,13 @@ function AdminPanel({
       (!isProductionList || !prodDay || String(row[4] ?? "").slice(0, 10) === prodDay)
     // Status counts follow the search and the day, so each button says how many it would show
     const beforeStatus = sRows.filter(({ row }) => matchesSearch(row))
-    const filtered = beforeStatus.filter(({ row }) => !isProductionList || !prodStatus || orderStatus(row) === prodStatus)
+    const statusFiltered = beforeStatus.filter(({ row }) => !isProductionList || !prodStatus || orderStatus(row) === prodStatus)
+    // Orders newest first, in order of arrival: shop and panel orders share the backend's id (shop code PED-<id>,
+    // panel row[13]); one not saved yet is the newest
+    const shopOrderIds = section === "pedidos" ? new Set(loadOrders().map((o) => o.id)) : null
+    const arrival = (row: Row) =>
+      Number(row[13]) || (shopOrderIds?.has(String(row[0])) ? Number(/(\d+)$/.exec(String(row[0]))?.[1]) || 0 : Infinity)
+    const filtered = shopOrderIds ? [...statusFiltered].sort((a, b) => arrival(b.row) - arrival(a.row)) : statusFiltered
     const cur = pg[section] || 0
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
     const visiblePages = visiblePaginationPages(cur, totalPages)
@@ -15640,6 +15647,22 @@ function AdminPanel({
             className={`flex items-center justify-between px-5 ${isUser || isRoles ? "py-3" : "py-4"}`}
             style={{ borderBottom: `1px solid ${t.border}` }}
           >
+            <div className="flex min-w-0 items-center gap-2">
+            {/* Back arrow on every form: same as «Cancelar» (also returns to the form that opened this one) */}
+            {!isView && (
+              <button
+                type="button"
+                onClick={closeModal}
+                aria-label="Volver"
+                title="Volver"
+                className="flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-xl"
+                style={{ background: t.input, color: t.muted }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M19 12H5M12 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
             <h3 className="font-semibold text-base" style={{ color: t.text }}>
               {purchaseEntity
                 ? modal.mode === "add"
@@ -15653,6 +15676,7 @@ function AdminPanel({
                     ? "Editar registro"
                     : "Ver detalle"}
             </h3>
+            </div>
             <button
               onClick={closeModal}
               aria-label="Cerrar"
@@ -16967,8 +16991,10 @@ function AdminPanel({
                     </div>
                   )
                 }
+                // New order: modality and payment status aren't shown; they're set from the type and method on save
+                if (isPedido && !isView && (f.key === "4" || (modal.mode === "add" && f.key === "7"))) return null
                 if (isPedido && !isView && (f.key === "4" || f.key === "7")) {
-                  const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft)
+                  const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""))
                   const value = f.key === "4" ? payment.modalidad : payment.estadoPago
                   return (
                     <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
@@ -16988,7 +17014,7 @@ function AdminPanel({
                       </div>
                       {f.key === "7" && (
                         <span className="text-[11px]" style={{ color: t.muted }}>
-                          Automático: transferencia con comprobante = pagado; efectivo o pago en el local = contraentrega y pendiente.
+                          Automático: efectivo en el local = pagado; transferencia con comprobante = pagado; efectivo a domicilio o para recoger = contraentrega, y queda pagado al marcarlo «Entregado».
                         </span>
                       )}
                     </div>
@@ -18065,6 +18091,9 @@ function AdminPanel({
                   isSupplier && isNaturalSupplier(isView ? row?.[15] : formData["15"])
                 // Client and order details: their own layout
                 if (isView && (isClient || isPedido || isSales)) return null
+                // A sale's total is never typed: it shows once the order is chosen
+                if (isSales && f.key === "6" && !(rows.pedidos || []).some((p) => String(p[0]) === String(formData["8"] ?? "").trim()))
+                  return null
                 const fieldLabel =
                   naturalSupplier && f.key === "0"
                     ? "Nombre completo"
@@ -18122,23 +18151,32 @@ function AdminPanel({
                   String(formData["3"] ?? "").toLowerCase() !== "cliente"
                               ? fieldOptions?.filter((option) => option !== "Tarjeta de Identidad")
                               : fieldOptions
+                // What the customer can pick in the store: menu products and drinks. Additions and sauces aren't
+                // sold alone: they're chosen for each meal of the order ("+ Adiciones y salsas")
+                const notAlone = ["adiciones", "salsas", "sabores de bebida", "producto de insumo"]
                 const pedidoCategories = [
                   "Todas",
                   ...new Set(
                     (rows["cat-producto"] || [])
                       .filter((category) => String(category[2] ?? "Activa").toLowerCase() !== "inactiva")
                       .map((category) => String(category[0] ?? "").trim())
-                      .filter(Boolean),
+                      .filter((name) => name && !notAlone.includes(normalizeName(name))),
                   ),
                 ]
                 const filteredOrderProducts = availableProductos.filter((productName) => {
                   const product = rows.producto?.find((item) => item[0] === productName)
+                  const category = normalizeName(String(product?.[1] ?? ""))
                   return (
-                    Number(product?.[2]) > 0 &&
-                    (pedidoProductCategory === "Todas" || String(product?.[1] ?? "") === pedidoProductCategory) &&
-                    productName.toLowerCase().includes(pedidoProductSearch.trim().toLowerCase())
+                    !!product &&
+                    !notAlone.includes(category) &&
+                    Number(product[2]) > 0 &&
+                    (pedidoProductCategory === "Todas" || String(product[1] ?? "") === pedidoProductCategory) &&
+                    normalizeName(productName).includes(normalizeName(pedidoProductSearch.trim()))
                   )
                 })
+                // Only a meal takes additions (not a sauce, a drink or an addition), like in the store
+                const isMeal = (category: string, name: string) =>
+                  !["adiciones", "salsas", "bebidas", "sabores de bebida"].includes(normalizeName(category)) && !isSodaName(name)
                 const selectedOrderProduct = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
                 const isSelectedAddition = String(selectedOrderProduct?.[1] ?? "").toLowerCase() === "adiciones"
                 const updateFieldValue = (value: string) => {
@@ -18527,53 +18565,51 @@ function AdminPanel({
                         </>
                       )
                     })() : isSales && f.key === "8" && !isView ? (
+                      // An existing order isn't picked here (it gets its sale by itself once paid, so it would be
+                      // sold twice): the sale creates its order with «Crear pedido» and gets its data back
                       <div className="flex min-w-0 gap-2">
-                        <div className="search-control flex min-w-0 flex-1 items-center gap-2 rounded-full px-3">
-                          <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
-                          <input
-                            list="sale-orders"
-                            value={val === "Sin pedido" ? "" : val}
-                            onChange={(event) => {
-                              const code = event.target.value
-                              const order = (rows.pedidos || []).find((p) => String(p[0]) === code.trim())
-                              setFormData((current) => ({
-                                ...current,
-                                "8": code,
-                                ...(order ? { "1": String(order[1] ?? current["1"] ?? ""), "6": String(order[6] ?? "") } : {}),
-                              }))
-                            }}
-                            placeholder="Sin pedido (opcional)"
-                            aria-label="Pedido asociado"
-                            className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
-                            style={{ color: t.text }}
-                          />
-                          {(val === "Sin pedido" ? "" : val) && (
-                            <button
-                              type="button"
-                              className="search-clear"
-                              aria-label="Limpiar pedido asociado"
-                              onClick={() => setFormData((current) => ({ ...current, "8": "" }))}
-                            >
-                              ×
-                            </button>
-                          )}
-                          <datalist id="sale-orders">
-                            {(rows.pedidos || [])
-                              .filter((p) => !(rows.ventas || []).some((sale, i) => i !== modal.idx && String(sale[9]) === String(p[0])))
-                              .map((p) => (
-                                <option key={String(p[0])} value={String(p[0])}>{`${String(p[1] ?? "")} · ${fmt(Number(p[6]) || 0)}`}</option>
-                              ))}
-                          </datalist>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => openChildForm("pedidos")}
-                          title="Crear un pedido nuevo y volver a esta venta"
-                          className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-xl px-3 text-xs font-semibold"
-                          style={{ background: `${C.mustard}14`, color: C.mustard }}
+                        <div
+                          className="flex min-w-0 flex-1 items-center rounded-xl px-3.5 py-2.5 text-sm"
+                          style={{
+                            background: t.cardAlt,
+                            border: `1.5px dashed ${formFieldErrors[f.key] ? C.red : t.inputB}`,
+                            color: val && val !== "Sin pedido" ? t.text : t.muted,
+                          }}
                         >
-                          {Ico.plus} Crear pedido
-                        </button>
+                          <span className="truncate">
+                            {val && val !== "Sin pedido" ? (
+                              <>
+                                <strong>{val}</strong>
+                                {(() => {
+                                  const order = (rows.pedidos || []).find((p) => String(p[0]) === val)
+                                  return order ? ` · ${String(order[1] ?? "")} · ${fmt(Number(order[6]) || 0)}` : ""
+                                })()}
+                              </>
+                            ) : (
+                              "Crea el pedido de esta venta"
+                            )}
+                          </span>
+                        </div>
+                        {modal.mode === "add" && !(val && val !== "Sin pedido") && (
+                          <button
+                            type="button"
+                            onClick={() => openChildForm("pedidos")}
+                            title="Crear el pedido y volver a esta venta con sus datos"
+                            className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-xl px-3 text-xs font-semibold"
+                            style={{ background: `${C.mustard}14`, color: C.mustard }}
+                          >
+                            {Ico.plus} Crear pedido
+                          </button>
+                        )}
+                      </div>
+                    ) : isSales && (f.key === "0" || f.key === "2") && !isView ? (
+                      // Seller = who is logged in, date = today: both fixed
+                      <div
+                        className="flex w-full min-w-0 items-center rounded-xl px-3.5 py-2.5 text-sm"
+                        style={{ background: t.cardAlt, border: `1.5px dashed ${t.inputB}`, color: t.text }}
+                        title={f.key === "0" ? "Es el usuario con el que iniciaste sesión" : "La venta se registra con la fecha de hoy"}
+                      >
+                        {f.key === "2" ? formatViewValue(f, val) : val || sellerName}
                       </div>
                     ) : isSales && f.key === "6" && !isView && (rows.pedidos || []).some((p) => String(p[0]) === String(formData["8"] ?? "").trim()) ? (
                       <div
@@ -18629,21 +18665,8 @@ function AdminPanel({
                     ) : isPedido && f.key === "1" && !isView ? (
                       <div className="flex flex-col gap-3">
                         <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                          <div className="search-control mb-2 flex min-w-0 items-center gap-2 rounded-full px-3">
-                            <span className="flex-shrink-0">{Ico.search}</span>
-                            <input
-                              type="text"
-                              value={pedidoProductSearch}
-                              onChange={(event) => setPedidoProductSearch(event.target.value)}
-                              placeholder="Buscar producto o adición..."
-                              aria-label="Buscar producto o adición"
-                              className="min-w-0 flex-1 bg-transparent py-2.5 text-xs outline-none"
-                              style={{ color: t.text }}
-                            />
-                            {pedidoProductSearch && <button type="button" className="search-clear" aria-label="Limpiar búsqueda" onClick={() => setPedidoProductSearch("")}>×</button>}
-                          </div>
-                          {/* Wide enough so category and product names show complete */}
-                          <div className="grid gap-2 sm:grid-cols-[minmax(150px,1fr)_minmax(0,1.7fr)_64px_auto]">
+                          {/* Category, a search that suggests as you type, quantity and Agregar: one compact row */}
+                          <div className="grid max-w-2xl gap-2 sm:grid-cols-[130px_minmax(0,1fr)_64px_auto]">
                             <select
                               value={pedidoProductCategory}
                               onChange={(event) => {
@@ -18657,18 +18680,80 @@ function AdminPanel({
                             >
                               {pedidoCategories.map((category) => <option key={category} value={category}>{category}</option>)}
                             </select>
-                            <select
-                              value={pedidoProductoSelect}
-                              onChange={(event) => setPedidoProductoSelect(event.target.value)}
-                              className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none cursor-pointer"
-                              style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                            >
-                              <option value="">Selecciona producto o adición...</option>
-                              {filteredOrderProducts.map((product) => {
-                                const productRow = rows.producto?.find((item) => item[0] === product)
-                                return <option key={product} value={product}>{product}{productRow?.[1] === "Adiciones" ? " · Adición" : ""}</option>
-                              })}
-                            </select>
+                            <div className="relative min-w-0">
+                              <div className="search-control flex min-w-0 items-center gap-2 rounded-full px-3">
+                                <span className="flex-shrink-0">{Ico.search}</span>
+                                <input
+                                  type="text"
+                                  value={pedidoProductSearch}
+                                  onChange={(event) => {
+                                    const typed = event.target.value
+                                    setPedidoProductSearch(typed)
+                                    setPedidoSearchOpen(true)
+                                    // Typing a full name picks it; anything else waits for a click on the list
+                                    setPedidoProductoSelect(
+                                      availableProductos.find((name) => normalizeName(name) === normalizeName(typed.trim())) ?? "",
+                                    )
+                                  }}
+                                  onFocus={() => setPedidoSearchOpen(true)}
+                                  onBlur={() => setTimeout(() => setPedidoSearchOpen(false), 150)}
+                                  placeholder="Busca un producto..."
+                                  aria-label="Buscar producto"
+                                  aria-expanded={pedidoSearchOpen}
+                                  className="min-w-0 flex-1 bg-transparent py-2.5 text-xs outline-none"
+                                  style={{ color: t.text }}
+                                />
+                                {pedidoProductSearch && (
+                                  <button
+                                    type="button"
+                                    className="search-clear"
+                                    aria-label="Limpiar búsqueda"
+                                    onClick={() => {
+                                      setPedidoProductSearch("")
+                                      setPedidoProductoSelect("")
+                                    }}
+                                  >
+                                    ×
+                                  </button>
+                                )}
+                              </div>
+                              {pedidoSearchOpen && !pedidoProductoSelect && (
+                                <div
+                                  role="listbox"
+                                  className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-xl py-1 shadow-lg"
+                                  style={{ background: t.card, border: `1px solid ${t.border}` }}
+                                >
+                                  {filteredOrderProducts.length ? (
+                                    filteredOrderProducts.map((product) => {
+                                      const productRow = rows.producto?.find((item) => item[0] === product)
+                                      return (
+                                        <button
+                                          key={product}
+                                          type="button"
+                                          role="option"
+                                          aria-selected={false}
+                                          onMouseDown={(event) => event.preventDefault()}
+                                          onClick={() => {
+                                            setPedidoProductoSelect(product)
+                                            setPedidoProductSearch(product)
+                                            setPedidoSearchOpen(false)
+                                          }}
+                                          className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-left text-xs hover:opacity-80"
+                                          style={{ color: t.text }}
+                                        >
+                                          <span className="min-w-0 truncate">{product}</span>
+                                          <span className="flex-shrink-0 text-[10px]" style={{ color: t.muted }}>
+                                            {String(productRow?.[1] ?? "")} · {fmt(Number(productRow?.[2]) || 0)}
+                                          </span>
+                                        </button>
+                                      )
+                                    })
+                                  ) : (
+                                    <p className="px-3 py-2 text-center text-xs" style={{ color: t.muted }}>No hay productos que coincidan.</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                             <input
                               type="number"
                               min="1"
@@ -18697,8 +18782,8 @@ function AdminPanel({
                                 setPedidoProductoSelect("")
                                 setPedidoProductSearch("")
                                 setPedidoProductQuantity("1")
-                                // Ready to add its additions right away
-                                setPedidoAdditionsFor(isSelectedAddition ? "" : id)
+                                // A meal is ready to take its additions right away
+                                setPedidoAdditionsFor(isMeal(line.category, line.product) ? id : "")
                               }}
                               className="rounded-xl px-3 py-2.5 text-xs font-bold cursor-pointer"
                               style={{ background: C.mustard, color: "#fff" }}
@@ -18720,6 +18805,20 @@ function AdminPanel({
                                   isActiveStatus(product[4]) &&
                                   Number(product[2]) > 0,
                               )
+                              // Sauces go with each meal, free and up to 4, like in the store
+                              const sauceNames = (rows.producto || [])
+                                .filter((product) => normalizeName(String(product[1] ?? "")) === "salsas" && isActiveStatus(product[4]))
+                                .map((product) => String(product[0]))
+                              const MAX_SAUCES = 4
+                              const toggleSauce = (id: string, sauce: string) =>
+                                setPedidoOrderLines((current) =>
+                                  current.map((item) => {
+                                    if (item.id !== id) return item
+                                    const sauces = item.sauces || []
+                                    if (sauces.includes(sauce)) return { ...item, sauces: sauces.filter((s) => s !== sauce) }
+                                    return sauces.length >= MAX_SAUCES ? item : { ...item, sauces: [...sauces, sauce] }
+                                  }),
+                                )
                               const setQuantity = (id: string, quantity: number) =>
                                 setPedidoOrderLines((current) =>
                                   current.map((item) => (item.id === id ? { ...item, quantity: Math.max(1, quantity) } : item)),
@@ -18792,11 +18891,13 @@ function AdminPanel({
                                         {line.parentId && <span style={{ color: t.muted }}>↳ </span>}
                                         {line.product}
                                         {isAddition && <span className="ml-1 rounded-full px-1.5 py-0.5 text-[9px]" style={{ background: `${C.amber}18`, color: C.amber }}>Adición</span>}
-                                        <div className="text-[10px] font-normal" style={{ color: t.muted }}>{fmt(line.unitPrice)} c/u</div>
+                                        <div className="text-[10px] font-normal" style={{ color: t.muted }}>
+                                          {fmt(line.unitPrice)} c/u{line.sauces?.length ? ` · Salsas: ${line.sauces.join(", ")}` : ""}
+                                        </div>
                                       </div>
                                       {stepper(line)}
                                       <strong className="w-16 text-right" style={{ color: C.mustard }}>{fmt(line.unitPrice * line.quantity)}</strong>
-                                      {!isAddition && additionProducts.length > 0 && (
+                                      {!isAddition && isMeal(line.category, line.product) && (additionProducts.length > 0 || sauceNames.length > 0) && (
                                         <button
                                           type="button"
                                           onClick={() => setPedidoAdditionsFor(open ? "" : line.id)}
@@ -18807,7 +18908,7 @@ function AdminPanel({
                                             color: open ? "#fff" : C.mustard,
                                           }}
                                         >
-                                          + Adiciones
+                                          + Adiciones y salsas
                                         </button>
                                       )}
                                       <button
@@ -18844,6 +18945,34 @@ function AdminPanel({
                                             </button>
                                           )
                                         })}
+                                        {sauceNames.length > 0 && (
+                                          <>
+                                            <span className="mt-1 w-full text-[10px] font-semibold" style={{ color: t.muted }}>
+                                              Salsas para {line.product} (hasta {MAX_SAUCES}, sin costo):
+                                            </span>
+                                            {sauceNames.map((sauce) => {
+                                              const on = !!line.sauces?.includes(sauce)
+                                              const full = !on && (line.sauces?.length ?? 0) >= MAX_SAUCES
+                                              return (
+                                                <button
+                                                  key={sauce}
+                                                  type="button"
+                                                  aria-pressed={on}
+                                                  disabled={full}
+                                                  onClick={() => toggleSauce(line.id, sauce)}
+                                                  className="cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                                                  style={{
+                                                    background: on ? `${C.mustard}18` : t.input,
+                                                    color: on ? C.mustard : t.text,
+                                                    border: `1px solid ${on ? C.mustard : t.inputB}`,
+                                                  }}
+                                                >
+                                                  {on ? "✓ " : ""}{sauce}
+                                                </button>
+                                              )
+                                            })}
+                                          </>
+                                        )}
                                       </div>
                                     )}
                                   </div>
@@ -19403,6 +19532,81 @@ function AdminPanel({
                       <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(Number(row?.[4] || 0))}</span>
                     </div>
                   </div>
+                  {(() => {
+                    // Losses sent from this purchase: what was lost, why, and what went back to the purchase
+                    const losses = row ? (rows.perdidas || []).filter((l) => isLossOfPurchase(l, row)) : []
+                    return (
+                      <div className="min-w-0">
+                        <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
+                          Pérdidas de esta compra{losses.length ? ` (${losses.length})` : ""}
+                        </div>
+                        {losses.length ? (
+                          <div className="flex flex-col gap-2">
+                            {losses.map((loss, i) => {
+                              // Same reading as the loss detail: [1 cantidad ("2 kg"), 2 motivo, 3 responsable, 4 fecha,
+                              //  6 estado, 7 devoluciones ("N kg: motivo" por línea), 8 total devuelto]
+                              const unit = String(loss[1]).split(" ").slice(1).join(" ") || "und"
+                              const qtyNow = parseFloat(String(loss[1]).replace(",", ".")) || 0
+                              const returned = parseFloat(String(loss[8] ?? "").replace(",", ".")) || 0
+                              const fully = isReturnedLoss(loss)
+                              const lostAtFirst = fully ? qtyNow : qtyNow + returned
+                              const stillLost = fully ? 0 : qtyNow
+                              const n = (v: number) => `${v.toLocaleString("es-CO")} ${unit}`
+                              const status = String(loss[6] || "Registrada")
+                              const returns = String(loss[7] ?? "").split("\n").map((l) => l.trim()).filter(Boolean)
+                              return (
+                                <div key={i} className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
+                                  <div className="flex flex-wrap items-start justify-between gap-2 px-3 py-2.5" style={{ background: t.cardAlt }}>
+                                    <div className="min-w-0">
+                                      <div className="text-sm font-semibold break-words" style={{ color: t.text }}>
+                                        {String(loss[0])} · <span style={{ color: C.red }}>se perdieron {n(lostAtFirst)}</span>
+                                      </div>
+                                      <div className="mt-0.5 text-[11px]" style={{ color: t.muted }}>
+                                        Por qué: <strong style={{ color: t.text }}>{String(loss[2] || "Sin motivo")}</strong> · {String(loss[4] || "—")} ·{" "}
+                                        {String(loss[3] || "Sin responsable")}
+                                      </div>
+                                    </div>
+                                    <span
+                                      className="flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold"
+                                      style={{ background: badgeSt(status)?.bg ?? t.input, color: badgeSt(status)?.color ?? t.muted }}
+                                    >
+                                      {status}
+                                    </span>
+                                  </div>
+                                  <div className="px-3 py-2 text-xs" style={{ color: t.text }}>
+                                    {returns.length ? (
+                                      <>
+                                        <div className="mb-1" style={{ color: t.muted }}>
+                                          Devuelto a la compra: <strong style={{ color: C.mustard }}>{n(returned)}</strong>
+                                          {" · "}sigue perdido: <strong style={{ color: stillLost ? C.red : "#2E7D60" }}>{n(stillLost)}</strong>
+                                        </div>
+                                        {returns.map((line, j) => {
+                                          // "3 kg: el proveedor lo cambió"
+                                          const [amount, ...why] = line.split(":")
+                                          return (
+                                            <div key={j} className="flex items-start gap-2 py-0.5">
+                                              <strong className="flex-shrink-0" style={{ color: C.mustard }}>{why.length ? amount.trim() : "—"}</strong>
+                                              <span className="min-w-0 break-words">{(why.length ? why.join(":") : line).trim()}</span>
+                                            </div>
+                                          )
+                                        })}
+                                      </>
+                                    ) : (
+                                      <span style={{ color: t.muted }}>No se ha devuelto nada a la compra: siguen perdidos {n(stillLost)}.</span>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <p className="rounded-xl px-3 py-2.5 text-xs" style={{ background: t.input, border: `1px solid ${t.border}`, color: t.muted }}>
+                            No se ha registrado ninguna pérdida de esta compra.
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })()}
                 </div>
               )
             })()}
@@ -19591,10 +19795,10 @@ function AdminPanel({
                           {badge(`Pago: ${String(row[8] || "Pendiente")}`, String(row[8]) === "Pagado", String(row[8]) === "Rechazado")}
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:col-span-2">
+                      {/* Modality isn't shown: it follows the type and payment method by itself */}
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:col-span-2">
                         {info("Tipo de pedido", String(row[3] ?? ""))}
                         {info("Método de pago", String(row[4] ?? ""))}
-                        {info("Modalidad", String(row[5] ?? ""))}
                         {info("Producción", String(row[9] ?? ""))}
                       </div>
                       <div className="rounded-2xl px-4 py-3 md:col-start-1 md:row-start-3 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
@@ -19613,6 +19817,9 @@ function AdminPanel({
                                         <span className="min-w-0 break-words" style={{ color: t.text }}>
                                           {main.product}
                                           <span style={{ color: t.muted }}> ×{main.quantity}</span>
+                                          {main.sauces?.length ? (
+                                            <span className="block text-[11px]" style={{ color: t.muted }}>Salsas: {main.sauces.join(", ")}</span>
+                                          ) : null}
                                         </span>
                                         <span className="flex flex-shrink-0 items-center gap-2">
                                           {extras.length > 0 && (
@@ -19911,14 +20118,18 @@ function AdminPanel({
                           <div className="text-[11px]" style={{ color: t.muted }}>Pedido asociado</div>
                           <div className="text-sm font-semibold" style={{ color: t.text }}>{String(row[9])}</div>
                         </div>
-                        {String(row[10] ?? "").trim() && (
-                          <span
-                            className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
-                            style={String(row[10]) === "Entregado" ? { background: "rgba(46,125,96,0.12)", color: "#2E7D60" } : { background: `${C.mustard}16`, color: C.mustard }}
-                          >
-                            {String(row[10])}
-                          </span>
-                        )}
+                        {(() => {
+                          // Live: the order's current status (the saved one if the order is gone)
+                          const status = String((rows.pedidos || []).find((p) => String(p[0]) === String(row[9]))?.[7] ?? row[10] ?? "").trim()
+                          return status ? (
+                            <span
+                              className="rounded-full px-2.5 py-1 text-[10px] font-semibold"
+                              style={status === "Entregado" ? { background: "rgba(46,125,96,0.12)", color: "#2E7D60" } : { background: `${C.mustard}16`, color: C.mustard }}
+                            >
+                              {status}
+                            </span>
+                          ) : null
+                        })()}
                       </div>
                     ) : (
                       <div className="rounded-2xl px-4 py-3 text-sm" style={{ background: t.cardAlt, color: t.muted }}>Venta directa, sin pedido asociado.</div>
