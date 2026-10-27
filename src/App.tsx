@@ -10,7 +10,7 @@ import { BELLO_NEIGHBORHOODS, neighborhoodNameFromAddress, normalizeNeighborhood
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "app" | "admin"
-type AdminSection = "dashboard" | "roles" | "usuarios" | "cat-insumos" | "insumos" | "proveedores" | "compras" | "perdidas" | "cat-producto" | "producto" | "produccion" | "producto-no-conforme" | "clientes" | "ventas" | "pedidos" | "devoluciones"
+type AdminSection = "dashboard" | "roles" | "usuarios" | "cat-insumos" | "insumos" | "proveedores" | "compras" | "perdidas" | "cat-producto" | "producto" | "produccion" | "producto-no-conforme" | "clientes" | "ventas" | "pedidos" | "domicilios" | "devoluciones"
 type Theme = "light" | "dark"
 type User = {
   name: string
@@ -29,7 +29,7 @@ type User = {
   // Logged in with the provisional password e-mailed at sign-up: must choose their own first
   mustChangePassword?: boolean
 }
-type RegisteredClient = Pick<User, "name" | "email" | "cedula" | "docType" | "phone">
+type RegisteredClient = Pick<User, "name" | "email" | "cedula" | "docType" | "phone" | "addresses">
 type CartItem = {
   id: number
   productId?: number
@@ -46,8 +46,6 @@ type CartItem = {
 const SHOP_LOCATION = { lat: 6.3295, lon: -75.5627 }
 const DELIVERY_ESTIMATE_ENDPOINT = "/pedidos/estimacion"
 const BUILDING_TYPES = ["Departamento", "Edificio residencial", "Urbanización", "Hotel", "Oficinas", "Otro"]
-const deliveryCostByDistance = (distanceKm: number) =>
-  distanceKm <= 2 ? 4000 : distanceKm <= 4 ? 6000 : 8000
 // Straight-line distance in km between two points (haversine)
 function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
   const rad = (d: number) => (d * Math.PI) / 180
@@ -1539,6 +1537,7 @@ const PERMISSION_MODULES = [
   { name: "Producto No Conforme", finalAction: "Eliminar" },
   { name: "Clientes", finalAction: "Eliminar" },
   { name: "Pedidos", finalAction: "Anular" },
+  { name: "Domicilios", finalAction: "Eliminar" },
   { name: "Ventas", finalAction: "Anular" },
   { name: "Devoluciones", finalAction: "Eliminar" },
 ] as const
@@ -1886,6 +1885,18 @@ const MOD_CFG: Record<string, ModConfig> = {
     statusIndex: 7,
     hiddenCellIndexes: [1, 5, 6, 9, 10, 11],
   },
+  domicilios: {
+    columns: ["Barrio", "Zona cercana", "Desplazamiento (min)", "Costo del domicilio (COP)", "Estado"],
+    fields: [
+      { key: "0", label: "Nombre del barrio", type: "text" },
+      { key: "1", label: "Zona cercana validada", type: "select", options: ["Sí", "No"] },
+      { key: "2", label: "Tiempo de desplazamiento (minutos)", type: "number" },
+      { key: "3", label: "Costo del domicilio (COP)", type: "number" },
+    ],
+    seed: [],
+    statusIndex: 4,
+    hiddenCellIndexes: [5],
+  },
   ventas: {
     columns: [
       "Venta",
@@ -2232,6 +2243,13 @@ const SIDEBAR_MENU = [
       { key: "ventas", label: "Ventas" },
       { key: "devoluciones", label: "Devoluciones" },
     ],
+    color: C.mustard,
+  },
+  {
+    key: "domicilios",
+    label: "Domicilios",
+    icon: Ico.mapPin,
+    children: [],
     color: C.mustard,
   },
 ]
@@ -4907,6 +4925,27 @@ const DB_SYNC: Record<string, SyncSpec> = {
     }),
     reloads: ["usuarios"],
   },
+  domicilios: {
+    path: "/barrios/admin",
+    update: "PATCH",
+    idIndex: 5,
+    idOf: (d) => d.id_barrio,
+    toRow: (d) =>
+      withId(
+        [d.nombre || "", d.es_cercano ? "Sí" : "No", d.tiempo_desplazamiento_minutos ?? "",
+          d.costo_domicilio_cop ?? "", d.activo ? "Activo" : "Inactivo"],
+        5,
+        d.id_barrio,
+      ),
+    toBody: (row) => ({
+      nombre: text(row[0]),
+      es_cercano: text(row[1]).toLowerCase() === "sí",
+      tiempo_desplazamiento_minutos: text(row[2]) ? Number(row[2]) : null,
+      costo_domicilio_cop: text(row[3]) ? Number(row[3]) : null,
+      activo: estadoOf(row[4]) === "ACTIVO",
+    }),
+    reloads: ["domicilios"],
+  },
   "cat-insumos": categorySpec("/categorias-insumos", ["insumos"]),
   // [0 nombre, 1 categoría, 2 unidad, 3 costo, 4 stock, 5 mínimo, 6 (sin uso), 7 producto de insumo,
   //  8-11 ficha técnica, 12 estado]. The ficha técnica texts are not in the backend yet.
@@ -5094,6 +5133,7 @@ const SECTION_MODULE: Record<string, string> = {
   "producto-no-conforme": "PRODUCTO_NO_CONFORME",
   clientes: "CLIENTES",
   pedidos: "PEDIDOS",
+  domicilios: "BARRIOS",
   ventas: "VENTAS",
   devoluciones: "DEVOLUCIONES",
 }
@@ -5109,6 +5149,7 @@ const PURCHASE_ENTITIES: Record<string, { name: string; fem: boolean }> = {
   "producto-no-conforme": { name: "producto no conforme", fem: false },
   clientes: { name: "cliente", fem: false },
   pedidos: { name: "pedido", fem: false },
+  domicilios: { name: "domicilio", fem: false },
   ventas: { name: "venta", fem: true },
   devoluciones: { name: "devolución", fem: true },
 }
@@ -5126,6 +5167,7 @@ const PERM_MODULE: Record<string, string> = {
   "Producto No Conforme": "PRODUCTO_NO_CONFORME",
   Clientes: "CLIENTES",
   Pedidos: "PEDIDOS",
+  Domicilios: "BARRIOS",
   Ventas: "VENTAS",
   Devoluciones: "DEVOLUCIONES",
 }
@@ -5194,6 +5236,7 @@ const TABLE_FILTERS: Record<string, { label: string; index: number }[]> = {
   // produccion: day and status have their own controls (see GenericTable)
   "producto-no-conforme": [{ label: "Estado", index: 8 }],
   clientes: [{ label: "Estado", index: 7 }],
+  domicilios: [{ label: "Zona cercana", index: 1 }, { label: "Estado", index: 4 }],
   ventas: [{ label: "Método de pago", index: 5 }, { label: "Estado del pedido", index: 10 }],
   pedidos: [
     { label: "Estado", index: 7 },
@@ -5423,6 +5466,7 @@ const saveRegisteredClient = (user: User) => {
     cedula: user.cedula?.trim(),
     docType: user.docType?.trim(),
     phone: user.phone?.trim(),
+    addresses: user.addresses,
   }
   const clients = loadRegisteredClients().filter(
     (client) => client.email.toLowerCase() !== registeredClient.email,
@@ -6342,7 +6386,7 @@ function CheckoutPage({
           status: "ready",
           label: totalLabel,
           deliveryCost: isDelivery
-            ? estimate.deliveryCost ?? selectedNeighborhood?.costo_domicilio_cop ?? null
+            ? selectedNeighborhood?.costo_domicilio_cop ?? null
             : null,
           components: estimate.components ?? null,
         })
@@ -6461,18 +6505,14 @@ function CheckoutPage({
   // Nequi / Daviplata must attach the payment receipt before continuing
   const needsVoucher = delivForm.pago !== "Efectivo"
   const payReady = !needsVoucher || !!voucher
-  const deliveryCostConfigured = !isDelivery || (
-    deliveryEstimate.deliveryCost !== null &&
-    deliveryEstimate.status === "ready" &&
-    geo.status === "ok" &&
-    geo.km !== undefined
-  )
   const displayedDeliveryCost =
     !isDelivery
       ? null
-      : geo.status === "ok" && geo.km !== undefined
-        ? deliveryCostByDistance(geo.km)
-        : deliveryEstimate.deliveryCost
+      : selectedNeighborhood?.costo_domicilio_cop ?? deliveryEstimate.deliveryCost
+  const deliveryCostConfigured = !isDelivery || (
+    displayedDeliveryCost !== null &&
+    deliveryEstimate.status === "ready"
+  )
   const orderTotal = subtotal + (displayedDeliveryCost ?? 0)
   const neighborhoodInput = addressParts.barrio.trim() || neighborhoodQuery.trim()
   const neighborhoodOutOfRange =
@@ -11019,6 +11059,7 @@ function AdminPanel({
       .then(() => {
         // The backend also takes it off the suppliers' lists
         if (sec === "insumos") loadModule("proveedores")
+        if (sec === "domicilios") loadModule("domicilios")
       })
       .catch((err) => {
         window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`)
@@ -11756,6 +11797,7 @@ function AdminPanel({
       pedidos: ["1", "4", "5", "7", "9", "11"],
       // A new sale is made from an order (it brings the total); an old sale without one can still be edited
       ventas: ["6", ...(mode === "edit" ? ["8"] : [])],
+      domicilios: ["2", "3"],
     }
     const managedRequiredKeys: Record<string, string[]> = {
       usuarios: ["0", "1", "2", "3", "4", ...(isStaffRole(draft["3"]) ? ["9", "10", "11"] : [])],
@@ -11827,10 +11869,27 @@ function AdminPanel({
             ? supplierRequiredKeys(draft).includes(key)
             : sec === "roles"
               ? ["0", "1"].includes(key)
-              : false
+                  : sec === "domicilios"
+                    ? key === "0"
+                  : false
 
     if (required && !trimmed) return "Este campo es obligatorio."
     if (!trimmed) return ""
+
+    if (sec === "domicilios") {
+      if (key === "0") {
+        const duplicate = (rows.domicilios || []).find(
+          (existing, index) =>
+            !(mode === "edit" && index === modal.idx) &&
+            normalizeName(String(existing[0] ?? "")) === normalizeName(trimmed),
+        )
+        return duplicate ? `Ya existe el barrio «${String(duplicate[0])}».` : ""
+      }
+      if (key === "2" && (!/^\d+$/.test(trimmed) || Number(trimmed) < 1 || Number(trimmed) > 1440))
+        return "Ingresa un tiempo de 1 a 1440 minutos o deja el campo vacío si no está configurado."
+      if (key === "3" && (!/^\d+$/.test(trimmed) || Number(trimmed) > 1_000_000))
+        return "Ingresa un precio entero entre 0 y 1.000.000 COP o deja el campo vacío si no está configurado."
+    }
 
     if (mode === "edit" && modal.idx !== null && isSuperAdminRow(sec, rows.usuarios?.[modal.idx])) {
       if (key === "4" && trimmed.toLowerCase() !== SUPER_ADMIN_EMAIL)
@@ -12088,6 +12147,7 @@ function AdminPanel({
       initialFields["6"] = "No"
       setClientFormError("")
     }
+    if (sec === "domicilios") initialFields["1"] = "No"
     setFormValidationAttempted(false)
     setFormFieldErrors({})
     if (sec === "produccion") {
@@ -16595,6 +16655,8 @@ function AdminPanel({
               !(modal.mode === "add" && field.key === "6") &&
               (!STAFF_CONTACT_KEYS.includes(field.key) || isStaffRole(isView ? row?.[3] : formData["3"])),
           )
+        : modal.section === "domicilios" && modal.mode === "edit"
+          ? dataFields.filter((field) => field.key !== "0")
         : dataFields
     const productMainFields = isProduct
       ? dataFields.filter(
@@ -23543,19 +23605,24 @@ export default function App() {
     : []
 
   // Profile (phone, cédula, addresses) is saved per email, so it survives logout
-  const updateUser = (u: User) => {
-    setUser(u)
+  const saveUserLocally = (u: User) => {
     saveLS(`profile:${u.email.toLowerCase()}`, u)
     saveRegisteredClient(u)
+    setUser(u)
+  }
+  const persistUserProfile = (u: User) =>
+    api("/auth/me", "PATCH", {
+      nombre: u.name,
+      tipo_documento: u.docType,
+      documento: u.cedula,
+      telefono: u.phone,
+      direcciones: u.addresses,
+    })
+  const updateUser = (u: User) => {
+    saveUserLocally(u)
     // Name, document, phone and addresses live in the backend (the photo stays in this browser)
     if (loadLS("token", ""))
-      api("/auth/me", "PATCH", {
-        nombre: u.name,
-        tipo_documento: u.docType,
-        documento: u.cedula,
-        telefono: u.phone,
-        direcciones: u.addresses,
-      }).catch((err) => console.warn("No se pudo guardar el perfil en el backend:", err))
+      persistUserProfile(u).catch((err) => console.warn("No se pudo guardar el perfil en el backend:", err))
   }
   const login = (u: User, next: Page = "app") => {
     const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
@@ -23663,7 +23730,7 @@ export default function App() {
           if (!user) return
           if (shouldSaveAddress) {
             const normalizedAddress = info.direccion.trim()
-            updateUser({
+            const updatedUser = {
               ...user,
               addresses: [
                 normalizedAddress,
@@ -23671,7 +23738,9 @@ export default function App() {
                   (address) => address.trim().toLowerCase() !== normalizedAddress.toLowerCase(),
                 ),
               ],
-            })
+            }
+            if (loadLS("token", "")) await persistUserProfile(updatedUser)
+            saveUserLocally(updatedUser)
           }
           // The backend prices the order with the menu in the database and sets its status
           const created = await api<DbRecord>("/pedidos", "POST", {
