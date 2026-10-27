@@ -780,16 +780,6 @@ const MENU_CATS = [
     ),
   },
   {
-    id: "salsas",
-    label: "Salsas",
-    icon: (
-      <>
-        <path d="M8 3h8v3l-1 1v2l3 3v8a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2v-8l3-3V7L8 6z" />
-        <path d="M7 14h10M10 3v3" />
-      </>
-    ),
-  },
-  {
     id: "bebidas",
     label: "Bebidas",
     icon: (
