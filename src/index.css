@@ -364,6 +364,25 @@ label {
   font-size: 1rem !important;
 }
 
+.auth-access-page input {
+  background: #FAF3E6 !important;
+  border-color: #D29A42 !important;
+}
+
+.auth-access-page input::placeholder {
+  color: #9A7418 !important;
+  opacity: 1;
+}
+
+.auth-access-page input:focus:not([aria-invalid="true"]) {
+  border-color: #8D6910 !important;
+  box-shadow: 0 0 0 3px rgba(182, 140, 28, 0.16);
+}
+
+.auth-access-page input[aria-invalid="true"] {
+  border-color: #A54131 !important;
+}
+
 .auth-access-page .text-sm {
   font-size: 1rem;
 }
