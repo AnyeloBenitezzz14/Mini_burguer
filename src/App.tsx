@@ -81,11 +81,26 @@ function addressPartsFromAddress(address: string) {
   }
 }
 // OpenStreetMap search (free). "#" breaks it ("Calle 50 #45-20" -> "Calle 50 45-20")
+const neighborhoodFromGeocodedAddress = (address?: Record<string, string>) =>
+  address
+    ? [
+        address.neighbourhood,
+        address.suburb,
+        address.city_district,
+        address.quarter,
+      ].find(Boolean)
+    : undefined
+
+const municipalityFromGeocodedAddress = (address?: Record<string, string>) =>
+  address
+    ? [address.city, address.town, address.village, address.municipality, address.county].find(Boolean)
+    : undefined
+
 async function geocodeAddress(queries: string[], signal: AbortSignal) {
   for (const q of queries.filter(Boolean)) {
     const url =
-      "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=co&viewbox=-75.75,6.55,-75.35,6.10&q=" +
-      encodeURIComponent(`${q.replace(/#|No\.|N°/gi, " ").replace(/\s+/g, " ").trim()}, Antioquia, Colombia`)
+      "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=co&bounded=1&viewbox=-75.75,6.55,-75.35,6.10&q=" +
+      encodeURIComponent(`${q.replace(/#|No\.|N°/gi, " ").replace(/\s+/g, " ").trim()}, Bello, Antioquia, Colombia`)
     const res = await fetch(url, { signal, headers: { "Accept-Language": "es" } })
     if (!res.ok) throw new Error(`Mapa no disponible (${res.status})`)
     const [hit] = (await res.json()) as {
@@ -94,15 +109,24 @@ async function geocodeAddress(queries: string[], signal: AbortSignal) {
       address?: Record<string, string>
     }[]
     if (hit) {
-      const neighborhood = hit.address
-        ? [
-            hit.address.neighbourhood,
-            hit.address.suburb,
-            hit.address.city_district,
-            hit.address.quarter,
-          ].find(Boolean)
-        : undefined
-      return { lat: Number(hit.lat), lon: Number(hit.lon), neighborhood }
+      const reverseUrl =
+        "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&lat=" +
+        encodeURIComponent(hit.lat) +
+        "&lon=" +
+        encodeURIComponent(hit.lon)
+      const reverseResponse = await fetch(reverseUrl, {
+        signal,
+        headers: { "Accept-Language": "es" },
+      })
+      if (!reverseResponse.ok) throw new Error(`Mapa no disponible (${reverseResponse.status})`)
+      const reverse = (await reverseResponse.json()) as {
+        address?: Record<string, string>
+      }
+      const neighborhood = neighborhoodFromGeocodedAddress(reverse.address)
+        || neighborhoodFromGeocodedAddress(hit.address)
+      const municipality = municipalityFromGeocodedAddress(reverse.address)
+        || municipalityFromGeocodedAddress(hit.address)
+      return { lat: Number(hit.lat), lon: Number(hit.lon), neighborhood, municipality }
     }
   }
   return null
@@ -145,8 +169,8 @@ type DeliveryInfo = {
   barrioId?: number | null
   distanciaKm?: number
   costoDomicilio?: number | null
+  ubicacion?: { lat: number; lon: number }
   direccion: string
-  barrio?: string
   notas: string
   pago: string
   voucher?: string
@@ -154,13 +178,16 @@ type DeliveryInfo = {
 type DeliveryNeighborhood = {
   id_barrio: number | null
   nombre: string
-  costo_domicilio_cop?: number | null
 }
 type DeliveryEstimate = {
   minimumMinutes: number | null
   maximumMinutes: number | null
   estimatedMinutes: number | null
   deliveryCost?: number | null
+  distanceKm?: number | null
+  distanceMethod?: "straight_line_estimate" | null
+  zone?: string | null
+  isApproximate?: boolean
   message: string | null
   components?: {
     kitchenWaitMinutes: number | null
@@ -174,9 +201,12 @@ type Order = DeliveryInfo & {
   email: string
   cliente: string
   date: string
+  // ISO creation time (from the backend), to know how long an order has been waiting
+  createdAt?: string
   items: CartItem[]
   total: number
   status: string
+  estimacion?: DeliveryEstimate
   paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Pagado" | "Rechazado"
   paymentRejectionReason?: string
   productionAuthorized?: boolean
@@ -1763,6 +1793,8 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "6", label: "Versión de la ficha", type: "text" },
       { key: "7", label: "Insumos principales", type: "textarea" },
       { key: "8", label: "Cómo se prepara", type: "textarea" },
+      // Only for a soda (its stock is on the product): below this a «Pocas gaseosas» alert shows
+      { key: "14", label: "Stock mínimo (und)", type: "number" },
     ],
     // Every menu product (so each category has its products in the order picker) + additions
     seed: [
@@ -1873,19 +1905,19 @@ const MOD_CFG: Record<string, ModConfig> = {
     ],
     seed: [],
     statusIndex: 7,
-    hiddenCellIndexes: [1, 5, 6, 9, 10, 11],
+    // 12: id of its app account (the same person in Usuarios)
+    hiddenCellIndexes: [1, 5, 6, 9, 10, 11, 12],
   },
   domicilios: {
-    columns: ["Barrio", "Zona cercana", "Desplazamiento (min)", "Costo del domicilio (COP)", "Estado"],
+    columns: ["Barrio", "Zona cercana", "Desplazamiento (min)", "Estado"],
     fields: [
       { key: "0", label: "Nombre del barrio", type: "text" },
       { key: "1", label: "Zona cercana validada", type: "select", options: ["Sí", "No"] },
       { key: "2", label: "Tiempo de desplazamiento (minutos)", type: "number" },
-      { key: "3", label: "Costo del domicilio (COP)", type: "number" },
     ],
     seed: [],
-    statusIndex: 4,
-    hiddenCellIndexes: [5],
+    statusIndex: 3,
+    hiddenCellIndexes: [4],
   },
   ventas: {
     columns: [
@@ -1928,12 +1960,15 @@ const MOD_CFG: Record<string, ModConfig> = {
     seed: [],
     noDelete: true,
     autoId: true,
+    // [8] estado: «Anulada» when it's voided (saved with the sale, so it stays after reloading)
+    statusIndex: 8,
+    inactiveStatus: "Anulada",
     hiddenCellIndexes: [1, 4, 5, 6, 8, 9, 11, 12],
   },
   pedidos: {
     columns: [
       "Cód. Pedido",
-      "Cliente",
+      "Recibe",
       "Total",
       "Estado",
       "Estado de pago",
@@ -1942,7 +1977,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     fields: [
       {
         key: "0",
-        label: "Cliente",
+        label: "Recibe",
         type: "select",
         options: [],
       },
@@ -1979,6 +2014,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "9", label: "Comprobante de pago", type: "image" },
       { key: "1", label: "Productos solicitados", type: "textarea" },
       { key: "11", label: "Comentario (especificaciones)", type: "textarea" },
+      { key: "12", label: "Teléfono de quien recibe", type: "tel" },
     ],
     seed: [],
     noDelete: true,
@@ -2027,8 +2063,10 @@ const supplyAsProduct = (row: (string | number)[]): (string | number)[] => [
 // the store sends ("Gaseosa Manzana (1.5 L)").
 const SODA_RE = /^Gaseosa (.+) \((.+)\)$/
 const SODA_PRODUCT = "Bebidas"
-// A bought soda with this many units or fewer shows a "Pocas gaseosas" alert
+// Stock mínimo a new soda starts with (each soda can change its own in its form)
 const SODA_LOW_STOCK = 3
+// A shop order still open (not delivered nor cancelled) after this many days shows a "Pedido sin movimiento" alert
+const STALE_ORDER_DAYS = 2
 const isSodaName = (name: string | number | undefined) => SODA_RE.test(String(name ?? ""))
 const sodaImage = (name: string | number | undefined) => {
   const m = SODA_RE.exec(String(name ?? ""))
@@ -2095,7 +2133,7 @@ function clientOrderToPanelRow(order: Order, products: (string | number)[][]): R
         : "Pendiente")
   return [
     order.id,
-    order.cliente,
+    order.nombre || order.cliente,
     lines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${lines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
     "Domicilio",
     order.pago === "Efectivo" ? "Efectivo" : "Transferencia",
@@ -2114,6 +2152,8 @@ function clientOrderToPanelRow(order: Order, products: (string | number)[][]): R
             : "Enviada a producción",
     JSON.stringify(lines),
     order.paymentRejectionReason ?? "",
+    order.notas,
+    order.telefono,
   ]
 }
 
@@ -2353,6 +2393,7 @@ function InputField({
   onChange,
   required,
   error,
+  disabled,
 }: {
   label: string
   type?: string
@@ -2361,6 +2402,7 @@ function InputField({
   onChange: (v: string) => void
   required?: boolean
   error?: string
+  disabled?: boolean
 }) {
   const baseBorder = error ? C.red : "rgba(30,30,30,0.12)"
   // Password fields get an eye button to show/hide what was typed
@@ -2382,8 +2424,9 @@ function InputField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           required={required}
+          disabled={disabled}
           aria-invalid={!!error}
-          className={`w-full px-3 py-2 rounded-xl text-sm outline-none transition-all ${isPassword ? "pr-10" : ""}`}
+          className={`w-full px-3 py-2 rounded-xl text-sm outline-none transition-all ${isPassword ? "pr-10" : ""} ${disabled ? "cursor-not-allowed opacity-60" : ""}`}
           style={{
             background: "rgba(30,30,30,0.05)",
             border: `1.5px solid ${baseBorder}`,
@@ -3622,6 +3665,8 @@ function AddToCartModal({
   const [zoomBeverage, setZoomBeverage] = useState<string | null>(null)
   const [customizationTab, setCustomizationTab] = useState<"sauces" | "additions" | "beverages">("sauces")
   const isMenuExtra = ["salsas", "adiciones", "bebidas"].includes(product.cat)
+  // [, sabor, tamaño] when the product is a soda («Gaseosa Coca-Cola (1.5 L)»)
+  const sodaParts = SODA_RE.exec(product.name)
   // Photo width ÷ height: a vertical or square photo goes beside the details on a computer (complete, no side
   // strips); a wide one stays on top. Read from the image itself, so it fits any photo the admin uploads
   const [photoRatio, setPhotoRatio] = useState<number | null>(null)
@@ -3669,8 +3714,12 @@ function AddToCartModal({
       ),
     0,
   )
+  // Sizes with at least one flavour in stock (a size where everything sold out isn't offered)
+  const sizesInStock = BEVERAGE_SIZES.filter(
+    (size) => !SODA_INFO.size || BEVERAGES.some((f) => { const info = sodaInfo(f, size.label); return !!info && !info.agotada }),
+  )
   const selectedBeverageSize =
-    BEVERAGE_SIZES.find((size) => size.id === beverageSize) ?? BEVERAGE_SIZES[0] ?? { id: "", label: "", price: 0 }
+    sizesInStock.find((size) => size.id === beverageSize) ?? sizesInStock[0] ?? { id: "", label: "", price: 0 }
   const selectedBeverageCount = BEVERAGES.reduce(
     (total, flavor) =>
       total +
@@ -3798,6 +3847,58 @@ function AddToCartModal({
               </button>
             ))}
           </div>}
+          {sodaParts && (() => {
+            // A soda opened from the menu is already a flavour («Coca-Cola»): only its size is chosen here, among the
+            // sizes in stock. Choosing one switches the window to that soda
+            const [, flavor] = sodaParts
+            const parts = (p: Product) => SODA_RE.exec(p.name) as RegExpExecArray
+            const sizes = MENU_EXTRAS
+              .filter((p) => p.cat === "bebidas" && !p.soldOut && SODA_RE.test(p.name) && parts(p)[1] === flavor)
+              .sort((a, b) => sizeMl(parts(a)[2]) - sizeMl(parts(b)[2]))
+            const pick = (p: Product) => {
+              if (p.id === product.id) return
+              setProduct(p)
+              setQty(1)
+              setQtyDraft(null)
+            }
+            return (
+              <div className="md:mr-10">
+                <div className="mb-2 text-[11px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>
+                  Elige el tamaño de tu {flavor}
+                </div>
+                <div className="grid grid-cols-2 gap-2 md:gap-3">
+                  {sizes.map((p) => {
+                    const size = parts(p)[2]
+                    const on = p.id === product.id
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => pick(p)}
+                        aria-pressed={on}
+                        className="flex cursor-pointer items-center gap-3 rounded-2xl p-2 text-left transition-colors md:p-3"
+                        style={{
+                          background: on ? `${C.mustard}14` : dark ? "rgba(244,238,220,0.04)" : "#fff",
+                          border: `1.5px solid ${on ? C.mustard : BORDER}`,
+                        }}
+                      >
+                        <span className="flex h-12 w-8 flex-shrink-0 items-center justify-center overflow-hidden md:h-16 md:w-10">
+                          <BeverageArt flavor={flavor} size={size} />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block text-sm font-bold md:text-base" style={{ color: on ? C.mustard : TEXT }}>{size}</span>
+                          <span className="block text-xs font-semibold" style={{ color: MUTED }}>{p.priceStr}</span>
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+                <p className="mt-3 hidden rounded-2xl px-3 py-2.5 text-xs leading-relaxed md:block" style={{ background: dark ? "rgba(244,238,220,0.05)" : "rgba(30,30,30,0.04)", color: MUTED }}>
+                  Bebida fría, servida en su envase original. Solo ves los tamaños que tenemos disponibles ahora.
+                </p>
+              </div>
+            )
+          })()}
           <div className="md:grid">
           <div className={panelClass("sauces")}>
             <div className="mb-1.5 text-[11px] font-semibold max-[379px]:hidden md:mb-2" style={{ color: selSauces.length === 4 ? C.amber : MUTED }}>
@@ -3875,10 +3976,10 @@ function AddToCartModal({
               role="radiogroup"
               aria-label="Tamaño de gaseosa"
               className="mb-1.5 grid gap-1.5 md:mb-2"
-              style={{ gridTemplateColumns: `repeat(${BEVERAGE_SIZES.length}, minmax(0, 1fr))` }}
+              style={{ gridTemplateColumns: `repeat(${Math.max(1, sizesInStock.length)}, minmax(0, 1fr))` }}
             >
-              {BEVERAGE_SIZES.map((size) => {
-                const on = size.id === beverageSize
+              {sizesInStock.map((size) => {
+                const on = size.id === selectedBeverageSize.id
                 return (
                   <button
                     key={size.id}
@@ -3913,7 +4014,7 @@ function AddToCartModal({
                 const quantity = addQtys[key] || 0
                 const info = sodaInfo(flavor, size.label)
                 // Only the sodas that exist as products (that flavour may not come in this size)
-                if (SODA_INFO.size && !info) return null
+                if (SODA_INFO.size && (!info || info.agotada)) return null // sin stock: no se muestra
                 const unavailable = info?.agotada ? "Agotada" : ""
                 const soldOut = !!unavailable
                 const price = sodaPrice(flavor, size)
@@ -4097,7 +4198,29 @@ function ProductCatalog({
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
-  const catalogProducts = allMenuProducts().filter((product) => product.cat !== "adiciones")
+  // Additions and sauces are chosen inside a product, not sold alone. A soda without stock isn't shown, and the
+  // sodas show one card per flavour («Gaseosa Coca-Cola, desde $3.000»): tapping it opens its smallest size in
+  // stock, and the window lets you pick the others
+  const sodaCardOpens = new Map<Product, Product>()
+  const catalogProducts = allMenuProducts()
+    .filter((product) => !["adiciones", "salsas"].includes(product.cat) && !product.soldOut)
+    .flatMap((product) => {
+      const soda = SODA_RE.exec(product.name)
+      if (!soda) return [product]
+      const sizes = allMenuProducts()
+        .filter((p) => !p.soldOut && SODA_RE.exec(p.name)?.[1] === soda[1])
+        .sort((a, b) => sizeMl(SODA_RE.exec(a.name)![2]) - sizeMl(SODA_RE.exec(b.name)![2]))
+      if (sizes[0] !== product) return []
+      const card: Product = {
+        ...product,
+        name: `Gaseosa ${soda[1]}`,
+        priceStr: sizes.length > 1 ? `Desde ${fmt(Math.min(...sizes.map((p) => p.price)))}` : product.priceStr,
+        desc: `${sizes.map((p) => SODA_RE.exec(p.name)![2]).join(" · ")}`,
+      }
+      sodaCardOpens.set(card, product)
+      return [card]
+    })
+  const openProduct = (p: Product) => onAddClick(sodaCardOpens.get(p) ?? p)
   const filtered = catalogProducts.filter(
     (p) =>
       (activeCat === "todos" || p.cat === activeCat) &&
@@ -4125,7 +4248,7 @@ function ProductCatalog({
         role="tablist"
         aria-label="Categorías del menú"
       >
-        {MENU_CATS.map((cat) => {
+        {MENU_CATS.filter((cat) => cat.id !== "salsas").map((cat) => {
           const active = activeCat === cat.id
           return (
             <button
@@ -4213,7 +4336,7 @@ function ProductCatalog({
                 ? "0 2px 12px rgba(0,0,0,0.3)"
                 : "0 2px 12px rgba(0,0,0,0.07)",
             }}
-              onClick={() => onAddClick(p)}
+              onClick={() => openProduct(p)}
           >
             {p.img && (
               <img
@@ -4255,7 +4378,7 @@ function ProductCatalog({
                 disabled={p.soldOut}
                 onClick={(event) => {
                   event.stopPropagation()
-                  onAddClick(p)
+                  openProduct(p)
                 }}
                 className="cursor-pointer rounded-full px-4 py-2 text-sm font-bold text-white hover:opacity-90 disabled:cursor-not-allowed"
                 style={{ background: C.mustard, opacity: p.soldOut ? 0.55 : 1 }}
@@ -4440,7 +4563,6 @@ function GuestMenuPage({
           dark={false}
           paginate={false}
           compact
-          onInfoClick={setAddProduct}
           onAddClick={setAddProduct}
         />
       </main>
@@ -4718,9 +4840,8 @@ const COUNTER_CLIENT_DOC = "000000000"
 const isCounterClientRow = (sec: string, row: (string | number)[] | undefined) =>
   sec === "clientes" && String(row?.[2] ?? "").replace(/\D/g, "") === COUNTER_CLIENT_DOC
 
-// Usuarios form: staff (any role except Cliente) also gives contact details (row/form keys 9-12)
+// Staff: any role except Cliente
 const isStaffRole = (rol: string | number | undefined) => !!String(rol ?? "").trim() && String(rol).trim().toLowerCase() !== "cliente"
-const STAFF_CONTACT_KEYS = ["9", "10", "11", "12", "13"]
 
 // Superadministrador: always this account; nobody can deactivate, delete it, change its role or e-mail
 const SUPER_ADMIN_EMAIL = "admin@minifood.com"
@@ -4886,16 +5007,11 @@ const DB_SYNC: Record<string, SyncSpec> = {
         correo: text(row[4]),
         estado: estadoOf(row[5]),
         contrasena: text(row[6]) || undefined,
-        // Staff contact (clients keep theirs in Clientes)
-        ...(rol !== "CLIENTE"
-          ? {
-              telefono: text(row[9]),
-              barrio: text(row[10]),
-              direccion: text(row[11]),
-              telefono_emergencia: text(row[12]),
-              correo_personal: text(row[13]),
-            }
-          : {}),
+        telefono: text(row[9]),
+        barrio: text(row[10]),
+        direccion: text(row[11]),
+        telefono_emergencia: text(row[12]),
+        correo_personal: text(row[13]),
       }
     },
     // clientes: a user with the Cliente role is also a client (it shows up there right away)
@@ -4920,6 +5036,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       )
       row[12] = Number(p.stock) || 0
       row[13] = Number(p.costo) || 0
+      row[14] = Number(p.minimo) || 0
       return row
     },
     toBody: async (row) => ({
@@ -4928,6 +5045,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       precio: Number(row[2]),
       descripcion: text(row[3]),
       estado: estadoOf(row[4]),
+      ...(row[1] === SODA_PRODUCT ? { minimo: text(row[14]) === "" ? SODA_LOW_STOCK : Number(row[14]) } : {}),
     }),
     localOnly: (row) => row[1] === "Producto de insumo",
     afterSave: (id, row) => {
@@ -4964,7 +5082,7 @@ const DB_SYNC: Record<string, SyncSpec> = {
       withId(
         [c.nombre, c.tipo_documento || "", c.documento || "", c.telefono || "", c.correo || "", c.direccion || "",
           c.de_local ? "Sí" : "No", c.estado === "ACTIVO" ? "Activo" : "Inactivo", "",
-          JSON.stringify(c.direcciones || []), "", c.id_usuario ? "Sí" : "No"],
+          JSON.stringify(c.direcciones || []), "", c.id_usuario ? "Sí" : "No", c.id_usuario ?? ""],
         8,
         c.id_persona,
       ),
@@ -4983,21 +5101,20 @@ const DB_SYNC: Record<string, SyncSpec> = {
   domicilios: {
     path: "/barrios/admin",
     update: "PATCH",
-    idIndex: 5,
+    idIndex: 4,
     idOf: (d) => d.id_barrio,
     toRow: (d) =>
       withId(
         [d.nombre || "", d.es_cercano ? "Sí" : "No", d.tiempo_desplazamiento_minutos ?? "",
-          d.costo_domicilio_cop ?? "", d.activo ? "Activo" : "Inactivo"],
-        5,
+          d.activo ? "Activo" : "Inactivo"],
+        4,
         d.id_barrio,
       ),
     toBody: (row) => ({
       nombre: text(row[0]),
       es_cercano: text(row[1]).toLowerCase() === "sí",
       tiempo_desplazamiento_minutos: text(row[2]) ? Number(row[2]) : null,
-      costo_domicilio_cop: text(row[3]) ? Number(row[3]) : null,
-      activo: estadoOf(row[4]) === "ACTIVO",
+      activo: estadoOf(row[3]) === "ACTIVO",
     }),
     reloads: ["domicilios"],
   },
@@ -5458,17 +5575,20 @@ const saveOrders = (orders: Order[]) => saveLS("orders", orders)
 // so client and admin see the same orders from any device.
 const orderDbId = (id: string) => Number(id.replace("PED-", ""))
 const orderFromDb = (p: DbRecord): Order => ({
-  id: `PED-${p.id_pedido}`,
+  // Same format as the panel's orders (PED-0005): one numbering for every order
+  id: `PED-${String(p.id_pedido).padStart(4, "0")}`,
   email: p.correo,
   cliente: p.cliente,
   date: new Date(p.creado_en).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }),
-  nombre: p.nombre_contacto || p.cliente,
-  telefono: p.telefono_contacto || "",
+  createdAt: new Date(p.creado_en).toISOString(),
+  nombre: p.destinatario?.nombre || p.nombre_contacto || p.cliente,
+  telefono: p.destinatario?.telefono || p.telefono_contacto || "",
   tipoEntrega: p.tipo_entrega || "domicilio",
   direccion: p.direccion_entrega || "",
   barrio: p.barrio || neighborhoodNameFromAddress(p.direccion_entrega || "") || undefined,
   barrioId: p.id_barrio || undefined,
   costoDomicilio: p.costo_domicilio_cop ?? null,
+  estimacion: p.estimacion_inicial || undefined,
   notas: p.observacion || "",
   pago: p.metodo_pago || "Efectivo",
   voucher: p.comprobante || undefined,
@@ -5500,10 +5620,11 @@ const refreshOrders = async (role: User["role"]) => {
   return orders
 }
 // Saves the panel's changes to a client order (status, payment, production)
-const pushOrder = (id: string) => {
+// Resolves when saved: when it's marked «Pagado», the backend has created its sale by then
+const pushOrder = (id: string): Promise<unknown> => {
   const o = loadOrders().find((order) => order.id === id)
-  if (!o) return
-  api(`/pedidos/${orderDbId(o.id)}`, "PATCH", {
+  if (!o) return Promise.resolve()
+  return api(`/pedidos/${orderDbId(o.id)}`, "PATCH", {
     estado: o.status,
     estado_pago: o.paymentStatus,
     motivo_rechazo_pago: o.paymentRejectionReason ?? null,
@@ -5641,6 +5762,18 @@ function OrderList({
                 {(o.items.some((i) => i.sauces?.length || i.additions?.length)) && (
                   <div className="text-[11px] mt-1" style={{ color: C.mustard }}>
                     Incluye personalizaciones
+                  </div>
+                )}
+                {o.tipoEntrega === "domicilio" && (
+                  <div className="mt-2 space-y-0.5 text-[11px]" style={{ color: MUTED }}>
+                    {o.barrio && <div>Barrio: {o.barrio}</div>}
+                    {o.estimacion?.distanceKm != null && (
+                      <div>Distancia aproximada: {o.estimacion.distanceKm.toFixed(1)} km</div>
+                    )}
+                    {o.costoDomicilio != null && <div>Domicilio: {fmt(o.costoDomicilio)}</div>}
+                    {o.estimacion?.estimatedMinutes != null && (
+                      <div>Tiempo estimado: {formatDuration(o.estimacion.estimatedMinutes)}</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -5841,7 +5974,25 @@ function OrderDetailModal({
             <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
               {field("Recibe", order.nombre)}
               {field("Teléfono", order.telefono)}
+              {order.tipoEntrega === "domicilio" && field("Barrio", order.barrio)}
               {field("Dirección", order.direccion, true)}
+              {order.tipoEntrega === "domicilio" && order.estimacion?.distanceKm != null && (
+                <div className="col-span-2 text-xs" style={{ color: MUTED }}>
+                  Distancia aproximada en línea recta: {order.estimacion.distanceKm.toFixed(1)} km
+                </div>
+              )}
+              {order.tipoEntrega === "domicilio" && order.costoDomicilio != null && (
+                <div className="col-span-2 flex justify-between text-xs" style={{ color: MUTED }}>
+                  <span>Costo del domicilio</span>
+                  <span className="font-semibold">{fmt(order.costoDomicilio)}</span>
+                </div>
+              )}
+              {order.estimacion?.estimatedMinutes != null && (
+                <div className="col-span-2 flex justify-between text-xs" style={{ color: MUTED }}>
+                  <span>Tiempo estimado inicial</span>
+                  <span className="font-semibold">{formatDuration(order.estimacion.estimatedMinutes)}</span>
+                </div>
+              )}
               {field("Pago", order.pago)}
               {field("Estado del pago", order.paymentStatus)}
               {field("Notas", order.notas, true)}
@@ -6282,12 +6433,11 @@ function CheckoutPage({
     deliveryMethod === "local"
       ? "Comer en el local"
       : deliveryMethod === "recoger"
-        ? "Pasar por él"
+        ? "Recoger pedido"
         : "Pedir a domicilio"
   // Address typed in parts; `direccion` is built from them (see composeDeliveryAddress)
   const [addressParts, setAddressParts] = useState({ barrio: "", calle: "", tipoEdificio: "", nombreEdificio: "", unidad: "" })
-  const [neighborhoodQuery, setNeighborhoodQuery] = useState("")
-  const neighborhoodManuallySelected = useRef(false)
+  const [addressRetry, setAddressRetry] = useState(0)
   const fallbackNeighborhoods: DeliveryNeighborhood[] = BELLO_NEIGHBORHOODS.map((nombre) => ({
     id_barrio: null,
     nombre,
@@ -6295,9 +6445,6 @@ function CheckoutPage({
   const [neighborhoods, setNeighborhoods] = useState<DeliveryNeighborhood[]>(fallbackNeighborhoods)
   const [neighborhoodsLoading, setNeighborhoodsLoading] = useState(true)
   const [neighborhoodsError, setNeighborhoodsError] = useState("")
-  const selectedNeighborhood = neighborhoods.find(
-    (item) => normalizeNeighborhood(item.nombre) === normalizeNeighborhood(addressParts.barrio),
-  )
   const setAddressPart = (key: keyof typeof addressParts, value: string) =>
     setAddressParts((current) => {
       const next = {
@@ -6310,11 +6457,24 @@ function CheckoutPage({
       return next
     })
   // Where the address is on the map and whether it's inside the delivery zone
-  const [geo, setGeo] = useState<{ status: "idle" | "loading" | "ok" | "notfound" | "error"; lat?: number; lon?: number; km?: number }>({ status: "idle" })
+  const [geo, setGeo] = useState<{
+    status: "idle" | "loading" | "ok" | "notfound" | "error"
+    lat?: number
+    lon?: number
+    km?: number
+    neighborhood?: string
+    municipality?: string
+  }>({ status: "idle" })
+  const selectedNeighborhood = neighborhoods.find(
+    (item) => !!geo.neighborhood
+      && normalizeNeighborhood(item.nombre) === normalizeNeighborhood(geo.neighborhood),
+  )
   const [deliveryEstimate, setDeliveryEstimate] = useState({
-    status: "idle" as "idle" | "loading" | "ready",
+    status: "idle" as "idle" | "loading" | "ready" | "error",
     label: "Por confirmar",
     deliveryCost: null as number | null,
+    distanceKm: null as number | null,
+    distanceMethod: null as DeliveryEstimate["distanceMethod"],
     components: null as DeliveryEstimate["components"] | null,
   })
   const [deliveryEstimateError, setDeliveryEstimateError] = useState("")
@@ -6349,13 +6509,7 @@ function CheckoutPage({
     () => !(user?.addresses?.length),
   )
   // Locate the address (1 s after the last change: OpenStreetMap allows ~1 search per second)
-  const geoQueries = editingAddress
-    ? [
-        addressParts.calle && addressParts.barrio && `${addressParts.calle}, ${addressParts.barrio}`,
-        addressParts.calle,
-        addressParts.barrio,
-      ]
-    : [delivForm.direccion, /Barrio ([^,]+)/.exec(delivForm.direccion)?.[1] ?? ""]
+  const geoQueries = [addressParts.calle]
   const geoKey = geoQueries.join("|")
   useEffect(() => {
     if (!isDelivery) {
@@ -6368,22 +6522,22 @@ function CheckoutPage({
     }
     const controller = new AbortController()
     setGeo({ status: "loading" })
-    setDeliveryEstimate((current) => ({ ...current, status: "loading", label: "Calculando..." }))
+    setDeliveryEstimate((current) => ({
+      ...current,
+      status: "loading",
+      label: "Calculando...",
+      deliveryCost: null,
+      distanceKm: null,
+      distanceMethod: null,
+      components: null,
+    }))
     const timer = setTimeout(() => {
-      geocodeAddress(geoQueries as string[], controller.signal)
+      geocodeAddress(geoQueries, controller.signal)
         .then((point) => {
           if (!point) return setGeo({ status: "notfound" })
           const km = distanceKm(SHOP_LOCATION, point)
           setGeo({ status: "ok", ...point, km })
-          const detectedNeighborhood = point.neighborhood
-            ? neighborhoods.find(
-                (item) => normalizeNeighborhood(item.nombre) === normalizeNeighborhood(point.neighborhood!),
-              )
-            : undefined
-          if (detectedNeighborhood && !addressParts.barrio && !neighborhoodManuallySelected.current) {
-            setNeighborhoodQuery(detectedNeighborhood.nombre)
-            setAddressPart("barrio", detectedNeighborhood.nombre)
-          }
+          if (point.neighborhood) setAddressPart("barrio", point.neighborhood)
         })
         .catch((err) => {
           if ((err as Error).name !== "AbortError") setGeo({ status: "error" })
@@ -6393,18 +6547,33 @@ function CheckoutPage({
       clearTimeout(timer)
       controller.abort()
     }
-  }, [geoKey, neighborhoods, addressParts.barrio, isDelivery])
+  }, [geoKey, addressRetry, isDelivery])
   useEffect(() => {
-    if (isDelivery && !selectedNeighborhood) {
-      setDeliveryEstimate({ status: "idle", label: "Selecciona barrio y dirección", deliveryCost: null, components: null })
-      setDeliveryEstimateError("")
+    if (isDelivery && (geo.status !== "ok" || !selectedNeighborhood)) {
+      setDeliveryEstimate({
+        status: "idle",
+        label: geo.status === "loading"
+          ? "Ubicando la dirección..."
+          : geo.status === "notfound"
+            ? "No encontramos esta dirección"
+            : geo.status === "error"
+              ? "No se pudo consultar la ubicación"
+              : "Completa una dirección dentro de la cobertura",
+        deliveryCost: null,
+        distanceKm: null,
+        distanceMethod: null,
+        components: null,
+      })
+      setDeliveryEstimateError(geo.status === "error" ? "No se pudo consultar la ubicación de la dirección." : "")
       return
     }
     if (!user) {
       setDeliveryEstimate({
         status: "idle",
         label: "Inicia sesión para calcular",
-        deliveryCost: isDelivery ? selectedNeighborhood?.costo_domicilio_cop ?? null : null,
+        deliveryCost: null,
+        distanceKm: null,
+        distanceMethod: null,
         components: null,
       })
       setDeliveryEstimateError("")
@@ -6412,7 +6581,15 @@ function CheckoutPage({
     }
     const controller = new AbortController()
     setDeliveryEstimateError("")
-    setDeliveryEstimate((current) => ({ ...current, status: "loading", label: "Consultando..." }))
+    setDeliveryEstimate((current) => ({
+      ...current,
+      status: "loading",
+      label: "Consultando...",
+      deliveryCost: null,
+      distanceKm: null,
+      distanceMethod: null,
+      components: null,
+    }))
     api<DeliveryEstimate>(
       DELIVERY_ESTIMATE_ENDPOINT,
       "POST",
@@ -6424,9 +6601,13 @@ function CheckoutPage({
             : { nombre_barrio: selectedNeighborhood.nombre }
           : {}),
         ...(isDelivery ? { direccion: delivForm.direccion } : {}),
-        ...(isDelivery && geo.status === "ok" && geo.km !== undefined
-          ? { distancia_km: geo.km }
+        ...(isDelivery && geo.status === "ok" && geo.lat !== undefined && geo.lon !== undefined
+          ? { ubicacion: { lat: geo.lat, lon: geo.lon } }
           : {}),
+        items: cart.filter((item) => item.qty > 0).map((item) => ({
+          producto: item.name,
+          cantidad: item.qty,
+        })),
       },
       controller.signal,
     )
@@ -6440,9 +6621,9 @@ function CheckoutPage({
         setDeliveryEstimate({
           status: "ready",
           label: totalLabel,
-          deliveryCost: isDelivery
-            ? selectedNeighborhood?.costo_domicilio_cop ?? null
-            : null,
+          deliveryCost: isDelivery ? estimate.deliveryCost ?? null : null,
+          distanceKm: isDelivery ? estimate.distanceKm ?? null : null,
+          distanceMethod: isDelivery ? estimate.distanceMethod ?? null : null,
           components: estimate.components ?? null,
         })
       })
@@ -6450,15 +6631,17 @@ function CheckoutPage({
         if ((error as Error).name !== "AbortError") {
           setDeliveryEstimateError((error as Error).message || "No se pudo consultar el tiempo estimado.")
           setDeliveryEstimate({
-            status: "ready",
+            status: "error",
             label: "Por confirmar",
-            deliveryCost: isDelivery ? selectedNeighborhood?.costo_domicilio_cop ?? null : null,
+            deliveryCost: null,
+            distanceKm: null,
+            distanceMethod: null,
             components: null,
           })
         }
       })
     return () => controller.abort()
-  }, [selectedNeighborhood?.id_barrio, selectedNeighborhood?.nombre, delivForm.direccion, geo.km, user?.email, estimateRefresh, isDelivery, deliveryMethod])
+  }, [selectedNeighborhood?.id_barrio, selectedNeighborhood?.nombre, delivForm.direccion, geo.status, geo.lat, geo.lon, user?.email, estimateRefresh, isDelivery, deliveryMethod, cart])
   useEffect(() => {
     if (!user) return
     const interval = window.setInterval(() => setEstimateRefresh((value) => value + 1), 30_000)
@@ -6492,7 +6675,6 @@ function CheckoutPage({
     const savedAddress = user.addresses?.[0] || ""
     const savedParts = addressPartsFromAddress(savedAddress)
     setAddressParts(savedParts)
-    setNeighborhoodQuery(savedParts.barrio)
     setEditingAddress(!hasSavedAddress)
     setSaveAddress(!hasSavedAddress)
   }, [user])
@@ -6526,9 +6708,12 @@ function CheckoutPage({
             : deliveryMethod === "local"
               ? "Consumo en el local"
               : "Recoger en el local",
-          barrio: isDelivery ? addressParts.barrio : undefined,
+          barrio: isDelivery ? selectedNeighborhood?.nombre : undefined,
           barrioId: isDelivery ? selectedNeighborhood?.id_barrio ?? undefined : undefined,
-          distanciaKm: isDelivery ? geo.km : undefined,
+          distanciaKm: undefined,
+          ubicacion: isDelivery && geo.lat !== undefined && geo.lon !== undefined
+            ? { lat: geo.lat, lon: geo.lon }
+            : undefined,
           costoDomicilio: isDelivery ? displayedDeliveryCost : 0,
           voucher: needsVoucher ? voucher : undefined,
         },
@@ -6563,20 +6748,19 @@ function CheckoutPage({
   const displayedDeliveryCost =
     !isDelivery
       ? null
-      : selectedNeighborhood?.costo_domicilio_cop ?? deliveryEstimate.deliveryCost
+      : deliveryEstimate.deliveryCost
   const deliveryCostConfigured = !isDelivery || (
     displayedDeliveryCost !== null &&
+    Number.isSafeInteger(displayedDeliveryCost) &&
     deliveryEstimate.status === "ready"
   )
   const orderTotal = subtotal + (displayedDeliveryCost ?? 0)
-  const neighborhoodInput = addressParts.barrio.trim() || neighborhoodQuery.trim()
   const neighborhoodOutOfRange =
     isDelivery &&
-    !neighborhoodsLoading &&
-    !!neighborhoodInput &&
-    !selectedNeighborhood &&
-    !neighborhoods.some(
-      (item) => normalizeNeighborhood(item.nombre) === normalizeNeighborhood(neighborhoodInput),
+    geo.status === "ok" &&
+    (
+      normalizeNeighborhood(geo.municipality || "") !== normalizeNeighborhood("Bello")
+      || !selectedNeighborhood
     )
   const estimatedKitchenMinutes =
     deliveryEstimate.components?.kitchenWaitMinutes !== null &&
@@ -6601,7 +6785,7 @@ function CheckoutPage({
       !!delivForm.direccion.trim() &&
       !!selectedNeighborhood &&
       (!editingAddress || !!addressParts.calle.trim()) &&
-      (geo.status === "ok" || geo.status === "error")
+      geo.status === "ok"
     )
   )
   const canOrder = user && delivFilled && deliveryCostConfigured
@@ -7159,7 +7343,7 @@ function CheckoutPage({
                       {([
                         ["local", "Comer en el local"],
                         ["domicilio", "Pedir a domicilio"],
-                        ["recoger", "Pasar por él"],
+                        ["recoger", "Recoger pedido"],
                       ] as const).map(([method, label]) => {
                         const selected = deliveryMethod === method
                         return (
@@ -7245,7 +7429,6 @@ function CheckoutPage({
                           if (!editingAddress) {
                             const parts = addressPartsFromAddress(delivForm.direccion)
                             setAddressParts(parts)
-                            setNeighborhoodQuery(parts.barrio)
                           }
                           setEditingAddress((editing) => !editing)
                         }}
@@ -7256,29 +7439,54 @@ function CheckoutPage({
                       </button>
                     </div>
                     <div className="mb-3">
-                      <NeighborhoodSearch
-                        value={addressParts.barrio}
-                        query={neighborhoodQuery}
-                        neighborhoods={neighborhoods}
-                        loading={neighborhoodsLoading}
-                        loadError={neighborhoodsError}
-                        onQueryChange={(query) => {
-                          neighborhoodManuallySelected.current = false
-                          setNeighborhoodQuery(query)
-                          if (addressParts.barrio) setAddressPart("barrio", "")
+                      <span className="mb-1 block text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
+                        Barrio detectado desde la dirección
+                      </span>
+                      <div
+                        className="rounded-xl px-3.5 py-3 text-sm"
+                        style={{
+                          background: "rgba(30,30,30,0.05)",
+                          border: "1.5px solid rgba(30,30,30,0.12)",
+                          color: C.dark,
                         }}
-                        onSelect={(neighborhood) => {
-                          neighborhoodManuallySelected.current = neighborhood !== null
-                          setAddressPart(
-                            "barrio",
-                            typeof neighborhood === "string" ? neighborhood : neighborhood?.nombre || "",
-                          )
-                        }}
-                        error={deliveryTried && !addressParts.barrio ? "Selecciona un barrio de la lista." : undefined}
-                      />
+                        role="status"
+                      >
+                        {geo.status === "loading"
+                          ? "Detectando ubicación..."
+                          : geo.neighborhood
+                            ? `${geo.neighborhood}${geo.municipality ? ` · ${geo.municipality}` : ""}`
+                            : "Se detectará automáticamente al ubicar la dirección"}
+                      </div>
                       <p className="mt-1 text-xs" style={{ color: MUTED }}>
-                        Si el mapa no reconoce el barrio o sugiere uno incorrecto, búscalo y selecciónalo manualmente.
+                        El barrio, la distancia y el tiempo se calculan a partir de la ubicación encontrada en el mapa.
                       </p>
+                      {(geo.status === "notfound" || geo.status === "error") && (
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <span className="text-xs" role="alert" style={{ color: C.red }}>
+                            {geo.status === "notfound"
+                              ? "No encontramos esa dirección. Verifica la calle y el número."
+                              : "No se pudo consultar la ubicación en el mapa."}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setAddressRetry((value) => value + 1)}
+                            className="flex-shrink-0 text-xs font-bold underline"
+                            style={{ color: C.mustard }}
+                          >
+                            Reintentar
+                          </button>
+                        </div>
+                      )}
+                      {neighborhoodOutOfRange && (
+                        <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
+                          La dirección detectada no corresponde a un barrio habilitado en Bello, Antioquia.
+                        </p>
+                      )}
+                      {neighborhoodsError && (
+                        <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
+                          No se pudo comprobar la cobertura: {neighborhoodsError}
+                        </p>
+                      )}
                     </div>
                     {editingAddress ? (
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -7338,7 +7546,6 @@ function CheckoutPage({
                             onClick={() => {
                               const parts = addressPartsFromAddress(address)
                               setAddressParts(parts)
-                              setNeighborhoodQuery(parts.barrio)
                               setDelivForm((form) => ({ ...form, direccion: address }))
                               setEditingAddress(false)
                               setSaveAddress(false)
@@ -7634,10 +7841,37 @@ function CheckoutPage({
                             : "Por confirmar"}
                 </span>
               </div>
-              {isDelivery && deliveryEstimateError && (
-                <p className="mt-2 text-xs" style={{ color: C.red }} role="alert">
-                  No se pudo calcular la entrega: {deliveryEstimateError}
+              {isDelivery && (
+                <div className="flex justify-between gap-4 text-xs" style={{ color: MUTED }}>
+                          <span>Distancia aproximada en línea recta</span>
+                          <span className="text-right">
+                            {deliveryEstimate.distanceKm !== null
+                              ? `${deliveryEstimate.distanceKm.toFixed(1)} km`
+                              : deliveryEstimate.status === "loading"
+                                ? "Calculando..."
+                                : "No disponible"}
+                          </span>
+                </div>
+              )}
+              {isDelivery && deliveryEstimate.status === "ready" && displayedDeliveryCost === null && (
+                <p className="text-xs" style={{ color: C.red }} role="status">
+                          No se pudo calcular el costo sin una distancia válida. Revisa la dirección para continuar.
                 </p>
+              )}
+              {isDelivery && deliveryEstimateError && (
+                <div className="mt-2 flex items-center justify-between gap-3">
+                          <p className="text-xs" style={{ color: C.red }} role="alert">
+                            No se pudo calcular la entrega: {deliveryEstimateError}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setEstimateRefresh((value) => value + 1)}
+                            className="flex-shrink-0 text-xs font-bold underline"
+                            style={{ color: C.mustard }}
+                          >
+                            Reintentar
+                          </button>
+                </div>
               )}
               <div className="flex items-baseline justify-between gap-4">
                 <span className="font-bold" style={{ color: C.dark }}>Tiempo total estimado</span>
@@ -8001,6 +8235,17 @@ function ChangePasswordForm({
 }
 
 // ── Profile Page ───────────────────────────────────────────────────────────────
+// Saves the personal data of whoever is logged in (client or staff) in their persona, the same record the
+// admin sees in Clientes / Usuarios. Empty optional fields are left out: the backend rejects an empty document.
+const saveProfile = (u: User) =>
+  api("/auth/me", "PATCH", {
+    nombre: u.name,
+    tipo_documento: u.docType || undefined,
+    documento: u.cedula?.trim() || undefined,
+    telefono: u.phone ?? "",
+    direcciones: (u.addresses || []).map((a) => a.trim()).filter(Boolean),
+  }).then(() => window.dispatchEvent(new Event("profile-updated")))
+
 function ProfilePage({
   user,
   onBack,
@@ -8249,9 +8494,10 @@ function ProfilePage({
                 </div>
                 <div>
                   <InputField
-                    label="Correo *"
+                    label="Correo (es tu usuario para entrar)"
                     type="email"
                     value={form.email}
+                    disabled
                     onChange={(v) => {
                       setForm((f) => ({ ...f, email: v }))
                       if (errors.email) setErrors((e) => ({ ...e, email: "" }))
@@ -8943,7 +9189,6 @@ function ClientApp({
               dark={dark}
               paginate={false}
               compact
-              onInfoClick={(p) => setAddProduct(p)}
               onAddClick={(p) => setAddProduct(p)}
             />
             <div
@@ -9484,7 +9729,6 @@ function LandingPage({
           </div>
           <ProductCatalog
             dark={dark}
-            onInfoClick={(p) => setAddProduct(p)}
             onAddClick={(p) => setAddProduct(p)}
           />
           {cartCount > 0 && (
@@ -10448,9 +10692,10 @@ function AdminProfilePage({
                   </div>
                   <div>
                     <InputField
-                      label="Correo *"
+                      label="Correo (es tu usuario para entrar)"
                       type="email"
                       value={form.email}
+                      disabled
                       onChange={(v) => {
                         setForm((f) => ({ ...f, email: v }))
                         if (errors.email) setErrors((e) => ({ ...e, email: "" }))
@@ -10853,6 +11098,28 @@ function AdminPanel({
         time: o.date,
         target: "pedidos" as const,
       })),
+    // Orders still open after STALE_ORDER_DAYS days: someone has to deliver, cancel or close them
+    ...clientOrders
+      .filter(
+        (o) =>
+          !["Entregado", "Cancelado"].includes(o.status) &&
+          !!o.createdAt &&
+          Date.now() - new Date(o.createdAt).getTime() > STALE_ORDER_DAYS * 86_400_000,
+      )
+      .map((o, i) => {
+        const days = Math.floor((Date.now() - new Date(o.createdAt!).getTime()) / 86_400_000)
+        return {
+          id: 3000 + i,
+          type: "danger" as const,
+          title: "Pedido sin movimiento",
+          message: `${o.id} de ${o.cliente} lleva ${days} días en «${o.status}»${
+            o.paymentStatus === "Pagado" ? " y ya está pagado" : ""
+          }. Entrégalo, cancélalo o actualiza su estado.`,
+          module: "Pedidos",
+          time: o.date,
+          target: "pedidos" as const,
+        }
+      }),
     ...ADMIN_NOTIFICATIONS,
   ]
 
@@ -10984,19 +11251,18 @@ function AdminPanel({
           }]
         : [],
     ),
-    // Bought sodas running out (their stock is on the product). shortcut: fixed threshold of SODA_LOW_STOCK und,
-    // until a soda gets its own minimum in its form
+    // Bought sodas at or below their own stock mínimo (their stock is on the product)
     ...(rows.producto || []).flatMap((p, i) => {
       const stock = Number(p[12]) || 0
       const bought = (rows.compras || []).some((c) => parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === normalizeName(p[0])))
-      return p[1] === SODA_PRODUCT && isSodaName(p[0]) && isActiveStatus(p[4]) && bought && stock <= SODA_LOW_STOCK
+      return p[1] === SODA_PRODUCT && isSodaName(p[0]) && isActiveStatus(p[4]) && bought && stock <= (Number(p[14]) || 0)
         ? [{
             id: 7000 + i,
             type: stock <= 0 ? ("danger" as const) : ("warn" as const),
             title: stock <= 0 ? "Gaseosa agotada" : "Pocas gaseosas",
             message: stock <= 0
-              ? `${String(p[0])} se agotó: en la tienda sale «Agotada» hasta la próxima compra.`
-              : `De ${String(p[0])} quedan ${stock} und.`,
+              ? `${String(p[0])} se agotó: no se muestra en la tienda hasta la próxima compra.`
+              : `De ${String(p[0])} quedan ${stock} und; el mínimo es ${Number(p[14]) || 0} und.`,
             module: "Productos",
             time: "Ahora",
             target: "producto" as const,
@@ -11004,7 +11270,8 @@ function AdminPanel({
         : []
     }),
     ...orderNotifications,
-  ]
+    // Each role only gets the alerts of the modules it can see
+  ].filter((n) => canSee(n.target))
   const unreadNotifications = notifications.filter((n) => !readNotifications.has(n.id)).length
   // Last annulment, offered as "Deshacer" for a few seconds
   const [undoAnul, setUndoAnul] = useState<{ sec: string; idx: number; statusIndex: number; name: string } | null>(null)
@@ -11049,6 +11316,20 @@ function AdminPanel({
   useEffect(() => {
     Object.keys(DB_SYNC).forEach(loadModule)
   }, [])
+  // Someone may have changed their own data (Mi cuenta / Mi perfil): Usuarios and Clientes are re-read when opened,
+  // when coming back to this tab and right after this browser saves a profile
+  useEffect(() => {
+    const people = section === "usuarios" || section === "clientes"
+    const reloadPeople = () => ["usuarios", "clientes"].forEach(loadModule)
+    const onFocus = () => people && reloadPeople()
+    if (people) reloadPeople()
+    window.addEventListener("focus", onFocus)
+    window.addEventListener("profile-updated", reloadPeople)
+    return () => {
+      window.removeEventListener("focus", onFocus)
+      window.removeEventListener("profile-updated", reloadPeople)
+    }
+  }, [section])
   // Saves a row in the backend (statusOnly: just its Activo/Inactivo change); on failure tells the admin
   // and reloads that table from the backend
   const syncRow = (
@@ -11086,6 +11367,8 @@ function AdminPanel({
           }),
         }))
         spec.reloads?.forEach(loadModule)
+        // Re-read people from the backend: e.g. a new client gets its app account there («Tiene cuenta en la app»)
+        if (sec === "clientes" || sec === "usuarios") loadModule(sec)
         if (statusOnly) {
           if (sec !== "producto") return
           return loadModule(sec).then(() => {
@@ -11176,25 +11459,29 @@ function AdminPanel({
     }
     return { pncRow: persistedPnc, productionRow: persistedProduction }
   }
+  // (Re)loads one PANEL_SYNC module from the backend; also used after the server creates rows itself
+  // (e.g. the sale of a shop order that was just paid)
+  const loadPanel = (sec: string) => {
+    const spec = PANEL_SYNC[sec]
+    return api<DbRecord[]>(spec.path)
+      .then((records) => {
+        const dbRows = records.map((r) => withPanelId(sec === "ventas" ? fixShiftedSale(r.datos_panel) : r.datos_panel, spec.idIndex, r.id))
+        panelSaved.current[sec] = new Map(dbRows.map((r) => [r[spec.idIndex], JSON.stringify(r)]))
+        setRows((current) => ({
+          ...current,
+          [sec]: [
+            ...dbRows,
+            ...(current[sec] || []).filter(
+              (r) => !r[spec.idIndex] && (spec.keepLocal?.(r, dbRows) || spec.owns?.(r) === false),
+            ),
+          ],
+        }))
+        panelLoaded.current[sec] = true
+      })
+      .catch((err) => console.warn(`No se pudo cargar «${sec}» del backend:`, err))
+  }
   useEffect(() => {
-    Object.entries(PANEL_SYNC).forEach(([sec, spec]) =>
-      api<DbRecord[]>(spec.path)
-        .then((records) => {
-          const dbRows = records.map((r) => withPanelId(sec === "ventas" ? fixShiftedSale(r.datos_panel) : r.datos_panel, spec.idIndex, r.id))
-          panelSaved.current[sec] = new Map(dbRows.map((r) => [r[spec.idIndex], JSON.stringify(r)]))
-          setRows((current) => ({
-            ...current,
-            [sec]: [
-              ...dbRows,
-              ...(current[sec] || []).filter(
-                (r) => !r[spec.idIndex] && (spec.keepLocal?.(r, dbRows) || spec.owns?.(r) === false),
-              ),
-            ],
-          }))
-          panelLoaded.current[sec] = true
-        })
-        .catch((err) => console.warn(`No se pudo cargar «${sec}» del backend:`, err)),
-    )
+    Object.keys(PANEL_SYNC).forEach(loadPanel)
   }, [])
   // Panel rows the server refused to create (skipped until they change)
   const failedCreates = useRef(new WeakSet<Row>())
@@ -11332,6 +11619,8 @@ function AdminPanel({
   const [productionFormError, setProductionFormError] = useState("")
   // "Nueva compra" item picker (limited to the selected supplier's insumos)
   const [purchaseItemSelect, setPurchaseItemSelect] = useState("")
+  // What is typed in the purchase's insumo search (null = not searching: it shows the chosen insumo)
+  const [purchaseSupplySearch, setPurchaseSupplySearch] = useState<string | null>(null)
   const [purchaseItemQty, setPurchaseItemQty] = useState("1")
   const [purchaseItemPrice, setPurchaseItemPrice] = useState("")
   const [purchaseFormError, setPurchaseFormError] = useState("")
@@ -11855,7 +12144,7 @@ function AdminPanel({
       domicilios: ["2", "3"],
     }
     const managedRequiredKeys: Record<string, string[]> = {
-      usuarios: ["0", "1", "2", "3", "4", ...(isStaffRole(draft["3"]) ? ["9", "10", "11"] : [])],
+      usuarios: ["0", "1", "2", "3", "4", "9", "10", "11"],
       clientes: ["0", "1", "2", "3", "4", "5"],
       proveedores: supplierRequiredKeys(draft),
       roles: ["0", "1"],
@@ -11917,7 +12206,7 @@ function AdminPanel({
     const trimmed = value.trim()
     const required =
       sec === "usuarios"
-        ? ["0", "1", "2", "3", "4", ...(isStaffRole(draft["3"]) ? ["9", "10", "11"] : [])].includes(key)
+        ? ["0", "1", "2", "3", "4", "9", "10", "11"].includes(key)
         : sec === "clientes"
           ? ["0", "1", "2", "3", "4", "5"].includes(key)
           : sec === "proveedores"
@@ -12070,9 +12359,13 @@ function AdminPanel({
         ...(rows.clientes || []).map((row, idx) => ({ section: "clientes", idx, row })),
       ]
       const next: Record<string, string> = {}
+      // A client with an app account is one person shown in both modules: never a duplicate of itself
+      const currentRow = modal.idx === null ? undefined : rows[sec]?.[modal.idx]
+      const accountId = mode === "edit" ? String((sec === "usuarios" ? currentRow?.[7] : currentRow?.[12]) ?? "") : ""
       allRows.forEach(({ section, idx, row }) => {
         const isCurrentRecord = sec === section && modal.idx === idx
         if (isCurrentRecord) return
+        if (accountId && String((section === "usuarios" ? row[7] : row[12]) ?? "") === accountId) return
 
         const rowDocument = String(row[2] ?? "").trim().toLowerCase()
         const rowEmail = String(row[4] ?? "").trim().toLowerCase()
@@ -12458,13 +12751,19 @@ function AdminPanel({
       const dup = !e["0"] && duplicateOf("producto", v("0"))
       if (dup) e["0"] = `Ya existe el producto «${String(dup[0])}».`
       if (!v("1")) e["1"] = "Selecciona la categoría."
-      // Sauces and drink flavors are included free, so they may cost 0
+      // Sauces are always free (the form shows «Gratis» and saves 0); drink flavours may cost 0
+      const isSauce = normalizeName(v("1")) === "salsas"
       const minPrice = ["Salsas", "Sabores de bebida"].includes(v("1")) ? 0 : 1
-      if (!v("2")) e["2"] = "Escribe el precio."
+      if (isSauce) {
+        // nothing to check: the price is always 0
+      } else if (!v("2")) e["2"] = "Escribe el precio."
       else if (!(n("2") >= minPrice))
         e["2"] = minPrice ? "El precio debe ser mayor que 0." : "El precio no puede ser negativo."
       else if (!Number.isInteger(n("2"))) e["2"] = "El precio debe ser un valor entero, sin decimales."
       checkText("3", "La descripción", 10, 200, "Escribe una descripción.")
+      // Empty = SODA_LOW_STOCK when saved
+      if (v("1") === SODA_PRODUCT && v("14") && !(Number.isInteger(n("14")) && n("14") >= 0 && n("14") <= 999))
+        e["14"] = "El stock mínimo debe ser un número entero entre 0 y 999."
     }
     return e
   }
@@ -12647,6 +12946,8 @@ function AdminPanel({
       if (Number.isFinite(index)) newRow[index] = formData[field.key] ?? ""
       else newRow.push(formData[field.key] ?? "")
     })
+    // Sauces are always free
+    if (sec === "producto" && normalizeName(String(newRow[1] ?? "")) === "salsas") newRow[2] = 0
     if (sec === "proveedores") {
       newRow[4] = `${String(formData["10"] ?? "").trim()} ${String(formData["11"] ?? "").trim()}`.trim()
       if (isNaturalSupplier(formData["15"])) {
@@ -12661,6 +12962,7 @@ function AdminPanel({
       newRow[9] = previousRow?.[9] ?? "[]"
       newRow[10] = ""
       newRow[11] = previousRow?.[11] ?? "No"
+      newRow[12] = previousRow?.[12] ?? ""
     }
 
     if (sec === "producto") {
@@ -13168,21 +13470,38 @@ function AdminPanel({
       }
     }
 
-    // A soda keeps its purchase history: once bought it can only be annulled
-    if (sec === "producto" && row[1] === SODA_PRODUCT) {
-      const bought = (rows.compras || []).filter((c) =>
-        parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === normalizeName(recordName)),
-      ).length
-      return bought
+    // A product is deleted only while nothing references it: sales, orders, purchases (sodas) or a supplier
+    // that sells it. The backend checks the same (also shop orders) before deleting.
+    if (sec === "producto") {
+      const name = normalizeName(recordName)
+      const inLines = (value: string | number | undefined) => {
+        try {
+          return (JSON.parse(String(value || "[]")) as { product?: string }[]).some((l) => normalizeName(String(l.product ?? "")) === name)
+        } catch {
+          return false
+        }
+      }
+      const count = (n: number, one: string, many: string) => (n ? `${n} ${n === 1 ? one : many}` : "")
+      const suppliers = (rows.proveedores || [])
+        .filter((pr) => String(pr[7] ?? "").split(",").some((i) => normalizeName(i) === name))
+        .map((pr) => String(pr[0]))
+      const uses = [
+        count((rows.ventas || []).filter((v) => inLines(v[11])).length, "venta", "ventas"),
+        count((rows.pedidos || []).filter((o) => inLines(o[10])).length, "pedido", "pedidos"),
+        count((rows.compras || []).filter((c) => parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === name)).length, "compra", "compras"),
+        suppliers.length ? `el proveedor ${suppliers.join(", ")}` : "",
+      ].filter(Boolean)
+      const productLabel = `el producto «${recordName}»`
+      return uses.length
         ? {
             allowed: false,
-            targetLabel: `la gaseosa «${recordName}»`,
-            reason: `Tiene ${bought} ${bought === 1 ? "compra registrada" : "compras registradas"}: para no perder ese historial no se puede eliminar. Si ya no la vendes, anúlala.`,
+            targetLabel: productLabel,
+            reason: `Está asociado a ${uses.join(", ")}: para no perder ese historial no se puede eliminar. Si ya no lo vendes, desactívalo.`,
           }
         : {
             allowed: true,
-            targetLabel: `la gaseosa «${recordName}»`,
-            reason: "Nunca se ha comprado: se quita de Productos y de la tienda.",
+            targetLabel: productLabel,
+            reason: "No tiene ventas, pedidos, compras ni proveedores: se quita de Productos y de la tienda.",
           }
     }
 
@@ -13521,7 +13840,6 @@ function AdminPanel({
     const storedOrders = loadOrders()
     const storedOrder = storedOrders.find((item) => item.id === order[0])
     if (storedOrder?.productionAuthorized) return
-    const currentDateTime = getCurrentDateTimeParts()
     // One production order with every product of the order
     const productionRecords = buildProductionRows(requestedItems, rows.produccion || [], String(order[0])).slice(0, 1)
     saveOrders(
@@ -13537,7 +13855,9 @@ function AdminPanel({
           : item,
       ),
     )
-    pushOrder(String(order[0]))
+    // Approving isn't selling: the sale is created by the server only when the order is paid (a transfer is,
+    // right here). Then the sales list is reloaded so it shows up
+    pushOrder(String(order[0])).then(() => { if (transferPayment) loadPanel("ventas") })
 
     setRows((current) => {
       const currentOrder = current.pedidos?.[orderIndex]
@@ -13560,35 +13880,10 @@ function AdminPanel({
 
       const productionRows = [...productionRecords, ...(current.produccion || [])]
 
-      let salesRows = [...(current.ventas || [])]
-      const notShipped = !["En camino", "Entregado"].includes(
-        String(updatedOrder[7]),
-      )
-      const alreadyDuplicated = salesRows.some(
-        (sale) => sale[9] === updatedOrder[0],
-      )
-      if (notShipped && !alreadyDuplicated) {
-        salesRows.unshift([
-          nextAutoSaleCode(salesRows),
-          sellerName,
-          updatedOrder[1],
-          currentDateTime.date,
-          saleTypeOf(updatedOrder[3]),
-          updatedOrder[4],
-          updatedOrder[6],
-          updatedOrder[6],
-          "Pendiente",
-          updatedOrder[0],
-          updatedOrder[7],
-          updatedOrder[10] ?? "[]",
-        ])
-      }
-
       return {
         ...current,
         pedidos: orderRows,
         produccion: productionRows,
-        ventas: salesRows,
       }
     })
   }
@@ -13605,17 +13900,19 @@ function AdminPanel({
     const order = rows.pedidos?.[orderIndex]
     if (!order || PAYMENT_NEXT[String(order[8] || "Pendiente")] !== status) return
     const orderId = String(order[0])
-    // Shop orders also keep it on the order the client sees
-    if (loadOrders().some((o) => o.id === orderId)) {
+    // Shop orders also keep it on the order the client sees. Their sale is created by the server when the
+    // payment is saved (one per order); then the sales list is reloaded to show it
+    const shopOrder = loadOrders().some((o) => o.id === orderId)
+    if (shopOrder) {
       saveOrders(loadOrders().map((o) => (o.id === orderId ? { ...o, paymentStatus: status as Order["paymentStatus"] } : o)))
-      pushOrder(orderId)
+      pushOrder(orderId).then(() => { if (status === "Pagado") loadPanel("ventas") })
     }
     setRows((current) => {
       const pedidos = [...(current.pedidos || [])]
       const updated = [...pedidos[orderIndex]]
       updated[8] = status
       pedidos[orderIndex] = updated
-      if (status !== "Pagado" || (current.ventas || []).some((sale) => sale[9] === updated[0])) return { ...current, pedidos }
+      if (shopOrder || status !== "Pagado" || (current.ventas || []).some((sale) => sale[9] === updated[0])) return { ...current, pedidos }
       // Same columns as a sale made in the form: [0 código, 1 vendedor, 2 cliente, 3 fecha, 4 tipo,
       //  5 método, 6 total, 7 total, 8 —, 9 pedido, 10 estado del pedido, 11 productos (JSON)]
       const ventas = [
@@ -14447,6 +14744,25 @@ function AdminPanel({
     const reason = String(r[4] ?? "").trim() || "Otro"
     returnReasons.set(reason, (returnReasons.get(reason) ?? 0) + 1)
   })
+  // What each role sees on the dashboard: only the blocks of the modules it handles
+  const seesSales = canSee("ventas")
+  const seesReturns = canSee("devoluciones")
+  const seesProduction = canSee("produccion")
+  const shownKPI = KPI.filter((k) => (k.label === "Devoluciones" ? seesReturns : seesSales))
+  // Without Ventas (cocina, domicilios...): a card per module of the role, with what is pending in it
+  const MY_MODULES = visibleMenu
+    .flatMap((g) => (g.children.length ? g.children : [{ key: g.key, label: g.label }]))
+    .filter((m) => m.key !== "dashboard")
+    .map((m) => {
+      const list = rows[m.key] || []
+      const pending =
+        m.key === "pedidos"
+          ? list.filter((r) => !["Entregado", "Cancelado"].includes(String(r[7] ?? ""))).length
+          : m.key === "produccion"
+            ? list.filter((r) => !["Terminado", "Producto no conforme"].includes(String(r[8] ?? "Recibida"))).length
+            : null
+      return { key: m.key as AdminSection, label: m.label, total: list.length, pending }
+    })
   const RETURN_REASONS = [...returnReasons]
     .sort((x, y) => y[1] - x[1])
     .map(([label, n]) => ({ label, pct: Math.round((n / periodReturns.length) * 100) }))
@@ -14461,7 +14777,7 @@ function AdminPanel({
             ¡Hola, {user?.name?.split(" ")[0] ?? "Admin"}!
           </h2>
           <p className="mt-1 text-sm" style={{ color: t.muted }}>
-            Aquí tienes el resumen de tu negocio.
+            {seesSales ? "Aquí tienes el resumen de tu negocio." : "Aquí tienes el resumen de tus módulos."}
           </p>
         </div>
         <div className="admin-dashboard-date relative z-10">
@@ -14477,9 +14793,33 @@ function AdminPanel({
         </div>
       </div>
 
+      {/* Roles without Ventas: their own modules */}
+      {!seesSales && (
+        <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {MY_MODULES.map((m) => (
+            <button
+              key={m.key}
+              type="button"
+              onClick={() => setSection(m.key)}
+              className="admin-dashboard-card min-w-0 cursor-pointer rounded-2xl p-5 text-left"
+              style={{ background: t.card, border: `1px solid ${t.border}` }}
+            >
+              <div className="text-sm font-semibold" style={{ color: t.muted }}>{m.label}</div>
+              <div className="mt-1 font-black text-2xl sm:text-3xl" style={{ fontFamily: "League Spartan, sans-serif", color: t.text }}>
+                {m.pending ?? m.total}
+              </div>
+              <div className="text-xs mt-1" style={{ color: m.pending ? C.mustard : t.muted }}>
+                {m.pending === null ? (m.total === 1 ? "registro" : "registros") : `en curso · ${m.total} en total`}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* KPI */}
-      <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-3">
-        {KPI.map(({ icon, label, val, badge, good }) => (
+      {shownKPI.length > 0 && (
+      <div className={`grid min-w-0 grid-cols-1 gap-4 ${shownKPI.length > 1 ? "sm:grid-cols-3" : ""}`}>
+        {shownKPI.map(({ icon, label, val, badge, good }) => (
           <div
             key={label}
             className="admin-dashboard-card min-w-0 rounded-2xl p-5"
@@ -14522,8 +14862,10 @@ function AdminPanel({
           </div>
         ))}
       </div>
+      )}
 
       {/* Charts row */}
+      {seesSales && (
       <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_260px]">
         {/* Sales vs Losses */}
         <div
@@ -14831,10 +15173,13 @@ function AdminPanel({
           </div>
         </div>
       </div>
+      )}
 
       {/* Bottom row */}
+      {(seesSales || seesReturns || seesProduction) && (
       <div className="grid min-w-0 gap-5 lg:grid-cols-3">
         {/* Production times */}
+        {seesProduction && (
         <div
           className="admin-dashboard-card min-w-0 rounded-2xl p-5"
           style={{ background: t.card, border: `1px solid ${t.border}` }}
@@ -14869,7 +15214,9 @@ function AdminPanel({
             ))}
           </div>
         </div>
+        )}
         {/* Return reasons */}
+        {seesReturns && (
         <div
           className="admin-dashboard-card min-w-0 rounded-2xl p-5"
           style={{ background: t.card, border: `1px solid ${t.border}` }}
@@ -14907,7 +15254,9 @@ function AdminPanel({
             ))}
           </div>
         </div>
+        )}
         {/* Annual performance */}
+        {seesSales && (
         <div
           className="admin-dashboard-card min-w-0 rounded-2xl p-5"
           style={{ background: t.card, border: `1px solid ${t.border}` }}
@@ -14941,7 +15290,9 @@ function AdminPanel({
             ))}
           </div>
         </div>
+        )}
       </div>
+      )}
 
       <div
         id="admin-alerts-section"
@@ -14957,7 +15308,7 @@ function AdminPanel({
             className="text-xs font-bold uppercase tracking-wide"
             style={{ color: t.text }}
           >
-            Alertas del admin
+            Alertas
           </span>
           <span
             className="ml-auto text-xs px-2 py-0.5 rounded-full font-bold"
@@ -15305,8 +15656,6 @@ function AdminPanel({
         section === "usuarios" &&
         String(rows.usuarios?.[rowIndex]?.[8] ?? "") === "Principal"
       const deleteBlocked = !deleteAssessment.allowed
-      // Sodas (category «Bebidas») are the only products that can be deleted
-      const isSodaProduct = section === "producto" && rows.producto?.[rowIndex]?.[1] === SODA_PRODUCT
       const deleteButton = (
         <button
           type="button"
@@ -15412,8 +15761,7 @@ function AdminPanel({
           })()}
           {!canDo(section, "ELIMINAR") ? null : cfg.statusIndex !== undefined ? (
             section === "producto" ? (
-              // Of the products only a soda can be deleted (while it has never been bought)
-              isSodaProduct ? deleteButton : null
+              deleteButton
             ) : (
               !isPrincipalAdmin &&
               !noDelete &&
@@ -15707,7 +16055,8 @@ function AdminPanel({
                   </tr>
                 )}
                 {pageRows.map(({ row, index: originalIndex }, rowIndex) => {
-                  const isAnulled = anulSet.has(originalIndex)
+                  // Voided: marked in this session, or saved as «Anulado/Anulada» in its status (stays after reloading)
+                  const isAnulled = anulSet.has(originalIndex) || (cfg.statusIndex !== undefined && ["Anulado", "Anulada"].includes(String(row[cfg.statusIndex] ?? "")))
                   const isPrincipalAdmin =
                     section === "usuarios" && String(row[8] ?? "") === "Principal"
                   const isLow =
@@ -15810,7 +16159,8 @@ function AdminPanel({
               </div>
             ) : (
               pageRows.map(({ row, index: originalIndex }, rowIndex) => {
-                const isAnulled = anulSet.has(originalIndex)
+                // Voided: marked in this session, or saved as «Anulado/Anulada» in its status (stays after reloading)
+                const isAnulled = anulSet.has(originalIndex) || (cfg.statusIndex !== undefined && ["Anulado", "Anulada"].includes(String(row[cfg.statusIndex] ?? "")))
                 const isPrincipalAdmin =
                   section === "usuarios" && String(row[8] ?? "") === "Principal"
                 const isLow =
@@ -16683,13 +17033,6 @@ function AdminPanel({
     const naturalSupplierForm = !!supplierFieldKeys
     const formDataFields = supplierFieldKeys
       ? supplierFieldKeys.map((key) => dataFields.find((field) => field.key === key)!)
-      : isUser
-      ? dataFields.filter(
-          (field) =>
-            field.key !== "6" ||
-            (modal.mode === "add" &&
-              String(formData["3"] ?? "").toLowerCase() === "cliente"),
-        )
       : isProduction
       ? dataFields.filter((field) => !["0", "1", "3", "4"].includes(field.key))
       : isPnc
@@ -16707,15 +17050,14 @@ function AdminPanel({
         ? dataFields.filter(
             (field) =>
               // The new user receives a provisional password by e-mail (blank on edit = keep it)
-              !(modal.mode === "add" && field.key === "6") &&
-              (!STAFF_CONTACT_KEYS.includes(field.key) || isStaffRole(isView ? row?.[3] : formData["3"])),
+              !(modal.mode === "add" && field.key === "6"),
           )
         : modal.section === "domicilios" && modal.mode === "edit"
           ? dataFields.filter((field) => field.key !== "0")
         : dataFields
     const productMainFields = isProduct
       ? dataFields.filter(
-          (field) => ["0", "1", "2", "3", "10"].includes(field.key),
+          (field) => ["0", "1", "2", "3", "10", ...(formData["1"] === SODA_PRODUCT ? ["14"] : [])].includes(field.key),
         )
       : dataFields
     // A drink (category «Bebidas») is a finished product: no ficha técnica, its own compact layout
@@ -16814,6 +17156,15 @@ function AdminPanel({
                   color: t.text,
                 }}
               />
+            ) : f.key === "2" && normalizeName(String(formData["1"] ?? "")) === "salsas" ? (
+              // Sauces are always free: no price to type (saved as 0)
+              <div
+                className="w-full min-w-0 px-3.5 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ background: t.cardAlt, border: `1.5px dashed ${t.inputB}`, color: "#2E7D60" }}
+                title="Las salsas no tienen costo para el cliente"
+              >
+                Gratis ($0)
+              </div>
             ) : (
               <input
                 type={f.type}
@@ -17226,7 +17577,7 @@ function AdminPanel({
                         </p>
                         <div className="grid grid-cols-3 gap-2">
                           {[
-                            ["En stock", isSodaName(row[0]) ? `${Number(row[12]) || 0} und` : "No lleva stock"],
+                            ["En stock", isSodaName(row[0]) ? `${Number(row[12]) || 0} und · mín. ${Number(row[14]) || 0}` : "No lleva stock"],
                             ["Costo de compra", cost ? fmt(cost) : "Sin compras"],
                             ["Ganancia por unidad", !cost ? "—" : price >= cost ? fmt(price - cost) : `−${fmt(cost - price)}`],
                           ].map(([label, value]) => (
@@ -18646,20 +18997,77 @@ function AdminPanel({
                           <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_96px_120px_auto]">
                             <label className="flex min-w-0 flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                               Insumo
-                              <select
-                                value={purchaseItemSelect}
-                                onChange={(e) => pickSupply(e.target.value)}
-                                className="w-full min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                                style={{ ...controlSt, color: purchaseItemSelect ? t.text : t.muted }}
-                              >
-                                <option value="">Selecciona un insumo...</option>
-                                {allowed.map((name) => (
-                                  <option key={name} value={name}>
-                                    {name}
-                                    {supplyInfo(name)?.[2] ? ` (${String(supplyInfo(name)?.[2])})` : ""}
-                                  </option>
-                                ))}
-                              </select>
+                              {/* Search: type to filter the supplier's insumos, click one to pick it */}
+                              <div className="relative">
+                                <div className="flex items-center gap-2 rounded-xl px-3" style={controlSt}>
+                                  <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
+                                  <input
+                                    type="text"
+                                    value={purchaseSupplySearch ?? purchaseItemSelect}
+                                    onChange={(e) => {
+                                      setPurchaseSupplySearch(e.target.value)
+                                      if (purchaseItemSelect) pickSupply("")
+                                    }}
+                                    onFocus={(e) => {
+                                      setPurchaseSupplySearch("")
+                                      e.target.select()
+                                    }}
+                                    onBlur={() => setTimeout(() => setPurchaseSupplySearch(null), 150)}
+                                    onKeyDown={(e) => {
+                                      if (e.key !== "Enter") return
+                                      e.preventDefault()
+                                      const q = normalizeName(purchaseSupplySearch ?? "")
+                                      const first = allowed.find((name) => normalizeName(name).includes(q))
+                                      if (first) {
+                                        pickSupply(first)
+                                        setPurchaseSupplySearch(null)
+                                      }
+                                    }}
+                                    placeholder="Busca un insumo..."
+                                    aria-label="Buscar insumo"
+                                    className="w-full min-w-0 bg-transparent py-2.5 text-sm outline-none"
+                                    style={{ color: t.text }}
+                                  />
+                                </div>
+                                {purchaseSupplySearch !== null && (
+                                  <div
+                                    role="listbox"
+                                    className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-xl py-1 shadow-lg"
+                                    style={{ background: t.card, border: `1px solid ${t.border}` }}
+                                  >
+                                    {(() => {
+                                      const q = normalizeName(purchaseSupplySearch)
+                                      const found = allowed.filter((name) => normalizeName(name).includes(q))
+                                      return found.length ? (
+                                        found.map((name) => (
+                                          <button
+                                            key={name}
+                                            type="button"
+                                            role="option"
+                                            aria-selected={name === purchaseItemSelect}
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => {
+                                              pickSupply(name)
+                                              setPurchaseSupplySearch(null)
+                                            }}
+                                            className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-left text-sm hover:opacity-80"
+                                            style={{ color: t.text }}
+                                          >
+                                            <span className="min-w-0 truncate">{name}</span>
+                                            <span className="flex-shrink-0 text-[11px]" style={{ color: t.muted }}>
+                                              {String(supplyInfo(name)?.[2] ?? "")}
+                                            </span>
+                                          </button>
+                                        ))
+                                      ) : (
+                                        <p className="px-3 py-2 text-center text-xs" style={{ color: t.muted }}>
+                                          Ningún insumo de «{supplier}» coincide.
+                                        </p>
+                                      )
+                                    })()}
+                                  </div>
+                                )}
+                              </div>
                             </label>
                             <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                               Cantidad
@@ -23562,12 +23970,13 @@ function AdminPanel({
           user={user}
           onClose={() => setShowAdminProfile(false)}
           onUpdateUser={(u) => {
-            // Update user in localStorage and state
+            // What was just typed wins over the copy in this browser (it keeps the photo)
             const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
-            const updatedUser = saved ? { ...u, ...saved, role: u.role } : u
+            const updatedUser = saved ? { ...saved, ...u, role: u.role } : u
             saveLS(`profile:${u.email.toLowerCase()}`, updatedUser)
-            // Dispatch a custom event to notify the App component
             window.dispatchEvent(new CustomEvent("admin-user-updated", { detail: updatedUser }))
+            // And in the backend, so Usuarios / Clientes show it
+            saveProfile(updatedUser).catch((err) => window.alert(`No se pudieron guardar tus datos: ${(err as Error).message}`))
           }}
         />
       )}
@@ -23665,19 +24074,13 @@ export default function App() {
     saveRegisteredClient(u)
     setUser(u)
   }
-  const persistUserProfile = (u: User) =>
-    api("/auth/me", "PATCH", {
-      nombre: u.name,
-      tipo_documento: u.docType,
-      documento: u.cedula,
-      telefono: u.phone,
-      direcciones: u.addresses,
-    })
+  // Leaves out empty optional fields and tells the admin panel to re-read Usuarios / Clientes
+  const persistUserProfile = saveProfile
   const updateUser = (u: User) => {
     saveUserLocally(u)
     // Name, document, phone and addresses live in the backend (the photo stays in this browser)
     if (loadLS("token", ""))
-      persistUserProfile(u).catch((err) => console.warn("No se pudo guardar el perfil en el backend:", err))
+      persistUserProfile(u).catch((err) => window.alert(`No se pudieron guardar tus datos: ${(err as Error).message}`))
   }
   const login = (u: User, next: Page = "app") => {
     const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
@@ -23806,7 +24209,7 @@ export default function App() {
             tipo_entrega: info.tipoEntrega,
             direccion: info.direccion,
             id_barrio: info.barrioId,
-            distancia_km: info.distanciaKm,
+            ubicacion: info.ubicacion,
             nombre_barrio: info.barrio,
             notas: info.notas,
             pago: info.pago,
