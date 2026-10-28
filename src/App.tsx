@@ -178,6 +178,9 @@ type DeliveryInfo = {
 type DeliveryNeighborhood = {
   id_barrio: number | null
   nombre: string
+  // Set in the admin's Domicilios module
+  tiempo_desplazamiento_minutos?: number | null
+  costo_domicilio_cop?: number | null
 }
 type DeliveryEstimate = {
   minimumMinutes: number | null
@@ -1908,16 +1911,20 @@ const MOD_CFG: Record<string, ModConfig> = {
     // 12: id of its app account (the same person in Usuarios)
     hiddenCellIndexes: [1, 5, 6, 9, 10, 11, 12],
   },
+  // [0 barrio, 1 zona cercana, 2 tiempo estimado (min), 3 costo del domicilio, 4 estado, 5 id]
   domicilios: {
-    columns: ["Barrio", "Zona cercana", "Desplazamiento (min)", "Estado"],
+    columns: ["Barrio", "Zona cercana", "Tiempo estimado (min)", "Costo del domicilio", "Estado"],
     fields: [
       { key: "0", label: "Nombre del barrio", type: "text" },
       { key: "1", label: "Zona cercana validada", type: "select", options: ["Sí", "No"] },
-      { key: "2", label: "Tiempo de desplazamiento (minutos)", type: "number" },
+      { key: "2", label: "Tiempo estimado (minutos)", type: "number" },
+      { key: "3", label: "Costo del domicilio (COP)", type: "number" },
     ],
     seed: [],
-    statusIndex: 3,
-    hiddenCellIndexes: [4],
+    // The backend has no delete for barrios (orders point to them): they are deactivated
+    noDelete: true,
+    statusIndex: 4,
+    hiddenCellIndexes: [5],
   },
   ventas: {
     columns: [
@@ -4381,12 +4388,14 @@ function ProductCatalog({
 function GuestMenuPage({
   cart,
   setCart,
-  onBack,
+  onNav,
+  onLogin,
   onCheckout,
 }: {
   cart: CartItem[]
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
-  onBack: () => void
+  onNav: (href: string) => void
+  onLogin: () => void
   onCheckout: () => void
 }) {
   const [addProduct, setAddProduct] = useState<Product | null>(null)
@@ -4422,65 +4431,15 @@ function GuestMenuPage({
         color: C.dark,
       }}
     >
-      <header
-        className="sticky top-0 z-30"
-        style={{
-          background: "rgba(250,245,232,0.96)",
-          borderBottom: "1px solid rgba(30,30,30,0.08)",
-          backdropFilter: "blur(12px)",
-        }}
-      >
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="text-sm font-semibold cursor-pointer"
-            style={{ color: C.mustard }}
-          >
-            ← Volver
-          </button>
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="Volver a la página de inicio"
-            className="ml-2 flex cursor-pointer items-center gap-2 text-left"
-          >
-            <img
-              src={logoImg}
-              alt="El Parche"
-              className="w-12 h-12 object-contain"
-            />
-            <div>
-              <div
-                className="font-black text-sm"
-                style={{
-                  fontFamily: "League Spartan, sans-serif",
-                  color: C.mustard,
-                }}
-              >
-                El Parche
-              </div>
-              <div className="text-xs" style={{ color: "rgba(30,30,30,0.45)" }}>
-                Menú
-              </div>
-            </div>
-          </button>
-          <button
-            onClick={onCheckout}
-            className="relative ml-auto w-10 h-10 rounded-full flex items-center justify-center cursor-pointer"
-            style={{ background: `${C.mustard}18`, color: C.mustard }}
-          >
-            {Ico.cart}
-            {cartCount > 0 && (
-              <span
-                className="absolute -top-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold"
-                style={{ background: C.red, color: "#fff" }}
-              >
-                {cartCount}
-              </span>
-            )}
-          </button>
-        </div>
-      </header>
+      <SiteHeader
+        dark={false}
+        cartCount={cartCount}
+        onCart={onCheckout}
+        onLogin={onLogin}
+        onOrder={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+        // «Menú» is this page; the other links go to their section of the home page
+        onNav={(href) => (href === "#menu" ? window.scrollTo({ top: 0, behavior: "smooth" }) : onNav(href))}
+      />
       <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <div className="mb-6">
           <h1
@@ -5036,20 +4995,21 @@ const DB_SYNC: Record<string, SyncSpec> = {
   domicilios: {
     path: "/barrios/admin",
     update: "PATCH",
-    idIndex: 4,
+    idIndex: 5,
     idOf: (d) => d.id_barrio,
     toRow: (d) =>
       withId(
         [d.nombre || "", d.es_cercano ? "Sí" : "No", d.tiempo_desplazamiento_minutos ?? "",
-          d.activo ? "Activo" : "Inactivo"],
-        4,
+          d.costo_domicilio_cop ?? "", d.activo ? "Activo" : "Inactivo"],
+        5,
         d.id_barrio,
       ),
     toBody: (row) => ({
       nombre: text(row[0]),
       es_cercano: text(row[1]).toLowerCase() === "sí",
       tiempo_desplazamiento_minutos: text(row[2]) ? Number(row[2]) : null,
-      activo: estadoOf(row[3]) === "ACTIVO",
+      costo_domicilio_cop: text(row[3]) ? Number(row[3]) : null,
+      activo: estadoOf(row[4]) === "ACTIVO",
     }),
     reloads: ["domicilios"],
   },
@@ -6285,7 +6245,15 @@ function NeighborhoodSearch({
                     color: C.dark,
                   }}
                 >
-                  {neighborhood.nombre}
+                  <span>
+                    {neighborhood.nombre}
+                    {neighborhood.costo_domicilio_cop != null && (
+                      <span className="ml-2 text-xs" style={{ color: MUTED }}>
+                        {neighborhood.tiempo_desplazamiento_minutos != null ? `${neighborhood.tiempo_desplazamiento_minutos} min · ` : ""}
+                        {fmt(neighborhood.costo_domicilio_cop)}
+                      </span>
+                    )}
+                  </span>
                   {neighborhood.nombre === value && <span aria-hidden="true" style={{ color: C.forest }}>✓</span>}
                 </li>
               ))}
@@ -6386,7 +6354,6 @@ function CheckoutPage({
         ...current,
         [key]: value,
         ...(key === "tipoEdificio" && !value ? { nombreEdificio: "" } : {}),
-        ...(key === "calle" && current.calle.trim() && current.calle !== value && current.barrio ? { barrio: "" } : {}),
       }
       setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(next) }))
       return next
@@ -6400,9 +6367,13 @@ function CheckoutPage({
     neighborhood?: string
     municipality?: string
   }>({ status: "idle" })
+  // null: not typing (shows the chosen barrio)
+  const [neighborhoodQuery, setNeighborhoodQuery] = useState<string | null>(null)
+  // The barrio the client chose (or, until they do, the one found on the map)
+  const barrioName = addressParts.barrio || geo.neighborhood || ""
   const selectedNeighborhood = neighborhoods.find(
-    (item) => !!geo.neighborhood
-      && normalizeNeighborhood(item.nombre) === normalizeNeighborhood(geo.neighborhood),
+    (item) => !!barrioName
+      && normalizeNeighborhood(item.nombre) === normalizeNeighborhood(barrioName),
   )
   const [deliveryEstimate, setDeliveryEstimate] = useState({
     status: "idle" as "idle" | "loading" | "ready" | "error",
@@ -6414,13 +6385,8 @@ function CheckoutPage({
   })
   const [deliveryEstimateError, setDeliveryEstimateError] = useState("")
   const [estimateRefresh, setEstimateRefresh] = useState(0)
+  // Public list: guests also see each barrio's delivery time and cost
   useEffect(() => {
-    if (!user) {
-      setNeighborhoods(fallbackNeighborhoods)
-      setNeighborhoodsLoading(false)
-      setNeighborhoodsError("")
-      return
-    }
     const controller = new AbortController()
     setNeighborhoodsLoading(true)
     setNeighborhoodsError("")
@@ -6472,7 +6438,7 @@ function CheckoutPage({
           if (!point) return setGeo({ status: "notfound" })
           const km = distanceKm(SHOP_LOCATION, point)
           setGeo({ status: "ok", ...point, km })
-          if (point.neighborhood) setAddressPart("barrio", point.neighborhood)
+          if (point.neighborhood && !addressParts.barrio) setAddressPart("barrio", point.neighborhood)
         })
         .catch((err) => {
           if ((err as Error).name !== "AbortError") setGeo({ status: "error" })
@@ -6484,16 +6450,10 @@ function CheckoutPage({
     }
   }, [geoKey, addressRetry, isDelivery])
   useEffect(() => {
-    if (isDelivery && (geo.status !== "ok" || !selectedNeighborhood)) {
+    if (isDelivery && !selectedNeighborhood) {
       setDeliveryEstimate({
         status: "idle",
-        label: geo.status === "loading"
-          ? "Ubicando la dirección..."
-          : geo.status === "notfound"
-            ? "No encontramos esta dirección"
-            : geo.status === "error"
-              ? "No se pudo consultar la ubicación"
-              : "Completa una dirección dentro de la cobertura",
+        label: addressParts.barrio ? "Elige tu barrio de la lista" : "Elige tu barrio para ver el tiempo y el costo",
         deliveryCost: null,
         distanceKm: null,
         distanceMethod: null,
@@ -6690,13 +6650,12 @@ function CheckoutPage({
     deliveryEstimate.status === "ready"
   )
   const orderTotal = subtotal + (displayedDeliveryCost ?? 0)
+  // A barrio chosen from the list is inside the coverage
   const neighborhoodOutOfRange =
     isDelivery &&
     geo.status === "ok" &&
-    (
-      normalizeNeighborhood(geo.municipality || "") !== normalizeNeighborhood("Bello")
-      || !selectedNeighborhood
-    )
+    !selectedNeighborhood &&
+    normalizeNeighborhood(geo.municipality || "") !== normalizeNeighborhood("Bello")
   const estimatedKitchenMinutes =
     deliveryEstimate.components?.kitchenWaitMinutes !== null &&
     deliveryEstimate.components?.kitchenWaitMinutes !== undefined &&
@@ -7374,26 +7333,23 @@ function CheckoutPage({
                       </button>
                     </div>
                     <div className="mb-3">
-                      <span className="mb-1 block text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
-                        Barrio detectado desde la dirección
-                      </span>
-                      <div
-                        className="rounded-xl px-3.5 py-3 text-sm"
-                        style={{
-                          background: "rgba(30,30,30,0.05)",
-                          border: "1.5px solid rgba(30,30,30,0.12)",
-                          color: C.dark,
+                      <NeighborhoodSearch
+                        value={addressParts.barrio}
+                        query={neighborhoodQuery ?? addressParts.barrio}
+                        neighborhoods={neighborhoods}
+                        loading={neighborhoodsLoading}
+                        loadError={neighborhoodsError}
+                        onQueryChange={setNeighborhoodQuery}
+                        onSelect={(n) => {
+                          setAddressPart("barrio", n === null ? "" : typeof n === "string" ? n : n.nombre)
+                          setNeighborhoodQuery(null)
                         }}
-                        role="status"
-                      >
-                        {geo.status === "loading"
-                          ? "Detectando ubicación..."
-                          : geo.neighborhood
-                            ? `${geo.neighborhood}${geo.municipality ? ` · ${geo.municipality}` : ""}`
-                            : "Se detectará automáticamente al ubicar la dirección"}
-                      </div>
+                        error={deliveryTried && isDelivery && !selectedNeighborhood ? "Elige tu barrio de la lista." : undefined}
+                      />
                       <p className="mt-1 text-xs" style={{ color: MUTED }}>
-                        El barrio, la distancia y el tiempo se calculan a partir de la ubicación encontrada en el mapa.
+                        {selectedNeighborhood?.costo_domicilio_cop != null
+                          ? `Domicilio a ${selectedNeighborhood.nombre}: ${fmt(selectedNeighborhood.costo_domicilio_cop)}${selectedNeighborhood.tiempo_desplazamiento_minutos != null ? ` · ${selectedNeighborhood.tiempo_desplazamiento_minutos} min de recorrido` : ""}.`
+                          : "El tiempo y el costo del domicilio dependen de tu barrio."}
                       </p>
                       {(geo.status === "notfound" || geo.status === "error") && (
                         <div className="mt-2 flex items-center justify-between gap-3">
@@ -8844,195 +8800,40 @@ function ProfilePage({
 }
 
 // ── Client Web App ─────────────────────────────────────────────────────────────
-function ClientApp({
+// The signed-in person's photo (or initial) with their menu: profile, orders, admin panel and sign out
+function AccountMenu({
   user,
-  onLogout,
-  onAdmin,
-  onCheckout,
+  dark,
   onProfile,
-  cart,
-  setCart,
-  orders,
-  onVoucher,
-  initialView = "menu",
+  onOrders,
+  onAdmin,
+  onLogout,
 }: {
   user: User
-  onLogout: () => void
-  onAdmin: () => void
-  onCheckout: () => void
+  dark: boolean
   onProfile: () => void
-  cart: CartItem[]
-  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
-  orders: Order[]
-  onVoucher: (id: string, voucher: string) => void
-  initialView?: "menu" | "cart" | "orders"
+  onOrders: () => void
+  onAdmin: () => void
+  onLogout: () => void
 }) {
-  const [view, setView] = useState<"menu" | "cart" | "orders">(initialView)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const selected = orders.find((o) => o.id === selectedId)
-  const [theme, setTheme] = useState<Theme>("light")
   const [profileOpen, setProfileOpen] = useState(false)
-  const [addProduct, setAddProduct] = useState<Product | null>(null)
   const dropRef = useRef<HTMLDivElement>(null)
-  const dark = theme === "dark"
-  const BG = dark ? "#131210" : "#FAF5E8"
-  const TEXT = dark ? "#F4EEDC" : "#1A1714"
-  const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
-  const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.09)"
-
   useEffect(() => {
     const fn = (e: MouseEvent) => {
-      if (dropRef.current && !dropRef.current.contains(e.target as Node))
-        setProfileOpen(false)
+      if (dropRef.current && !dropRef.current.contains(e.target as Node)) setProfileOpen(false)
     }
     document.addEventListener("mousedown", fn)
     return () => document.removeEventListener("mousedown", fn)
   }, [])
-
-  const cartCount = cart.reduce((s, i) => s + i.qty, 0)
-  const addToCart = (
-    p: Product,
-    qty: number,
-    sauces: string[],
-    additions: { name: string; qty: number; price: number }[],
-  ) => {
-    setCart((c) =>
-      addCartItem(c, {
-        id: Date.now(),
-        productId: p.id,
-        name: p.name,
-        description: p.desc,
-        price: p.price,
-        qty,
-        img: p.img,
-        sauces,
-        additions,
-      }),
-    )
-    setAddProduct(null)
-  }
-  const quickAdd = (p: Product) =>
-    setCart((c) => {
-      const ex = c.find(
-        (x) => x.name === p.name && (x.additions?.length ?? 0) === 0,
-      )
-      if (ex)
-        return c.map((x) => (x.id === ex.id ? { ...x, qty: x.qty + 1 } : x))
-      return [
-        ...c,
-        { id: Date.now(), productId: p.id, name: p.name, description: p.desc, price: p.price, qty: 1, img: p.img },
-      ]
-    })
-
-  if (view === "profile" as string) return null
-
+  const TEXT = dark ? "#F0E8D6" : "#18140A"
+  const MUTED = dark ? "rgba(240,232,214,0.48)" : "rgba(24,20,10,0.5)"
+  const BORDER = dark ? "rgba(240,232,214,0.07)" : "rgba(24,20,10,0.08)"
   return (
-    <div
-      className="min-h-screen flex flex-col"
-      style={{ background: BG, fontFamily: "DM Sans, sans-serif", color: TEXT }}
-    >
-      {/* Header */}
-      <header
-        className="sticky top-0 z-40"
-        style={{
-          background: dark ? "rgba(19,18,16,0.97)" : "rgba(250,245,232,0.97)",
-          borderBottom: `1px solid ${BORDER}`,
-          backdropFilter: "blur(12px)",
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center gap-4 h-16">
-          <button
-            type="button"
-            onClick={() => {
-              setView("menu")
-              window.scrollTo({ top: 0, behavior: "smooth" })
-            }}
-            aria-label="Volver al menú principal"
-            className="flex flex-shrink-0 cursor-pointer items-center gap-2 text-left"
-          >
-            <img
-              src={logoImg}
-              alt="El Parche"
-              className="h-12 w-12 object-contain"
-            />
-            <div>
-              <div
-                className="font-black text-sm leading-none"
-                style={{
-                  fontFamily: "League Spartan, sans-serif",
-                  color: C.mustard,
-                }}
-              >
-                El Parche
-              </div>
-              <div style={{ color: MUTED, fontSize: "0.6rem" }}>
-                Mini Burguer
-              </div>
-            </div>
-          </button>
-          <div className="hidden md:flex items-center gap-1 ml-2">
-            {(["menu", "orders"] as const).map((v) => (
-              <button
-                key={v}
-                onClick={() => {
-                  setView(v)
-                  window.scrollTo({ top: 0, behavior: "smooth" })
-                }}
-                className="px-3 py-1.5 rounded-lg text-sm font-medium cursor-pointer"
-                style={{
-                  background: view === v ? `${C.mustard}15` : "transparent",
-                  color: view === v ? C.mustard : MUTED,
-                }}
-              >
-                {v === "menu" ? "Menú" : "Mis Pedidos"}
-              </button>
-            ))}
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() =>
-                setTheme((t) => (t === "light" ? "dark" : "light"))
-              }
-              className="w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
-              style={{ background: BORDER, color: TEXT }}
-            >
-              {dark ? Ico.sun : Ico.moon}
-            </button>
-            <button
-              onClick={onCheckout}
-              aria-label="Ver mi carrito"
-              className="relative w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
-              style={{ background: BORDER, color: TEXT }}
-            >
-              {Ico.cart}
-              {cartCount > 0 && (
-                <span
-                  className="absolute -top-0.5 -right-0.5 w-4 h-4 flex items-center justify-center text-xs font-bold rounded-full"
-                  style={{
-                    background: C.red,
-                    color: "#fff",
-                    fontSize: "0.6rem",
-                  }}
-                >
-                  {cartCount}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setView("orders")}
-              className="md:hidden w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
-              style={{
-                background: view === "orders" ? `${C.mustard}20` : BORDER,
-                color: view === "orders" ? C.mustard : TEXT,
-              }}
-            >
-              {Ico.orders}
-            </button>
             <div className="relative" ref={dropRef}>
               <button
                 onClick={() => setProfileOpen(!profileOpen)}
                 className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm cursor-pointer overflow-hidden"
-                style={{ background: C.mustard, color: "#fff" }}
+                style={{ background: "#FAF4E8", color: C.mustard, border: `1.5px solid ${C.mustard}` }}
               >
                 {user.photo ? (
                   <img
@@ -9077,6 +8878,16 @@ function ClientApp({
                   >
                     Mi perfil
                   </button>
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false)
+                      onOrders()
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm cursor-pointer"
+                    style={{ color: TEXT }}
+                  >
+                    Mis pedidos
+                  </button>
                   {user.role === "admin" && (
                     <button
                       onClick={() => {
@@ -9102,22 +8913,126 @@ function ClientApp({
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      </header>
+  )
+}
+
+function ClientApp({
+  user,
+  onLogout,
+  onAdmin,
+  onCheckout,
+  onProfile,
+  cart,
+  setCart,
+  orders,
+  onVoucher,
+  initialView = "menu",
+  onNav,
+}: {
+  user: User
+  onNav: (href: string) => void
+  onLogout: () => void
+  onAdmin: () => void
+  onCheckout: () => void
+  onProfile: () => void
+  cart: CartItem[]
+  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
+  orders: Order[]
+  onVoucher: (id: string, voucher: string) => void
+  initialView?: "menu" | "cart" | "orders"
+}) {
+  const [view, setView] = useState<"menu" | "cart" | "orders">(initialView)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selected = orders.find((o) => o.id === selectedId)
+  const [theme, setTheme] = useState<Theme>("light")
+  const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const dark = theme === "dark"
+  const BG = dark ? "#131210" : "#FAF5E8"
+  const TEXT = dark ? "#F4EEDC" : "#1A1714"
+  const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
+  const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.09)"
+
+  const cartCount = cart.reduce((s, i) => s + i.qty, 0)
+  const addToCart = (
+    p: Product,
+    qty: number,
+    sauces: string[],
+    additions: { name: string; qty: number; price: number }[],
+  ) => {
+    setCart((c) =>
+      addCartItem(c, {
+        id: Date.now(),
+        productId: p.id,
+        name: p.name,
+        description: p.desc,
+        price: p.price,
+        qty,
+        img: p.img,
+        sauces,
+        additions,
+      }),
+    )
+    setAddProduct(null)
+  }
+  const quickAdd = (p: Product) =>
+    setCart((c) => {
+      const ex = c.find(
+        (x) => x.name === p.name && (x.additions?.length ?? 0) === 0,
+      )
+      if (ex)
+        return c.map((x) => (x.id === ex.id ? { ...x, qty: x.qty + 1 } : x))
+      return [
+        ...c,
+        { id: Date.now(), productId: p.id, name: p.name, description: p.desc, price: p.price, qty: 1, img: p.img },
+      ]
+    })
+
+  if (view === "profile" as string) return null
+
+  return (
+    <div
+      className="min-h-screen flex flex-col"
+      style={{ background: BG, fontFamily: "DM Sans, sans-serif", color: TEXT }}
+    >
+      {/* Header */}
+      <SiteHeader
+        dark={dark}
+        onToggleDark={() => setTheme((t) => (t === "light" ? "dark" : "light"))}
+        cartCount={cartCount}
+        onCart={onCheckout}
+        onLogin={() => setView("menu")}
+        // «Menú» and «Pedidos» are this client's menu and orders; the rest are sections of the home page
+        onNav={(href) => {
+          if (href === "#menu" || href === "#pedidos") {
+            setView(href === "#menu" ? "menu" : "orders")
+            window.scrollTo({ top: 0, behavior: "smooth" })
+          } else onNav(href)
+        }}
+        account={
+          <AccountMenu
+            user={user}
+            dark={dark}
+            onProfile={onProfile}
+            onOrders={() => setView("orders")}
+            onAdmin={onAdmin}
+            onLogout={onLogout}
+          />
+        }
+      />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6">
         {view === "menu" && (
-          <div>
-            <div className="mb-5">
-              <h2
-                className="font-black text-2xl"
+          // The same page as the guest menu (Pide ahora)
+          <div className="max-w-5xl mx-auto py-2">
+            <div className="mb-6">
+              <h1
+                className="font-black text-3xl"
                 style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
               >
-                Nuestro Menú
-              </h2>
-              <p className="text-sm mt-0.5" style={{ color: MUTED }}>
-                Haz clic en cualquier producto para personalizarlo
+                Elige tu pedido
+              </h1>
+              <p className="text-sm mt-1" style={{ color: MUTED }}>
+                Toca un producto para personalizarlo y agregarlo a tu carrito.
               </p>
             </div>
             <ProductCatalog
@@ -9126,19 +9041,6 @@ function ClientApp({
               compact
               onAddClick={(p) => setAddProduct(p)}
             />
-            <div
-              className="mt-6 flex items-center gap-3 px-4 py-3 rounded-xl"
-              style={{
-                background: `${C.forest}12`,
-                border: `1px solid ${C.forest}22`,
-              }}
-            >
-              <span className="inline-flex text-2xl" style={{ color: C.mustard }}>{Ico.onion}</span>
-              <span className="text-sm font-medium" style={{ color: C.forest }}>
-                Especialidad: <strong>cebolla marinada</strong> — 100% gratis
-                con tu pedido.
-              </span>
-            </div>
           </div>
         )}
         {view === "orders" && (
@@ -9247,13 +9149,232 @@ const ABOUT_ICONS = {
 }
 
 // ── Landing Page ───────────────────────────────────────────────────────────────
+// The home page's top bar, also on the guest menu and the client's app. On the home page its links scroll to
+// each section; on the other pages `onNav` takes the visitor to that section of the home page.
+// `account` (a signed-in client) replaces «Iniciar sesión» / «Pide Ahora».
+const SITE_NAVLINKS = [
+  { label: "Inicio", href: "#inicio" },
+  { label: "Menú", href: "#menu" },
+  { label: "Pedidos", href: "#pedidos" },
+  { label: "Nosotros", href: "#nosotros" },
+  { label: "Contacto", href: "#contacto" },
+]
+function SiteHeader({
+  overlay = false,
+  dark,
+  onToggleDark,
+  cartCount,
+  onCart,
+  onLogin,
+  onOrder,
+  onNav,
+  account,
+}: {
+  overlay?: boolean
+  dark: boolean
+  onToggleDark?: () => void
+  cartCount: number
+  onCart: () => void
+  onLogin: () => void
+  onOrder?: () => void
+  onNav?: (href: string) => void
+  account?: React.ReactNode
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [pastTop, setPastTop] = useState(false)
+  useEffect(() => {
+    if (!overlay) return
+    const fn = () => setPastTop(window.scrollY > 30)
+    window.addEventListener("scroll", fn)
+    return () => window.removeEventListener("scroll", fn)
+  }, [overlay])
+  // Over the home page's photo it starts transparent; elsewhere it is always solid
+  const scrolled = !overlay || pastTop
+  const TEXT = dark ? "#F0E8D6" : "#18140A"
+  const MUTED = dark ? "rgba(240,232,214,0.48)" : "rgba(24,20,10,0.5)"
+  const BORDER = dark ? "rgba(240,232,214,0.07)" : "rgba(24,20,10,0.08)"
+  const HDR_BG = scrolled ? (dark ? "rgba(19,17,14,0.96)" : "rgba(250,244,232,0.96)") : "transparent"
+  const NAVLINKS = SITE_NAVLINKS
+  const go = (e: React.MouseEvent, href: string) => {
+    setMenuOpen(false)
+    if (!onNav) return
+    e.preventDefault()
+    onNav(href)
+  }
+  return (
+    <header
+        className={`${overlay ? "fixed" : "sticky"} top-0 left-0 right-0 z-50 transition-all duration-200`}
+        style={{
+          background: HDR_BG,
+          boxShadow: scrolled ? `0 1px 0 ${BORDER}` : "none",
+          backdropFilter: scrolled ? "blur(14px)" : "none",
+        }}
+      >
+        <div className="max-w-7xl mx-auto px-5 sm:px-8 flex items-center justify-between h-20 md:h-24">
+          <a href="#inicio" onClick={(e) => go(e, "#inicio")} className="flex items-center gap-2.5">
+            <img
+              src={logoImg}
+              alt="El Parche"
+              className="h-20 w-20 sm:h-24 sm:w-24 object-contain"
+            />
+            <div>
+              <div
+                className="landing-brand-title landing-gold-shimmer landing-gold-shimmer-brand font-black text-lg sm:text-xl leading-tight"
+                style={{ color: C.mustard }}
+              >
+                EL PARCHE
+              </div>
+              <div
+                className="landing-brand-subtitle"
+                style={{
+                  color: scrolled ? MUTED : "rgba(255,255,255,0.65)",
+                }}
+              >
+                MINI BURGUER
+              </div>
+            </div>
+          </a>
+          <nav className="hidden lg:flex items-center gap-8">
+            {NAVLINKS.map((l) => (
+              <a
+                key={l.href}
+                href={l.href}
+                onClick={(e) => go(e, l.href)}
+                className="text-base font-medium hover:opacity-60 transition-opacity"
+                style={{ color: l.label === "Menú" ? (scrolled ? "#18140A" : "#fff") : scrolled ? TEXT : "#fff" }}
+              >
+                {l.label}
+              </a>
+            ))}
+          </nav>
+          <div className="flex items-center gap-2">
+            {onToggleDark && (
+            <button
+              onClick={onToggleDark}
+              className="w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
+              style={{ background: BORDER, color: scrolled ? TEXT : "#fff" }}
+            >
+              {dark ? Ico.sun : Ico.moon}
+            </button>
+            )}
+            {/* Cart */}
+            <button
+              onClick={onCart}
+              className="relative w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
+              style={{ background: BORDER, color: scrolled ? TEXT : "#fff" }}
+            >
+              {Ico.cart}
+              {cartCount > 0 && (
+                <span
+                  className="absolute -top-0.5 -right-0.5 w-4 h-4 flex items-center justify-center text-xs font-bold rounded-full"
+                  style={{
+                    background: C.red,
+                    color: "#fff",
+                    fontSize: "0.6rem",
+                  }}
+                >
+                  {cartCount}
+                </span>
+              )}
+            </button>
+            {account ?? (
+            <button
+              onClick={onLogin}
+              className="hidden sm:inline-flex min-h-11 px-5 py-2.5 rounded-full text-base font-semibold cursor-pointer hover:opacity-80"
+              style={{
+                color: scrolled ? TEXT : "#fff",
+                border: `1px solid ${
+                  scrolled ? BORDER : "rgba(255,255,255,0.35)"
+                }`,
+              }}
+            >
+              Iniciar sesión
+            </button>
+            )}
+            {onOrder && (
+            <button
+              onClick={onOrder}
+              className="landing-order-button landing-order-button-header hidden sm:inline-flex min-h-11 px-5 py-2.5 rounded-full text-base font-bold cursor-pointer"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Pide Ahora
+            </button>
+            )}
+            <button
+              className="lg:hidden w-10 h-10 flex items-center justify-center rounded-full cursor-pointer"
+              onClick={() => setMenuOpen(!menuOpen)}
+              style={{
+                color: scrolled ? TEXT : "#fff",
+                background: menuOpen ? BORDER : "transparent",
+              }}
+            >
+              {menuOpen ? Ico.x : Ico.menu}
+            </button>
+          </div>
+        </div>
+        {menuOpen && (
+          <div
+            className="lg:hidden px-5 py-5 flex flex-col gap-1"
+            style={{
+              background: dark
+                ? "rgba(19,17,14,0.98)"
+                : "rgba(250,244,232,0.98)",
+              borderTop: `1px solid ${BORDER}`,
+            }}
+          >
+            {NAVLINKS.map((l) => (
+              <a
+                key={l.href}
+                href={l.href}
+                onClick={(e) => go(e, l.href)}
+                className="text-base font-semibold py-3 px-3 rounded-xl"
+                style={{ color: l.label === "Menú" ? "#18140A" : TEXT, borderBottom: `1px solid ${BORDER}` }}
+              >
+                {l.label}
+              </a>
+            ))}
+            <div className="pt-3 flex flex-col gap-2">
+              {!account && (
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  onLogin()
+                }}
+                className="w-full py-3.5 rounded-2xl font-semibold text-base cursor-pointer"
+                style={{ color: TEXT, border: `1px solid ${BORDER}` }}
+              >
+                Iniciar sesión
+              </button>
+              )}
+              {onOrder && (
+              <button
+                onClick={() => {
+                  setMenuOpen(false)
+                  onOrder()
+                }}
+                className="landing-order-button landing-order-button-mobile-menu w-full py-3.5 rounded-2xl font-bold text-base cursor-pointer"
+                style={{ background: C.mustard, color: "#fff" }}
+              >
+                Pide Ahora
+              </button>
+              )}
+            </div>
+          </div>
+        )}
+      </header>
+  )
+}
+
 function LandingPage({
+  account,
   onLogin,
   onGuestMenu,
   onCheckout,
   cart,
   setCart,
 }: {
+  // Signed in: their photo and menu instead of «Iniciar sesión»
+  account?: React.ReactNode
   onLogin: () => void
   onGuestMenu: () => void
   onCheckout: () => void
@@ -9261,8 +9382,6 @@ function LandingPage({
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
 }) {
   const [dark, setDark] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [scrolled, setScrolled] = useState(false)
   const [waBubble, setWaBubble] = useState(true)
   const [legalModal, setLegalModal] = useState<"envios" | "legal" | null>(null)
   const [addProduct, setAddProduct] = useState<Product | null>(null)
@@ -9270,16 +9389,11 @@ function LandingPage({
   const TEXT = dark ? "#F0E8D6" : "#18140A"
   const MUTED = dark ? "rgba(240,232,214,0.48)" : "rgba(24,20,10,0.5)"
   const BORDER = dark ? "rgba(240,232,214,0.07)" : "rgba(24,20,10,0.08)"
-  const HDR_BG = scrolled
-    ? dark
-      ? "rgba(19,17,14,0.96)"
-      : "rgba(250,244,232,0.96)"
-    : "transparent"
   const cartCount = cart.reduce((s, i) => s + i.qty, 0)
+  // Came from another page's top bar (e.g. «Nosotros»): show that section
   useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > 30)
-    window.addEventListener("scroll", fn)
-    return () => window.removeEventListener("scroll", fn)
+    const target = window.location.hash && document.querySelector(window.location.hash)
+    if (target) window.setTimeout(() => target.scrollIntoView({ behavior: "smooth" }), 50)
   }, [])
   useEffect(() => {
     const elements = document.querySelectorAll<HTMLElement>("[data-reveal]")
@@ -9323,13 +9437,6 @@ function LandingPage({
     )
     setAddProduct(null)
   }
-  const NAVLINKS = [
-    { label: "Inicio", href: "#inicio" },
-    { label: "Menú", href: "#menu" },
-    { label: "Pedidos", href: "#pedidos" },
-    { label: "Nosotros", href: "#nosotros" },
-    { label: "Contacto", href: "#contacto" },
-  ]
   const goToMenu = onGuestMenu
 
   return (
@@ -9337,156 +9444,16 @@ function LandingPage({
       className="landing-page"
       style={{ background: BG, fontFamily: "DM Sans, sans-serif", color: TEXT }}
     >
-      {/* HEADER */}
-      <header
-        className="fixed top-0 left-0 right-0 z-50 transition-all duration-200"
-        style={{
-          background: HDR_BG,
-          boxShadow: scrolled ? `0 1px 0 ${BORDER}` : "none",
-          backdropFilter: scrolled ? "blur(14px)" : "none",
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-5 sm:px-8 flex items-center justify-between h-20 md:h-24">
-          <a href="#inicio" className="flex items-center gap-2.5">
-            <img
-              src={logoImg}
-              alt="El Parche"
-              className="h-20 w-20 sm:h-24 sm:w-24 object-contain"
-            />
-            <div>
-              <div
-                className="landing-brand-title landing-gold-shimmer landing-gold-shimmer-brand font-black text-lg sm:text-xl leading-tight"
-                style={{ color: C.mustard }}
-              >
-                EL PARCHE
-              </div>
-              <div
-                className="landing-brand-subtitle"
-                style={{
-                  color: scrolled ? MUTED : "rgba(255,255,255,0.65)",
-                }}
-              >
-                MINI BURGUER
-              </div>
-            </div>
-          </a>
-          <nav className="hidden lg:flex items-center gap-8">
-            {NAVLINKS.map((l) => (
-              <a
-                key={l.href}
-                href={l.href}
-                className="text-base font-medium hover:opacity-60 transition-opacity"
-                style={{ color: l.label === "Menú" ? (scrolled ? "#18140A" : "#fff") : scrolled ? TEXT : "#fff" }}
-              >
-                {l.label}
-              </a>
-            ))}
-          </nav>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setDark(!dark)}
-              className="w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
-              style={{ background: BORDER, color: scrolled ? TEXT : "#fff" }}
-            >
-              {dark ? Ico.sun : Ico.moon}
-            </button>
-            {/* Cart */}
-            <button
-              onClick={onCheckout}
-              className="relative w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
-              style={{ background: BORDER, color: scrolled ? TEXT : "#fff" }}
-            >
-              {Ico.cart}
-              {cartCount > 0 && (
-                <span
-                  className="absolute -top-0.5 -right-0.5 w-4 h-4 flex items-center justify-center text-xs font-bold rounded-full"
-                  style={{
-                    background: C.red,
-                    color: "#fff",
-                    fontSize: "0.6rem",
-                  }}
-                >
-                  {cartCount}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={onLogin}
-              className="hidden sm:inline-flex min-h-11 px-5 py-2.5 rounded-full text-base font-semibold cursor-pointer hover:opacity-80"
-              style={{
-                color: scrolled ? TEXT : "#fff",
-                border: `1px solid ${
-                  scrolled ? BORDER : "rgba(255,255,255,0.35)"
-                }`,
-              }}
-            >
-              Iniciar sesión
-            </button>
-            <button
-              onClick={goToMenu}
-              className="landing-order-button landing-order-button-header hidden sm:inline-flex min-h-11 px-5 py-2.5 rounded-full text-base font-bold cursor-pointer"
-              style={{ background: C.mustard, color: "#fff" }}
-            >
-              Pide Ahora
-            </button>
-            <button
-              className="lg:hidden w-10 h-10 flex items-center justify-center rounded-full cursor-pointer"
-              onClick={() => setMenuOpen(!menuOpen)}
-              style={{
-                color: scrolled ? TEXT : "#fff",
-                background: menuOpen ? BORDER : "transparent",
-              }}
-            >
-              {menuOpen ? Ico.x : Ico.menu}
-            </button>
-          </div>
-        </div>
-        {menuOpen && (
-          <div
-            className="lg:hidden px-5 py-5 flex flex-col gap-1"
-            style={{
-              background: dark
-                ? "rgba(19,17,14,0.98)"
-                : "rgba(250,244,232,0.98)",
-              borderTop: `1px solid ${BORDER}`,
-            }}
-          >
-            {NAVLINKS.map((l) => (
-              <a
-                key={l.href}
-                href={l.href}
-                onClick={() => setMenuOpen(false)}
-                className="text-base font-semibold py-3 px-3 rounded-xl"
-                style={{ color: l.label === "Menú" ? "#18140A" : TEXT, borderBottom: `1px solid ${BORDER}` }}
-              >
-                {l.label}
-              </a>
-            ))}
-            <div className="pt-3 flex flex-col gap-2">
-              <button
-                onClick={() => {
-                  setMenuOpen(false)
-                  onLogin()
-                }}
-                className="w-full py-3.5 rounded-2xl font-semibold text-base cursor-pointer"
-                style={{ color: TEXT, border: `1px solid ${BORDER}` }}
-              >
-                Iniciar sesión
-              </button>
-              <button
-                onClick={() => {
-                  setMenuOpen(false)
-                  goToMenu()
-                }}
-                className="landing-order-button landing-order-button-mobile-menu w-full py-3.5 rounded-2xl font-bold text-base cursor-pointer"
-                style={{ background: C.mustard, color: "#fff" }}
-              >
-                Pide Ahora
-              </button>
-            </div>
-          </div>
-        )}
-      </header>
+      <SiteHeader
+        overlay
+        account={account}
+        dark={dark}
+        onToggleDark={() => setDark(!dark)}
+        cartCount={cartCount}
+        onCart={onCheckout}
+        onLogin={onLogin}
+        onOrder={goToMenu}
+      />
 
       {/* HERO */}
       <section
@@ -11401,17 +11368,21 @@ function AdminPanel({
     return api<DbRecord[]>(spec.path)
       .then((records) => {
         const dbRows = records.map((r) => withPanelId(sec === "ventas" ? fixShiftedSale(r.datos_panel) : r.datos_panel, spec.idIndex, r.id))
-        panelSaved.current[sec] = new Map(dbRows.map((r) => [r[spec.idIndex], JSON.stringify(r)]))
-        setRows((current) => ({
-          ...current,
-          [sec]: [
-            ...dbRows,
-            ...(current[sec] || []).filter(
-              (r) => !r[spec.idIndex] && (spec.keepLocal?.(r, dbRows) || spec.owns?.(r) === false),
-            ),
-          ],
-        }))
-        panelLoaded.current[sec] = true
+        setRows((current) => {
+          // Marked loaded together with its rows: if the sync ran between the two it would take every row
+          // for deleted (it saw them saved but not on screen) and send a DELETE for each
+          panelSaved.current[sec] = new Map(dbRows.map((r) => [r[spec.idIndex], JSON.stringify(r)]))
+          panelLoaded.current[sec] = true
+          return {
+            ...current,
+            [sec]: [
+              ...dbRows,
+              ...(current[sec] || []).filter(
+                (r) => !r[spec.idIndex] && (spec.keepLocal?.(r, dbRows) || spec.owns?.(r) === false),
+              ),
+            ],
+          }
+        })
       })
       .catch((err) => console.warn(`No se pudo cargar «${sec}» del backend:`, err))
   }
@@ -11427,8 +11398,12 @@ function AdminPanel({
       const present = new Set<string | number>()
       const created: Row[] = []
       for (const row of rows[sec] || []) {
-        if (spec.owns?.(row) === false) continue
         const id = row[spec.idIndex]
+        // Not saved from here (e.g. a store order), but still on screen: it must never look deleted
+        if (spec.owns?.(row) === false) {
+          if (id) present.add(id)
+          continue
+        }
         if (!id) {
           const orderCode = sec === "ventas" ? String(row[9] ?? "") : ""
           const orderHasSale =
@@ -11451,6 +11426,8 @@ function AdminPanel({
       // Rows removed in the panel
       for (const id of [...saved.keys()]) {
         if (present.has(id)) continue
+        // Its row was replaced by one this module doesn't save (the store's copy of that order): not a deletion
+        if (spec.owns && !spec.owns(JSON.parse(saved.get(id)!))) continue
         saved.delete(id)
         api(`${spec.path}/${id}`, "DELETE").catch((err) =>
           window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`),
@@ -24023,7 +24000,8 @@ export default function App() {
     const fromBackend = Object.fromEntries(Object.entries(u).filter(([, v]) => v !== undefined)) as User
     const authenticatedUser = saved ? { ...saved, ...fromBackend, password: undefined } : u
     if (authenticatedUser.mustChangePassword) setUser(authenticatedUser)
-    else updateUser(authenticatedUser)
+    // Only kept in this browser: logging in must not write the profile back (the backend copy is the newest)
+    else saveUserLocally(authenticatedUser)
     setClientView("menu")
     setPage(next)
   }
@@ -24048,6 +24026,11 @@ export default function App() {
   }
   const goGuestMenu = () => {
     setPage("guest-menu")
+  }
+  // From another page's top bar to a section of the home page (it scrolls there when it opens)
+  const goHomeSection = (href: string) => {
+    window.history.replaceState(null, "", href)
+    setPage("landing")
   }
 
   // Nothing else is shown until the provisional password from the sign-up e-mail is replaced
@@ -24107,7 +24090,8 @@ export default function App() {
       <GuestMenuPage
         cart={cart}
         setCart={setCart}
-        onBack={() => setPage("landing")}
+        onNav={goHomeSection}
+        onLogin={() => setPage("login")}
         onCheckout={goCheckout}
       />
     )
@@ -24174,6 +24158,7 @@ export default function App() {
         onAdmin={() => setPage("admin")}
         onCheckout={goCheckout}
         onProfile={() => setPage("profile" as Page)}
+        onNav={goHomeSection}
         cart={cart}
         setCart={setCart}
         orders={orders}
@@ -24208,8 +24193,31 @@ export default function App() {
     )
   return (
     <LandingPage
-      onLogin={() => setPage("login")}
-      onGuestMenu={goGuestMenu}
+      account={
+        user && !user.mustChangePassword ? (
+          <AccountMenu
+            user={user}
+            dark={false}
+            onProfile={() => setPage("profile" as Page)}
+            onOrders={() => {
+              setClientView("orders")
+              setPage("app")
+            }}
+            onAdmin={() => setPage("admin")}
+            onLogout={logout}
+          />
+        ) : undefined
+      }
+      // A client with an open session goes straight back to their menu
+      onLogin={() => setPage(user ? "app" : "login")}
+      onGuestMenu={
+        user
+          ? () => {
+              setClientView("menu")
+              setPage("app")
+            }
+          : goGuestMenu
+      }
       onCheckout={goCheckout}
       cart={cart}
       setCart={setCart}
