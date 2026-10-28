@@ -81,11 +81,26 @@ function addressPartsFromAddress(address: string) {
   }
 }
 // OpenStreetMap search (free). "#" breaks it ("Calle 50 #45-20" -> "Calle 50 45-20")
+const neighborhoodFromGeocodedAddress = (address?: Record<string, string>) =>
+  address
+    ? [
+        address.neighbourhood,
+        address.suburb,
+        address.city_district,
+        address.quarter,
+      ].find(Boolean)
+    : undefined
+
+const municipalityFromGeocodedAddress = (address?: Record<string, string>) =>
+  address
+    ? [address.city, address.town, address.village, address.municipality, address.county].find(Boolean)
+    : undefined
+
 async function geocodeAddress(queries: string[], signal: AbortSignal) {
   for (const q of queries.filter(Boolean)) {
     const url =
-      "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=co&viewbox=-75.75,6.55,-75.35,6.10&q=" +
-      encodeURIComponent(`${q.replace(/#|No\.|N°/gi, " ").replace(/\s+/g, " ").trim()}, Antioquia, Colombia`)
+      "https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=co&bounded=1&viewbox=-75.75,6.55,-75.35,6.10&q=" +
+      encodeURIComponent(`${q.replace(/#|No\.|N°/gi, " ").replace(/\s+/g, " ").trim()}, Bello, Antioquia, Colombia`)
     const res = await fetch(url, { signal, headers: { "Accept-Language": "es" } })
     if (!res.ok) throw new Error(`Mapa no disponible (${res.status})`)
     const [hit] = (await res.json()) as {
@@ -94,15 +109,24 @@ async function geocodeAddress(queries: string[], signal: AbortSignal) {
       address?: Record<string, string>
     }[]
     if (hit) {
-      const neighborhood = hit.address
-        ? [
-            hit.address.neighbourhood,
-            hit.address.suburb,
-            hit.address.city_district,
-            hit.address.quarter,
-          ].find(Boolean)
-        : undefined
-      return { lat: Number(hit.lat), lon: Number(hit.lon), neighborhood }
+      const reverseUrl =
+        "https://nominatim.openstreetmap.org/reverse?format=jsonv2&addressdetails=1&zoom=18&lat=" +
+        encodeURIComponent(hit.lat) +
+        "&lon=" +
+        encodeURIComponent(hit.lon)
+      const reverseResponse = await fetch(reverseUrl, {
+        signal,
+        headers: { "Accept-Language": "es" },
+      })
+      if (!reverseResponse.ok) throw new Error(`Mapa no disponible (${reverseResponse.status})`)
+      const reverse = (await reverseResponse.json()) as {
+        address?: Record<string, string>
+      }
+      const neighborhood = neighborhoodFromGeocodedAddress(reverse.address)
+        || neighborhoodFromGeocodedAddress(hit.address)
+      const municipality = municipalityFromGeocodedAddress(reverse.address)
+        || municipalityFromGeocodedAddress(hit.address)
+      return { lat: Number(hit.lat), lon: Number(hit.lon), neighborhood, municipality }
     }
   }
   return null
@@ -145,6 +169,7 @@ type DeliveryInfo = {
   barrioId?: number | null
   distanciaKm?: number
   costoDomicilio?: number | null
+  ubicacion?: { lat: number; lon: number }
   direccion: string
   barrio?: string
   notas: string
@@ -154,13 +179,16 @@ type DeliveryInfo = {
 type DeliveryNeighborhood = {
   id_barrio: number | null
   nombre: string
-  costo_domicilio_cop?: number | null
 }
 type DeliveryEstimate = {
   minimumMinutes: number | null
   maximumMinutes: number | null
   estimatedMinutes: number | null
   deliveryCost?: number | null
+  distanceKm?: number | null
+  distanceMethod?: "straight_line_estimate" | null
+  zone?: string | null
+  isApproximate?: boolean
   message: string | null
   components?: {
     kitchenWaitMinutes: number | null
@@ -177,6 +205,7 @@ type Order = DeliveryInfo & {
   items: CartItem[]
   total: number
   status: string
+  estimacion?: DeliveryEstimate
   paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Pagado" | "Rechazado"
   paymentRejectionReason?: string
   productionAuthorized?: boolean
@@ -1876,16 +1905,15 @@ const MOD_CFG: Record<string, ModConfig> = {
     hiddenCellIndexes: [1, 5, 6, 9, 10, 11],
   },
   domicilios: {
-    columns: ["Barrio", "Zona cercana", "Desplazamiento (min)", "Costo del domicilio (COP)", "Estado"],
+    columns: ["Barrio", "Zona cercana", "Desplazamiento (min)", "Estado"],
     fields: [
       { key: "0", label: "Nombre del barrio", type: "text" },
       { key: "1", label: "Zona cercana validada", type: "select", options: ["Sí", "No"] },
       { key: "2", label: "Tiempo de desplazamiento (minutos)", type: "number" },
-      { key: "3", label: "Costo del domicilio (COP)", type: "number" },
     ],
     seed: [],
-    statusIndex: 4,
-    hiddenCellIndexes: [5],
+    statusIndex: 3,
+    hiddenCellIndexes: [4],
   },
   ventas: {
     columns: [
@@ -1933,7 +1961,7 @@ const MOD_CFG: Record<string, ModConfig> = {
   pedidos: {
     columns: [
       "Cód. Pedido",
-      "Cliente",
+      "Recibe",
       "Total",
       "Estado",
       "Estado de pago",
@@ -1942,7 +1970,7 @@ const MOD_CFG: Record<string, ModConfig> = {
     fields: [
       {
         key: "0",
-        label: "Cliente",
+        label: "Recibe",
         type: "select",
         options: [],
       },
@@ -1979,6 +2007,7 @@ const MOD_CFG: Record<string, ModConfig> = {
       { key: "9", label: "Comprobante de pago", type: "image" },
       { key: "1", label: "Productos solicitados", type: "textarea" },
       { key: "11", label: "Comentario (especificaciones)", type: "textarea" },
+      { key: "12", label: "Teléfono de quien recibe", type: "tel" },
     ],
     seed: [],
     noDelete: true,
@@ -2095,7 +2124,7 @@ function clientOrderToPanelRow(order: Order, products: (string | number)[][]): R
         : "Pendiente")
   return [
     order.id,
-    order.cliente,
+    order.nombre || order.cliente,
     lines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${lines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
     "Domicilio",
     order.pago === "Efectivo" ? "Efectivo" : "Transferencia",
@@ -2114,6 +2143,8 @@ function clientOrderToPanelRow(order: Order, products: (string | number)[][]): R
             : "Enviada a producción",
     JSON.stringify(lines),
     order.paymentRejectionReason ?? "",
+    order.notas,
+    order.telefono,
   ]
 }
 
@@ -4918,21 +4949,20 @@ const DB_SYNC: Record<string, SyncSpec> = {
   domicilios: {
     path: "/barrios/admin",
     update: "PATCH",
-    idIndex: 5,
+    idIndex: 4,
     idOf: (d) => d.id_barrio,
     toRow: (d) =>
       withId(
         [d.nombre || "", d.es_cercano ? "Sí" : "No", d.tiempo_desplazamiento_minutos ?? "",
-          d.costo_domicilio_cop ?? "", d.activo ? "Activo" : "Inactivo"],
-        5,
+          d.activo ? "Activo" : "Inactivo"],
+        4,
         d.id_barrio,
       ),
     toBody: (row) => ({
       nombre: text(row[0]),
       es_cercano: text(row[1]).toLowerCase() === "sí",
       tiempo_desplazamiento_minutos: text(row[2]) ? Number(row[2]) : null,
-      costo_domicilio_cop: text(row[3]) ? Number(row[3]) : null,
-      activo: estadoOf(row[4]) === "ACTIVO",
+      activo: estadoOf(row[3]) === "ACTIVO",
     }),
     reloads: ["domicilios"],
   },
@@ -5397,13 +5427,14 @@ const orderFromDb = (p: DbRecord): Order => ({
   email: p.correo,
   cliente: p.cliente,
   date: new Date(p.creado_en).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" }),
-  nombre: p.nombre_contacto || p.cliente,
-  telefono: p.telefono_contacto || "",
+  nombre: p.destinatario?.nombre || p.nombre_contacto || p.cliente,
+  telefono: p.destinatario?.telefono || p.telefono_contacto || "",
   tipoEntrega: p.tipo_entrega || "domicilio",
   direccion: p.direccion_entrega || "",
   barrio: p.barrio || neighborhoodNameFromAddress(p.direccion_entrega || "") || undefined,
   barrioId: p.id_barrio || undefined,
   costoDomicilio: p.costo_domicilio_cop ?? null,
+  estimacion: p.estimacion_inicial || undefined,
   notas: p.observacion || "",
   pago: p.metodo_pago || "Efectivo",
   voucher: p.comprobante || undefined,
@@ -5576,6 +5607,18 @@ function OrderList({
                 {(o.items.some((i) => i.sauces?.length || i.additions?.length)) && (
                   <div className="text-[11px] mt-1" style={{ color: C.mustard }}>
                     Incluye personalizaciones
+                  </div>
+                )}
+                {o.tipoEntrega === "domicilio" && (
+                  <div className="mt-2 space-y-0.5 text-[11px]" style={{ color: MUTED }}>
+                    {o.barrio && <div>Barrio: {o.barrio}</div>}
+                    {o.estimacion?.distanceKm != null && (
+                      <div>Distancia aproximada: {o.estimacion.distanceKm.toFixed(1)} km</div>
+                    )}
+                    {o.costoDomicilio != null && <div>Domicilio: {fmt(o.costoDomicilio)}</div>}
+                    {o.estimacion?.estimatedMinutes != null && (
+                      <div>Tiempo estimado: {formatDuration(o.estimacion.estimatedMinutes)}</div>
+                    )}
                   </div>
                 )}
               </div>
@@ -5776,7 +5819,25 @@ function OrderDetailModal({
             <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
               {field("Recibe", order.nombre)}
               {field("Teléfono", order.telefono)}
+              {order.tipoEntrega === "domicilio" && field("Barrio", order.barrio)}
               {field("Dirección", order.direccion, true)}
+              {order.tipoEntrega === "domicilio" && order.estimacion?.distanceKm != null && (
+                <div className="col-span-2 text-xs" style={{ color: MUTED }}>
+                  Distancia aproximada en línea recta: {order.estimacion.distanceKm.toFixed(1)} km
+                </div>
+              )}
+              {order.tipoEntrega === "domicilio" && order.costoDomicilio != null && (
+                <div className="col-span-2 flex justify-between text-xs" style={{ color: MUTED }}>
+                  <span>Costo del domicilio</span>
+                  <span className="font-semibold">{fmt(order.costoDomicilio)}</span>
+                </div>
+              )}
+              {order.estimacion?.estimatedMinutes != null && (
+                <div className="col-span-2 flex justify-between text-xs" style={{ color: MUTED }}>
+                  <span>Tiempo estimado inicial</span>
+                  <span className="font-semibold">{formatDuration(order.estimacion.estimatedMinutes)}</span>
+                </div>
+              )}
               {field("Pago", order.pago)}
               {field("Estado del pago", order.paymentStatus)}
               {field("Notas", order.notas, true)}
@@ -6217,12 +6278,11 @@ function CheckoutPage({
     deliveryMethod === "local"
       ? "Comer en el local"
       : deliveryMethod === "recoger"
-        ? "Pasar por él"
+        ? "Recoger pedido"
         : "Pedir a domicilio"
   // Address typed in parts; `direccion` is built from them (see composeDeliveryAddress)
   const [addressParts, setAddressParts] = useState({ barrio: "", calle: "", tipoEdificio: "", nombreEdificio: "", unidad: "" })
-  const [neighborhoodQuery, setNeighborhoodQuery] = useState("")
-  const neighborhoodManuallySelected = useRef(false)
+  const [addressRetry, setAddressRetry] = useState(0)
   const fallbackNeighborhoods: DeliveryNeighborhood[] = BELLO_NEIGHBORHOODS.map((nombre) => ({
     id_barrio: null,
     nombre,
@@ -6230,9 +6290,6 @@ function CheckoutPage({
   const [neighborhoods, setNeighborhoods] = useState<DeliveryNeighborhood[]>(fallbackNeighborhoods)
   const [neighborhoodsLoading, setNeighborhoodsLoading] = useState(true)
   const [neighborhoodsError, setNeighborhoodsError] = useState("")
-  const selectedNeighborhood = neighborhoods.find(
-    (item) => normalizeNeighborhood(item.nombre) === normalizeNeighborhood(addressParts.barrio),
-  )
   const setAddressPart = (key: keyof typeof addressParts, value: string) =>
     setAddressParts((current) => {
       const next = {
@@ -6245,11 +6302,24 @@ function CheckoutPage({
       return next
     })
   // Where the address is on the map and whether it's inside the delivery zone
-  const [geo, setGeo] = useState<{ status: "idle" | "loading" | "ok" | "notfound" | "error"; lat?: number; lon?: number; km?: number }>({ status: "idle" })
+  const [geo, setGeo] = useState<{
+    status: "idle" | "loading" | "ok" | "notfound" | "error"
+    lat?: number
+    lon?: number
+    km?: number
+    neighborhood?: string
+    municipality?: string
+  }>({ status: "idle" })
+  const selectedNeighborhood = neighborhoods.find(
+    (item) => !!geo.neighborhood
+      && normalizeNeighborhood(item.nombre) === normalizeNeighborhood(geo.neighborhood),
+  )
   const [deliveryEstimate, setDeliveryEstimate] = useState({
-    status: "idle" as "idle" | "loading" | "ready",
+    status: "idle" as "idle" | "loading" | "ready" | "error",
     label: "Por confirmar",
     deliveryCost: null as number | null,
+    distanceKm: null as number | null,
+    distanceMethod: null as DeliveryEstimate["distanceMethod"],
     components: null as DeliveryEstimate["components"] | null,
   })
   const [deliveryEstimateError, setDeliveryEstimateError] = useState("")
@@ -6284,13 +6354,7 @@ function CheckoutPage({
     () => !(user?.addresses?.length),
   )
   // Locate the address (1 s after the last change: OpenStreetMap allows ~1 search per second)
-  const geoQueries = editingAddress
-    ? [
-        addressParts.calle && addressParts.barrio && `${addressParts.calle}, ${addressParts.barrio}`,
-        addressParts.calle,
-        addressParts.barrio,
-      ]
-    : [delivForm.direccion, /Barrio ([^,]+)/.exec(delivForm.direccion)?.[1] ?? ""]
+  const geoQueries = [addressParts.calle]
   const geoKey = geoQueries.join("|")
   useEffect(() => {
     if (!isDelivery) {
@@ -6303,22 +6367,22 @@ function CheckoutPage({
     }
     const controller = new AbortController()
     setGeo({ status: "loading" })
-    setDeliveryEstimate((current) => ({ ...current, status: "loading", label: "Calculando..." }))
+    setDeliveryEstimate((current) => ({
+      ...current,
+      status: "loading",
+      label: "Calculando...",
+      deliveryCost: null,
+      distanceKm: null,
+      distanceMethod: null,
+      components: null,
+    }))
     const timer = setTimeout(() => {
-      geocodeAddress(geoQueries as string[], controller.signal)
+      geocodeAddress(geoQueries, controller.signal)
         .then((point) => {
           if (!point) return setGeo({ status: "notfound" })
           const km = distanceKm(SHOP_LOCATION, point)
           setGeo({ status: "ok", ...point, km })
-          const detectedNeighborhood = point.neighborhood
-            ? neighborhoods.find(
-                (item) => normalizeNeighborhood(item.nombre) === normalizeNeighborhood(point.neighborhood!),
-              )
-            : undefined
-          if (detectedNeighborhood && !addressParts.barrio && !neighborhoodManuallySelected.current) {
-            setNeighborhoodQuery(detectedNeighborhood.nombre)
-            setAddressPart("barrio", detectedNeighborhood.nombre)
-          }
+          if (point.neighborhood) setAddressPart("barrio", point.neighborhood)
         })
         .catch((err) => {
           if ((err as Error).name !== "AbortError") setGeo({ status: "error" })
@@ -6328,18 +6392,33 @@ function CheckoutPage({
       clearTimeout(timer)
       controller.abort()
     }
-  }, [geoKey, neighborhoods, addressParts.barrio, isDelivery])
+  }, [geoKey, addressRetry, isDelivery])
   useEffect(() => {
-    if (isDelivery && !selectedNeighborhood) {
-      setDeliveryEstimate({ status: "idle", label: "Selecciona barrio y dirección", deliveryCost: null, components: null })
-      setDeliveryEstimateError("")
+    if (isDelivery && (geo.status !== "ok" || !selectedNeighborhood)) {
+      setDeliveryEstimate({
+        status: "idle",
+        label: geo.status === "loading"
+          ? "Ubicando la dirección..."
+          : geo.status === "notfound"
+            ? "No encontramos esta dirección"
+            : geo.status === "error"
+              ? "No se pudo consultar la ubicación"
+              : "Completa una dirección dentro de la cobertura",
+        deliveryCost: null,
+        distanceKm: null,
+        distanceMethod: null,
+        components: null,
+      })
+      setDeliveryEstimateError(geo.status === "error" ? "No se pudo consultar la ubicación de la dirección." : "")
       return
     }
     if (!user) {
       setDeliveryEstimate({
         status: "idle",
         label: "Inicia sesión para calcular",
-        deliveryCost: isDelivery ? selectedNeighborhood?.costo_domicilio_cop ?? null : null,
+        deliveryCost: null,
+        distanceKm: null,
+        distanceMethod: null,
         components: null,
       })
       setDeliveryEstimateError("")
@@ -6347,7 +6426,15 @@ function CheckoutPage({
     }
     const controller = new AbortController()
     setDeliveryEstimateError("")
-    setDeliveryEstimate((current) => ({ ...current, status: "loading", label: "Consultando..." }))
+    setDeliveryEstimate((current) => ({
+      ...current,
+      status: "loading",
+      label: "Consultando...",
+      deliveryCost: null,
+      distanceKm: null,
+      distanceMethod: null,
+      components: null,
+    }))
     api<DeliveryEstimate>(
       DELIVERY_ESTIMATE_ENDPOINT,
       "POST",
@@ -6359,9 +6446,13 @@ function CheckoutPage({
             : { nombre_barrio: selectedNeighborhood.nombre }
           : {}),
         ...(isDelivery ? { direccion: delivForm.direccion } : {}),
-        ...(isDelivery && geo.status === "ok" && geo.km !== undefined
-          ? { distancia_km: geo.km }
+        ...(isDelivery && geo.status === "ok" && geo.lat !== undefined && geo.lon !== undefined
+          ? { ubicacion: { lat: geo.lat, lon: geo.lon } }
           : {}),
+        items: cart.filter((item) => item.qty > 0).map((item) => ({
+          producto: item.name,
+          cantidad: item.qty,
+        })),
       },
       controller.signal,
     )
@@ -6375,9 +6466,9 @@ function CheckoutPage({
         setDeliveryEstimate({
           status: "ready",
           label: totalLabel,
-          deliveryCost: isDelivery
-            ? selectedNeighborhood?.costo_domicilio_cop ?? null
-            : null,
+          deliveryCost: isDelivery ? estimate.deliveryCost ?? null : null,
+          distanceKm: isDelivery ? estimate.distanceKm ?? null : null,
+          distanceMethod: isDelivery ? estimate.distanceMethod ?? null : null,
           components: estimate.components ?? null,
         })
       })
@@ -6385,15 +6476,17 @@ function CheckoutPage({
         if ((error as Error).name !== "AbortError") {
           setDeliveryEstimateError((error as Error).message || "No se pudo consultar el tiempo estimado.")
           setDeliveryEstimate({
-            status: "ready",
+            status: "error",
             label: "Por confirmar",
-            deliveryCost: isDelivery ? selectedNeighborhood?.costo_domicilio_cop ?? null : null,
+            deliveryCost: null,
+            distanceKm: null,
+            distanceMethod: null,
             components: null,
           })
         }
       })
     return () => controller.abort()
-  }, [selectedNeighborhood?.id_barrio, selectedNeighborhood?.nombre, delivForm.direccion, geo.km, user?.email, estimateRefresh, isDelivery, deliveryMethod])
+  }, [selectedNeighborhood?.id_barrio, selectedNeighborhood?.nombre, delivForm.direccion, geo.status, geo.lat, geo.lon, user?.email, estimateRefresh, isDelivery, deliveryMethod, cart])
   useEffect(() => {
     if (!user) return
     const interval = window.setInterval(() => setEstimateRefresh((value) => value + 1), 30_000)
@@ -6427,7 +6520,6 @@ function CheckoutPage({
     const savedAddress = user.addresses?.[0] || ""
     const savedParts = addressPartsFromAddress(savedAddress)
     setAddressParts(savedParts)
-    setNeighborhoodQuery(savedParts.barrio)
     setEditingAddress(!hasSavedAddress)
     setSaveAddress(!hasSavedAddress)
   }, [user])
@@ -6461,9 +6553,12 @@ function CheckoutPage({
             : deliveryMethod === "local"
               ? "Consumo en el local"
               : "Recoger en el local",
-          barrio: isDelivery ? addressParts.barrio : undefined,
+          barrio: isDelivery ? selectedNeighborhood?.nombre : undefined,
           barrioId: isDelivery ? selectedNeighborhood?.id_barrio ?? undefined : undefined,
-          distanciaKm: isDelivery ? geo.km : undefined,
+          distanciaKm: undefined,
+          ubicacion: isDelivery && geo.lat !== undefined && geo.lon !== undefined
+            ? { lat: geo.lat, lon: geo.lon }
+            : undefined,
           costoDomicilio: isDelivery ? displayedDeliveryCost : 0,
           voucher: needsVoucher ? voucher : undefined,
         },
@@ -6498,20 +6593,19 @@ function CheckoutPage({
   const displayedDeliveryCost =
     !isDelivery
       ? null
-      : selectedNeighborhood?.costo_domicilio_cop ?? deliveryEstimate.deliveryCost
+      : deliveryEstimate.deliveryCost
   const deliveryCostConfigured = !isDelivery || (
     displayedDeliveryCost !== null &&
+    Number.isSafeInteger(displayedDeliveryCost) &&
     deliveryEstimate.status === "ready"
   )
   const orderTotal = subtotal + (displayedDeliveryCost ?? 0)
-  const neighborhoodInput = addressParts.barrio.trim() || neighborhoodQuery.trim()
   const neighborhoodOutOfRange =
     isDelivery &&
-    !neighborhoodsLoading &&
-    !!neighborhoodInput &&
-    !selectedNeighborhood &&
-    !neighborhoods.some(
-      (item) => normalizeNeighborhood(item.nombre) === normalizeNeighborhood(neighborhoodInput),
+    geo.status === "ok" &&
+    (
+      normalizeNeighborhood(geo.municipality || "") !== normalizeNeighborhood("Bello")
+      || !selectedNeighborhood
     )
   const estimatedKitchenMinutes =
     deliveryEstimate.components?.kitchenWaitMinutes !== null &&
@@ -6536,7 +6630,7 @@ function CheckoutPage({
       !!delivForm.direccion.trim() &&
       !!selectedNeighborhood &&
       (!editingAddress || !!addressParts.calle.trim()) &&
-      (geo.status === "ok" || geo.status === "error")
+      geo.status === "ok"
     )
   )
   const canOrder = user && delivFilled && deliveryCostConfigured
@@ -7094,7 +7188,7 @@ function CheckoutPage({
                       {([
                         ["local", "Comer en el local"],
                         ["domicilio", "Pedir a domicilio"],
-                        ["recoger", "Pasar por él"],
+                        ["recoger", "Recoger pedido"],
                       ] as const).map(([method, label]) => {
                         const selected = deliveryMethod === method
                         return (
@@ -7180,7 +7274,6 @@ function CheckoutPage({
                           if (!editingAddress) {
                             const parts = addressPartsFromAddress(delivForm.direccion)
                             setAddressParts(parts)
-                            setNeighborhoodQuery(parts.barrio)
                           }
                           setEditingAddress((editing) => !editing)
                         }}
@@ -7191,29 +7284,54 @@ function CheckoutPage({
                       </button>
                     </div>
                     <div className="mb-3">
-                      <NeighborhoodSearch
-                        value={addressParts.barrio}
-                        query={neighborhoodQuery}
-                        neighborhoods={neighborhoods}
-                        loading={neighborhoodsLoading}
-                        loadError={neighborhoodsError}
-                        onQueryChange={(query) => {
-                          neighborhoodManuallySelected.current = false
-                          setNeighborhoodQuery(query)
-                          if (addressParts.barrio) setAddressPart("barrio", "")
+                      <span className="mb-1 block text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
+                        Barrio detectado desde la dirección
+                      </span>
+                      <div
+                        className="rounded-xl px-3.5 py-3 text-sm"
+                        style={{
+                          background: "rgba(30,30,30,0.05)",
+                          border: "1.5px solid rgba(30,30,30,0.12)",
+                          color: C.dark,
                         }}
-                        onSelect={(neighborhood) => {
-                          neighborhoodManuallySelected.current = neighborhood !== null
-                          setAddressPart(
-                            "barrio",
-                            typeof neighborhood === "string" ? neighborhood : neighborhood?.nombre || "",
-                          )
-                        }}
-                        error={deliveryTried && !addressParts.barrio ? "Selecciona un barrio de la lista." : undefined}
-                      />
+                        role="status"
+                      >
+                        {geo.status === "loading"
+                          ? "Detectando ubicación..."
+                          : geo.neighborhood
+                            ? `${geo.neighborhood}${geo.municipality ? ` · ${geo.municipality}` : ""}`
+                            : "Se detectará automáticamente al ubicar la dirección"}
+                      </div>
                       <p className="mt-1 text-xs" style={{ color: MUTED }}>
-                        Si el mapa no reconoce el barrio o sugiere uno incorrecto, búscalo y selecciónalo manualmente.
+                        El barrio, la distancia y el tiempo se calculan a partir de la ubicación encontrada en el mapa.
                       </p>
+                      {(geo.status === "notfound" || geo.status === "error") && (
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <span className="text-xs" role="alert" style={{ color: C.red }}>
+                            {geo.status === "notfound"
+                              ? "No encontramos esa dirección. Verifica la calle y el número."
+                              : "No se pudo consultar la ubicación en el mapa."}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setAddressRetry((value) => value + 1)}
+                            className="flex-shrink-0 text-xs font-bold underline"
+                            style={{ color: C.mustard }}
+                          >
+                            Reintentar
+                          </button>
+                        </div>
+                      )}
+                      {neighborhoodOutOfRange && (
+                        <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
+                          La dirección detectada no corresponde a un barrio habilitado en Bello, Antioquia.
+                        </p>
+                      )}
+                      {neighborhoodsError && (
+                        <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
+                          No se pudo comprobar la cobertura: {neighborhoodsError}
+                        </p>
+                      )}
                     </div>
                     {editingAddress ? (
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -7273,7 +7391,6 @@ function CheckoutPage({
                             onClick={() => {
                               const parts = addressPartsFromAddress(address)
                               setAddressParts(parts)
-                              setNeighborhoodQuery(parts.barrio)
                               setDelivForm((form) => ({ ...form, direccion: address }))
                               setEditingAddress(false)
                               setSaveAddress(false)
@@ -7569,10 +7686,37 @@ function CheckoutPage({
                             : "Por confirmar"}
                 </span>
               </div>
-              {isDelivery && deliveryEstimateError && (
-                <p className="mt-2 text-xs" style={{ color: C.red }} role="alert">
-                  No se pudo calcular la entrega: {deliveryEstimateError}
+              {isDelivery && (
+                <div className="flex justify-between gap-4 text-xs" style={{ color: MUTED }}>
+                          <span>Distancia aproximada en línea recta</span>
+                          <span className="text-right">
+                            {deliveryEstimate.distanceKm !== null
+                              ? `${deliveryEstimate.distanceKm.toFixed(1)} km`
+                              : deliveryEstimate.status === "loading"
+                                ? "Calculando..."
+                                : "No disponible"}
+                          </span>
+                </div>
+              )}
+              {isDelivery && deliveryEstimate.status === "ready" && displayedDeliveryCost === null && (
+                <p className="text-xs" style={{ color: C.red }} role="status">
+                          No se pudo calcular el costo sin una distancia válida. Revisa la dirección para continuar.
                 </p>
+              )}
+              {isDelivery && deliveryEstimateError && (
+                <div className="mt-2 flex items-center justify-between gap-3">
+                          <p className="text-xs" style={{ color: C.red }} role="alert">
+                            No se pudo calcular la entrega: {deliveryEstimateError}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setEstimateRefresh((value) => value + 1)}
+                            className="flex-shrink-0 text-xs font-bold underline"
+                            style={{ color: C.mustard }}
+                          >
+                            Reintentar
+                          </button>
+                </div>
               )}
               <div className="flex items-baseline justify-between gap-4">
                 <span className="font-bold" style={{ color: C.dark }}>Tiempo total estimado</span>
@@ -23739,7 +23883,7 @@ export default function App() {
             tipo_entrega: info.tipoEntrega,
             direccion: info.direccion,
             id_barrio: info.barrioId,
-            distancia_km: info.distanciaKm,
+            ubicacion: info.ubicacion,
             nombre_barrio: info.barrio,
             notas: info.notas,
             pago: info.pago,
