@@ -2432,14 +2432,14 @@ function PinCodeField({
         className="relative"
         onClick={(event) => event.currentTarget.querySelector("input")?.focus()}
       >
-        <div className="grid w-fit grid-cols-6 gap-1.5 sm:gap-2" aria-hidden="true">
+        <div className="mx-auto grid w-fit grid-cols-6 gap-1.5 sm:gap-2" aria-hidden="true">
           {Array.from({ length: 6 }, (_, index) => {
             const activeIndex = Math.min(value.length, 5)
             const active = focused && index === activeIndex
             return (
               <div
                 key={index}
-                className="flex h-9 w-9 items-center justify-center rounded-lg text-base font-bold transition-all sm:h-10 sm:w-10 sm:rounded-xl"
+                className="flex h-11 w-11 items-center justify-center rounded-lg text-lg font-bold transition-all sm:h-12 sm:w-12 sm:rounded-xl"
                 style={{
                   background: "#FBF8F0",
                   border: `1.5px solid ${error ? C.red : active ? C.mustard : "rgba(182,140,28,0.2)"}`,
@@ -2491,19 +2491,35 @@ function AccessBackButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      aria-label="Volver"
-      title="Volver"
-      className="fixed left-4 top-4 z-50 flex h-11 w-11 items-center justify-center rounded-full border shadow-md transition-transform hover:-translate-x-0.5 focus-visible:outline-2 focus-visible:outline-offset-2 sm:left-6 sm:top-6"
+      aria-label="Volver a la página de inicio"
+      title="Volver a la página de inicio"
+      className="group fixed left-4 top-4 z-50 inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-bold shadow-xl transition duration-200 hover:-translate-y-0.5 hover:shadow-2xl focus-visible:outline-2 focus-visible:outline-offset-2 sm:left-6 sm:top-6"
       style={{
-        background: "#fff",
-        borderColor: "rgba(182,140,28,0.22)",
-        color: C.mustard,
-        outlineColor: C.mustard,
+        background: "#FAF3E6",
+        color: "#1A1714",
+        outlineColor: "#B68C1C",
       }}
     >
-      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5" aria-hidden="true">
-        <path d="m14.5 5-7 7 7 7M8 12h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-[#B68C1C] transition-transform duration-200 group-hover:-translate-x-0.5" aria-hidden="true">
+        <path d="M19 12H5m0 0 6 6m-6-6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
+      <span className="pr-1">Inicio</span>
+    </button>
+  )
+}
+
+function AccessLoginLink({ onClick, compact = false }: { onClick: () => void; compact?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 ${compact ? "py-2" : "py-2.5"} text-sm font-semibold transition-colors hover:bg-[#FBF5E8] focus-visible:outline-2 focus-visible:outline-offset-2`}
+      style={{ borderColor: "rgba(182,140,28,0.22)", color: C.mustard, outlineColor: C.mustard }}
+    >
+      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
+        <path d="M19 12H5m0 0 6 6m-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      Volver al inicio de sesión
     </button>
   )
 }
@@ -2539,6 +2555,7 @@ function AuthLayout({
   onBack,
   onLogoClick,
   compact = false,
+  wide = false,
 }: {
   children: React.ReactNode
   title: string
@@ -2547,6 +2564,7 @@ function AuthLayout({
   onBack?: () => void
   onLogoClick: () => void
   compact?: boolean
+  wide?: boolean
 }) {
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -2554,7 +2572,7 @@ function AuthLayout({
 
   return (
     <div
-      className="auth-access-page relative isolate min-h-screen flex items-center justify-center overflow-hidden px-4 py-8"
+      className={`auth-access-page relative isolate min-h-screen flex items-center justify-center overflow-hidden px-4 ${wide ? "py-5" : "py-8"}`}
       style={{
         background: backgroundImage ? "#11100e" : "#FAF3E6",
         fontFamily: "DM Sans, sans-serif",
@@ -2562,16 +2580,16 @@ function AuthLayout({
     >
       {backgroundImage && <AuthPhotoBackground src={backgroundImage} />}
       {onBack && <AccessBackButton onClick={onBack} />}
-      <div className={`relative z-10 w-full ${compact ? "max-w-[23rem]" : "max-w-lg"}`}>
-        <div className={`auth-brand flex flex-col items-center ${compact ? "mb-1" : "mb-5"}`}>
+      <div className={`relative z-10 w-full ${wide ? "max-w-[36rem]" : compact ? "max-w-[23rem]" : "max-w-lg"}`}>
+        <div className={`auth-brand flex flex-col items-center ${wide ? "mb-2" : compact ? "mb-1" : "mb-5"}`}>
           <AccessLogo
             onClick={onLogoClick}
             className="object-contain"
-            style={{ width: "144px", height: "144px" }}
+            style={{ width: wide ? "124px" : "144px", height: wide ? "124px" : "144px" }}
           />
         </div>
         <div
-          className={`${compact ? "p-5" : "p-6"} rounded-3xl`}
+          className={`${wide || compact ? "p-5" : "p-6"} rounded-3xl`}
           style={{
             background: "#fff",
             boxShadow: "0 8px 40px rgba(30,30,30,0.1)",
@@ -2584,7 +2602,7 @@ function AuthLayout({
             {title}
           </h2>
           <div
-            className="text-sm mb-4"
+            className={`text-sm ${wide ? "mb-3" : "mb-4"}`}
             style={{ color: "rgba(30,30,30,0.45)" }}
           >
             {sub}
@@ -2754,17 +2772,6 @@ function LoginPage({
             >
               Crear una cuenta
             </button>
-            <button
-              type="button"
-              onClick={onBack}
-              className="w-full py-2 rounded-xl font-medium text-sm cursor-pointer"
-              style={{
-                background: "rgba(30,30,30,0.05)",
-                color: "rgba(30,30,30,0.5)",
-              }}
-            >
-              ← Volver al inicio
-            </button>
           </form>
         </div>
       </div>
@@ -2854,6 +2861,56 @@ function RegisterPage({
       setBusy(false)
     }
   }
+  if (verificationPending) {
+    return (
+      <AuthLayout
+        title="Verifica tu correo"
+        backgroundImage={authFoodBackgroundImg}
+        onBack={onBack}
+        onLogoClick={onLoginLink}
+        compact
+        sub={
+          <>
+            Enviamos un código de 6 dígitos a <strong>{form.email}</strong>.
+          </>
+        }
+      >
+        <form onSubmit={verifyRegistration} noValidate className="flex flex-col gap-2.5">
+          <PinCodeField
+            label="PIN de verificación"
+            value={verificationCode}
+            onChange={setVerificationCode}
+            error={tried && !/^\d{6}$/.test(verificationCode) ? "El PIN debe tener 6 dígitos." : undefined}
+          />
+          <p className="text-xs" style={{ color: "rgba(30,30,30,0.55)" }}>
+            Revisa también la carpeta de correo no deseado. El código vence en 15 minutos.
+          </p>
+          <FieldError msg={serverErr} />
+          <button
+            type="submit"
+            disabled={busy}
+            className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            {busy ? "Verificando..." : "Verificar y crear cuenta"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setVerificationPending(false)
+              setVerificationCode("")
+              setServerErr("")
+            }}
+            className="w-full py-2 rounded-xl font-medium text-sm cursor-pointer"
+            style={{ background: "rgba(30,30,30,0.05)", color: "rgba(30,30,30,0.5)" }}
+          >
+            ← Corregir mis datos
+          </button>
+          <AccessLoginLink onClick={onLoginLink} />
+        </form>
+      </AuthLayout>
+    )
+  }
   return (
     <div
       className="auth-access-page auth-register-page relative isolate min-h-screen flex items-center justify-center overflow-hidden px-4 py-8"
@@ -2862,7 +2919,7 @@ function RegisterPage({
       }}
     >
       <AuthPhotoBackground src={authFoodBackgroundImg} />
-      <AccessBackButton onClick={onLoginLink} />
+      <AccessBackButton onClick={onBack} />
       <div className="relative z-10 grid w-full max-w-6xl items-center gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-10">
         <div className="hidden px-5 text-white lg:block">
           <AccessLogo
@@ -2881,85 +2938,35 @@ function RegisterPage({
           </p>
         </div>
         <div
-          className={`mx-auto w-full rounded-3xl ${verificationPending ? "max-w-[23rem] p-5 lg:justify-self-center" : "max-w-[600px] p-5 sm:p-6 lg:justify-self-center"}`}
+          className="mx-auto w-full max-w-[600px] rounded-3xl p-5 sm:p-6 lg:justify-self-center"
           style={{
             background: "#fff",
             boxShadow: "0 18px 55px rgba(0,0,0,0.28)",
           }}
         >
-          {!verificationPending && (
-            <div className="mb-4 flex justify-center lg:hidden">
-              <AccessLogo
-                onClick={onLoginLink}
-                className="h-20 w-32 object-contain"
-              />
-            </div>
-          )}
-          {verificationPending && (
-            <div className="mb-2 flex items-center justify-center">
-              <AccessLogo
-                onClick={onLoginLink}
-                className="h-36 w-36 object-contain"
-              />
-            </div>
-          )}
+          <div className="mb-4 flex justify-center lg:hidden">
+            <AccessLogo
+              onClick={onLoginLink}
+              className="h-20 w-32 object-contain"
+            />
+          </div>
           <h2
             className="font-black text-xl mb-1"
             style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
           >
-            {verificationPending ? "Verifica tu correo" : "Crear cuenta"}
+            Crear cuenta
           </h2>
-          <div
-            className={`text-sm ${verificationPending ? "mb-3" : "mb-6"}`}
-            style={{ color: "rgba(30,30,30,0.45)" }}
-          >
-            {verificationPending
-              ? <>Enviamos un código de 6 dígitos a <strong>{form.email}</strong>.</>
-              : <>¿Ya tienes cuenta?{" "}
+          <div className="mb-6 text-sm" style={{ color: "rgba(30,30,30,0.45)" }}>
+            ¿Ya tienes cuenta?{" "}
             <button
               onClick={onLoginLink}
               className="font-semibold cursor-pointer"
               style={{ color: C.mustard }}
             >
               Inicia sesión
-            </button></>}
+            </button>
           </div>
-          <form onSubmit={verificationPending ? verifyRegistration : submitForm} noValidate className={`flex flex-col gap-2.5 [&_input]:px-4 [&_input]:py-2.5 [&_select]:px-4 [&_select]:py-2.5`}>
-            {verificationPending ? (
-              <>
-                <PinCodeField
-                  label="PIN de verificación"
-                  value={verificationCode}
-                  onChange={setVerificationCode}
-                  error={tried && !/^\d{6}$/.test(verificationCode) ? "El PIN debe tener 6 dígitos." : undefined}
-                />
-                <p className="text-xs" style={{ color: "rgba(30,30,30,0.55)" }}>
-                  Revisa también la carpeta de correo no deseado. El código vence en 15 minutos.
-                </p>
-                <FieldError msg={serverErr} />
-                <button
-                  type="submit"
-                  disabled={busy}
-                  className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
-                  style={{ background: C.mustard, color: "#fff" }}
-                >
-                  {busy ? "Verificando..." : "Verificar y crear cuenta"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setVerificationPending(false)
-                    setVerificationCode("")
-                    setServerErr("")
-                  }}
-                  className="w-full py-2 rounded-xl font-medium text-sm cursor-pointer"
-                  style={{ background: "rgba(30,30,30,0.05)", color: "rgba(30,30,30,0.5)" }}
-                >
-                  ← Corregir mis datos
-                </button>
-              </>
-            ) : (
-            <>
+          <form onSubmit={submitForm} noValidate className="flex flex-col gap-2.5 [&_input]:px-4 [&_input]:py-2.5 [&_select]:px-4 [&_select]:py-2.5">
             {/* Document type first, its number right next to it */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-start">
               <div className="flex flex-col gap-1 min-w-0">
@@ -3075,19 +3082,7 @@ function RegisterPage({
             >
               {busy ? "Creando cuenta..." : "Crear cuenta →"}
             </button>
-            <button
-              type="button"
-              onClick={onBack}
-              className="w-full py-2 rounded-xl font-medium text-sm cursor-pointer"
-              style={{
-                background: "rgba(30,30,30,0.05)",
-                color: "rgba(30,30,30,0.5)",
-              }}
-            >
-              ← Volver al inicio
-            </button>
-            </>
-            )}
+            <AccessLoginLink onClick={onLoginLink} />
           </form>
         </div>
       </div>
@@ -3189,9 +3184,11 @@ function ChooseOwnPasswordPage({
 function ForgotPage({
   onReset,
   onBack,
+  onLogin,
 }: {
   onReset: (email: string) => void
   onBack: () => void
+  onLogin: () => void
 }) {
   const [email, setEmail] = useState("")
   const [sent, setSent] = useState(false)
@@ -3203,12 +3200,13 @@ function ForgotPage({
         title="Revisa tu correo"
         sub="Si está registrado, te llegará un código"
         backgroundImage={authFoodBackgroundImg}
-        onBack={() => setSent(false)}
-        onLogoClick={onBack}
+        onBack={onBack}
+        onLogoClick={onLogin}
         compact
+        wide
       >
-        <div className="text-center py-2">
-          <div className="mb-3 flex justify-center" aria-hidden="true">
+        <div className="text-center py-1">
+          <div className="mb-2 flex justify-center" aria-hidden="true">
             <svg
               viewBox="0 0 48 48"
               fill="none"
@@ -3219,17 +3217,28 @@ function ForgotPage({
               <path d="m7 13 17 13 17-13" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          <p className="text-sm mb-5" style={{ color: "rgba(30,30,30,0.55)" }}>
+          <p className="text-sm mb-3" style={{ color: "rgba(30,30,30,0.55)" }}>
             Si <strong>{email}</strong> está registrado, se le enviará un código a su correo. Vence en 15 minutos;
             si no lo ves, revisa también la carpeta de spam.
           </p>
           <button
             onClick={() => onReset(email)}
-            className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer"
+            className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer"
             style={{ background: C.mustard, color: "#fff" }}
           >
             Continuar
           </button>
+          <button
+            type="button"
+            onClick={() => setSent(false)}
+            className="mt-1 w-full rounded-xl py-1.5 text-sm font-medium cursor-pointer"
+            style={{ color: "rgba(30,30,30,0.55)" }}
+          >
+            Usar otro correo
+          </button>
+          <div className="mt-2">
+            <AccessLoginLink onClick={onLogin} compact />
+          </div>
         </div>
       </AuthLayout>
     )
@@ -3239,7 +3248,8 @@ function ForgotPage({
       sub="Se enviará un código si el correo existe."
       backgroundImage={authFoodBackgroundImg}
       onBack={onBack}
-      onLogoClick={onBack}
+      onLogoClick={onLogin}
+      wide
     >
       <form
         onSubmit={(e) => {
@@ -3260,7 +3270,7 @@ function ForgotPage({
             })
             .finally(() => setBusy(false))
         }}
-        className="flex flex-col gap-3"
+        className="flex flex-col gap-2.5"
       >
         <InputField
           label="Correo electrónico"
@@ -3277,17 +3287,28 @@ function ForgotPage({
         <button
           type="submit"
           disabled={busy}
-          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
+          className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
           style={{ background: C.mustard, color: "#fff" }}
         >
           {busy ? "Enviando..." : "Enviar código"}
         </button>
+        <AccessLoginLink onClick={onLogin} compact />
       </form>
     </AuthLayout>
   )
 }
 
-function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => void; onBack: () => void }) {
+function ResetPage({
+  email,
+  onDone,
+  onBack,
+  onLogin,
+}: {
+  email: string
+  onDone: () => void
+  onBack: () => void
+  onLogin: () => void
+}) {
   const [code, setCode] = useState("")
   const [verificationToken, setVerificationToken] = useState("")
   const [pass, setPass] = useState("")
@@ -3295,21 +3316,51 @@ function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => voi
   const [err, setErr] = useState("")
   const [ok, setOk] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [resending, setResending] = useState(false)
+  const [resendMessage, setResendMessage] = useState("")
+  const [resendError, setResendError] = useState("")
+  const resendCode = async () => {
+    if (busy || resending) return
+    setResending(true)
+    setResendMessage("")
+    setResendError("")
+    try {
+      await api("/auth/recuperar", "POST", { correo: email.trim() })
+      setResendMessage(
+        "Si ya pasó un minuto desde el último envío, te enviaremos un nuevo código. Revisa también la carpeta de spam.",
+      )
+    } catch (error) {
+      setResendError((error as Error).message)
+    } finally {
+      setResending(false)
+    }
+  }
   if (ok)
     return (
       <AuthLayout
         title="¡Listo!"
         sub="Contraseña actualizada"
         backgroundImage={authFoodBackgroundImg}
-        onBack={onDone}
+        onBack={onBack}
         onLogoClick={onDone}
         compact
+        wide
       >
-        <div className="text-center py-2">
-          <div className="text-5xl mb-3">✅</div>
+        <div className="text-center py-1">
+          <div className="mb-2 flex justify-center" aria-hidden="true">
+            <svg
+              viewBox="0 0 48 48"
+              fill="none"
+              className="h-12 w-12"
+              style={{ color: "#2E7D60" }}
+            >
+              <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="2.5" />
+              <path d="m15 24 6 6 12-13" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
           <button
             onClick={onDone}
-            className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer"
+            className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer"
             style={{ background: C.mustard, color: "#fff" }}
           >
             Iniciar sesión
@@ -3321,16 +3372,10 @@ function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => voi
     <AuthLayout
       title={verificationToken ? "Nueva contraseña" : "Verifica tu correo"}
       backgroundImage={authFoodBackgroundImg}
-      onBack={verificationToken
-        ? () => {
-            setVerificationToken("")
-            setPass("")
-            setPass2("")
-            setErr("")
-          }
-        : onBack}
-      onLogoClick={onDone}
+      onBack={onBack}
+      onLogoClick={onLogin}
       compact
+      wide
       sub={
         <>
           Para <strong>{email}</strong>
@@ -3345,7 +3390,7 @@ function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => voi
               setErr("El PIN debe tener 6 dígitos.")
               return
             }
-            if (busy) return
+            if (busy || resending) return
             setBusy(true)
             setErr("")
             try {
@@ -3370,7 +3415,7 @@ function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => voi
             setErr("Usa al menos 8 caracteres, con una mayúscula, una minúscula y un número.")
             return
           }
-          if (busy) return
+          if (busy || resending) return
           setBusy(true)
           setErr("")
           api("/auth/restablecer", "POST", { correo: email.trim(), token: verificationToken, nueva: pass })
@@ -3378,7 +3423,7 @@ function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => voi
             .catch((error) => setErr((error as Error).message))
             .finally(() => setBusy(false))
         }}
-        className="flex flex-col gap-3"
+        className="flex flex-col gap-2"
       >
         {!verificationToken ? (
           <>
@@ -3394,9 +3439,28 @@ function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => voi
               }}
               error={!verificationToken ? err : undefined}
             />
+            <button
+              type="button"
+              onClick={resendCode}
+              disabled={busy || resending}
+              className="self-start text-sm font-semibold cursor-pointer disabled:cursor-wait disabled:opacity-60"
+              style={{ color: C.mustard }}
+            >
+              {resending ? "Enviando código..." : "Reenviar código"}
+            </button>
+            {resendMessage && (
+              <p className="text-xs" role="status" style={{ color: "rgba(30,30,30,0.6)" }}>
+                {resendMessage}
+              </p>
+            )}
+            {resendError && (
+              <p className="text-sm" role="alert" style={{ color: C.red }}>
+                {resendError}
+              </p>
+            )}
           </>
         ) : (
-          <>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
             <InputField
               label="Nueva contraseña"
               type="password"
@@ -3413,7 +3477,7 @@ function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => voi
               onChange={setPass2}
               required
             />
-          </>
+          </div>
         )}
         {err && verificationToken && (
           <p className="text-sm" style={{ color: C.red }} role="alert">
@@ -3422,8 +3486,8 @@ function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => voi
         )}
         <button
           type="submit"
-          disabled={busy}
-          className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
+          disabled={busy || resending}
+          className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
           style={{ background: C.mustard, color: "#fff" }}
         >
           {busy
@@ -3434,6 +3498,7 @@ function ResetPage({ email, onDone, onBack }: { email: string; onDone: () => voi
               ? "Cambiar contraseña"
               : "Continuar"}
         </button>
+        <AccessLoginLink onClick={onLogin} compact />
       </form>
     </AuthLayout>
   )
@@ -6931,7 +6996,7 @@ function CheckoutPage({
                   <form
                     onSubmit={registrationPending ? handleVerifyRegister : handleRegisterForm}
                     noValidate
-                    className="flex flex-col gap-2.5"
+                    className={`flex flex-col gap-2.5 ${registrationPending ? "mx-auto w-full max-w-[23rem]" : ""}`}
                   >
                     {registrationPending ? (
                       <>
@@ -23688,7 +23753,8 @@ export default function App() {
           setForgotEmail(e)
           setPage("reset")
         }}
-        onBack={() => setPage("login")}
+        onBack={() => setPage("landing")}
+        onLogin={() => setPage("login")}
       />
     )
   if (page === "reset")
@@ -23696,7 +23762,8 @@ export default function App() {
       <ResetPage
         email={forgotEmail}
         onDone={() => setPage("login")}
-        onBack={() => setPage("forgot")}
+        onBack={() => setPage("landing")}
+        onLogin={() => setPage("login")}
       />
     )
   if (page === "guest-menu")
