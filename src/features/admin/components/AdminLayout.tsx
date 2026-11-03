@@ -28,6 +28,9 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
     onSwitchToClient,
     profileOpen,
     readNotifications,
+    errorToast,
+    setErrorToast,
+    notifyError,
     saveToast,
     section,
     sectionLabel,
@@ -374,6 +377,25 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
           </button>
         </div>
       )}
+      {errorToast && (
+        <div
+          key={errorToast.id}
+          role="alert"
+          className="admin-toast-enter fixed bottom-5 left-1/2 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-start gap-3 rounded-xl px-4 py-3 text-sm shadow-lg"
+          style={{ background: "#3a1712", color: "#FBE9E5", border: `1px solid ${C.red}` }}
+        >
+          <span className="mt-0.5 flex-shrink-0" style={{ color: "#F28B7A" }}>{Ico.alert}</span>
+          <span className="min-w-0 flex-1 break-words">{errorToast.message}</span>
+          <button
+            type="button"
+            onClick={() => setErrorToast(null)}
+            aria-label="Cerrar aviso"
+            className="flex-shrink-0 cursor-pointer opacity-70 hover:opacity-100"
+          >
+            {Ico.x}
+          </button>
+        </div>
+      )}
       {saveToast && !undoAnul && (
         <div
           role="status"
@@ -401,7 +423,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
             saveLS(`profile:${u.email.toLowerCase()}`, updatedUser)
             window.dispatchEvent(new CustomEvent("admin-user-updated", { detail: updatedUser }))
             // And in the backend, so Usuarios / Clientes show it
-            saveProfile(updatedUser).catch((err) => window.alert(`No se pudieron guardar tus datos: ${(err as Error).message}`))
+            saveProfile(updatedUser).catch((err) => notifyError(`No se pudieron guardar tus datos: ${(err as Error).message}`))
           }}
         />
       )}

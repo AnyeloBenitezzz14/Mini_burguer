@@ -113,6 +113,19 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         }
       }),
   ]
+  // Problems are shown in a red notice inside the panel (a Windows alert blocks the whole screen)
+  const [errorToast, setErrorToast] = useState<{ id: number; message: string } | null>(null)
+  const notifyError = (message: string) => setErrorToast({ id: Date.now(), message })
+  useEffect(() => {
+    if (!errorToast) return
+    const timer = window.setTimeout(() => setErrorToast(null), 7000)
+    return () => window.clearTimeout(timer)
+  }, [errorToast])
+  useEffect(() => {
+    const onAppError = (e: Event) => notifyError(String((e as CustomEvent).detail))
+    window.addEventListener("app-error", onAppError)
+    return () => window.removeEventListener("app-error", onAppError)
+  }, [])
   // Modules already read from the backend (until then their table shows placeholder rows)
   const [loadedSections, setLoadedSections] = useState<Set<string>>(() => new Set())
   const markLoaded = (sec: string) =>
@@ -237,6 +250,28 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       ordersToPersist.forEach(({ id }) => pushOrder(id))
     }
   }, [clientOrdersSnapshot, productsSnapshot, productionSnapshot])
+  // Every order already sent to production must have its production order: one that never got saved
+  // (or vanished on a reload) is created again. Only once both tables came from the backend, so it
+  // never duplicates one that simply hasn't loaded yet. New rows are saved by the PANEL_SYNC sync.
+  useEffect(() => {
+    if (!loadedSections.has("pedidos") || !loadedSections.has("produccion")) return
+    let produccion = rows.produccion || []
+    const hasProduction = (code: string) => produccion.some((op) => String(op[15] ?? "") === code)
+    const missing = (rows.pedidos || []).filter(
+      (order) =>
+        ["Enviada a producción", "Autorizada"].includes(String(order[9])) &&
+        String(order[7]) !== "Cancelado" &&
+        !hasProduction(String(order[0])),
+    )
+    if (!missing.length) return
+    // Oldest first, so the newest order's OP ends up on top
+    for (const order of [...missing].reverse()) {
+      const lines = getAdminOrderLines(order)
+      if (lines.length) produccion = buildProductionRows(lines, produccion, String(order[0]))
+    }
+    if (produccion !== rows.produccion) setRows((current) => ({ ...current, produccion }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadedSections, rows.pedidos, rows.produccion])
   // Real low-stock alerts from the active insumos, before the order ones
   const notifications: AdminNotification[] = [
     ...(rows.insumos || []).flatMap((r, i) =>
@@ -348,7 +383,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     if (!spec || spec.localOnly?.(row)) return Promise.resolve(null)
     if (!isNew && !row[spec.idIndex]) {
       const message = "Este registro no está vinculado a la base de datos. Recarga la página e inténtalo de nuevo."
-      if (!silent) window.alert(message)
+      if (!silent) notifyError(message)
       return Promise.resolve(message)
     }
     const saved =
@@ -391,7 +426,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       })
       .catch((err) => {
         const message = `No se guardó en la base de datos: ${(err as Error).message}`
-        if (!silent) window.alert(message)
+        if (!silent) notifyError(message)
         return loadModule(sec).then(() => {
           if (sec === "producto") window.dispatchEvent(new Event("products-updated"))
           return message
@@ -409,7 +444,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         if (sec === "domicilios") loadModule("domicilios")
       })
       .catch((err) => {
-        window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`)
+        notifyError(`No se eliminó en la base de datos: ${(err as Error).message}`)
         loadModule(sec)
       })
   }
@@ -527,7 +562,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           saved.set(id, json)
           api(`${spec.path}/${id}`, "PUT", { datos_panel: row.slice(0, spec.idIndex) }).catch((err) => {
             saved.delete(id)
-            window.alert(`No se guardó en la base de datos: ${(err as Error).message}`)
+            notifyError(`No se guardó en la base de datos: ${(err as Error).message}`)
           })
         }
       }
@@ -538,7 +573,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         if (spec.owns && !spec.owns(JSON.parse(saved.get(id)!))) continue
         saved.delete(id)
         api(`${spec.path}/${id}`, "DELETE").catch((err) =>
-          window.alert(`No se eliminó en la base de datos: ${(err as Error).message}`),
+          notifyError(`No se eliminó en la base de datos: ${(err as Error).message}`),
         )
       }
       // New rows: mark them while they are created so they're sent only once
@@ -561,7 +596,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           .catch((err) => {
             const moduleName =
               SIDEBAR_MENU.flatMap((item) => item.children).find((item) => item.key === sec)?.label ?? sec
-            window.alert(`No se pudo crear «${String(row[0] ?? "")}» en ${moduleName}: ${(err as Error).message}`)
+            notifyError(`No se pudo crear «${String(row[0] ?? "")}» en ${moduleName}: ${(err as Error).message}`)
             // Back to "new", but not retried until the record changes
             setRows((current) => ({
               ...current,
@@ -775,7 +810,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       permsSaved.current.set(id, json)
       api(`/roles/${id}/permisos`, "PUT", { permisos }).catch((err) => {
         permsSaved.current.delete(id)
-        window.alert(`Los permisos de «${name}» no se guardaron en la base de datos: ${(err as Error).message}`)
+        notifyError(`Los permisos de «${name}» no se guardaron en la base de datos: ${(err as Error).message}`)
       })
     }
   }, [rolesPerms, rows.roles])
@@ -1535,7 +1570,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     if (!cfg) return
     const row = rows[sec][idx]
     if (isCounterClientRow(sec, row)) {
-      window.alert("El cliente mostrador no se edita: es fijo para registrar ventas a personas que no dan sus datos.")
+      notifyError("El cliente mostrador no se edita: es fijo para registrar ventas a personas que no dan sus datos.")
       return
     }
     const dataFields = cfg.fields.filter((f) => f.type !== "image")
@@ -1796,7 +1831,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       setFormReturn(null)
       setSection("ventas")
       setModal({ mode: null, section: "", idx: null })
-      window.alert(`El pedido ${created} quedó pagado, así que su venta se registró automáticamente.`)
+      notifyError(`El pedido ${created} quedó pagado, así que su venta se registró automáticamente.`)
       return true
     }
     // A supplier adds the new insumo to its list; a sale takes the new order (client and total);
@@ -2897,7 +2932,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
 
     const requestedItems = getAdminOrderLines(order)
     if (!requestedItems.length) {
-      window.alert("Este pedido no tiene productos para enviar a producción.")
+      notifyError("Este pedido no tiene productos para enviar a producción.")
       return
     }
 
@@ -3371,7 +3406,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             const unit = String(supply?.[2] ?? "").trim()
             const quantity = toBaseQuantity(Number(part.quantity), part.unit || unit, unit)
             if (!supply || quantity === null) {
-              window.alert(`No se puede iniciar la producción: revisa que «${part.name}» exista en inventario y su unidad.`)
+              notifyError(`No se puede iniciar la producción: revisa que «${part.name}» exista en inventario y su unidad.`)
               return false
             }
             const current = requiredSupplies.get(part.name)
@@ -3392,7 +3427,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           const supply = rows.insumos?.find((candidate) => candidate[0] === ingredient.name)
           const unit = String(supply?.[2] ?? "").trim()
           if (!supply || !unit || unit.toLowerCase() !== ingredient.unit.trim().toLowerCase()) {
-            window.alert(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y use la misma unidad de la ficha técnica.`)
+            notifyError(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y use la misma unidad de la ficha técnica.`)
             return false
           }
           const current = requiredSupplies.get(ingredient.name)
@@ -3405,7 +3440,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       for (const [name, requirement] of requiredSupplies) {
         const stock = stockOf(name)
         if (!Number.isFinite(stock) || stock < requirement.quantity) {
-          window.alert(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
+          notifyError(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
           return false
         }
       }
@@ -3417,7 +3452,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             insumos: [...requiredSupplies].map(([insumo, r]) => ({ insumo, cantidad: r.quantity })),
           })
         } catch (err) {
-          window.alert(`No se pudo iniciar la producción: ${(err as Error).message}`)
+          notifyError(`No se pudo iniciar la producción: ${(err as Error).message}`)
           loadModule("insumos")
           return false
         }
@@ -3576,7 +3611,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const idx = delTarget.row ? findRowIndex(delTarget.section, delTarget.row) : delTarget.idx
     const row = rows[delTarget.section]?.[idx]
     if (idx < 0 || !row) {
-      window.alert("Este registro ya no está en la tabla (cambió o lo eliminó otra persona).")
+      notifyError("Este registro ya no está en la tabla (cambió o lo eliminó otra persona).")
       setDelTarget(null)
       return
     }
@@ -3595,7 +3630,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         setImgPreview(image)
         setFormFieldErrors((current) => ({ ...current, img: "" }))
       })
-      .catch(() => window.alert("No se pudo leer la imagen. Prueba con otra (JPG o PNG)."))
+      .catch(() => notifyError("No se pudo leer la imagen. Prueba con otra (JPG o PNG)."))
   }
   const parsePurchaseItems = (value: string | number | undefined) =>
     String(value ?? "")
@@ -4042,6 +4077,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     setDiscardAsk,
     saveToast,
     saveModal,
+    errorToast,
+    setErrorToast,
+    notifyError,
     loadedSections,
     savedHighlight,
     saving,
