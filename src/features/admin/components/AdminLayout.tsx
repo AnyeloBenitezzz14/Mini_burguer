@@ -65,7 +65,11 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
         />
       )}
       {/* On desktop it keeps the icons' width; the open menu floats over the content */}
-      <div className="hidden lg:block w-[72px] flex-shrink-0" />
+      <div
+        className={`hidden flex-shrink-0 transition-[width] duration-300 lg:block ${
+          sidebarCollapsed ? "w-[72px]" : "w-[208px]"
+        }`}
+      />
       <aside
         onMouseEnter={() => window.innerWidth >= 1024 && setSidebarCollapsed(false)}
         onMouseLeave={() => window.innerWidth >= 1024 && setSidebarCollapsed(true)}

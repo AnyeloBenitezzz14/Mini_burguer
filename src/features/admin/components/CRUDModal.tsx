@@ -61,6 +61,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     isStatusActive,
     lossDraft,
     lossError,
+    lossPickerOpen,
+    lossPickerQuery,
     lossReturnError,
     lossReturnQty,
     lossReturnReason,
@@ -118,6 +120,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     setImgPreview,
     setLossDraft,
     setLossError,
+    setLossPickerOpen,
+    setLossPickerQuery,
     setLossReturnError,
     setLossReturnQty,
     setLossReturnReason,
@@ -787,7 +791,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
+      className={`fixed inset-0 z-[70] flex items-center justify-center px-4 py-3 ${isUser ? "lg:left-[72px]" : ""}`}
       style={{ background: "rgba(0,0,0,0.65)" }}
       // Forms and details only close with their own buttons (X, Volver, Cancelar), never with a stray click outside
     >
@@ -826,11 +830,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
         </div>
       )}
       <div
-        className={`flex min-w-0 w-full ${isRoles ? "max-w-6xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={`flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
-          maxHeight: isPurchaseModule || isProduct || isRoles ? "94vh" : "88vh",
+          maxHeight: isPurchaseModule || isProduct || isRoles || isUser ? "94vh" : "88vh",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -878,7 +882,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           </button>
         </div>
         <div
-          className={`min-w-0 overflow-x-hidden ${isRoles ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-3 sm:px-5" : "py-4 sm:px-5"} ${
+          className={`min-w-0 overflow-x-hidden ${isRoles || isUser ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
             isUser
               ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
               : isRoles && !isView
@@ -3731,38 +3735,99 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     const items = chosen ? parsePurchaseLines(chosen[6]) : []
                     return (
                       <>
-                        <select
-                          value={String(formData["10"] ?? "")}
-                          // A loss already registered keeps its purchase (its stock was taken from it)
-                          disabled={modal.mode === "edit" && !!formData["10"]}
-                          onChange={(e) => {
-                            const purchase = options.find((c) => String(c[DB_SYNC.compras.idIndex]) === e.target.value)
-                            const names = [...new Set(parsePurchaseLines(purchase?.[6]).map((l) => l.name))]
-                            setFormData((current) => ({
-                              ...current,
-                              "10": e.target.value,
-                              "5": purchase ? purchaseLabel(purchase) : "",
-                              // a purchase with a single insumo picks it; otherwise the user chooses
-                              "0": names.length === 1 ? names[0] : names.includes(String(current["0"] ?? "")) ? String(current["0"]) : "",
-                            }))
-                            setFormFieldErrors((current) => ({ ...current, "10": "", "0": "" }))
-                          }}
-                          aria-invalid={!!formFieldErrors["10"]}
-                          className="w-full min-w-0 cursor-pointer rounded-xl px-3.5 py-2.5 text-sm outline-none disabled:cursor-default disabled:opacity-80"
-                          style={{ background: t.input, border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`, color: formData["10"] ? t.text : t.muted }}
-                        >
-                          <option value="">Elige la compra de la que se perdió...</option>
-                          {options.map((c) => {
-                            const id = String(c[DB_SYNC.compras.idIndex])
-                            const what = [...new Set(parsePurchaseLines(c[6]).map((l) => l.name))]
-                            return (
-                              <option key={id} value={id}>
-                                Compra #{id} · {String(c[0])} · {String(c[1]).slice(0, 10)} · {what.slice(0, 2).join(", ")}
-                                {what.length > 2 ? ` y ${what.length - 2} más` : ""}
-                              </option>
-                            )
-                          })}
-                        </select>
+                        <div className="relative">
+                          <input
+                            type="text"
+                            role="combobox"
+                            aria-label="Buscar compra"
+                            aria-autocomplete="list"
+                            aria-expanded={lossPickerOpen === "purchase"}
+                            aria-controls="loss-purchase-options"
+                            value={lossPickerOpen === "purchase" ? lossPickerQuery : chosen
+                              ? `Compra #${String(chosen[DB_SYNC.compras.idIndex])} · ${String(chosen[0])} · ${String(chosen[1]).slice(0, 10)}`
+                              : ""}
+                            placeholder="Buscar compra..."
+                            autoComplete="off"
+                            disabled={modal.mode === "edit" && !!formData["10"]}
+                            onFocus={() => {
+                              setLossPickerQuery("")
+                              setLossPickerOpen("purchase")
+                            }}
+                            onChange={(event) => {
+                              setLossPickerQuery(event.target.value)
+                              setLossPickerOpen("purchase")
+                            }}
+                            onBlur={() => {
+                              setLossPickerOpen(null)
+                              setLossPickerQuery("")
+                            }}
+                            aria-invalid={!!formFieldErrors["10"]}
+                            className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none disabled:cursor-default disabled:opacity-80"
+                            style={{
+                              background: t.input,
+                              border: `1.5px solid ${formFieldErrors["10"] ? C.red : lossPickerOpen === "purchase" ? C.mustard : t.inputB}`,
+                              color: formData["10"] ? t.text : t.muted,
+                            }}
+                          />
+                          {lossPickerOpen === "purchase" && (
+                            <div
+                              id="loss-purchase-options"
+                              role="listbox"
+                              className="absolute left-0 right-0 top-full z-30 mt-1 max-h-52 overflow-y-auto rounded-xl p-1 shadow-xl"
+                              style={{ background: t.card, border: `1px solid ${t.border}` }}
+                            >
+                              {options.filter((purchase) => {
+                                const id = String(purchase[DB_SYNC.compras.idIndex])
+                                const what = [...new Set(parsePurchaseLines(purchase[6]).map((line) => line.name))]
+                                const label = `Compra #${id} ${String(purchase[0])} ${String(purchase[1]).slice(0, 10)} ${what.join(" ")}`
+                                return normalizeName(label).includes(normalizeName(lossPickerQuery.trim()))
+                              }).length ? (
+                                options.filter((purchase) => {
+                                  const id = String(purchase[DB_SYNC.compras.idIndex])
+                                  const what = [...new Set(parsePurchaseLines(purchase[6]).map((line) => line.name))]
+                                  const label = `Compra #${id} ${String(purchase[0])} ${String(purchase[1]).slice(0, 10)} ${what.join(" ")}`
+                                  return normalizeName(label).includes(normalizeName(lossPickerQuery.trim()))
+                                }).map((purchase) => {
+                                  const id = String(purchase[DB_SYNC.compras.idIndex])
+                                  const what = [...new Set(parsePurchaseLines(purchase[6]).map((line) => line.name))]
+                                  return (
+                                    <button
+                                      key={id}
+                                      type="button"
+                                      role="option"
+                                      aria-selected={id === String(formData["10"] ?? "")}
+                                      onMouseDown={(event) => event.preventDefault()}
+                                      onClick={() => {
+                                        const names = what
+                                        setFormData((current) => ({
+                                          ...current,
+                                          "10": id,
+                                          "5": purchaseLabel(purchase),
+                                          "0": names.length === 1 ? names[0] : names.includes(String(current["0"] ?? "")) ? String(current["0"]) : "",
+                                        }))
+                                        setFormFieldErrors((current) => ({ ...current, "10": "", "0": "" }))
+                                        setLossPickerOpen(null)
+                                        setLossPickerQuery("")
+                                      }}
+                                      className="w-full cursor-pointer rounded-lg px-3 py-2 text-left text-xs"
+                                      style={{
+                                        background: id === String(formData["10"] ?? "") ? `${C.mustard}18` : "transparent",
+                                        color: t.text,
+                                      }}
+                                    >
+                                      Compra #{id} · {String(purchase[0])} · {String(purchase[1]).slice(0, 10)} · {what.slice(0, 2).join(", ")}
+                                      {what.length > 2 ? ` y ${what.length - 2} más` : ""}
+                                    </button>
+                                  )
+                                })
+                              ) : (
+                                <p className="px-3 py-2 text-center text-xs" style={{ color: t.muted }}>
+                                  {options.length ? "Ninguna compra coincide." : "No hay compras activas con insumos registrados."}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
                         {chosen && (
                           <span className="text-[11px]" style={{ color: t.muted }}>
                             {String(chosen[0])} · {formatViewValue(MOD_CFG.compras.fields.find((field) => field.key === "1")!, String(chosen[1]))} ·{" "}
@@ -4306,7 +4371,160 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         </span>
                       </span>
                     </button>
+                  ) : isPurchase && f.key === "0" ? (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        role="combobox"
+                        aria-label="Buscar proveedor"
+                        aria-autocomplete="list"
+                        aria-expanded={supplierPickerOpen}
+                        aria-controls="purchase-supplier-options"
+                        value={supplierPickerOpen ? supplierPickerQuery : val}
+                        placeholder="Buscar proveedor..."
+                        autoComplete="off"
+                        onFocus={() => {
+                          setSupplierPickerQuery("")
+                          setSupplierPickerOpen(true)
+                        }}
+                        onChange={(event) => {
+                          setSupplierPickerQuery(event.target.value)
+                          setSupplierPickerOpen(true)
+                        }}
+                        onBlur={() => {
+                          if (requiredFormField) {
+                            setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                          }
+                          setSupplierPickerOpen(false)
+                          setSupplierPickerQuery("")
+                        }}
+                        aria-invalid={!!fieldValidationError}
+                        className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none"
+                        style={{
+                          background: t.input,
+                          border: `1.5px solid ${fieldValidationError ? C.red : supplierPickerOpen ? C.mustard : t.inputB}`,
+                          color: val ? t.text : t.muted,
+                        }}
+                      />
+                      {supplierPickerOpen && (
+                        <div
+                          id="purchase-supplier-options"
+                          role="listbox"
+                          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-52 overflow-y-auto rounded-xl p-1 shadow-xl"
+                          style={{ background: t.card, border: `1px solid ${t.border}` }}
+                        >
+                          {visibleFieldOptions?.filter((option) =>
+                            normalizeName(option).includes(normalizeName(supplierPickerQuery.trim())),
+                          ).length ? (
+                            visibleFieldOptions
+                              ?.filter((option) => normalizeName(option).includes(normalizeName(supplierPickerQuery.trim())))
+                              .map((option) => (
+                                <button
+                                  key={option}
+                                  type="button"
+                                  role="option"
+                                  aria-selected={option === val}
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={() => {
+                                    updateFieldValue(option)
+                                    setSupplierPickerOpen(false)
+                                    setSupplierPickerQuery("")
+                                  }}
+                                  className="w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm"
+                                  style={{
+                                    background: option === val ? `${C.mustard}18` : "transparent",
+                                    color: t.text,
+                                  }}
+                                >
+                                  {option}
+                                </button>
+                              ))
+                          ) : (
+                            <p className="px-3 py-2 text-center text-xs" style={{ color: t.muted }}>
+                              {visibleFieldOptions?.length ? "Ningún proveedor coincide." : "No hay proveedores activos."}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   ) : f.type === "select" ? (
+                    modal.section === "perdidas" && f.key === "0" && !isView ? (
+                      <div className="relative">
+                        <input
+                          type="text"
+                          role="combobox"
+                          aria-label="Buscar insumo"
+                          aria-autocomplete="list"
+                          aria-expanded={lossPickerOpen === "supply"}
+                          aria-controls="loss-supply-options"
+                          value={lossPickerOpen === "supply" ? lossPickerQuery : val}
+                          placeholder="Buscar insumo..."
+                          autoComplete="off"
+                          onFocus={() => {
+                            setLossPickerQuery("")
+                            setLossPickerOpen("supply")
+                          }}
+                          onChange={(event) => {
+                            setLossPickerQuery(event.target.value)
+                            setLossPickerOpen("supply")
+                          }}
+                          onBlur={() => {
+                            setLossPickerOpen(null)
+                            setLossPickerQuery("")
+                            if (requiredFormField) {
+                              setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode))
+                            }
+                          }}
+                          aria-invalid={!!fieldValidationError}
+                          className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none"
+                          style={{
+                            background: t.input,
+                            border: `1.5px solid ${fieldValidationError ? C.red : lossPickerOpen === "supply" ? C.mustard : t.inputB}`,
+                            color: val ? t.text : t.muted,
+                          }}
+                        />
+                        {lossPickerOpen === "supply" && (
+                          <div
+                            id="loss-supply-options"
+                            role="listbox"
+                            className="absolute left-0 right-0 top-full z-30 mt-1 max-h-52 overflow-y-auto rounded-xl p-1 shadow-xl"
+                            style={{ background: t.card, border: `1px solid ${t.border}` }}
+                          >
+                            {visibleFieldOptions?.filter((option) =>
+                              normalizeName(option).includes(normalizeName(lossPickerQuery.trim())),
+                            ).length ? (
+                              visibleFieldOptions
+                                ?.filter((option) => normalizeName(option).includes(normalizeName(lossPickerQuery.trim())))
+                                .map((option) => (
+                                  <button
+                                    key={option}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={option === val}
+                                    onMouseDown={(event) => event.preventDefault()}
+                                    onClick={() => {
+                                      updateFieldValue(option)
+                                      setLossPickerOpen(null)
+                                      setLossPickerQuery("")
+                                    }}
+                                    className="w-full cursor-pointer rounded-lg px-3 py-2 text-left text-sm"
+                                    style={{
+                                      background: option === val ? `${C.mustard}18` : "transparent",
+                                      color: t.text,
+                                    }}
+                                  >
+                                    {option}
+                                  </button>
+                                ))
+                            ) : (
+                              <p className="px-3 py-2 text-center text-xs" style={{ color: t.muted }}>
+                                {visibleFieldOptions?.length ? "Ningún insumo coincide." : "Elige primero una compra con insumos registrados."}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
                     <select
                       value={val}
                       disabled={
@@ -4344,6 +4562,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         <option value="__new_client__">+ Registrar nuevo cliente</option>
                       )}
                     </select>
+                    )
                   ) : f.type === "textarea" ? (
                     <textarea
                       value={val}

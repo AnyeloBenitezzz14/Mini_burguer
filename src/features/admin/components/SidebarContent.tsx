@@ -79,6 +79,7 @@ return (
               onClick={() => {
                 if (leaf) {
                   setSection(g.key as AdminSection)
+                  setSidebarOpen(false)
                 } else if (sidebarCollapsed && window.innerWidth >= 1024) {
                   // Its modules need their names: open the menu with this group expanded
                   setSidebarCollapsed(false)
@@ -135,6 +136,7 @@ return (
                     key={item.key}
                     onClick={() => {
                       setSection(item.key as AdminSection)
+                      setSidebarOpen(false)
                     }}
                     className="admin-subnav-item w-full text-left pr-3 py-2 rounded-lg cursor-pointer"
                     style={{
