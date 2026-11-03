@@ -69,7 +69,12 @@ export const pushOrder = (id: string): Promise<unknown> => {
     motivo_rechazo_pago: o.paymentRejectionReason ?? null,
     produccion_autorizada: !!o.productionAuthorized,
     registros_produccion: o.productionRecords ?? [],
-  }).catch((err) => window.alert(`El pedido ${o.id} no se guardó en la base de datos: ${(err as Error).message}`))
+  }).catch((err) => {
+    // The admin panel shows it in its red notice (a Windows alert would block the screen)
+    const message = `El pedido ${o.id} no se guardó en la base de datos: ${(err as Error).message}`
+    console.warn(message)
+    window.dispatchEvent(new CustomEvent("app-error", { detail: message }))
+  })
 }
 
 // Downscale to keep vouchers small enough for localStorage
