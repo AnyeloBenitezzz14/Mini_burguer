@@ -1,8 +1,5 @@
 export const formatDuration = (minutes: number) => {
-  const hours = Math.floor(minutes / 60)
-  const remainingMinutes = minutes % 60
-  if (!hours) return `${minutes} min`
-  return remainingMinutes ? `${hours} h ${remainingMinutes} min` : `${hours} h`
+  return `${minutes} min`
 }
 
 // Quantities typed as "0,5" or "0.5" (a number input drops the comma in some browsers); NaN if not a number

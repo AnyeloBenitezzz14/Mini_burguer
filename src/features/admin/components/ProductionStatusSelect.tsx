@@ -6,11 +6,13 @@ import type { ReactNode } from "react"
 
 export default function ProductionStatusSelect(adminState: AdminPanelState, { rowIndex }: { rowIndex: number }): ReactNode {
   const {
+    canDo,
     changeProductionStatus,
     openProductionPnc,
     rows,
     t,
   } = adminState
+  const canEdit = canDo("produccion", "EDITAR")
   const value = String(
     rows.produccion?.[rowIndex]?.[8] ?? "Recibida",
   ) as (typeof PRODUCTION_STATUSES)[number]
@@ -33,9 +35,11 @@ export default function ProductionStatusSelect(adminState: AdminPanelState, { ro
       </span>
       <select
         value={value}
-        title="Cambiar estado de producción"
+        disabled={!canEdit}
+        title={canEdit ? "Cambiar estado de producción" : "No tienes permiso para editar órdenes de producción"}
         aria-label="Estado de la orden de producción"
         onChange={(event) => {
+          if (!canEdit) return
           const nextStatus = event.target.value as (typeof PRODUCTION_STATUSES)[number]
           if (nextStatus === "Producto no conforme") {
             openProductionPnc(rowIndex)
@@ -43,7 +47,7 @@ export default function ProductionStatusSelect(adminState: AdminPanelState, { ro
           }
           changeProductionStatus(rowIndex, nextStatus)
         }}
-        className="h-9 w-full min-w-0 appearance-none rounded-xl py-2 pl-7 pr-7 text-xs font-semibold outline-none cursor-pointer"
+        className="h-9 w-full min-w-0 appearance-none rounded-xl py-2 pl-7 pr-7 text-xs font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60"
         style={{
           background: value === "Producto no conforme" ? `${C.red}10` : value === "Terminado" ? "rgba(58,109,94,0.10)" : t.input,
           border: `1px solid ${value === "Producto no conforme" ? `${C.red}30` : t.inputB}`,

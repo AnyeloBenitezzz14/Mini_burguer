@@ -352,6 +352,18 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
       rows[section]?.[rowIndex],
     )
     const deleteBlocked = !deleteAssessment.allowed
+    const disabledAction = (label: string, icon: ReactNode) => (
+      <button
+        type="button"
+        title={`${label} · Anulado o no disponible`}
+        aria-label={`${label} no disponible`}
+        disabled
+        className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded-lg opacity-40"
+        style={{ color: t.muted, background: t.input }}
+      >
+        {icon}
+      </button>
+    )
     const deleteButton = (
       <button
         type="button"
@@ -376,19 +388,23 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
 
     return (
       <div className="flex flex-shrink-0 flex-nowrap items-center justify-end gap-1.5">
-        <button
-          type="button"
-          title={detailActionLabel}
-          aria-label={detailActionLabel}
-          onClick={() => openView(section, rowIndex)}
-          className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
-          style={{ color: C.amber, background: `${C.amber}15` }}
-        >
-          {Ico.eye}
-        </button>
-        {!isAnulled && canDo(section, "EDITAR") && !(section === "perdidas" && isReturnedLoss(rows.perdidas?.[rowIndex])) &&
-          // An annulled purchase is history: not editable (its stock was already taken back)
-          !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) && (
+        {canDo(section, "VER") ? (
+          <button
+            type="button"
+            title={detailActionLabel}
+            aria-label={detailActionLabel}
+            onClick={() => openView(section, rowIndex)}
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+            style={{ color: C.amber, background: `${C.amber}15` }}
+          >
+            {Ico.eye}
+          </button>
+        ) : disabledAction("Ver detalle", Ico.eye)}
+        {!isAnulled &&
+        canDo(section, "EDITAR") &&
+        !(section === "perdidas" && isReturnedLoss(rows.perdidas?.[rowIndex])) &&
+        // An annulled purchase is history: not editable (its stock was already taken back)
+        !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) ? (
           <button
             type="button"
             title="Editar"
@@ -399,10 +415,17 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           >
             {Ico.edit}
           </button>
+        ) : (
+          disabledAction("Editar", Ico.edit)
         )}
-        {section === "perdidas" && canDo(section, "EDITAR") && (() => {
+        {section === "perdidas" && (() => {
           const lossRow = rows.perdidas?.[rowIndex]
-          if (!String(lossRow?.[5] ?? "").startsWith("Compra a ") || isReturnedLoss(lossRow) || isLossPurchaseAnnulled(lossRow)) return null
+          const canReturn =
+            canDo(section, "EDITAR") &&
+            String(lossRow?.[5] ?? "").startsWith("Compra a ") &&
+            !isReturnedLoss(lossRow) &&
+            !isLossPurchaseAnnulled(lossRow)
+          if (!canReturn) return disabledAction("Devolver a compra", Ico.undo)
           return (
             <button
               type="button"
@@ -422,10 +445,13 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
             </button>
           )
         })()}
-        {cfg.statusIndex !== undefined && section !== "produccion" && canDo(section, "ELIMINAR") && (() => {
+        {cfg.statusIndex !== undefined && section !== "produccion" && (() => {
           const statusRow = rows[section]?.[rowIndex]
           const entity = String(statusRow?.[0] ?? "registro")
           const active = isStatusActive(statusRow?.[cfg.statusIndex!] ?? "Activo")
+          if (!canDo(section, "ELIMINAR")) {
+            return disabledAction(active ? "Anular" : "Reactivar", active ? Ico.ban : Ico.undo)
+          }
           // Protected (administrador role, superadmin): the window explains why
           const locked = !!statusRow && (isStatusLocked(section, statusRow) || isPrincipalAdmin)
           return active || locked ? (
@@ -455,53 +481,58 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
             </button>
           )
         })()}
-        {!canDo(section, "ELIMINAR") ? null : cfg.statusIndex !== undefined ? (
+        {cfg.statusIndex !== undefined ? (
           section === "producto" ? (
-            deleteButton
+            canDo(section, "ELIMINAR") ? deleteButton : disabledAction("Eliminar", Ico.trash)
           ) : (
+            canDo(section, "ELIMINAR") &&
             !isPrincipalAdmin &&
             !noDelete &&
-            canShowProductionDelete &&
-            deleteButton
+            canShowProductionDelete
+              ? deleteButton
+              : disabledAction("Eliminar", Ico.trash)
           )
-        ) : section === "perdidas" ? (
-          // The backend can't annul a loss; the way back is returning it to its purchase
-          null
-        ) : noDelete ? (
-          isAnulled ? (
-            <button
-              type="button"
-              title="Reactivar"
-              aria-label="Reactivar"
-              onClick={() => reactivate(section, rowIndex)}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
-              style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
-            >
-              {Ico.undo}
-            </button>
-          ) : (
-            <button
-              type="button"
-              title="Anular"
-              aria-label="Anular"
-              aria-haspopup="dialog"
-              onClick={() => setAnulTarget({ section, idx: rowIndex })}
-              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
-              style={{ color: C.red, background: `${C.red}12` }}
-            >
-              {Ico.ban}
-            </button>
-          )
-        ) : !isPrincipalAdmin ? (
+        ) : section === "perdidas" ? null : noDelete ? (
+          canDo(section, "ELIMINAR") ? (
+            isAnulled ? (
+              <button
+                type="button"
+                title="Reactivar"
+                aria-label="Reactivar"
+                onClick={() => reactivate(section, rowIndex)}
+                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
+              >
+                {Ico.undo}
+              </button>
+            ) : (
+              <button
+                type="button"
+                title="Anular"
+                aria-label="Anular"
+                aria-haspopup="dialog"
+                onClick={() => setAnulTarget({ section, idx: rowIndex })}
+                className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+                style={{ color: C.red, background: `${C.red}12` }}
+              >
+                {Ico.ban}
+              </button>
+            )
+          ) : disabledAction(isAnulled ? "Reactivar" : "Anular", isAnulled ? Ico.undo : Ico.ban)
+        ) : canDo(section, "ELIMINAR") && !isPrincipalAdmin ? (
           deleteButton
-        ) : null
-        }
+        ) : (
+          disabledAction("Eliminar", Ico.trash)
+        )}
       </div>
     )
   }
 
   return (
-    <div className="min-w-0">
+    <div
+      className={`min-w-0 ${section === "roles" ? "w-full" : ""}`}
+      style={section === "roles" ? { maxWidth: 760 } : undefined}
+    >
       <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
         <div
           className="search-control flex w-full min-w-0 items-center gap-2 rounded-full px-3 py-2 sm:w-72"

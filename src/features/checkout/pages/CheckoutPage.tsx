@@ -99,6 +99,7 @@ export default function CheckoutPage({
     km?: number
     neighborhood?: string
     municipality?: string
+    approximate?: boolean
   }>({ status: "idle" })
   // null: not typing (shows the chosen barrio)
   const [neighborhoodQuery, setNeighborhoodQuery] = useState<string | null>(null)
@@ -155,7 +156,8 @@ export default function CheckoutPage({
     streetAddress,
     [streetAddress, addressParts.barrio].filter(Boolean).join(", "),
   ].filter(Boolean))]
-  const geoKey = geoQueries.join("|")
+  const geoFallbackQuery = addressParts.barrio.trim()
+  const geoKey = [...geoQueries, geoFallbackQuery].join("|")
   useEffect(() => {
     if (!isDelivery) {
       setGeo({ status: "idle" })
@@ -177,7 +179,7 @@ export default function CheckoutPage({
       components: null,
     }))
     const timer = setTimeout(() => {
-      geocodeAddress(geoQueries, controller.signal)
+      geocodeAddress(geoQueries, controller.signal, geoFallbackQuery)
         .then((point) => {
           if (!point) return setGeo({ status: "notfound" })
           const km = distanceKm(SHOP_LOCATION, point)
@@ -245,7 +247,7 @@ export default function CheckoutPage({
             ? { nombre_barrio: selectedNeighborhood?.nombre || addressParts.barrio.trim() }
             : {}),
         ...(isDelivery ? { direccion: delivForm.direccion } : {}),
-        ...(isDelivery && geo.status === "ok" && geo.lat !== undefined && geo.lon !== undefined
+        ...(isDelivery && geo.status === "ok" && !geo.approximate && geo.lat !== undefined && geo.lon !== undefined
           ? { ubicacion: { lat: geo.lat, lon: geo.lon } }
           : {}),
         items: cart.filter((item) => item.qty > 0).map((item) => ({
@@ -355,7 +357,7 @@ export default function CheckoutPage({
           barrio: isDelivery ? selectedNeighborhood?.nombre : undefined,
           barrioId: isDelivery ? selectedNeighborhood?.id_barrio ?? undefined : undefined,
           distanciaKm: undefined,
-          ubicacion: isDelivery && geo.lat !== undefined && geo.lon !== undefined
+          ubicacion: isDelivery && !geo.approximate && geo.lat !== undefined && geo.lon !== undefined
             ? { lat: geo.lat, lon: geo.lon }
             : undefined,
           costoDomicilio: isDelivery ? displayedDeliveryCost : 0,
@@ -412,13 +414,6 @@ export default function CheckoutPage({
     (!neighborhoodOutOfRange &&
       (geocodedInsideBello ||
         (!!selectedNeighborhood && isKnownBelloNeighborhood(selectedNeighborhood.nombre))))
-  const estimatedKitchenMinutes =
-    deliveryEstimate.components?.kitchenWaitMinutes !== null &&
-    deliveryEstimate.components?.kitchenWaitMinutes !== undefined &&
-    deliveryEstimate.components?.preparationMinutes !== null &&
-    deliveryEstimate.components?.preparationMinutes !== undefined
-      ? deliveryEstimate.components.kitchenWaitMinutes + deliveryEstimate.components.preparationMinutes
-      : null
   const deliveryTimeParts = [
     deliveryEstimate.components?.dispatchWaitMinutes,
     deliveryEstimate.components?.travelMinutes,
@@ -1400,6 +1395,11 @@ export default function CheckoutPage({
                           {geo.status === "error" && "No pudimos cargar el mapa en este momento. Reintenta o verifica que el barrio esté habilitado."}
                         </p>
                         )}
+                        {geo.status === "ok" && geo.approximate && (
+                          <p className="px-3 py-2 text-xs font-medium" role="status" style={{ background: "rgba(30,30,30,0.04)", color: MUTED }}>
+                            Mostramos una ubicación aproximada de {addressParts.barrio || geo.neighborhood || "este barrio"}; el punto exacto de la dirección no está disponible.
+                          </p>
+                        )}
                       </div>
                     )}
                     <label className="flex items-start gap-2 mt-2 text-xs cursor-pointer" style={{ color: MUTED }}>
@@ -1798,16 +1798,6 @@ export default function CheckoutPage({
                     </span>
                   </div>
                   <div className="space-y-1 pl-2 text-xs" style={{ color: MUTED, opacity: 0.72 }}>
-                    <div className="flex justify-between gap-4">
-                      <span>Tiempo de cocina</span>
-                      <span className="text-right" style={{ color: estimatedKitchenMinutes !== null ? C.mustard : MUTED }}>
-                        {estimatedKitchenMinutes !== null
-                          ? formatDuration(estimatedKitchenMinutes)
-                          : deliveryEstimate.status === "loading"
-                            ? "Calculando..."
-                            : "Por confirmar"}
-                      </span>
-                    </div>
                     <div className="flex justify-between gap-4">
                       <span>Tiempo de domicilio</span>
                       <span className="text-right" style={{ color: estimatedDeliveryMinutes !== null ? C.mustard : MUTED }}>

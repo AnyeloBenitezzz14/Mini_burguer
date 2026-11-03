@@ -23,6 +23,7 @@ export default function OrderDetailModal({
   const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.09)"
   const cardBg = dark ? "rgba(255,255,255,0.03)" : "#FBF6E9"
+  const hasFewItems = order.items.length <= 2
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6"
@@ -31,7 +32,7 @@ export default function OrderDetailModal({
     >
       {/* Computer: products on the left; delivery, payment and total on the right (no long scroll) */}
       <div
-        className="flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-3xl md:max-w-3xl"
+        className={`flex max-h-[92vh] w-full flex-col overflow-hidden rounded-3xl ${hasFewItems ? "max-w-xl" : "max-w-md md:max-w-3xl"}`}
         style={{ background: dark ? "#1E1C18" : "#fff", color: TEXT }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -54,9 +55,9 @@ export default function OrderDetailModal({
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto md:grid md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] md:overflow-hidden">
+        <div className={`min-h-0 overflow-y-auto ${hasFewItems ? "max-h-[calc(92vh-5rem)] flex-none" : "flex-1 md:grid md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] md:overflow-hidden"}`}>
           {/* Products: photo, name, unit price and subtotal; below, one short line per sauce set, addition and soda */}
-          <div className="space-y-2 p-4 md:overflow-y-auto md:p-5">
+          <div className={`space-y-2 p-4 md:overflow-y-auto md:p-5 ${hasFewItems ? "md:pb-2" : ""}`}>
             {order.items.map((i) => {
               // The product's current photo first: the one saved with the order may no longer exist (photo replaced)
               const productImg =
@@ -105,7 +106,7 @@ export default function OrderDetailModal({
           </div>
 
           {/* Order-only summary: customer and address details are shown in Mis pedidos */}
-          <div className="space-y-4 border-t p-4 md:overflow-y-auto md:border-l md:border-t-0 md:p-5" style={{ borderColor: BORDER }}>
+          <div className={`space-y-4 border-t p-4 md:overflow-y-auto md:p-5 ${hasFewItems ? "" : "md:border-l md:border-t-0"}`} style={{ borderColor: BORDER }}>
             {order.tipoEntrega === "domicilio" && (
               <section>
                 <h4 className="mb-2 text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>

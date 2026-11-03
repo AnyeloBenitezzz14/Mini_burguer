@@ -35,7 +35,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   // Only the modules this user's role may see (the backend enforces it too)
   const canSee = (key: string) => key === "dashboard" || !user?.permissions || user.permissions.includes(SECTION_MODULE[key])
   // Hides the buttons the role can't use (the backend rejects them anyway)
-  const canDo = (key: string, privilege: "CREAR" | "EDITAR" | "ELIMINAR") =>
+  const canDo = (key: string, privilege: "VER" | "CREAR" | "EDITAR" | "ELIMINAR") =>
     !user?.actions || !SECTION_MODULE[key] || !!user.actions[SECTION_MODULE[key]]?.includes(privilege)
   const visibleMenu = SIDEBAR_MENU.map((g) => ({ ...g, children: g.children.filter((c) => canSee(c.key)) })).filter(
     (g) => (g.key.endsWith("-g") ? g.children.length > 0 : canSee(g.key)),
@@ -670,6 +670,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   // Insumo form: the suppliers dropdown (open + search)
   const [supplierPickerOpen, setSupplierPickerOpen] = useState(false)
   const [supplierPickerQuery, setSupplierPickerQuery] = useState("")
+  const [lossPickerOpen, setLossPickerOpen] = useState<"purchase" | "supply" | null>(null)
+  const [lossPickerQuery, setLossPickerQuery] = useState("")
   // Supplier form: search box of "Insumos que suministra"
   const [supplierSupplySearch, setSupplierSupplySearch] = useState("")
   // Where the insumos list opens (the search box's position); null = closed
@@ -697,6 +699,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     setPurchaseItemPrice("")
     setPurchaseFormError("")
     setPurchaseNotice("")
+    setSupplierPickerOpen(false)
+    setSupplierPickerQuery("")
     setLossDraft(null)
   }
   const [pncTarget, setPncTarget] = useState<number | null>(null)
@@ -1487,6 +1491,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     if (sec === "perdidas") {
       initialFields["3"] = sellerName
       initialFields["4"] = getCurrentDateTimeParts().date
+      setLossPickerOpen(null)
+      setLossPickerQuery("")
     }
     if (sec === "clientes") {
       initialFields["6"] = "No"
@@ -1567,6 +1573,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     setFormFieldErrors({})
     if (sec === "clientes") setClientFormError("")
     if (sec === "compras") resetPurchasePicker()
+    if (sec === "perdidas") {
+      setLossPickerOpen(null)
+      setLossPickerQuery("")
+    }
     if (sec === "insumos") {
       setSupplyFormError("")
       setSupplierPickerOpen(false)
@@ -3357,6 +3367,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
   ): Promise<boolean> => {
+    if (!canDo("produccion", "EDITAR")) return false
     const sourceRow = rows.produccion?.[rowIndex]
     if (!sourceRow) return false
     if (String(sourceRow[8]) === nextStatus) return true
@@ -3913,6 +3924,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     setPurchaseFormError,
     lossDraft,
     setLossDraft,
+    lossPickerOpen,
+    setLossPickerOpen,
+    lossPickerQuery,
+    setLossPickerQuery,
     lossError,
     setLossError,
     purchaseNotice,

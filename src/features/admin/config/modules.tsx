@@ -2,7 +2,7 @@ import { ADDITIONS, PRODUCTS, PRODUCT_CAT_LABEL } from "@/features/menu/data/pro
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
 import type { ModConfig } from "@/shared/types"
-import { DOC_TYPES } from "@/shared/utils/validation"
+import { DOC_TYPES, USER_DOC_TYPES } from "@/shared/utils/validation"
 
 // How each stock movement origin (movimientos_stock.origen) reads in the insumo's history
 export const STOCK_ORIGIN: Record<string, string> = {
@@ -64,7 +64,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
         key: "1",
         label: "Tipo de documento",
         type: "select",
-        options: DOC_TYPES,
+        options: USER_DOC_TYPES,
       },
       { key: "2", label: "Número de documento", type: "text" },
       { key: "0", label: "Nombre completo", type: "text" },

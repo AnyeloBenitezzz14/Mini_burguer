@@ -1,14 +1,16 @@
 import type { FieldErrors } from "@/shared/types"
 
 export const DOC_TYPES = ["Cédula de Ciudadanía", "Cédula Extranjería", "NIT", "Pasaporte"]
+export const PPT_DOC_TYPE = "PPT (Permiso por Protección Temporal)"
+export const USER_DOC_TYPES = [...DOC_TYPES, PPT_DOC_TYPE]
 
-// One rule per document type for every form (registro, usuarios, clientes, ventas, proveedores).
-// The backend accepts 6 to 10 characters.
+// Shared document rules; PPT is offered only in the user form.
 export const DOC_RULES: Record<string, { re: RegExp; msg: string }> = {
   "Cédula de Ciudadanía": { re: /^\d{6,10}$/, msg: "La cédula debe tener entre 6 y 10 números, sin puntos ni espacios." },
   "Cédula Extranjería": { re: /^\d{6,10}$/, msg: "La cédula de extranjería debe tener entre 6 y 10 números." },
   NIT: { re: /^\d{9,10}$/, msg: "El NIT debe tener 9 números, o 10 con el dígito de verificación (sin guion)." },
   Pasaporte: { re: /^[A-Za-z0-9]{6,10}$/, msg: "El pasaporte debe tener entre 6 y 10 letras o números, sin espacios." },
+  [PPT_DOC_TYPE]: { re: /^\d{7}$/, msg: "El PPT debe tener exactamente 7 números." },
 }
 
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
@@ -17,7 +19,10 @@ export const digitsOnly = (value: string) => value.replace(/\D/g, "")
 
 // While typing: only the characters the type allows, at most 10
 export const normalizeDocumentInput = (value: string, docType: string) =>
-  (docType === "Pasaporte" ? value.replace(/[^a-zA-Z0-9]/g, "") : digitsOnly(value)).slice(0, 10)
+  (docType === "Pasaporte" ? value.replace(/[^a-zA-Z0-9]/g, "") : digitsOnly(value)).slice(
+    0,
+    docType === PPT_DOC_TYPE ? 7 : 10,
+  )
 
 export const normalizeAccountDocumentInput = normalizeDocumentInput
 
