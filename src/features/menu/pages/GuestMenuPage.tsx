@@ -1,4 +1,5 @@
 import { useState } from "react"
+import CartAddedNotice, { useCartNotice } from "@/features/checkout/components/CartAddedNotice"
 import { addCartItem } from "@/features/checkout/utils/cart"
 import AddToCartModal from "@/features/menu/components/AddToCartModal"
 import ProductCatalog from "@/features/menu/components/ProductCatalog"
@@ -20,6 +21,7 @@ export default function GuestMenuPage({
   onCheckout: () => void
 }) {
   const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const [cartNotice, showCartNotice] = useCartNotice()
   const cartCount = cart.reduce((sum, item) => sum + item.qty, 0)
   const addToCart = (
     product: Product,
@@ -41,6 +43,7 @@ export default function GuestMenuPage({
       }),
     )
     setAddProduct(null)
+    showCartNotice(product.name)
   }
 
   return (
@@ -90,6 +93,7 @@ export default function GuestMenuPage({
           dark={false}
         />
       )}
+      <CartAddedNotice message={cartNotice} />
     </div>
   )
 }

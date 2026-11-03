@@ -72,7 +72,12 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
   const noDelete = !!cfg.noDelete
   const noExp = !!cfg.noExport
   const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))
-  const sRows = indexedRows
+  const sRows =
+    section === "usuarios"
+      ? [...indexedRows].sort(
+          (a, b) => Number(b.row[7] || 0) - Number(a.row[7] || 0),
+        )
+      : indexedRows
   const q = (search[section] || "").toLowerCase()
   const filterGroups = (TABLE_FILTERS[section] || [])
     .map(({ label, index }) => ({
@@ -342,9 +347,10 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     const canShowProductionDelete =
       section !== "produccion" ||
       String(rows.produccion?.[rowIndex]?.[8] ?? "Recibida") === "Recibida"
-    const isPrincipalAdmin =
-      section === "usuarios" &&
-      String(rows.usuarios?.[rowIndex]?.[8] ?? "") === "Principal"
+    const isPrincipalAdmin = isSuperAdminRow(
+      section,
+      rows[section]?.[rowIndex],
+    )
     const deleteBlocked = !deleteAssessment.allowed
     const deleteButton = (
       <button

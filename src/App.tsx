@@ -308,8 +308,10 @@ export default function App() {
         onBack={() => setPage("app")}
         onLogout={logout}
         onUpdateUser={updateUser}
-        orders={orders}
-        onVoucher={setVoucher}
+        onOrders={() => {
+          setClientView("orders")
+          setPage("app")
+        }}
       />
     )
   if (page === "admin" && user?.role === "admin" && ordersLoadedFor !== user.email)

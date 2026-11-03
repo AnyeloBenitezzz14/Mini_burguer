@@ -5,6 +5,7 @@ import logoImg from "@/imports/logo.png"
 import PinCodeField from "@/features/auth/components/PinCodeField"
 import { apiLogin, requestRegistrationCode, saveRegisteredClient, toUser, verifyRegistrationCode } from "@/features/auth/services/auth.service"
 import { validateLogin, validateRegister } from "@/features/auth/utils/validation"
+import CartAddedNotice, { useCartNotice } from "@/features/checkout/components/CartAddedNotice"
 import CartSummary from "@/features/checkout/components/CartSummary"
 import NeighborhoodSearch from "@/features/checkout/components/NeighborhoodSearch"
 import { DELIVERY_ESTIMATE_ENDPOINT } from "@/features/checkout/services/delivery.service"
@@ -14,6 +15,7 @@ import ProductCatalog from "@/features/menu/components/ProductCatalog"
 import VoucherInput from "@/features/orders/components/VoucherInput"
 import { APPROVAL_MIN } from "@/features/orders/utils/orders"
 import AddressLines from "@/shared/components/AddressLines"
+import DeliveryAddressSummary from "@/shared/components/DeliveryAddressSummary"
 import FieldError from "@/shared/components/FieldError"
 import InputField from "@/shared/components/InputField"
 import { Ico } from "@/shared/components/icons"
@@ -21,7 +23,8 @@ import { api } from "@/shared/services/api"
 import { geocodeAddress } from "@/shared/services/geocoding"
 import { C } from "@/shared/styles/theme"
 import type { CartItem, DeliveryEstimate, DeliveryInfo, DeliveryNeighborhood, Product, User } from "@/shared/types"
-import { BUILDING_TYPES, SHOP_LOCATION, addressPartsFromAddress, composeDeliveryAddress, distanceKm } from "@/shared/utils/address"
+import { EMPTY_CHECKOUT_ADDRESS_PARTS, SHOP_LOCATION, STREET_TYPES, addressPartsFromAddress, composeDeliveryAddress, composeStreetAddress, distanceKm, isKnownBelloNeighborhood } from "@/shared/utils/address"
+import type { CheckoutAddressParts } from "@/shared/utils/address"
 import { fmt, formatDuration } from "@/shared/utils/format"
 import { DOC_TYPES, digitsOnly, normalizeAccountDocumentInput, validatePhoneNumber } from "@/shared/utils/validation"
 
@@ -43,6 +46,7 @@ export default function CheckoutPage({
   onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<number | void>
   onComplete: () => void
 }) {
+  const [cartNotice, showCartNotice] = useCartNotice()
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
   const [loginForm, setLoginForm] = useState({ email: "", pass: "" })
   const [regForm, setRegForm] = useState({
@@ -71,8 +75,8 @@ export default function CheckoutPage({
       : deliveryMethod === "recoger"
         ? "Recoger pedido"
         : "Pedir a domicilio"
-  // Address typed in parts; `direccion` is built from them (see composeDeliveryAddress)
-  const [addressParts, setAddressParts] = useState({ barrio: "", calle: "", tipoEdificio: "", nombreEdificio: "", unidad: "" })
+  // The backend still receives one formatted address string.
+  const [addressParts, setAddressParts] = useState<CheckoutAddressParts>(EMPTY_CHECKOUT_ADDRESS_PARTS)
   const [addressRetry, setAddressRetry] = useState(0)
   const fallbackNeighborhoods: DeliveryNeighborhood[] = BELLO_NEIGHBORHOODS.map((nombre) => ({
     id_barrio: null,
@@ -81,13 +85,9 @@ export default function CheckoutPage({
   const [neighborhoods, setNeighborhoods] = useState<DeliveryNeighborhood[]>(fallbackNeighborhoods)
   const [neighborhoodsLoading, setNeighborhoodsLoading] = useState(true)
   const [neighborhoodsError, setNeighborhoodsError] = useState("")
-  const setAddressPart = (key: keyof typeof addressParts, value: string) =>
+  const setAddressPart = (key: keyof CheckoutAddressParts, value: string) =>
     setAddressParts((current) => {
-      const next = {
-        ...current,
-        [key]: value,
-        ...(key === "tipoEdificio" && !value ? { nombreEdificio: "" } : {}),
-      }
+      const next = { ...current, [key]: value }
       setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(next) }))
       return next
     })
@@ -108,6 +108,13 @@ export default function CheckoutPage({
     (item) => !!barrioName
       && normalizeNeighborhood(item.nombre) === normalizeNeighborhood(barrioName),
   )
+  const geocodedInsideBello =
+    geo.status === "ok" &&
+    normalizeNeighborhood(geo.municipality || "") === normalizeNeighborhood("Bello")
+  const geocodedOutsideBello =
+    geo.status === "ok" &&
+    !!geo.municipality &&
+    !geocodedInsideBello
   const [deliveryEstimate, setDeliveryEstimate] = useState({
     status: "idle" as "idle" | "loading" | "ready" | "error",
     label: "Por confirmar",
@@ -143,7 +150,11 @@ export default function CheckoutPage({
     () => !(user?.addresses?.length),
   )
   // Locate the address (1 s after the last change: OpenStreetMap allows ~1 search per second)
-  const geoQueries = [addressParts.calle]
+  const streetAddress = composeStreetAddress(addressParts)
+  const geoQueries = [...new Set([
+    streetAddress,
+    [streetAddress, addressParts.barrio].filter(Boolean).join(", "),
+  ].filter(Boolean))]
   const geoKey = geoQueries.join("|")
   useEffect(() => {
     if (!isDelivery) {
@@ -183,16 +194,21 @@ export default function CheckoutPage({
     }
   }, [geoKey, addressRetry, isDelivery])
   useEffect(() => {
-    if (isDelivery && !selectedNeighborhood) {
+    if (
+      isDelivery &&
+      (geocodedOutsideBello ||
+        ((!selectedNeighborhood || !isKnownBelloNeighborhood(selectedNeighborhood.nombre)) &&
+          !geocodedInsideBello))
+    ) {
       setDeliveryEstimate({
         status: "idle",
-        label: addressParts.barrio ? "Elige tu barrio de la lista" : "Elige tu barrio para ver el tiempo y el costo",
+        label: "Fuera de cobertura",
         deliveryCost: null,
         distanceKm: null,
         distanceMethod: null,
         components: null,
       })
-      setDeliveryEstimateError(geo.status === "error" ? "No se pudo consultar la ubicación de la dirección." : "")
+      setDeliveryEstimateError("")
       return
     }
     if (!user) {
@@ -223,11 +239,11 @@ export default function CheckoutPage({
       "POST",
       {
         tipo_entrega: deliveryMethod,
-        ...(isDelivery && selectedNeighborhood
-          ? selectedNeighborhood.id_barrio !== null
-            ? { id_barrio: selectedNeighborhood.id_barrio }
-            : { nombre_barrio: selectedNeighborhood.nombre }
-          : {}),
+        ...(isDelivery && selectedNeighborhood && selectedNeighborhood.id_barrio !== null
+          ? { id_barrio: selectedNeighborhood.id_barrio }
+          : isDelivery && (selectedNeighborhood?.nombre || addressParts.barrio.trim())
+            ? { nombre_barrio: selectedNeighborhood?.nombre || addressParts.barrio.trim() }
+            : {}),
         ...(isDelivery ? { direccion: delivForm.direccion } : {}),
         ...(isDelivery && geo.status === "ok" && geo.lat !== undefined && geo.lon !== undefined
           ? { ubicacion: { lat: geo.lat, lon: geo.lon } }
@@ -269,7 +285,7 @@ export default function CheckoutPage({
         }
       })
     return () => controller.abort()
-  }, [selectedNeighborhood?.id_barrio, selectedNeighborhood?.nombre, delivForm.direccion, geo.status, geo.lat, geo.lon, user?.email, estimateRefresh, isDelivery, deliveryMethod, cart])
+  }, [selectedNeighborhood?.id_barrio, selectedNeighborhood?.nombre, addressParts.barrio, delivForm.direccion, geo.status, geo.municipality, geo.lat, geo.lon, geocodedInsideBello, geocodedOutsideBello, user?.email, estimateRefresh, isDelivery, deliveryMethod, cart])
   useEffect(() => {
     if (!user) return
     const interval = window.setInterval(() => setEstimateRefresh((value) => value + 1), 30_000)
@@ -301,7 +317,7 @@ export default function CheckoutPage({
       direccion: f.direccion || user.addresses?.[0] || "",
     }))
     const savedAddress = user.addresses?.[0] || ""
-    const savedParts = addressPartsFromAddress(savedAddress)
+    const savedParts = savedAddress ? addressPartsFromAddress(savedAddress) : EMPTY_CHECKOUT_ADDRESS_PARTS
     setAddressParts(savedParts)
     setEditingAddress(!hasSavedAddress)
     setSaveAddress(!hasSavedAddress)
@@ -383,12 +399,19 @@ export default function CheckoutPage({
     deliveryEstimate.status === "ready"
   )
   const orderTotal = subtotal + (displayedDeliveryCost ?? 0)
-  // A barrio chosen from the list is inside the coverage
   const neighborhoodOutOfRange =
     isDelivery &&
-    geo.status === "ok" &&
-    !selectedNeighborhood &&
-    normalizeNeighborhood(geo.municipality || "") !== normalizeNeighborhood("Bello")
+    !neighborhoodsLoading &&
+    (geocodedOutsideBello ||
+      (geo.status === "ok" && !geocodedInsideBello) ||
+      ((!selectedNeighborhood || !isKnownBelloNeighborhood(selectedNeighborhood.nombre)) &&
+        !geocodedInsideBello &&
+        (geo.status === "notfound" || geo.status === "error")))
+  const canShowDeliveryEstimate =
+    !isDelivery ||
+    (!neighborhoodOutOfRange &&
+      (geocodedInsideBello ||
+        (!!selectedNeighborhood && isKnownBelloNeighborhood(selectedNeighborhood.nombre))))
   const estimatedKitchenMinutes =
     deliveryEstimate.components?.kitchenWaitMinutes !== null &&
     deliveryEstimate.components?.kitchenWaitMinutes !== undefined &&
@@ -406,13 +429,25 @@ export default function CheckoutPage({
   const customerInfoFilled =
     !!delivForm.nombre.trim() &&
     !validatePhoneNumber(delivForm.telefono)
+  const validAddressNumber = (value: string) => /^[0-9]+$/.test(value.trim())
+  const validAddressLetter = (value: string) => /^[A-Za-z]?$/.test(value.trim())
+  const validStreetType = (value: string) =>
+    STREET_TYPES.some((type) => type === value) || value === "Circular"
+  const addressPartsValid =
+    validStreetType(addressParts.tipoVia) &&
+    validAddressNumber(addressParts.numeroVia) &&
+    validAddressLetter(addressParts.letraVia) &&
+    (!addressParts.tipoViaSecundaria || validStreetType(addressParts.tipoViaSecundaria)) &&
+    validAddressNumber(addressParts.numeroViaSecundaria) &&
+    validAddressLetter(addressParts.letraViaSecundaria) &&
+    validAddressNumber(addressParts.numeroPlaca) &&
+    validAddressLetter(addressParts.letraPlaca)
   const delivFilled = customerInfoFilled && (
     !isDelivery ||
     (
       !!delivForm.direccion.trim() &&
-      !!selectedNeighborhood &&
-      (!editingAddress || !!addressParts.calle.trim()) &&
-      geo.status === "ok"
+      (!!selectedNeighborhood || geocodedInsideBello) &&
+      addressPartsValid
     )
   )
   const canOrder = user && delivFilled && deliveryCostConfigured
@@ -536,7 +571,7 @@ export default function CheckoutPage({
         className="min-h-screen flex items-center justify-center px-4"
         style={{ background: "#FAF5E8", fontFamily: "DM Sans, sans-serif" }}
       >
-        <div className="relative w-full max-w-md overflow-hidden p-8 rounded-3xl text-center" style={CARD_ST}>
+        <div className="relative w-full max-w-lg overflow-hidden rounded-3xl" style={CARD_ST}>
           {/* A little confetti falls once over the card */}
           <div aria-hidden="true" className="pointer-events-none absolute inset-0">
             {Array.from({ length: 18 }, (_, i) => (
@@ -553,62 +588,78 @@ export default function CheckoutPage({
               />
             ))}
           </div>
-          <div
-            className="order-success-pop w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center"
-            style={{ background: `${C.forest}18`, color: C.forest }}
-          >
-            <svg
-              width="30"
-              height="30"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+          <div className="h-1" style={{ background: `linear-gradient(90deg, ${C.forest}, ${C.mustard})` }} />
+          <div className="relative p-5 sm:p-7">
+            <div className="text-center">
+              <div
+                className="order-success-pop mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full"
+                style={{ background: `${C.forest}12`, color: C.forest }}
+              >
+                <svg
+                  width="23"
+                  height="23"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <polyline className="order-success-check" points="20 6 9 17 4 12" />
+                </svg>
+              </div>
+              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: C.forest }}>
+                Pedido recibido
+              </span>
+              <h2
+                className="mt-1 text-2xl font-black"
+                style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
+              >
+                ¡Pedido confirmado!
+              </h2>
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed" style={{ color: MUTED }}>
+                {delivForm.pago !== "Efectivo"
+                  ? "Recibimos tu comprobante. El pedido queda pendiente de verificación; cuando se apruebe, se enviará a producción."
+                  : placedTotal >= APPROVAL_MIN
+                    ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
+                    : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
+                Puedes seguir su estado en &quot;Mis pedidos&quot;.
+              </p>
+            </div>
+
+            <div
+              className="mt-5 rounded-2xl border p-4 sm:p-5"
+              style={{ borderColor: LINE, background: "#FCFBF8" }}
             >
-              <polyline className="order-success-check" points="20 6 9 17 4 12" />
-            </svg>
-          </div>
-          <h2
-            className="font-black text-2xl mb-2"
-            style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
-          >
-            ¡Pedido confirmado!
-          </h2>
-          <p className="text-sm mb-6" style={{ color: MUTED }}>
-            {delivForm.pago !== "Efectivo"
-              ? "Recibimos tu comprobante. El pedido queda pendiente de verificación; cuando se apruebe, se enviará a producción."
-              : placedTotal >= APPROVAL_MIN
-                ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
-                : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
-            Puedes seguir su estado en &quot;Mis pedidos&quot;.
-          </p>
-          <div
-            className="text-left text-sm rounded-2xl p-4 mb-6 space-y-2"
-            style={{ background: "rgba(30,30,30,0.03)" }}
-          >
-            {[
-              ["Tipo de pedido", deliveryMethodLabel],
-              ...(isDelivery ? [["Entrega en", delivForm.direccion]] : []),
-              ["Recibe", delivForm.nombre],
-              ["Método de pago", delivForm.pago],
-            ].map(([k, v]) => (
-              <div key={k} className="flex justify-between gap-4">
-                <span className="flex-shrink-0" style={{ color: MUTED }}>{k}</span>
-                <span className="min-w-0 break-words font-semibold text-right" style={{ color: C.dark }}>
-                  {k === "Entrega en" ? <AddressLines address={v} /> : v}
+              <div className="mb-3 flex items-center justify-between border-b pb-3" style={{ borderColor: LINE }}>
+                <h3 className="text-sm font-bold" style={{ color: C.dark }}>Resumen del pedido</h3>
+                <span className="rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ color: C.forest, background: `${C.forest}10` }}>
+                  {deliveryMethodLabel}
                 </span>
               </div>
-            ))}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="min-w-0 rounded-xl bg-white px-3 py-2.5">
+                  <span className="block text-xs" style={{ color: MUTED }}>Recibe</span>
+                  <span className="mt-0.5 block break-words text-sm font-semibold" style={{ color: C.dark }}>{delivForm.nombre}</span>
+                </div>
+                <div className="min-w-0 rounded-xl bg-white px-3 py-2.5">
+                  <span className="block text-xs" style={{ color: MUTED }}>Método de pago</span>
+                  <span className="mt-0.5 block break-words text-sm font-semibold" style={{ color: C.dark }}>{delivForm.pago}</span>
+                </div>
+              </div>
+              {isDelivery && (
+                <DeliveryAddressSummary address={delivForm.direccion} />
+              )}
+            </div>
+
+            <button
+              onClick={onComplete}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3 font-bold text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md cursor-pointer"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Ver mis pedidos <span aria-hidden="true">→</span>
+            </button>
           </div>
-          <button
-            onClick={onComplete}
-            className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
-            style={{ background: C.mustard, color: "#fff" }}
-          >
-            Ver mis pedidos
-          </button>
         </div>
       </div>
     )
@@ -711,7 +762,7 @@ export default function CheckoutPage({
           })}
         </ol>
 
-        <div className="grid lg:grid-cols-[1fr_380px] gap-6 items-start">
+        <div className="grid min-w-0 grid-cols-1 gap-5 items-start xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-6">
           {/* LEFT: current step */}
           <div className="flex flex-col gap-6 min-w-0">
             {checkoutStep === 1 && !showAuth && (
@@ -1093,19 +1144,28 @@ export default function CheckoutPage({
                           setAddressPart("barrio", n === null ? "" : typeof n === "string" ? n : n.nombre)
                           setNeighborhoodQuery(null)
                         }}
-                        error={deliveryTried && isDelivery && !selectedNeighborhood ? "Elige tu barrio de la lista." : undefined}
+                        error={deliveryTried && isDelivery && !selectedNeighborhood && !geocodedInsideBello
+                          ? "Elige un barrio habilitado o verifica que la dirección esté en Bello."
+                          : undefined}
                       />
-                      <p className="mt-1 text-xs" style={{ color: MUTED }}>
-                        {selectedNeighborhood?.costo_domicilio_cop != null
-                          ? `Domicilio a ${selectedNeighborhood.nombre}: ${fmt(selectedNeighborhood.costo_domicilio_cop)}${selectedNeighborhood.tiempo_desplazamiento_minutos != null ? ` · ${selectedNeighborhood.tiempo_desplazamiento_minutos} min de recorrido` : ""}.`
-                          : "El tiempo y el costo del domicilio dependen de tu barrio."}
-                      </p>
+                      {!neighborhoodOutOfRange &&
+                        selectedNeighborhood &&
+                        (isKnownBelloNeighborhood(selectedNeighborhood.nombre) || geocodedInsideBello) && (
+                        <p
+                          className="mt-2 rounded-lg px-3 py-2 text-xs font-semibold"
+                          style={{ background: `${C.mustard}12`, color: C.mustard }}
+                        >
+                          {selectedNeighborhood.costo_domicilio_cop != null
+                            ? `Domicilio a ${selectedNeighborhood.nombre}: ${fmt(selectedNeighborhood.costo_domicilio_cop)}${selectedNeighborhood.tiempo_desplazamiento_minutos != null ? ` · ${selectedNeighborhood.tiempo_desplazamiento_minutos} min de recorrido` : ""}.`
+                            : `Calcularemos el costo y el tiempo para ${selectedNeighborhood.nombre}.`}
+                        </p>
+                      )}
                       {(geo.status === "notfound" || geo.status === "error") && (
                         <div className="mt-2 flex items-center justify-between gap-3">
-                          <span className="text-xs" role="alert" style={{ color: C.red }}>
+                          <span className="text-xs" role="status" style={{ color: MUTED }}>
                             {geo.status === "notfound"
-                              ? "No encontramos esa dirección. Verifica la calle y el número."
-                              : "No se pudo consultar la ubicación en el mapa."}
+                              ? "No pudimos ubicar automáticamente la dirección. Si el barrio está habilitado, puedes continuar."
+                              : "No se pudo consultar el mapa; puedes continuar si el barrio está habilitado."}
                           </span>
                           <button
                             type="button"
@@ -1118,9 +1178,31 @@ export default function CheckoutPage({
                         </div>
                       )}
                       {neighborhoodOutOfRange && (
-                        <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
-                          La dirección detectada no corresponde a un barrio habilitado en Bello, Antioquia.
-                        </p>
+                        <div
+                          className="mt-3 flex items-start gap-3 rounded-xl border p-3.5"
+                          role="alert"
+                          style={{ background: "#FFF7E6", borderColor: "#E8C66A", color: "#76520A" }}
+                        >
+                          <span
+                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-sm font-black"
+                            aria-hidden="true"
+                            style={{ background: "#F5E3B0", color: "#8A5E00" }}
+                          >
+                            !
+                          </span>
+                          <div>
+                            <p className="text-sm font-bold">
+                              {geocodedOutsideBello
+                                ? `Por ahora solo tenemos domicilios en Bello${geo.municipality ? `, no en ${geo.municipality}` : ""}.`
+                                : "No pudimos confirmar que este barrio esté dentro de la cobertura en Bello."}
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed">
+                              {geocodedOutsideBello
+                                ? "Puedes corregir la dirección o continuar para recoger el pedido en el local. No se cobrará domicilio."
+                                : "Verifica la dirección y selecciona un barrio habilitado de Bello, o continúa para recoger el pedido en el local."}
+                            </p>
+                          </div>
+                        </div>
                       )}
                       {neighborhoodsError && (
                         <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
@@ -1130,52 +1212,143 @@ export default function CheckoutPage({
                     </div>
                     {editingAddress ? (
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <InputField
-                          label="Dirección *"
-                          placeholder="Ej: Calle 50 # 45-20"
-                          value={addressParts.calle}
-                          onChange={(v) => setAddressPart("calle", v)}
-                          required
-                          error={deliveryTried && !addressParts.calle.trim() ? "La dirección es obligatoria." : undefined}
-                        />
-                        <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
-                          Tipo de edificio
+                        <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
+                          Tipo de vía *
                           <select
-                            value={addressParts.tipoEdificio}
-                            onChange={(e) => setAddressPart("tipoEdificio", e.target.value)}
+                            required
+                            value={addressParts.tipoVia}
+                            onChange={(event) => setAddressPart("tipoVia", event.target.value)}
+                            aria-invalid={deliveryTried && !addressParts.tipoVia}
                             className="w-full rounded-xl px-3.5 py-3 text-sm outline-none"
-                            style={{ background: "rgba(30,30,30,0.05)", border: "1.5px solid rgba(30,30,30,0.12)", color: "#1A1714" }}
+                            style={{
+                              background: "rgba(30,30,30,0.05)",
+                              border: `1.5px solid ${deliveryTried && !addressParts.tipoVia ? C.red : "rgba(30,30,30,0.12)"}`,
+                              color: C.dark,
+                            }}
                           >
-                            <option value="">Casa / ninguno</option>
-                            {BUILDING_TYPES.map((type) => (
-                              <option key={type} value={type}>{type}</option>
-                            ))}
+                            <option value="">Selecciona el tipo de vía</option>
+                            {[...STREET_TYPES, ...(addressParts.tipoVia === "Circular" ? ["Circular"] : [])].map((type) => <option key={type} value={type}>{type}</option>)}
                           </select>
+                          {deliveryTried && !addressParts.tipoVia && (
+                            <span className="text-xs font-normal" role="alert" style={{ color: C.red }}>Selecciona el tipo de vía.</span>
+                          )}
                         </label>
                         <InputField
-                          label="Apartamento, unidad, piso, casa y torre"
-                          placeholder="Ej: Torre 2, apto 301"
-                          value={addressParts.unidad}
-                          onChange={(v) => setAddressPart("unidad", v)}
+                          label="Número *"
+                          placeholder="Ej: 49"
+                          value={addressParts.numeroVia}
+                          onChange={(value) => setAddressPart("numeroVia", value)}
+                          required
+                          error={deliveryTried
+                            ? !addressParts.numeroVia.trim()
+                              ? "Ingresa el número."
+                              : !validAddressNumber(addressParts.numeroVia)
+                                ? "Usa solo números."
+                                : undefined
+                            : undefined}
                         />
-                        {addressParts.tipoEdificio && (
-                          <div className="sm:col-span-2">
-                            <InputField
-                              label="Nombre del edificio"
-                              placeholder="Ej: Torres de Santa Ana"
-                              value={addressParts.nombreEdificio}
-                              onChange={(v) => setAddressPart("nombreEdificio", v)}
-                            />
-                          </div>
-                        )}
+                        <InputField
+                          label="Letra (opcional)"
+                          placeholder="Ej: A"
+                          value={addressParts.letraVia}
+                          onChange={(value) => setAddressPart("letraVia", value.toUpperCase())}
+                          error={deliveryTried && !validAddressLetter(addressParts.letraVia)
+                            ? "Ingresa una sola letra."
+                            : undefined}
+                        />
+                        <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
+                          Tipo de vía (opcional)
+                          <select
+                            value={addressParts.tipoViaSecundaria}
+                            onChange={(event) => setAddressPart("tipoViaSecundaria", event.target.value)}
+                            aria-invalid={deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria)}
+                            className="w-full rounded-xl px-3.5 py-3 text-sm outline-none"
+                            style={{
+                              background: "rgba(30,30,30,0.05)",
+                              border: `1.5px solid ${deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) ? C.red : "rgba(30,30,30,0.12)"}`,
+                              color: C.dark,
+                            }}
+                          >
+                            <option value="">Selecciona el tipo de vía</option>
+                            {[...STREET_TYPES, ...(addressParts.tipoViaSecundaria === "Circular" ? ["Circular"] : [])].map((type) => <option key={type} value={type}>{type}</option>)}
+                          </select>
+                          {deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) && (
+                            <span className="text-xs font-normal" role="alert" style={{ color: C.red }}>Selecciona el tipo de vía.</span>
+                          )}
+                        </label>
+                        <InputField
+                          label="Número *"
+                          placeholder="Ej: 57"
+                          value={addressParts.numeroViaSecundaria}
+                          onChange={(value) => setAddressPart("numeroViaSecundaria", value)}
+                          required
+                          error={deliveryTried
+                            ? !addressParts.numeroViaSecundaria.trim()
+                              ? "Ingresa el segundo número."
+                              : !validAddressNumber(addressParts.numeroViaSecundaria)
+                                ? "Usa solo números."
+                                : undefined
+                            : undefined}
+                        />
+                        <InputField
+                          label="Letra (opcional)"
+                          placeholder="Ej: A"
+                          value={addressParts.letraViaSecundaria}
+                          onChange={(value) => setAddressPart("letraViaSecundaria", value.toUpperCase())}
+                          error={deliveryTried && !validAddressLetter(addressParts.letraViaSecundaria)
+                            ? "Ingresa una sola letra."
+                            : undefined}
+                        />
+                        <InputField
+                          label="Número *"
+                          placeholder="Ej: 18"
+                          value={addressParts.numeroPlaca}
+                          onChange={(value) => setAddressPart("numeroPlaca", value)}
+                          required
+                          error={deliveryTried
+                            ? !addressParts.numeroPlaca.trim()
+                              ? "Ingresa el tercer número."
+                              : !validAddressNumber(addressParts.numeroPlaca)
+                                ? "Usa solo números."
+                                : undefined
+                            : undefined}
+                        />
+                        <InputField
+                          label="Letra (opcional)"
+                          placeholder="Ej: C"
+                          value={addressParts.letraPlaca}
+                          onChange={(value) => setAddressPart("letraPlaca", value.toUpperCase())}
+                          error={deliveryTried && !validAddressLetter(addressParts.letraPlaca)
+                            ? "Ingresa una sola letra."
+                            : undefined}
+                        />
+                        <div className="sm:col-span-2">
+                          <InputField
+                            label="Complemento (opcional)"
+                            placeholder="Ej: apartamento 301, torre 2, interior, piso o local"
+                            value={addressParts.complemento}
+                            onChange={(value) => setAddressPart("complemento", value)}
+                          />
+                        </div>
+                        <div className="sm:col-span-2 rounded-xl px-3.5 py-3 text-sm" style={{ background: "rgba(30,30,30,0.04)", color: C.dark }}>
+                          <span className="block text-xs font-semibold" style={{ color: MUTED }}>Dirección completa</span>
+                          {composeDeliveryAddress(addressParts) || "Completa los campos para generar la dirección."}
+                        </div>
                       </div>
                     ) : (
-                      <div
-                        className="px-4 py-3 rounded-xl text-sm"
-                        style={{ background: "rgba(30,30,30,0.04)", color: C.dark }}
-                      >
-                        {delivForm.direccion}
-                      </div>
+                      <>
+                        <div
+                          className="px-4 py-3 rounded-xl text-sm"
+                          style={{ background: "rgba(30,30,30,0.04)", color: C.dark }}
+                        >
+                          {delivForm.direccion}
+                        </div>
+                        {deliveryTried && !addressPartsValid && (
+                          <p className="mt-1 text-xs" role="alert" style={{ color: C.red }}>
+                            Esta dirección guardada no tiene todos los datos requeridos. Pulsa «Cambiar dirección» para completarlos.
+                          </p>
+                        )}
+                      </>
                     )}
                     {editingAddress && (user.addresses?.length ?? 0) > 0 && (
                       <div className="flex flex-wrap gap-2 mt-3">
@@ -1186,7 +1359,7 @@ export default function CheckoutPage({
                             onClick={() => {
                               const parts = addressPartsFromAddress(address)
                               setAddressParts(parts)
-                              setDelivForm((form) => ({ ...form, direccion: address }))
+                              setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(parts) }))
                               setEditingAddress(false)
                               setSaveAddress(false)
                             }}
@@ -1218,13 +1391,13 @@ export default function CheckoutPage({
                           className="px-3 py-2 text-xs font-medium"
                           role="status"
                           style={{
-                            background: geo.status === "loading" || geo.status === "error" ? "rgba(30,30,30,0.04)" : `${C.red}12`,
-                            color: geo.status === "loading" || geo.status === "error" ? MUTED : C.red,
+                            background: geo.status === "notfound" ? "rgba(30,30,30,0.04)" : `${C.red}12`,
+                            color: geo.status === "notfound" ? MUTED : C.red,
                           }}
                         >
                           {geo.status === "loading" && "Ubicando la dirección en el mapa..."}
-                          {geo.status === "notfound" && "No encontramos esta dirección en el mapa. Revisa el barrio y la dirección (ej: Calle 50 # 45-20)."}
-                          {geo.status === "error" && "No pudimos cargar el mapa en este momento; el local confirmará la zona al recibir tu pedido."}
+                          {geo.status === "notfound" && "No pudimos ubicar automáticamente esta dirección. Si el barrio está habilitado, puedes continuar."}
+                          {geo.status === "error" && "No pudimos cargar el mapa en este momento. Reintenta o verifica que el barrio esté habilitado."}
                         </p>
                         )}
                       </div>
@@ -1248,7 +1421,7 @@ export default function CheckoutPage({
                   <label className="mt-5 block">
                     <span className="mb-1.5 flex items-baseline justify-between gap-2">
                       <span className="text-xs font-semibold" style={{ color: C.dark }}>
-                        Notas para el pedido <span className="font-normal" style={{ color: MUTED }}>(opcional)</span>
+                        {isDelivery ? "Indicaciones adicionales" : "Notas para el pedido"} <span className="font-normal" style={{ color: MUTED }}>(opcional)</span>
                       </span>
                       <span className="text-[10px]" style={{ color: MUTED }}>{delivForm.notas.length}/200</span>
                     </span>
@@ -1256,7 +1429,9 @@ export default function CheckoutPage({
                       value={delivForm.notas}
                       onChange={(e) => setDelivForm((f) => ({ ...f, notas: e.target.value.slice(0, 200) }))}
                       rows={2}
-                      placeholder="Ej: sin cebolla, el timbre no sirve, llamar al llegar"
+                      placeholder={isDelivery
+                        ? "Ej: portería, color de la casa o llamar al llegar"
+                        : "Ej: sin cebolla, el timbre no sirve, llamar al llegar"}
                       className="w-full resize-none rounded-xl px-3 py-2 text-sm outline-none"
                       style={{ background: "rgba(30,30,30,0.04)", border: `1px solid ${LINE}`, color: C.dark }}
                     />
@@ -1338,73 +1513,169 @@ export default function CheckoutPage({
             )}
 
             {user && checkoutStep === 3 && (
-              <section className="p-6 rounded-2xl" style={CARD_ST}>
-                <h2 className="font-bold text-lg mb-5" style={{ color: C.dark }}>
-                  Revisa y confirma
-                </h2>
-                {[
-                  {
-                    title: "Pedido",
-                    rows: [
-                      ["Tipo", deliveryMethodLabel],
-                      ["Recibe", delivForm.nombre],
-                      ["Teléfono", delivForm.telefono],
-                      ...(isDelivery
-                        ? [
-                            ["Barrio", addressParts.barrio],
-                            ["Dirección", delivForm.direccion],
-                          ]
-                        : []),
-                      ...(delivForm.notas ? [["Notas", delivForm.notas]] : []),
-                    ],
-                  },
-                  {
-                    title: "Pago",
-                    rows: [
-                      ["Método", delivForm.pago],
-                      ...(needsVoucher
-                        ? [["Comprobante", voucher ? "Adjunto ✓" : "Falta"]]
-                        : []),
-                    ],
-                  },
-                ].map((g) => (
+              <section className="min-w-0 space-y-4">
+                <div
+                  className="relative isolate overflow-hidden rounded-2xl p-4 text-white shadow-sm sm:p-5"
+                  style={{
+                    background: `linear-gradient(120deg, ${C.mustard} 0%, #C99C31 58%, #D6AD4A 100%)`,
+                  }}
+                >
                   <div
-                    key={g.title}
-                    className="pb-4 mb-4"
-                    style={{ borderBottom: `1px solid ${LINE}` }}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <h3
-                        className="text-xs font-bold uppercase tracking-wider"
-                        style={{ color: MUTED }}
-                      >
-                        {g.title}
-                      </h3>
-                      <button
-                        onClick={() => setCheckoutStep(2)}
-                        className="text-xs font-semibold cursor-pointer hover:opacity-70"
-                        style={{ color: C.mustard }}
-                      >
-                        Editar
-                      </button>
+                    className="pointer-events-none absolute -right-8 -top-12 h-36 w-36 rounded-full border-[18px]"
+                    style={{ borderColor: "rgba(255,255,255,0.12)" }}
+                    aria-hidden="true"
+                  />
+                  <div className="relative flex items-start justify-between gap-4">
+                    <div>
+                      <span className="mb-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"
+                        style={{ background: "rgba(255,255,255,0.18)" }}>
+                        {Ico.check} Paso final
+                      </span>
+                      <h2 className="text-xl font-black leading-tight sm:text-2xl" style={{ fontFamily: "League Spartan, sans-serif" }}>
+                        ¡Tu pedido está casi listo!
+                      </h2>
+                      <p className="mt-1 max-w-lg text-xs leading-relaxed text-white/90 sm:text-sm">
+                        Revisa que todo esté correcto. Puedes editar tus datos antes de confirmar.
+                      </p>
                     </div>
-                    {g.rows.map(([k, v]) => (
-                      <div key={k} className="flex justify-between gap-4 text-sm py-0.5">
-                        <span className="flex-shrink-0" style={{ color: MUTED }}>{k}</span>
-                        <span className="min-w-0 break-words font-medium text-right" style={{ color: C.dark }}>
-                          {k === "Dirección" ? <AddressLines address={v} /> : v}
+                    <div
+                      className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-white sm:flex"
+                      style={{ background: "rgba(255,255,255,0.18)" }}
+                      aria-hidden="true"
+                    >
+                      {Ico.check}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border p-4 sm:p-6" style={{ ...CARD_ST, borderColor: LINE }}>
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ color: C.mustard, background: `${C.mustard}14` }}>
+                        {Ico.mapPin}
+                      </span>
+                      <div>
+                        <h3 className="font-bold" style={{ color: C.dark }}>Datos de entrega</h3>
+                        <p className="text-xs" style={{ color: MUTED }}>{deliveryMethodLabel}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCheckoutStep(2)}
+                      className="rounded-full px-3.5 py-2 text-xs font-bold transition hover:-translate-y-0.5 hover:shadow-sm"
+                      style={{ color: C.mustard, background: `${C.mustard}12` }}
+                    >
+                      Editar
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {[
+                      { label: "Recibe", value: delivForm.nombre, icon: Ico.user },
+                      { label: "Teléfono", value: delivForm.telefono, icon: Ico.phone },
+                    ].map((item) => (
+                      <div
+                        key={item.label}
+                        className="flex min-w-0 items-center gap-3 rounded-2xl border p-3.5 transition hover:-translate-y-0.5 hover:shadow-sm"
+                        style={{ borderColor: LINE, background: "#fff" }}
+                      >
+                        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl" style={{ color: C.forest, background: `${C.forest}12` }}>
+                          {item.icon}
                         </span>
+                        <div className="min-w-0">
+                          <span className="block text-xs" style={{ color: MUTED }}>{item.label}</span>
+                          <span className="block break-words text-sm font-bold" style={{ color: C.dark }}>{item.value}</span>
+                        </div>
                       </div>
                     ))}
                   </div>
-                ))}
 
+                  {isDelivery && (
+                    <div
+                      className="mt-3 rounded-2xl border px-3.5 py-3 sm:px-4"
+                      style={{
+                        borderColor: `${C.mustard}35`,
+                        background: "linear-gradient(135deg, #FBF7EC 0%, #FFFDF8 100%)",
+                      }}
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <span
+                          className="flex h-7 w-7 items-center justify-center rounded-lg"
+                          style={{ color: C.mustard, background: `${C.mustard}18` }}
+                        >
+                          {Ico.mapPin}
+                        </span>
+                        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: C.mustard }}>
+                          Dirección de entrega
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 pl-0.5 sm:pl-9">
+                        {delivForm.direccion.split(/,\s*/).filter(Boolean).map((part, index) => (
+                          index === 0 ? (
+                            <span key={index} className="w-full text-sm font-bold leading-relaxed" style={{ color: C.dark }}>
+                              {part}
+                            </span>
+                          ) : (
+                            <span
+                              key={index}
+                              className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                              style={{
+                                borderColor: `${C.mustard}25`,
+                                background: "#fff",
+                                color: C.dark,
+                              }}
+                            >
+                              {part}
+                            </span>
+                          )
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {delivForm.notas && (
+                    <div className="mt-3 rounded-2xl px-4 py-3 text-sm" style={{ background: "rgba(30,30,30,0.035)" }}>
+                      <span className="mb-1 block text-xs font-semibold" style={{ color: MUTED }}>
+                        {isDelivery ? "Indicaciones para la entrega" : "Notas del pedido"}
+                      </span>
+                      <span style={{ color: C.dark }}>{delivForm.notas}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-3xl border p-4 sm:p-6" style={{ ...CARD_ST, borderColor: LINE }}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ color: C.forest, background: `${C.forest}12` }}>
+                        {Ico.cash}
+                      </span>
+                      <div>
+                        <span className="block text-xs" style={{ color: MUTED }}>Método de pago</span>
+                        <span className="block font-bold" style={{ color: C.dark }}>{delivForm.pago}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCheckoutStep(2)}
+                      className="rounded-full px-3.5 py-2 text-xs font-bold transition hover:-translate-y-0.5 hover:shadow-sm"
+                      style={{ color: C.mustard, background: `${C.mustard}12` }}
+                    >
+                      Editar
+                    </button>
+                  </div>
+                  {needsVoucher && (
+                    <div className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold"
+                      style={{ background: voucher ? `${C.forest}10` : `${C.red}10`, color: voucher ? C.forest : C.red }}>
+                      <span>{voucher ? Ico.check : "!"}</span>
+                      {voucher ? "Comprobante adjunto" : "Falta adjuntar el comprobante"}
+                    </div>
+                  )}
+                </div>
               </section>
             )}
           </div>
 
           {/* RIGHT: order summary */}
-          <aside className="p-6 rounded-2xl lg:sticky lg:top-24" style={CARD_ST}>
+          <aside className="min-w-0 rounded-2xl p-5 sm:p-6 xl:sticky xl:top-24" style={CARD_ST}>
             <h2 className="font-bold text-lg mb-4" style={{ color: C.dark }}>
               Resumen del pedido
             </h2>
@@ -1465,12 +1736,11 @@ export default function CheckoutPage({
                 <span>Subtotal</span>
                 <span>{fmt(subtotal)}</span>
               </div>
-              <div className="flex justify-between" style={{ color: MUTED }}>
-                <span>Domicilio</span>
-                <span style={{ color: MUTED }}>
-                  {neighborhoodOutOfRange
-                    ? "Fuera de cobertura"
-                    : !isDelivery
+              {canShowDeliveryEstimate && (
+                <div className="flex justify-between" style={{ color: MUTED }}>
+                  <span>Domicilio</span>
+                  <span style={{ color: isDelivery && deliveryEstimate.status === "ready" ? C.mustard : MUTED }}>
+                    {!isDelivery
                       ? "No aplica"
                       : geo.status === "ok" && displayedDeliveryCost !== null
                         ? fmt(displayedDeliveryCost)
@@ -1479,80 +1749,81 @@ export default function CheckoutPage({
                           : displayedDeliveryCost !== null
                             ? fmt(displayedDeliveryCost)
                             : "Por confirmar"}
-                </span>
-              </div>
-              {isDelivery && (
-                <div className="flex justify-between gap-4 text-xs" style={{ color: MUTED }}>
-                          <span>Distancia aproximada en línea recta</span>
-                          <span className="text-right">
-                            {deliveryEstimate.distanceKm !== null
-                              ? `${deliveryEstimate.distanceKm.toFixed(1)} km`
-                              : deliveryEstimate.status === "loading"
-                                ? "Calculando..."
-                                : "No disponible"}
-                          </span>
-                </div>
-              )}
-              {isDelivery && deliveryEstimate.status === "ready" && displayedDeliveryCost === null && (
-                <p className="text-xs" style={{ color: C.red }} role="status">
-                          No se pudo calcular el costo sin una distancia válida. Revisa la dirección para continuar.
-                </p>
-              )}
-              {isDelivery && deliveryEstimateError && (
-                <div className="mt-2 flex items-center justify-between gap-3">
-                          <p className="text-xs" style={{ color: C.red }} role="alert">
-                            No se pudo calcular la entrega: {deliveryEstimateError}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => setEstimateRefresh((value) => value + 1)}
-                            className="flex-shrink-0 text-xs font-bold underline"
-                            style={{ color: C.mustard }}
-                          >
-                            Reintentar
-                          </button>
-                </div>
-              )}
-              <div className="flex items-baseline justify-between gap-4">
-                <span className="font-bold" style={{ color: C.dark }}>Tiempo total estimado</span>
-                <span
-                  className="max-w-[70%] break-words text-right text-base font-bold"
-                  style={{ color: deliveryEstimate.status === "loading" ? MUTED : C.mustard }}
-                  role="status"
-                  aria-live="polite"
-                >
-                  {neighborhoodOutOfRange
-                    ? "Tu barrio no está en el rango de domicilio"
-                    : deliveryEstimate.label}
-                </span>
-              </div>
-              <div className="space-y-1 pl-2 text-xs" style={{ color: MUTED, opacity: 0.72 }}>
-                <div className="flex justify-between gap-4">
-                  <span>Tiempo de cocina</span>
-                  <span className="text-right">
-                    {estimatedKitchenMinutes !== null
-                      ? formatDuration(estimatedKitchenMinutes)
-                      : deliveryEstimate.status === "loading"
-                        ? "Calculando..."
-                        : "Por confirmar"}
                   </span>
                 </div>
-                <div className="flex justify-between gap-4">
-                  <span>Tiempo de domicilio</span>
+              )}
+              {isDelivery && canShowDeliveryEstimate && (
+                <div className="flex justify-between gap-4 text-xs" style={{ color: MUTED }}>
+                  <span>Distancia aproximada en línea recta</span>
                   <span className="text-right">
-                    {neighborhoodOutOfRange
-                      ? "Fuera de cobertura"
-                      : !isDelivery
-                        ? "No aplica"
-                        : estimatedDeliveryMinutes !== null
-                          ? formatDuration(estimatedDeliveryMinutes)
+                    {deliveryEstimate.distanceKm !== null
+                      ? `${deliveryEstimate.distanceKm.toFixed(1)} km`
+                      : deliveryEstimate.status === "loading"
+                        ? "Calculando..."
+                        : "No disponible"}
+                  </span>
+                </div>
+              )}
+              {isDelivery && canShowDeliveryEstimate && deliveryEstimate.status === "ready" && displayedDeliveryCost === null && (
+                <p className="text-xs" style={{ color: C.red }} role="status">
+                  No se pudo calcular el costo sin una distancia válida. Revisa la dirección para continuar.
+                </p>
+              )}
+              {isDelivery && canShowDeliveryEstimate && deliveryEstimateError && (
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <p className="text-xs" style={{ color: C.red }} role="alert">
+                    No se pudo calcular la entrega: {deliveryEstimateError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setEstimateRefresh((value) => value + 1)}
+                    className="flex-shrink-0 text-xs font-bold underline"
+                    style={{ color: C.mustard }}
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              )}
+              {canShowDeliveryEstimate && (
+                <>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="font-bold" style={{ color: C.dark }}>Tiempo total estimado</span>
+                    <span
+                      className="max-w-[70%] break-words text-right text-base font-bold"
+                      style={{ color: deliveryEstimate.status === "loading" ? MUTED : C.mustard }}
+                      role="status"
+                      aria-live="polite"
+                    >
+                      {deliveryEstimate.label}
+                    </span>
+                  </div>
+                  <div className="space-y-1 pl-2 text-xs" style={{ color: MUTED, opacity: 0.72 }}>
+                    <div className="flex justify-between gap-4">
+                      <span>Tiempo de cocina</span>
+                      <span className="text-right" style={{ color: estimatedKitchenMinutes !== null ? C.mustard : MUTED }}>
+                        {estimatedKitchenMinutes !== null
+                          ? formatDuration(estimatedKitchenMinutes)
                           : deliveryEstimate.status === "loading"
                             ? "Calculando..."
                             : "Por confirmar"}
-                  </span>
-                </div>
-              </div>
-              {user && deliveryEstimate.status === "ready" && (
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span>Tiempo de domicilio</span>
+                      <span className="text-right" style={{ color: estimatedDeliveryMinutes !== null ? C.mustard : MUTED }}>
+                        {!isDelivery
+                          ? "No aplica"
+                          : estimatedDeliveryMinutes !== null
+                            ? formatDuration(estimatedDeliveryMinutes)
+                            : deliveryEstimate.status === "loading"
+                              ? "Calculando..."
+                              : "Por confirmar"}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+              {user && canShowDeliveryEstimate && deliveryEstimate.status === "ready" && (
                 <p className="text-right text-[11px]" style={{ color: MUTED, opacity: 0.7 }}>
                   Se actualiza automáticamente cada 30 segundos
                 </p>
@@ -1575,11 +1846,6 @@ export default function CheckoutPage({
                     : "Por confirmar"}
               </span>
             </div>
-            {neighborhoodOutOfRange && (
-              <p className="mt-2 text-right text-xs" style={{ color: MUTED }}>
-                Si continúas para recoger, no se suma el domicilio.
-              </p>
-            )}
             <FieldError msg={orderError} />
             {cta ? (
               <button
@@ -1607,11 +1873,9 @@ export default function CheckoutPage({
                       ? "Cargando los barrios habilitados..."
                       : neighborhoodOutOfRange
                         ? "Al continuar, te preguntaremos si deseas recoger el pedido en el local."
-                        : geo.status === "notfound"
-                          ? "Revisa el barrio y la dirección: no la encontramos en el mapa."
-                          : geo.status === "loading"
-                            ? "Ubicando tu dirección..."
-                            : "Completa nombre, teléfono, barrio y dirección para continuar."
+                        : geo.status === "loading"
+                          ? "Ubicando tu dirección..."
+                          : "Completa nombre, teléfono, barrio y dirección para continuar."
                   : !deliveryCostConfigured
                     ? geo.status === "loading"
                       ? "Calculando la tarifa del domicilio..."
@@ -1648,12 +1912,11 @@ export default function CheckoutPage({
               className="mb-2 font-black text-xl"
               style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
             >
-              Barrio fuera del rango de domicilio
+              No hay domicilios para esta dirección
             </h2>
             <p id="out-of-range-description" className="mb-6 text-sm leading-relaxed" style={{ color: MUTED }}>
-              Tu barrio no está en el rango de domicilio, no podemos hacer el envío.
-              ¿Deseas continuar con tu pedido? Se asignará automáticamente para que
-              lo recojas en el local.
+              No tenemos servicio de domicilio para esta zona. ¿Deseas continuar con tu pedido?
+              Si continúas, quedará seleccionado para recogerlo en el local y no se cobrará el domicilio.
             </p>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button
@@ -1734,10 +1997,12 @@ export default function CheckoutPage({
             )
             setAddProduct(null)
             setPickerOpen(false)
+            showCartNotice(product.name)
           }}
           dark={false}
         />
       )}
+      <CartAddedNotice message={cartNotice} />
     </div>
   )
 }

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react"
-import authFoodBackgroundImg from "@/imports/auth-food-new.png"
+import accessBackgroundImg from "@/imports/access-background.jpg"
 import AccessBackButton from "@/features/auth/components/AccessBackButton"
-import AccessLoginLink from "@/features/auth/components/AccessLoginLink"
 import AccessLogo from "@/features/auth/components/AccessLogo"
 import AuthLayout from "@/features/auth/components/AuthLayout"
 import AuthPhotoBackground from "@/features/auth/components/AuthPhotoBackground"
@@ -100,7 +99,7 @@ export default function RegisterPage({
     return (
       <AuthLayout
         title="Verifica tu correo"
-        backgroundImage={authFoodBackgroundImg}
+        backgroundImage={accessBackgroundImg}
         onBack={onBack}
         onLogoClick={onLoginLink}
         compact
@@ -141,7 +140,6 @@ export default function RegisterPage({
           >
             ← Corregir mis datos
           </button>
-          <AccessLoginLink onClick={onLoginLink} />
         </form>
       </AuthLayout>
     )
@@ -153,13 +151,13 @@ export default function RegisterPage({
         fontFamily: "DM Sans, sans-serif",
       }}
     >
-      <AuthPhotoBackground src={authFoodBackgroundImg} />
+      <AuthPhotoBackground src={accessBackgroundImg} />
       <AccessBackButton onClick={onBack} />
       <div className="relative z-10 grid w-full max-w-6xl items-center gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-10">
         <div className="hidden px-5 text-white lg:block">
           <AccessLogo
             onClick={onLoginLink}
-            className="mb-8 h-24 w-40 object-contain"
+            className="mb-8 h-28 w-28 object-contain"
           />
           <h1
             className="mb-4 max-w-[400px] text-4xl font-black leading-tight"
@@ -182,7 +180,7 @@ export default function RegisterPage({
           <div className="mb-4 flex justify-center lg:hidden">
             <AccessLogo
               onClick={onLoginLink}
-              className="h-20 w-32 object-contain"
+              className="h-28 w-28 object-contain"
             />
           </div>
           <h2
@@ -212,6 +210,7 @@ export default function RegisterPage({
                   Tipo de documento *
                 </label>
                 <select
+                  required
                   value={form.docType}
                   onChange={(e) => {
                     const docType = e.target.value
@@ -261,6 +260,7 @@ export default function RegisterPage({
                 placeholder="Tu apellido"
                 value={form.lastname}
                 onChange={upd("lastname")}
+                required
                 error={errors.lastname}
               />
             </div>
@@ -271,6 +271,7 @@ export default function RegisterPage({
                 placeholder="3XX XXX XXXX"
                 value={form.phone}
                 onChange={upd("phone")}
+                required
                 error={errors.phone}
               />
               <InputField
@@ -317,7 +318,6 @@ export default function RegisterPage({
             >
               {busy ? "Creando cuenta..." : "Crear cuenta →"}
             </button>
-            <AccessLoginLink onClick={onLoginLink} />
           </form>
         </div>
       </div>

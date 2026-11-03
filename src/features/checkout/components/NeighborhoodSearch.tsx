@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { normalizeNeighborhood } from "@/data/barrios"
 import { C } from "@/shared/styles/theme"
 import type { DeliveryNeighborhood } from "@/shared/types"
+import { isKnownBelloNeighborhood } from "@/shared/utils/address"
 import { fmt } from "@/shared/utils/format"
 
 export default function NeighborhoodSearch({
@@ -154,7 +155,7 @@ export default function NeighborhoodSearch({
                 >
                   <span>
                     {neighborhood.nombre}
-                    {neighborhood.costo_domicilio_cop != null && (
+                    {isKnownBelloNeighborhood(neighborhood.nombre) && neighborhood.costo_domicilio_cop != null && (
                       <span className="ml-2 text-xs" style={{ color: MUTED }}>
                         {neighborhood.tiempo_desplazamiento_minutos != null ? `${neighborhood.tiempo_desplazamiento_minutos} min · ` : ""}
                         {fmt(neighborhood.costo_domicilio_cop)}

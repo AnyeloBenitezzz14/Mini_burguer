@@ -44,7 +44,9 @@ export function validateRegister(f: {
   if (!name) e.name = "Ingresa tu nombre."
   else if (!NAME_RE.test(name)) e.name = "El nombre solo puede tener letras y espacios."
   else if (name.length < 2) e.name = "El nombre debe tener al menos 2 letras."
-  if (f.lastname?.trim() && !NAME_RE.test(f.lastname.trim()))
+  const lastname = f.lastname?.trim() ?? ""
+  if (!lastname) e.lastname = "Ingresa tu apellido."
+  else if (!NAME_RE.test(lastname))
     e.lastname = "El apellido solo puede tener letras y espacios."
   if (!f.docType) e.docType = "Selecciona el tipo de documento."
   const doc = f.docNum.trim()
@@ -52,7 +54,8 @@ export function validateRegister(f: {
   else if (f.docType && !DOC_RULES[f.docType]?.re.test(doc))
     e.docNum = DOC_RULES[f.docType].msg
   const phone = f.phone.replace(/\s/g, "")
-  if (phone && !/^3\d{9}$/.test(phone))
+  if (!phone) e.phone = "Ingresa tu número de celular."
+  else if (!/^3\d{9}$/.test(phone))
     e.phone = "El celular debe tener 10 números y empezar por 3."
   const em = emailError(f.email)
   if (em) e.email = em

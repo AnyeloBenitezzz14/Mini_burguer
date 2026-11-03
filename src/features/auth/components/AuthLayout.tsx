@@ -41,7 +41,7 @@ export default function AuthLayout({
           <AccessLogo
             onClick={onLogoClick}
             className="object-contain"
-            style={{ width: wide ? "124px" : "144px", height: wide ? "124px" : "144px" }}
+            style={{ width: "112px", height: "112px" }}
           />
         </div>
         <div

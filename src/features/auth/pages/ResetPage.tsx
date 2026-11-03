@@ -1,6 +1,5 @@
 import { useState } from "react"
-import authFoodBackgroundImg from "@/imports/auth-food-new.png"
-import AccessLoginLink from "@/features/auth/components/AccessLoginLink"
+import accessBackgroundImg from "@/imports/access-background.jpg"
 import AuthLayout from "@/features/auth/components/AuthLayout"
 import PinCodeField from "@/features/auth/components/PinCodeField"
 import InputField from "@/shared/components/InputField"
@@ -49,7 +48,7 @@ export default function ResetPage({
       <AuthLayout
         title="¡Listo!"
         sub="Contraseña actualizada"
-        backgroundImage={authFoodBackgroundImg}
+        backgroundImage={accessBackgroundImg}
         onBack={onBack}
         onLogoClick={onDone}
         compact
@@ -80,7 +79,7 @@ export default function ResetPage({
   return (
     <AuthLayout
       title={verificationToken ? "Nueva contraseña" : "Verifica tu correo"}
-      backgroundImage={authFoodBackgroundImg}
+      backgroundImage={accessBackgroundImg}
       onBack={onBack}
       onLogoClick={onLogin}
       compact
@@ -207,7 +206,6 @@ export default function ResetPage({
               ? "Cambiar contraseña"
               : "Continuar"}
         </button>
-        <AccessLoginLink onClick={onLogin} compact />
       </form>
     </AuthLayout>
   )

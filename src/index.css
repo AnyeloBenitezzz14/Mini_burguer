@@ -364,13 +364,16 @@ label {
   font-size: 1rem !important;
 }
 
-.auth-access-page input {
-  background: #FAF3E6 !important;
+.auth-access-page input,
+.auth-access-page select,
+.auth-access-page textarea {
+  background: #F3F3F3 !important;
   border-color: #D29A42 !important;
 }
 
-.auth-access-page input::placeholder {
-  color: #9A7418 !important;
+.auth-access-page input::placeholder,
+.auth-access-page textarea::placeholder {
+  color: rgba(26, 23, 20, 0.42) !important;
   opacity: 1;
 }
 

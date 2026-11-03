@@ -1,6 +1,5 @@
 import { useState } from "react"
-import authFoodBackgroundImg from "@/imports/auth-food-new.png"
-import AccessLoginLink from "@/features/auth/components/AccessLoginLink"
+import accessBackgroundImg from "@/imports/access-background.jpg"
 import AuthLayout from "@/features/auth/components/AuthLayout"
 import InputField from "@/shared/components/InputField"
 import { api } from "@/shared/services/api"
@@ -25,7 +24,7 @@ export default function ForgotPage({
       <AuthLayout
         title="Revisa tu correo"
         sub="Si está registrado, te llegará un código"
-        backgroundImage={authFoodBackgroundImg}
+        backgroundImage={accessBackgroundImg}
         onBack={onBack}
         onLogoClick={onLogin}
         compact
@@ -62,9 +61,6 @@ export default function ForgotPage({
           >
             Usar otro correo
           </button>
-          <div className="mt-2">
-            <AccessLoginLink onClick={onLogin} compact />
-          </div>
         </div>
       </AuthLayout>
     )
@@ -72,7 +68,7 @@ export default function ForgotPage({
     <AuthLayout
       title="Recuperar contraseña"
       sub="Se enviará un código si el correo existe."
-      backgroundImage={authFoodBackgroundImg}
+      backgroundImage={accessBackgroundImg}
       onBack={onBack}
       onLogoClick={onLogin}
       wide
@@ -118,7 +114,6 @@ export default function ForgotPage({
         >
           {busy ? "Enviando..." : "Enviar código"}
         </button>
-        <AccessLoginLink onClick={onLogin} compact />
       </form>
     </AuthLayout>
   )

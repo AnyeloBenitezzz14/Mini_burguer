@@ -14,18 +14,14 @@ export default function ProfilePage({
   onBack,
   onLogout,
   onUpdateUser,
-  orders,
-  onVoucher,
+  onOrders,
 }: {
   user: User
   onBack: () => void
   onLogout: () => void
   onUpdateUser: (u: User) => void
-  orders: Order[]
-  onVoucher: (id: string, voucher: string) => void
+  onOrders: () => void
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const selected = orders.find((o) => o.id === selectedId)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({
     name: user.name,
@@ -475,25 +471,23 @@ export default function ProfilePage({
             Cambiar contraseña
           </button>
         </div>
-        {/* Purchase history */}
+        {/* Orders live in their own section instead of taking space on the profile page */}
         <div
-          className="p-5 rounded-2xl mb-4"
-          style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          className="mb-4 flex items-center justify-between gap-4 rounded-2xl border p-4"
+          style={{ background: CARD, borderColor: "rgba(30,30,30,0.08)", boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}
         >
-          <h2 className="font-bold text-base mb-4" style={{ color: TEXT }}>
-            Historial de compras
-          </h2>
-          <OrderList
-            orders={orders}
-            dark={false}
-            onSelect={(o) => setSelectedId(o.id)}
-          />
-          <div className="mt-3 text-xs text-center" style={{ color: MUTED }}>
-            Total gastado:{" "}
-            <strong style={{ color: TEXT }}>
-              {fmt(orders.reduce((s, o) => s + o.total, 0))}
-            </strong>
+          <div>
+            <h2 className="font-bold text-base" style={{ color: TEXT }}>Mis pedidos</h2>
+            <p className="mt-1 text-xs" style={{ color: MUTED }}>Consulta el estado y los detalles de tus compras.</p>
           </div>
+          <button
+            type="button"
+            onClick={onOrders}
+            className="flex-shrink-0 rounded-xl px-4 py-2.5 text-sm font-bold transition hover:opacity-85"
+            style={{ background: `${C.mustard}15`, color: C.mustard }}
+          >
+            Ver pedidos →
+          </button>
         </div>
         {/* Actions */}
         <div className="flex flex-col gap-2">
@@ -516,14 +510,6 @@ export default function ProfilePage({
           </button>
         </div>
       </div>
-      {selected && (
-        <OrderDetailModal
-          order={selected}
-          dark={false}
-          onClose={() => setSelectedId(null)}
-          onVoucher={onVoucher}
-        />
-      )}
       {/* Logout confirmation modal */}
       {showLogoutModal && (
         <div

@@ -1,4 +1,4 @@
-import { isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { Order } from "@/shared/types"
 import { fmt, formatDuration } from "@/shared/utils/format"
@@ -47,51 +47,43 @@ export default function OrderList({
         return (
           <div
             key={o.id}
-            className="w-full text-left p-4 rounded-2xl"
+            className="w-full rounded-2xl p-5 text-left transition-shadow hover:shadow-md sm:p-5"
             style={{
               background: dark ? "#1E1C18" : "#fff",
               border: `1px solid ${BORDER}`,
             }}
           >
-            <div className="flex items-center justify-between gap-3">
+            <div className="mb-4 border-b pb-3" style={{ borderColor: BORDER }}>
+              <OrderProgress status={o.status} dark={dark} />
+            </div>
+            <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <div className="font-bold text-sm" style={{ color: TEXT }}>
+                <div className="text-lg font-bold leading-snug" style={{ color: TEXT }}>
                   {formatOrderDescription(o)}
                 </div>
-                <div className="text-xs truncate" style={{ color: MUTED }}>
-                  {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
+                <div className="mt-1.5 break-words text-base leading-snug" style={{ color: MUTED }}>
+                  {o.items.map((i) => `${i.name} ×${i.qty}`).join(", ")}
                 </div>
                 {(o.items.some((i) => i.sauces?.length || i.additions?.length)) && (
-                  <div className="text-[11px] mt-1" style={{ color: C.mustard }}>
+                  <div className="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold"
+                    style={{ color: C.mustard, background: `${C.mustard}12` }}>
                     Incluye personalizaciones
                   </div>
                 )}
-                {o.tipoEntrega === "domicilio" && (
-                  <div className="mt-2 space-y-0.5 text-[11px]" style={{ color: MUTED }}>
-                    {o.barrio && <div>Barrio: {o.barrio}</div>}
-                    {o.estimacion?.distanceKm != null && (
-                      <div>Distancia aproximada: {o.estimacion.distanceKm.toFixed(1)} km</div>
-                    )}
-                    {o.costoDomicilio != null && <div>Domicilio: {fmt(o.costoDomicilio)}</div>}
-                    {o.estimacion?.estimatedMinutes != null && (
-                      <div>Tiempo estimado: {formatDuration(o.estimacion.estimatedMinutes)}</div>
-                    )}
-                  </div>
-                )}
               </div>
-              <div className="text-right flex-shrink-0">
-                <div className="font-bold" style={{ color: C.mustard }}>
+              <div className="flex flex-shrink-0 flex-col items-end gap-1">
+                <div className="text-xl font-black" style={{ color: C.mustard }}>
                   {fmt(o.total)}
                 </div>
                 <span
-                  className="text-xs px-2 py-0.5 rounded-full font-medium"
+                  className="rounded-full px-3 py-1.5 text-sm font-semibold"
                   style={{ background: badge?.bg, color: badge?.color }}
                 >
                   {o.status}
                 </span>
                 {paymentStatus !== "Pendiente" && (
-                  <div
-                    className="mt-1 text-[10px] font-semibold"
+                  <span
+                    className="text-xs font-semibold"
                     style={{
                       color:
                         paymentStatus === "Pagado"
@@ -102,20 +94,127 @@ export default function OrderList({
                     }}
                   >
                     Pago: {paymentStatus}
-                  </div>
+                  </span>
                 )}
               </div>
             </div>
+
+            {o.tipoEntrega === "domicilio" && (
+              <div className="mt-4 flex flex-wrap gap-2 border-t pt-3.5" style={{ borderColor: BORDER }}>
+                {o.barrio && (
+                  <span className="rounded-lg px-3 py-2 text-sm" style={{ background: dark ? "rgba(244,238,220,0.06)" : "#F8F5EC", color: TEXT }}>
+                    Barrio <strong>{o.barrio}</strong>
+                  </span>
+                )}
+                {o.costoDomicilio != null && (
+                  <span className="rounded-lg px-3 py-2 text-sm" style={{ background: dark ? "rgba(244,238,220,0.06)" : "#F8F5EC", color: TEXT }}>
+                    Domicilio <strong>{fmt(o.costoDomicilio)}</strong>
+                  </span>
+                )}
+                {o.estimacion?.estimatedMinutes != null && (
+                  <span className="rounded-lg px-3 py-2 text-sm" style={{ background: dark ? "rgba(244,238,220,0.06)" : "#F8F5EC", color: TEXT }}>
+                    Tiempo estimado <strong>{formatDuration(o.estimacion.estimatedMinutes)}</strong>
+                  </span>
+                )}
+                {o.estimacion?.distanceKm != null && (
+                  <span className="rounded-lg px-3 py-2 text-sm" style={{ background: dark ? "rgba(244,238,220,0.06)" : "#F8F5EC", color: TEXT }}>
+                    Distancia <strong>{o.estimacion.distanceKm.toFixed(1)} km</strong>
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div
+              className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t pt-3 text-sm"
+              style={{ borderColor: BORDER }}
+            >
+              {o.nombre && (
+                <div className="min-w-0">
+                  <span className="block text-xs" style={{ color: MUTED }}>Recibe</span>
+                  <span className="block break-words font-semibold" style={{ color: TEXT }}>{o.nombre}</span>
+                </div>
+              )}
+              {o.telefono && (
+                <div className="min-w-0">
+                  <span className="block text-xs" style={{ color: MUTED }}>Teléfono</span>
+                  <span className="block break-words font-semibold" style={{ color: TEXT }}>{o.telefono}</span>
+                </div>
+              )}
+              {o.tipoEntrega === "domicilio" && o.direccion && (
+                <div className="col-span-2 min-w-0">
+                  <span className="block text-xs" style={{ color: MUTED }}>Dirección</span>
+                  <span className="block break-words font-semibold leading-relaxed" style={{ color: TEXT }}>{o.direccion}</span>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => onSelect(o)}
-              className="mt-3 w-full py-2 rounded-xl text-xs font-bold cursor-pointer hover:opacity-90"
-              style={{ background: `${C.mustard}15`, color: C.mustard }}
+              className="mt-4 flex w-full items-center justify-between rounded-xl px-4 py-3 text-base font-bold transition hover:opacity-85 cursor-pointer"
+              style={{
+                background: dark ? "rgba(244,238,220,0.07)" : "#FBF7EC",
+                color: C.mustard,
+              }}
             >
-              Ver detalle
+              <span>Ver detalle del pedido</span>
+              <span aria-hidden="true">→</span>
             </button>
           </div>
         )
       })}
     </div>
+  )
+}
+
+// The order's steps: reached dots pop in one after another, the lines fill and the current step pulses
+function OrderProgress({ status, dark }: { status: string; dark: boolean }) {
+  const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
+  const BORDER = dark ? "rgba(244,238,220,0.12)" : "rgba(30,30,30,0.12)"
+  const steps =
+    status === "Por confirmar"
+      ? ["Por confirmar", ...ORDER_STEPS.slice(1)]
+      : ORDER_STEPS
+  const currentStep = steps.indexOf(status)
+
+  if (status === "Cancelado" || currentStep < 0) {
+    const badge = badgeSt(status)
+    return (
+      <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: badge?.color || MUTED }}>
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: badge?.color || MUTED }} />
+        Estado del pedido: {status}
+      </div>
+    )
+  }
+
+  return (
+    <ol aria-label={`Seguimiento del pedido: ${status}`} className="flex w-full items-start">
+      {steps.map((step, index) => {
+        const complete = index <= currentStep
+        const active = index === currentStep
+        return (
+          <li key={step} className={`flex min-w-0 flex-1 items-start ${index === steps.length - 1 ? "flex-none" : ""}`}>
+            <div className="flex min-w-0 flex-col items-center">
+              <span
+                className={`flex h-3 w-3 items-center justify-center rounded-full ${active ? "order-step-current" : complete ? "order-step-done" : ""}`}
+                style={{ background: complete ? C.mustard : BORDER, animationDelay: `${index * 180}ms` }}
+              />
+              <span
+                className="mt-1.5 max-w-full text-center text-[10px] leading-tight"
+                style={{ color: active ? C.mustard : MUTED, fontWeight: active ? 700 : 500 }}
+              >
+                {step}
+              </span>
+            </div>
+            {index < steps.length - 1 && (
+              <span className="mt-[5px] h-0.5 min-w-2 flex-1 overflow-hidden" style={{ background: BORDER }} aria-hidden="true">
+                {index < currentStep && (
+                  <span className="order-line-fill block h-full" style={{ background: C.mustard, animationDelay: `${index * 180 + 90}ms` }} />
+                )}
+              </span>
+            )}
+          </li>
+        )
+      })}
+    </ol>
   )
 }

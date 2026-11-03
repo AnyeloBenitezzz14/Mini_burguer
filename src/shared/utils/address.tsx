@@ -1,11 +1,40 @@
-import { neighborhoodNameFromAddress } from "@/data/barrios"
+import { BELLO_NEIGHBORHOODS, neighborhoodNameFromAddress, normalizeNeighborhood } from "@/data/barrios"
 import type { AddressParts } from "@/shared/types"
 
 // ── Delivery zone ──────────────────────────────────────────────────────────────
 // The shop is in Santa Ana (Bello, Antioquia).
 export const SHOP_LOCATION = { lat: 6.3295, lon: -75.5627 }
 
-export const BUILDING_TYPES = ["Departamento", "Edificio residencial", "Urbanización", "Hotel", "Oficinas", "Otro"]
+export const STREET_TYPES = ["Calle", "Carrera", "Transversal", "Diagonal", "Avenida"] as const
+export type CheckoutAddressParts = {
+  tipoVia: string
+  numeroVia: string
+  letraVia: string
+  tipoViaSecundaria: string
+  numeroViaSecundaria: string
+  letraViaSecundaria: string
+  numeroPlaca: string
+  letraPlaca: string
+  complemento: string
+  barrio: string
+}
+export const EMPTY_CHECKOUT_ADDRESS_PARTS: CheckoutAddressParts = {
+  tipoVia: "",
+  numeroVia: "",
+  letraVia: "",
+  tipoViaSecundaria: "",
+  numeroViaSecundaria: "",
+  letraViaSecundaria: "",
+  numeroPlaca: "",
+  letraPlaca: "",
+  complemento: "",
+  barrio: "",
+}
+
+export const isKnownBelloNeighborhood = (name: string) =>
+  BELLO_NEIGHBORHOODS.some(
+    (neighborhood) => normalizeNeighborhood(neighborhood) === normalizeNeighborhood(name),
+  )
 
 // Straight-line distance in km between two points (haversine)
 export function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
@@ -17,29 +46,63 @@ export function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lo
 }
 
 // One text for the order (the backend keeps a single delivery address)
-export const composeDeliveryAddress = (d: { calle: string; barrio: string; tipoEdificio: string; nombreEdificio: string; unidad: string }) =>
+export const composeStreetAddress = (d: Pick<CheckoutAddressParts, "tipoVia" | "numeroVia" | "letraVia" | "tipoViaSecundaria" | "numeroViaSecundaria" | "letraViaSecundaria" | "numeroPlaca" | "letraPlaca">) => {
+  const street = [d.tipoVia, `${d.numeroVia.trim()}${d.letraVia.trim().toUpperCase()}`.trim()].filter(Boolean).join(" ")
+  const secondaryNumber = `${d.numeroViaSecundaria.trim()}${d.letraViaSecundaria.trim().toUpperCase()}`.trim()
+  const secondaryStreet = [d.tipoViaSecundaria, secondaryNumber].filter(Boolean).join(" ")
+  const plate = `${d.numeroPlaca.trim()}${d.letraPlaca.trim().toUpperCase()}`
+  const crossing = [secondaryStreet, plate].filter(Boolean).join("-")
+  return [street, crossing && `# ${crossing}`].filter(Boolean).join(" ")
+}
+export const composeDeliveryAddress = (d: CheckoutAddressParts) =>
   [
-    d.calle.trim(),
+    composeStreetAddress(d),
+    d.complemento.trim(),
     d.barrio.trim() && `Barrio ${d.barrio.trim()}`,
-    d.tipoEdificio && [d.tipoEdificio, d.nombreEdificio.trim()].filter(Boolean).join(" "),
-    d.unidad.trim(),
   ]
     .filter(Boolean)
     .join(", ")
 
-export function addressPartsFromAddress(address: string) {
+export function addressPartsFromAddress(address: string): CheckoutAddressParts {
   const segments = address.split(",").map((part) => part.trim()).filter(Boolean)
-  const barrio = neighborhoodNameFromAddress(address)
-  const otherDetails = segments
-    .slice(1)
-    .filter((part) => !/^Barrio\s+/i.test(part))
-    .join(", ")
+  const barrio = neighborhoodNameFromAddress(address) || ""
+  const street = segments.find((part) => !/^Barrio\s+/i.test(part)) || ""
+  const streetTypePattern = "(?:Calle|Cl\\.?|Carrera|Cra\\.?|Avenida|Av\\.?|Transversal|Trans\\.?|Diagonal|Diag\\.?|Circular|Circ\\.?)"
+  const streetMatch = street.match(
+    new RegExp(`^(${streetTypePattern})\\s*([0-9]+)([A-Z]?)(?:\\s*#\\s*(?:(${streetTypePattern})\\s*)?([0-9]+)([A-Z]?)(?:\\s*-\\s*([0-9]+)([A-Z]?))?)?$`, "i"),
+  )
+  const streetType = streetMatch?.[1].toLowerCase().replace(/\./g, "")
+  const secondaryStreetType = streetMatch?.[4]?.toLowerCase().replace(/\./g, "")
+  const typeAliases: Record<string, string> = {
+    calle: "Calle",
+    cl: "Calle",
+    carrera: "Carrera",
+    cra: "Carrera",
+    avenida: "Avenida",
+    av: "Avenida",
+    transversal: "Transversal",
+    trans: "Transversal",
+    diagonal: "Diagonal",
+    diag: "Diagonal",
+    circular: "Circular",
+    circ: "Circular",
+  }
+  const type = streetType ? typeAliases[streetType] : undefined
+  const secondaryType = secondaryStreetType ? typeAliases[secondaryStreetType] : undefined
+  const complementarySegments = segments.filter(
+    (part) => part !== street && !/^Barrio\s+/i.test(part),
+  )
   return {
+    tipoVia: type || (street ? "Calle" : ""),
+    numeroVia: streetMatch?.[2] || street.replace(/^(Calle|Cl\.?|Carrera|Cra\.?|Avenida|Av\.?|Transversal|Trans\.?|Diagonal|Diag\.?|Circular|Circ\.?)\s*/i, ""),
+    letraVia: streetMatch?.[3] || "",
+    tipoViaSecundaria: secondaryType ? typeAliases[secondaryType] || "" : "",
+    numeroViaSecundaria: streetMatch?.[5] || "",
+    letraViaSecundaria: streetMatch?.[6] || "",
+    numeroPlaca: streetMatch?.[7] || "",
+    letraPlaca: streetMatch?.[8] || "",
+    complemento: complementarySegments.join(", "),
     barrio,
-    calle: segments[0] || "",
-    tipoEdificio: "",
-    nombreEdificio: "",
-    unidad: otherDetails,
   }
 }
 

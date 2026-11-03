@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import landingBackgroundImg from "@/imports/landing-background.png"
 import logoImg from "@/imports/logo.png"
 import storyBelloImg from "@/imports/story-bello.png"
+import CartAddedNotice, { useCartNotice } from "@/features/checkout/components/CartAddedNotice"
 import { addCartItem } from "@/features/checkout/utils/cart"
 import { ABOUT_ICONS, aboutIcon } from "@/features/landing/utils/aboutIcons"
 import AddToCartModal from "@/features/menu/components/AddToCartModal"
@@ -27,6 +28,7 @@ export default function LandingPage({
   cart: CartItem[]
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
 }) {
+  const [cartNotice, showCartNotice] = useCartNotice()
   const [dark, setDark] = useState(false)
   const [waBubble, setWaBubble] = useState(true)
   const [legalModal, setLegalModal] = useState<"envios" | "legal" | null>(null)
@@ -82,6 +84,7 @@ export default function LandingPage({
       }),
     )
     setAddProduct(null)
+    showCartNotice(p.name)
   }
   const goToMenu = onGuestMenu
 
@@ -933,6 +936,7 @@ export default function LandingPage({
           dark={dark}
         />
       )}
+      <CartAddedNotice message={cartNotice} dark={dark} />
       {legalModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center px-4"

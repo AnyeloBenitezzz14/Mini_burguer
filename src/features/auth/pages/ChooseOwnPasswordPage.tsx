@@ -1,5 +1,5 @@
 import { useState } from "react"
-import authFoodBackgroundImg from "@/imports/auth-food-new.png"
+import accessBackgroundImg from "@/imports/access-background.jpg"
 import AuthLayout from "@/features/auth/components/AuthLayout"
 import FieldError from "@/shared/components/FieldError"
 import InputField from "@/shared/components/InputField"
@@ -28,7 +28,7 @@ export default function ChooseOwnPasswordPage({
   return (
     <AuthLayout
       title="Crea tu contraseña"
-      backgroundImage={authFoodBackgroundImg}
+      backgroundImage={accessBackgroundImg}
       onBack={onLogout}
       onLogoClick={onLogout}
       sub={

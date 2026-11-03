@@ -2,6 +2,7 @@ import { useRef, useState } from "react"
 import ChangePasswordForm from "@/features/profile/components/ChangePasswordForm"
 import InputField from "@/shared/components/InputField"
 import { Ico } from "@/shared/components/icons"
+import { SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
 import { C } from "@/shared/styles/theme"
 import type { User } from "@/shared/types"
 import { normalizeDocumentInput, normalizePhoneInput, validateDocumentNumber, validatePhoneNumber } from "@/shared/utils/validation"
@@ -15,6 +16,7 @@ export default function AdminProfilePage({
   onClose: () => void
   onUpdateUser: (u: User) => void
 }) {
+  const isProtectedAdmin = user.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({
     name: user.name,
@@ -452,17 +454,19 @@ export default function AdminProfilePage({
             </button>
           </div>
           {/* Actions */}
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => setShowDeleteModal(true)}
-              className="admin-delete-account w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
-            >
-              Eliminar cuenta
-            </button>
-          </div>
+          {!isProtectedAdmin && (
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="admin-delete-account w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+              >
+                Eliminar cuenta
+              </button>
+            </div>
+          )}
         </div>
         {/* Delete account modal - Different alert for admin */}
-        {showDeleteModal && (
+        {showDeleteModal && !isProtectedAdmin && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center px-4"
             style={{ background: "rgba(0,0,0,0.6)" }}

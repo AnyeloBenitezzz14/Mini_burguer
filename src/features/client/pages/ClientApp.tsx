@@ -1,4 +1,5 @@
 import { useState } from "react"
+import CartAddedNotice, { useCartNotice } from "@/features/checkout/components/CartAddedNotice"
 import { addCartItem } from "@/features/checkout/utils/cart"
 import AddToCartModal from "@/features/menu/components/AddToCartModal"
 import ProductCatalog from "@/features/menu/components/ProductCatalog"
@@ -34,6 +35,7 @@ export default function ClientApp({
   onVoucher: (id: string, voucher: string) => void
   initialView?: "menu" | "cart" | "orders"
 }) {
+  const [cartNotice, showCartNotice] = useCartNotice()
   const [view, setView] = useState<"menu" | "cart" | "orders">(initialView)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected = orders.find((o) => o.id === selectedId)
@@ -66,6 +68,7 @@ export default function ClientApp({
       }),
     )
     setAddProduct(null)
+    showCartNotice(p.name)
   }
   const quickAdd = (p: Product) =>
     setCart((c) => {
@@ -170,6 +173,7 @@ export default function ClientApp({
           dark={dark}
         />
       )}
+      <CartAddedNotice message={cartNotice} dark={dark} />
       {/* Quick-add feedback suppressed — quickAdd used from ProductCatalog + button */}
       <div style={{ display: "none" }} onClick={() => quickAdd(PRODUCTS[0])} />
     </div>

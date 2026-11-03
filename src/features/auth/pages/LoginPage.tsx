@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import loginBackgroundImg from "@/imports/auth-login-new.jpg"
+import accessBackgroundImg from "@/imports/access-background.jpg"
 import logoImg from "@/imports/logo.png"
 import AccessBackButton from "@/features/auth/components/AccessBackButton"
 import AuthPhotoBackground from "@/features/auth/components/AuthPhotoBackground"
@@ -55,14 +55,14 @@ export default function LoginPage({
         fontFamily: "DM Sans, sans-serif",
       }}
     >
-      <AuthPhotoBackground src={loginBackgroundImg} />
+      <AuthPhotoBackground src={accessBackgroundImg} />
       <AccessBackButton onClick={onBack} />
       <div className="relative z-10 grid w-full max-w-6xl items-center gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-14">
         <div className="hidden px-4 lg:block">
           <img
             src={logoImg}
             alt="El Parche"
-            className="mb-5 h-36 w-36 object-contain"
+            className="mb-5 h-28 w-28 object-contain"
           />
           <div
             className="mb-3 text-sm font-bold uppercase tracking-widest"

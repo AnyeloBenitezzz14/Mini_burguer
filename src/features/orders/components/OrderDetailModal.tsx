@@ -22,19 +22,6 @@ export default function OrderDetailModal({
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.09)"
-  // Big orders show "Por confirmar" as their first step until the owner approves
-  const steps =
-    order.status === "Por confirmar"
-      ? ["Por confirmar", ...ORDER_STEPS.slice(1)]
-      : ORDER_STEPS
-  const step = steps.indexOf(order.status)
-  const field = (label: string, value: string | undefined, wide = false) =>
-    value ? (
-      <div className={`min-w-0 ${wide ? "col-span-2" : ""}`}>
-        <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>{label}</div>
-        <div className="break-words text-[13px] font-semibold leading-snug">{value}</div>
-      </div>
-    ) : null
   const cardBg = dark ? "rgba(255,255,255,0.03)" : "#FBF6E9"
   return (
     <div
@@ -64,27 +51,6 @@ export default function OrderDetailModal({
                 {Ico.x}
               </button>
             </div>
-          </div>
-          <div className="mt-3 flex items-center">
-            {steps.map((s, i) => (
-              <div key={s} className="flex flex-1 items-center last:flex-none">
-                <div className="flex flex-col items-center">
-                  <div
-                    className={`h-2.5 w-2.5 rounded-full ${i === step ? "order-step-current" : i < step ? "order-step-done" : ""}`}
-                    style={{ background: i <= step ? C.mustard : BORDER, animationDelay: `${i * 180}ms` }}
-                  />
-                  <div className="mt-1 whitespace-nowrap text-center" style={{ color: i === step ? C.mustard : MUTED, fontSize: "0.58rem", fontWeight: i === step ? 700 : 400 }}>
-                    {s}
-                  </div>
-                </div>
-                {i < steps.length - 1 && (
-                  // The line between two reached steps fills from left to right, one after another
-                  <div className="mb-4 h-0.5 flex-1 overflow-hidden" style={{ background: BORDER }}>
-                    {i < step && <div className="order-line-fill h-full" style={{ background: C.mustard, animationDelay: `${i * 180 + 90}ms` }} />}
-                  </div>
-                )}
-              </div>
-            ))}
           </div>
         </div>
 
@@ -138,40 +104,63 @@ export default function OrderDetailModal({
             })}
           </div>
 
-          {/* Delivery, payment, total and the transfer voucher */}
-          <div className="space-y-3 border-t p-4 md:overflow-y-auto md:border-l md:border-t-0 md:p-5" style={{ borderColor: BORDER }}>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
-              {field("Recibe", order.nombre)}
-              {field("Teléfono", order.telefono)}
-              {order.tipoEntrega === "domicilio" && field("Barrio", order.barrio)}
-              {field("Dirección", order.direccion, true)}
-              {order.tipoEntrega === "domicilio" && order.estimacion?.distanceKm != null && (
-                <div className="col-span-2 text-xs" style={{ color: MUTED }}>
-                  Distancia aproximada en línea recta: {order.estimacion.distanceKm.toFixed(1)} km
+          {/* Order-only summary: customer and address details are shown in Mis pedidos */}
+          <div className="space-y-4 border-t p-4 md:overflow-y-auto md:border-l md:border-t-0 md:p-5" style={{ borderColor: BORDER }}>
+            {order.tipoEntrega === "domicilio" && (
+              <section>
+                <h4 className="mb-2 text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>
+                  Domicilio
+                </h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {order.costoDomicilio != null && (
+                    <div className="rounded-xl px-3 py-2.5" style={{ background: cardBg, border: `1px solid ${BORDER}` }}>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>Costo</span>
+                      <span className="mt-0.5 block text-sm font-bold">{fmt(order.costoDomicilio)}</span>
+                    </div>
+                  )}
+                  {order.estimacion?.estimatedMinutes != null && (
+                    <div className="rounded-xl px-3 py-2.5" style={{ background: cardBg, border: `1px solid ${BORDER}` }}>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>Tiempo estimado</span>
+                      <span className="mt-0.5 block text-sm font-bold">{formatDuration(order.estimacion.estimatedMinutes)}</span>
+                    </div>
+                  )}
+                </div>
+                {order.estimacion?.distanceKm != null && (
+                  <p className="mt-2 text-xs" style={{ color: MUTED }}>
+                    Distancia aproximada: {order.estimacion.distanceKm.toFixed(1)} km
+                  </p>
+                )}
+              </section>
+            )}
+
+            <section className="rounded-xl border p-3.5" style={{ borderColor: BORDER }}>
+              <h4 className="mb-2 text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>
+                Pago
+              </h4>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span style={{ color: MUTED }}>Método</span>
+                <span className="font-semibold">{order.pago}</span>
+              </div>
+              {order.paymentStatus && (
+                <div className="mt-2 flex items-center justify-between gap-3 border-t pt-2 text-sm" style={{ borderColor: BORDER }}>
+                  <span style={{ color: MUTED }}>Estado</span>
+                  <span className="font-semibold">{order.paymentStatus}</span>
                 </div>
               )}
-              {order.tipoEntrega === "domicilio" && order.costoDomicilio != null && (
-                <div className="col-span-2 flex justify-between text-xs" style={{ color: MUTED }}>
-                  <span>Costo del domicilio</span>
-                  <span className="font-semibold">{fmt(order.costoDomicilio)}</span>
-                </div>
-              )}
-              {order.estimacion?.estimatedMinutes != null && (
-                <div className="col-span-2 flex justify-between text-xs" style={{ color: MUTED }}>
-                  <span>Tiempo estimado inicial</span>
-                  <span className="font-semibold">{formatDuration(order.estimacion.estimatedMinutes)}</span>
-                </div>
-              )}
-              {field("Pago", order.pago)}
-              {field("Estado del pago", order.paymentStatus)}
-              {field("Notas", order.notas, true)}
-            </div>
+            </section>
+
+            {order.notas && (
+              <section className="rounded-xl px-3.5 py-3" style={{ background: cardBg }}>
+                <h4 className="mb-1 text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>Notas del pedido</h4>
+                <p className="text-sm leading-relaxed">{order.notas}</p>
+              </section>
+            )}
             {order.paymentStatus === "Rechazado" && order.paymentRejectionReason && (
               <div className="rounded-xl px-3 py-2 text-xs" style={{ background: `${C.red}12`, color: C.red }}>
                 <strong>Motivo de rechazo:</strong> {order.paymentRejectionReason}
               </div>
             )}
-            <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: `${C.mustard}14` }}>
+            <div className="flex items-center justify-between rounded-xl px-4 py-3.5" style={{ background: `${C.mustard}14` }}>
               <span className="text-sm font-bold">Total</span>
               <span className="text-xl font-black" style={{ color: C.mustard }}>{fmt(order.total)}</span>
             </div>
