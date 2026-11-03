@@ -967,3 +967,188 @@ select {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+
+/* ── Admin micro-animations ─────────────────────────────────────────────── */
+.admin-section-enter { animation: admin-fade-up 380ms cubic-bezier(0.2,0.7,0.25,1) both; }
+.admin-title-enter { animation: admin-slide-in 320ms cubic-bezier(0.2,0.7,0.25,1) both; }
+
+/* Modals: the backdrop fades, the box pops */
+.admin-panel .fixed.inset-0.flex.items-center.justify-center { animation: admin-fade 200ms ease both; }
+.admin-panel .fixed.inset-0.flex.items-center.justify-center > * {
+  animation: admin-pop 260ms cubic-bezier(0.2,0.9,0.3,1.2) both;
+}
+
+.admin-pop { transform-origin: top right; animation: admin-pop 220ms cubic-bezier(0.2,0.9,0.3,1.2) both; }
+.admin-badge-pop { animation: admin-badge-pop 420ms cubic-bezier(0.3,1.6,0.5,1) both; }
+.admin-theme-spin { animation: admin-spin-in 420ms cubic-bezier(0.2,0.7,0.25,1) both; }
+.admin-toast-enter { animation: admin-toast-in 320ms cubic-bezier(0.2,0.9,0.3,1.2) both; }
+
+/* Header buttons sink a little when pressed */
+.admin-header button { transition: transform 120ms ease, filter 160ms ease; }
+.admin-header button:hover { filter: brightness(1.08); }
+.admin-header button:active { transform: scale(0.92); }
+
+@keyframes admin-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes admin-fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes admin-slide-in {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes admin-pop {
+  from { opacity: 0; transform: scale(0.94) translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes admin-badge-pop {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+@keyframes admin-spin-in {
+  from { opacity: 0; transform: rotate(-120deg) scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes admin-toast-in {
+  from { opacity: 0; transform: translate(-50%, 16px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Checking a permission: the box pops and the tick draws in */
+.admin-check-pop { animation: admin-check-pop 300ms cubic-bezier(0.3,1.6,0.5,1) both; }
+.admin-check-pop svg { animation: admin-fade 200ms ease 80ms both; }
+
+/* Bell rings for a moment every few seconds while there are unread alerts */
+.admin-bell-ring { transform-origin: 50% 10%; animation: admin-bell-ring 6s ease-in-out 1s infinite; }
+
+/* Submenu items slide in one after another when a group opens */
+.admin-subnav-open > * { animation: admin-slide-in 260ms cubic-bezier(0.2,0.7,0.25,1) both; }
+.admin-subnav-open > :nth-child(2) { animation-delay: 40ms; }
+.admin-subnav-open > :nth-child(3) { animation-delay: 80ms; }
+.admin-subnav-open > :nth-child(n+4) { animation-delay: 120ms; }
+
+/* «Guardar»: a soft light sweeps across on hover */
+.admin-save-shine { position: relative; overflow: hidden; }
+.admin-save-shine::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
+  transform: translateX(-120%);
+  content: "";
+  pointer-events: none;
+}
+.admin-save-shine:hover::after { transform: translateX(120%); transition: transform 650ms ease; }
+
+@keyframes admin-check-pop {
+  0% { transform: scale(0.7); }
+  60% { transform: scale(1.2); }
+  100% { transform: scale(1); }
+}
+@keyframes admin-bell-ring {
+  0%, 88%, 100% { transform: rotate(0); }
+  90% { transform: rotate(14deg); }
+  92% { transform: rotate(-12deg); }
+  94% { transform: rotate(8deg); }
+  96% { transform: rotate(-5deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-check-pop,
+  .admin-check-pop svg,
+  .admin-bell-ring,
+  .admin-subnav-open > *,
+  .admin-save-shine::after,
+  .admin-section-enter,
+  .admin-title-enter,
+  .admin-panel .fixed.inset-0.flex.items-center.justify-center,
+  .admin-panel .fixed.inset-0.flex.items-center.justify-center > *,
+  .admin-pop,
+  .admin-badge-pop,
+  .admin-theme-spin,
+  .admin-toast-enter {
+    animation: none;
+  }
+  .admin-header button:active { transform: none; }
+}
+
+/* ── Add to cart: the button confirms and the cart count bounces ─────────── */
+.cart-added-pop { animation: cart-added-pop 320ms cubic-bezier(0.3,1.6,0.5,1) both; }
+.cart-badge-bump { animation: cart-badge-bump 450ms cubic-bezier(0.3,1.6,0.5,1) both; }
+@keyframes cart-added-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes cart-badge-bump {
+  0% { transform: scale(0.4); }
+  55% { transform: scale(1.45); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cart-added-pop,
+  .cart-badge-bump { animation: none; }
+}
+
+/* ── Admin: placeholder rows while loading, glow on the row just saved ───── */
+.admin-skeleton {
+  background: linear-gradient(90deg, rgba(128,128,128,0.12) 25%, rgba(128,128,128,0.24) 50%, rgba(128,128,128,0.12) 75%);
+  background-size: 200% 100%;
+  animation: admin-skeleton 1.3s ease-in-out infinite;
+}
+.admin-row-saved { animation: admin-row-saved 2s ease-out both; }
+@keyframes admin-skeleton {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@keyframes admin-row-saved {
+  0%, 35% { background-color: rgba(182,140,28,0.24); }
+  100% { background-color: transparent; }
+}
+
+/* ── Client: order timeline and the order-confirmed screen ───────────────── */
+.order-step-done { animation: order-step-pop 360ms cubic-bezier(0.3,1.6,0.5,1) both; }
+.order-step-current {
+  animation: order-step-pop 360ms cubic-bezier(0.3,1.6,0.5,1) both, order-step-pulse 1.8s ease-out 600ms infinite;
+}
+.order-line-fill { transform-origin: left; animation: order-line-fill 260ms ease-out both; }
+.order-success-pop { animation: order-step-pop 520ms cubic-bezier(0.3,1.6,0.5,1) both; }
+.order-success-check { stroke-dasharray: 26; stroke-dashoffset: 26; animation: order-check-draw 420ms ease-out 380ms forwards; }
+.order-confetti {
+  position: absolute;
+  top: -12px;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  opacity: 0;
+  animation-name: order-confetti-fall;
+  animation-timing-function: cubic-bezier(0.3,0.6,0.5,1);
+  animation-fill-mode: both;
+}
+@keyframes order-step-pop {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+@keyframes order-step-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(182,140,28,0.55); }
+  100% { box-shadow: 0 0 0 9px rgba(182,140,28,0); }
+}
+@keyframes order-line-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes order-check-draw { to { stroke-dashoffset: 0; } }
+@keyframes order-confetti-fall {
+  0% { opacity: 1; translate: 0 0; }
+  100% { opacity: 0; translate: 0 260px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-skeleton,
+  .admin-row-saved,
+  .order-step-done,
+  .order-step-current,
+  .order-line-fill,
+  .order-success-pop { animation: none; }
+  .order-success-check { animation: none; stroke-dashoffset: 0; }
+  .order-confetti { display: none; }
+}
