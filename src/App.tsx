@@ -1,8 +1,7 @@
 import { Fragment, useState, useRef, useEffect, useCallback } from "react"
 import logoImg from "@/imports/logo.png"
 import qrImg from "@/imports/image-4.png"
-import loginBackgroundImg from "@/imports/auth-login-new.jpg"
-import authFoodBackgroundImg from "@/imports/auth-food-new.png"
+import accessBackgroundImg from "@/imports/access-background.jpg"
 import landingBackgroundImg from "@/imports/landing-background.png"
 import storyBelloImg from "@/imports/story-bello.png"
 import traditionalBurgerImg from "@/imports/traditional-burger.png"
@@ -45,7 +44,31 @@ type CartItem = {
 // The shop is in Santa Ana (Bello, Antioquia).
 const SHOP_LOCATION = { lat: 6.3295, lon: -75.5627 }
 const DELIVERY_ESTIMATE_ENDPOINT = "/pedidos/estimacion"
-const BUILDING_TYPES = ["Departamento", "Edificio residencial", "Urbanización", "Hotel", "Oficinas", "Otro"]
+const STREET_TYPES = ["Calle", "Carrera", "Transversal", "Diagonal", "Avenida"] as const
+type CheckoutAddressParts = {
+  tipoVia: string
+  numeroVia: string
+  letraVia: string
+  tipoViaSecundaria: string
+  numeroViaSecundaria: string
+  letraViaSecundaria: string
+  numeroPlaca: string
+  letraPlaca: string
+  complemento: string
+  barrio: string
+}
+const EMPTY_CHECKOUT_ADDRESS_PARTS: CheckoutAddressParts = {
+  tipoVia: "",
+  numeroVia: "",
+  letraVia: "",
+  tipoViaSecundaria: "",
+  numeroViaSecundaria: "",
+  letraViaSecundaria: "",
+  numeroPlaca: "",
+  letraPlaca: "",
+  complemento: "",
+  barrio: "",
+}
 // Straight-line distance in km between two points (haversine)
 function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
   const rad = (d: number) => (d * Math.PI) / 180
@@ -55,29 +78,63 @@ function distanceKm(a: { lat: number; lon: number }, b: { lat: number; lon: numb
   return 2 * 6371 * Math.asin(Math.sqrt(h))
 }
 // One text for the order (the backend keeps a single delivery address)
-const composeDeliveryAddress = (d: { calle: string; barrio: string; tipoEdificio: string; nombreEdificio: string; unidad: string }) =>
+const composeStreetAddress = (d: Pick<CheckoutAddressParts, "tipoVia" | "numeroVia" | "letraVia" | "tipoViaSecundaria" | "numeroViaSecundaria" | "letraViaSecundaria" | "numeroPlaca" | "letraPlaca">) => {
+  const street = [d.tipoVia, `${d.numeroVia.trim()}${d.letraVia.trim().toUpperCase()}`.trim()].filter(Boolean).join(" ")
+  const secondaryNumber = `${d.numeroViaSecundaria.trim()}${d.letraViaSecundaria.trim().toUpperCase()}`.trim()
+  const secondaryStreet = [d.tipoViaSecundaria, secondaryNumber].filter(Boolean).join(" ")
+  const plate = `${d.numeroPlaca.trim()}${d.letraPlaca.trim().toUpperCase()}`
+  const crossing = [secondaryStreet, plate].filter(Boolean).join("-")
+  return [street, crossing && `# ${crossing}`].filter(Boolean).join(" ")
+}
+const composeDeliveryAddress = (d: CheckoutAddressParts) =>
   [
-    d.calle.trim(),
+    composeStreetAddress(d),
+    d.complemento.trim(),
     d.barrio.trim() && `Barrio ${d.barrio.trim()}`,
-    d.tipoEdificio && [d.tipoEdificio, d.nombreEdificio.trim()].filter(Boolean).join(" "),
-    d.unidad.trim(),
   ]
     .filter(Boolean)
     .join(", ")
 
 function addressPartsFromAddress(address: string) {
   const segments = address.split(",").map((part) => part.trim()).filter(Boolean)
-  const barrio = neighborhoodNameFromAddress(address)
-  const otherDetails = segments
-    .slice(1)
-    .filter((part) => !/^Barrio\s+/i.test(part))
-    .join(", ")
+  const barrio = neighborhoodNameFromAddress(address) || ""
+  const street = segments.find((part) => !/^Barrio\s+/i.test(part)) || ""
+  const streetTypePattern = "(?:Calle|Cl\\.?|Carrera|Cra\\.?|Avenida|Av\\.?|Transversal|Trans\\.?|Diagonal|Diag\\.?|Circular|Circ\\.?)"
+  const streetMatch = street.match(
+    new RegExp(`^(${streetTypePattern})\\s*([0-9]+)([A-Z]?)(?:\\s*#\\s*(?:(${streetTypePattern})\\s*)?([0-9]+)([A-Z]?)(?:\\s*-\\s*([0-9]+)([A-Z]?))?)?$`, "i"),
+  )
+  const streetType = streetMatch?.[1].toLowerCase().replace(/\./g, "")
+  const secondaryStreetType = streetMatch?.[4]?.toLowerCase().replace(/\./g, "")
+  const typeAliases: Record<string, string> = {
+    calle: "Calle",
+    cl: "Calle",
+    carrera: "Carrera",
+    cra: "Carrera",
+    avenida: "Avenida",
+    av: "Avenida",
+    transversal: "Transversal",
+    trans: "Transversal",
+    diagonal: "Diagonal",
+    diag: "Diagonal",
+    circular: "Circular",
+    circ: "Circular",
+  }
+  const type = streetType ? typeAliases[streetType] : undefined
+  const secondaryType = secondaryStreetType ? typeAliases[secondaryStreetType] : undefined
+  const complementarySegments = segments.filter(
+    (part) => part !== street && !/^Barrio\s+/i.test(part),
+  )
   return {
+    tipoVia: type || (street ? "Calle" : ""),
+    numeroVia: streetMatch?.[2] || street.replace(/^(Calle|Cl\.?|Carrera|Cra\.?|Avenida|Av\.?|Transversal|Trans\.?|Diagonal|Diag\.?|Circular|Circ\.?)\s*/i, ""),
+    letraVia: streetMatch?.[3] || "",
+    tipoViaSecundaria: secondaryType ? typeAliases[secondaryType] || "" : "",
+    numeroViaSecundaria: streetMatch?.[5] || "",
+    letraViaSecundaria: streetMatch?.[6] || "",
+    numeroPlaca: streetMatch?.[7] || "",
+    letraPlaca: streetMatch?.[8] || "",
+    complemento: complementarySegments.join(", "),
     barrio,
-    calle: segments[0] || "",
-    tipoEdificio: "",
-    nombreEdificio: "",
-    unidad: otherDetails,
   }
 }
 // OpenStreetMap search (free). "#" breaks it ("Calle 50 #45-20" -> "Calle 50 45-20")
@@ -138,6 +195,11 @@ const formatDuration = (minutes: number) => {
   if (!hours) return `${minutes} min`
   return remainingMinutes ? `${hours} h ${remainingMinutes} min` : `${hours} h`
 }
+
+const isKnownBelloNeighborhood = (name: string) =>
+  BELLO_NEIGHBORHOODS.some(
+    (neighborhood) => normalizeNeighborhood(neighborhood) === normalizeNeighborhood(name),
+  )
 
 // A long address shown one part per line ("Calle 50 # 45-20" / "Barrio Santa Ana" / "Torre 2 apto 301")
 const AddressLines = ({ address }: { address: string }) => (
@@ -271,6 +333,45 @@ const C = {
   cream: "#F2E5C0",
   dark: "#191512",
   forest: "#3A6D5E",
+}
+const DeliveryAddressSummary = ({ address }: { address: string }) => {
+  const parts = address.split(/,\s*/).filter(Boolean)
+  const street = parts[0] || address
+  const neighborhood = parts.find((part) => /^Barrio\s+/i.test(part))
+  const complement = parts.filter((part, index) => index > 0 && !/^Barrio\s+/i.test(part)).join(", ")
+
+  return (
+    <div className="mt-3 overflow-hidden rounded-xl border" style={{ borderColor: `${C.mustard}30`, background: "#fff" }}>
+      <div className="flex items-center gap-2.5 px-3.5 py-2.5" style={{ background: "#FBF7EC" }}>
+        <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg" style={{ color: C.mustard, background: `${C.mustard}18` }}>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z" />
+            <circle cx="12" cy="10" r="2.5" />
+          </svg>
+        </span>
+        <span className="text-xs font-bold" style={{ color: C.dark }}>Dirección de entrega</span>
+      </div>
+      <div className="p-3.5">
+        <p className="text-sm font-bold leading-relaxed" style={{ color: C.dark }}>{street}</p>
+        {(complement || neighborhood) && (
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {complement && (
+              <div className="min-w-0 rounded-lg px-2.5 py-2" style={{ background: "rgba(30,30,30,0.035)" }}>
+                <span className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "rgba(30,30,30,0.5)" }}>Complemento</span>
+                <span className="mt-0.5 block break-words text-xs font-medium leading-relaxed" style={{ color: C.dark }}>{complement}</span>
+              </div>
+            )}
+            {neighborhood && (
+              <div className="min-w-0 rounded-lg px-2.5 py-2" style={{ background: "rgba(30,30,30,0.035)" }}>
+                <span className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: "rgba(30,30,30,0.5)" }}>Barrio</span>
+                <span className="mt-0.5 block break-words text-xs font-medium leading-relaxed" style={{ color: C.dark }}>{neighborhood.replace(/^Barrio\s+/i, "")}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 const WA = "573206332670"
 const ITEMS_PER_PAGE = 6
@@ -2347,7 +2448,9 @@ function validateRegister(f: {
   if (!name) e.name = "Ingresa tu nombre."
   else if (!NAME_RE.test(name)) e.name = "El nombre solo puede tener letras y espacios."
   else if (name.length < 2) e.name = "El nombre debe tener al menos 2 letras."
-  if (f.lastname?.trim() && !NAME_RE.test(f.lastname.trim()))
+  const lastname = f.lastname?.trim() ?? ""
+  if (!lastname) e.lastname = "Ingresa tu apellido."
+  else if (!NAME_RE.test(lastname))
     e.lastname = "El apellido solo puede tener letras y espacios."
   if (!f.docType) e.docType = "Selecciona el tipo de documento."
   const doc = f.docNum.trim()
@@ -2355,7 +2458,8 @@ function validateRegister(f: {
   else if (f.docType && !DOC_RULES[f.docType]?.re.test(doc))
     e.docNum = DOC_RULES[f.docType].msg
   const phone = f.phone.replace(/\s/g, "")
-  if (phone && !/^3\d{9}$/.test(phone))
+  if (!phone) e.phone = "Ingresa tu número de celular."
+  else if (!/^3\d{9}$/.test(phone))
     e.phone = "El celular debe tener 10 números y empezar por 3."
   const em = emailError(f.email)
   if (em) e.email = em
@@ -2476,7 +2580,7 @@ function PinCodeField({
   return (
     <div className="flex flex-col gap-2">
       <label className="text-sm font-semibold" style={{ color: C.dark }}>
-        {label}
+        {label} *
       </label>
       <div
         className="relative"
@@ -2491,7 +2595,7 @@ function PinCodeField({
                 key={index}
                 className="flex h-11 w-11 items-center justify-center rounded-lg text-lg font-bold transition-all sm:h-12 sm:w-12 sm:rounded-xl"
                 style={{
-                  background: "#FBF8F0",
+                  background: "#F3F3F3",
                   border: `1.5px solid ${error ? C.red : active ? C.mustard : "rgba(182,140,28,0.2)"}`,
                   color: C.dark,
                   boxShadow: active && !error ? "0 0 0 3px rgba(182,140,28,0.12)" : "0 2px 7px rgba(54,57,63,0.04)",
@@ -2508,6 +2612,7 @@ function PinCodeField({
           autoComplete="one-time-code"
           pattern="[0-9]*"
           maxLength={6}
+          required
           value={value}
           onChange={(event) => onChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
           onFocus={() => setFocused(true)}
@@ -2554,22 +2659,6 @@ function AccessBackButton({ onClick }: { onClick: () => void }) {
         <path d="M19 12H5m0 0 6 6m-6-6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       <span className="pr-1">Inicio</span>
-    </button>
-  )
-}
-
-function AccessLoginLink({ onClick, compact = false }: { onClick: () => void; compact?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex w-full items-center justify-center gap-2 rounded-xl border px-4 ${compact ? "py-2" : "py-2.5"} text-sm font-semibold transition-colors hover:bg-[#FBF5E8] focus-visible:outline-2 focus-visible:outline-offset-2`}
-      style={{ borderColor: "rgba(182,140,28,0.22)", color: C.mustard, outlineColor: C.mustard }}
-    >
-      <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" aria-hidden="true">
-        <path d="M19 12H5m0 0 6 6m-6-6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-      Volver al inicio de sesión
     </button>
   )
 }
@@ -2635,7 +2724,7 @@ function AuthLayout({
           <AccessLogo
             onClick={onLogoClick}
             className="object-contain"
-            style={{ width: wide ? "124px" : "144px", height: wide ? "124px" : "144px" }}
+            style={{ width: "112px", height: "112px" }}
           />
         </div>
         <div
@@ -2709,14 +2798,14 @@ function LoginPage({
         fontFamily: "DM Sans, sans-serif",
       }}
     >
-      <AuthPhotoBackground src={loginBackgroundImg} />
+      <AuthPhotoBackground src={accessBackgroundImg} />
       <AccessBackButton onClick={onBack} />
       <div className="relative z-10 grid w-full max-w-6xl items-center gap-8 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:gap-14">
         <div className="hidden px-4 lg:block">
           <img
             src={logoImg}
             alt="El Parche"
-            className="mb-5 h-36 w-36 object-contain"
+            className="mb-5 h-28 w-28 object-contain"
           />
           <div
             className="mb-3 text-sm font-bold uppercase tracking-widest"
@@ -2915,7 +3004,7 @@ function RegisterPage({
     return (
       <AuthLayout
         title="Verifica tu correo"
-        backgroundImage={authFoodBackgroundImg}
+        backgroundImage={accessBackgroundImg}
         onBack={onBack}
         onLogoClick={onLoginLink}
         compact
@@ -2956,7 +3045,6 @@ function RegisterPage({
           >
             ← Corregir mis datos
           </button>
-          <AccessLoginLink onClick={onLoginLink} />
         </form>
       </AuthLayout>
     )
@@ -2968,13 +3056,13 @@ function RegisterPage({
         fontFamily: "DM Sans, sans-serif",
       }}
     >
-      <AuthPhotoBackground src={authFoodBackgroundImg} />
+      <AuthPhotoBackground src={accessBackgroundImg} />
       <AccessBackButton onClick={onBack} />
       <div className="relative z-10 grid w-full max-w-6xl items-center gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-10">
         <div className="hidden px-5 text-white lg:block">
           <AccessLogo
             onClick={onLoginLink}
-            className="mb-8 h-24 w-40 object-contain"
+            className="mb-8 h-28 w-28 object-contain"
           />
           <h1
             className="mb-4 max-w-[400px] text-4xl font-black leading-tight"
@@ -2997,7 +3085,7 @@ function RegisterPage({
           <div className="mb-4 flex justify-center lg:hidden">
             <AccessLogo
               onClick={onLoginLink}
-              className="h-20 w-32 object-contain"
+              className="h-28 w-28 object-contain"
             />
           </div>
           <h2
@@ -3027,6 +3115,7 @@ function RegisterPage({
                   Tipo de documento *
                 </label>
                 <select
+                  required
                   value={form.docType}
                   onChange={(e) => {
                     const docType = e.target.value
@@ -3076,6 +3165,7 @@ function RegisterPage({
                 placeholder="Tu apellido"
                 value={form.lastname}
                 onChange={upd("lastname")}
+                required
                 error={errors.lastname}
               />
             </div>
@@ -3086,6 +3176,7 @@ function RegisterPage({
                 placeholder="3XX XXX XXXX"
                 value={form.phone}
                 onChange={upd("phone")}
+                required
                 error={errors.phone}
               />
               <InputField
@@ -3132,7 +3223,6 @@ function RegisterPage({
             >
               {busy ? "Creando cuenta..." : "Crear cuenta →"}
             </button>
-            <AccessLoginLink onClick={onLoginLink} />
           </form>
         </div>
       </div>
@@ -3159,7 +3249,7 @@ function ChooseOwnPasswordPage({
   return (
     <AuthLayout
       title="Crea tu contraseña"
-      backgroundImage={authFoodBackgroundImg}
+      backgroundImage={accessBackgroundImg}
       onBack={onLogout}
       onLogoClick={onLogout}
       sub={
@@ -3249,7 +3339,7 @@ function ForgotPage({
       <AuthLayout
         title="Revisa tu correo"
         sub="Si está registrado, te llegará un código"
-        backgroundImage={authFoodBackgroundImg}
+        backgroundImage={accessBackgroundImg}
         onBack={onBack}
         onLogoClick={onLogin}
         compact
@@ -3286,9 +3376,6 @@ function ForgotPage({
           >
             Usar otro correo
           </button>
-          <div className="mt-2">
-            <AccessLoginLink onClick={onLogin} compact />
-          </div>
         </div>
       </AuthLayout>
     )
@@ -3296,7 +3383,7 @@ function ForgotPage({
     <AuthLayout
       title="Recuperar contraseña"
       sub="Se enviará un código si el correo existe."
-      backgroundImage={authFoodBackgroundImg}
+      backgroundImage={accessBackgroundImg}
       onBack={onBack}
       onLogoClick={onLogin}
       wide
@@ -3342,7 +3429,6 @@ function ForgotPage({
         >
           {busy ? "Enviando..." : "Enviar código"}
         </button>
-        <AccessLoginLink onClick={onLogin} compact />
       </form>
     </AuthLayout>
   )
@@ -3390,7 +3476,7 @@ function ResetPage({
       <AuthLayout
         title="¡Listo!"
         sub="Contraseña actualizada"
-        backgroundImage={authFoodBackgroundImg}
+        backgroundImage={accessBackgroundImg}
         onBack={onBack}
         onLogoClick={onDone}
         compact
@@ -3421,7 +3507,7 @@ function ResetPage({
   return (
     <AuthLayout
       title={verificationToken ? "Nueva contraseña" : "Verifica tu correo"}
-      backgroundImage={authFoodBackgroundImg}
+      backgroundImage={accessBackgroundImg}
       onBack={onBack}
       onLogoClick={onLogin}
       compact
@@ -3548,7 +3634,6 @@ function ResetPage({
               ? "Cambiar contraseña"
               : "Continuar"}
         </button>
-        <AccessLoginLink onClick={onLogin} compact />
       </form>
     </AuthLayout>
   )
@@ -4464,6 +4549,7 @@ function GuestMenuPage({
   onCheckout: () => void
 }) {
   const [addProduct, setAddProduct] = useState<Product | null>(null)
+  const [cartNotice, showCartNotice] = useCartNotice()
   const cartCount = cart.reduce((sum, item) => sum + item.qty, 0)
   const addToCart = (
     product: Product,
@@ -4485,6 +4571,7 @@ function GuestMenuPage({
       }),
     )
     setAddProduct(null)
+    showCartNotice(product.name)
   }
 
   return (
@@ -4534,6 +4621,7 @@ function GuestMenuPage({
           dark={false}
         />
       )}
+      <CartAddedNotice message={cartNotice} />
     </div>
   )
 }
@@ -4548,6 +4636,38 @@ const itemTotal = (i: CartItem) =>
   i.qty
 const cartTotal = (items: CartItem[]) =>
   items.reduce((s, i) => s + itemTotal(i), 0)
+
+function useCartNotice() {
+  const [message, setMessage] = useState("")
+  const timeoutRef = useRef<number | null>(null)
+  const showCartNotice = (productName: string) => {
+    setMessage(`${productName} se agregó al carrito`)
+    if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current)
+    timeoutRef.current = window.setTimeout(() => setMessage(""), 2600)
+  }
+  useEffect(
+    () => () => {
+      if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current)
+    },
+    [],
+  )
+  return [message, showCartNotice] as const
+}
+
+function CartAddedNotice({ message, dark = false }: { message: string; dark?: boolean }) {
+  if (!message) return null
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed bottom-6 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold shadow-lg"
+      style={{ background: dark ? "#2a2116" : "#2E7D60", color: "#fff" }}
+    >
+      <span aria-hidden="true">✓</span>
+      {message}
+    </div>
+  )
+}
 const activeCartItemsFirst = (items: CartItem[]) => [
   ...items.filter((item) => item.qty > 0),
   ...items.filter((item) => item.qty === 0),
@@ -5705,51 +5825,43 @@ function OrderList({
         return (
           <div
             key={o.id}
-            className="w-full text-left p-4 rounded-2xl"
+            className="w-full rounded-2xl p-5 text-left transition-shadow hover:shadow-md sm:p-5"
             style={{
               background: dark ? "#1E1C18" : "#fff",
               border: `1px solid ${BORDER}`,
             }}
           >
-            <div className="flex items-center justify-between gap-3">
+            <div className="mb-4 border-b pb-3" style={{ borderColor: BORDER }}>
+              <OrderProgress status={o.status} dark={dark} />
+            </div>
+            <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <div className="font-bold text-sm" style={{ color: TEXT }}>
+                <div className="text-lg font-bold leading-snug" style={{ color: TEXT }}>
                   {formatOrderDescription(o)}
                 </div>
-                <div className="text-xs truncate" style={{ color: MUTED }}>
-                  {o.items.map((i) => `${i.name} x${i.qty}`).join(", ")}
+                <div className="mt-1.5 break-words text-base leading-snug" style={{ color: MUTED }}>
+                  {o.items.map((i) => `${i.name} ×${i.qty}`).join(", ")}
                 </div>
                 {(o.items.some((i) => i.sauces?.length || i.additions?.length)) && (
-                  <div className="text-[11px] mt-1" style={{ color: C.mustard }}>
+                  <div className="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-semibold"
+                    style={{ color: C.mustard, background: `${C.mustard}12` }}>
                     Incluye personalizaciones
                   </div>
                 )}
-                {o.tipoEntrega === "domicilio" && (
-                  <div className="mt-2 space-y-0.5 text-[11px]" style={{ color: MUTED }}>
-                    {o.barrio && <div>Barrio: {o.barrio}</div>}
-                    {o.estimacion?.distanceKm != null && (
-                      <div>Distancia aproximada: {o.estimacion.distanceKm.toFixed(1)} km</div>
-                    )}
-                    {o.costoDomicilio != null && <div>Domicilio: {fmt(o.costoDomicilio)}</div>}
-                    {o.estimacion?.estimatedMinutes != null && (
-                      <div>Tiempo estimado: {formatDuration(o.estimacion.estimatedMinutes)}</div>
-                    )}
-                  </div>
-                )}
               </div>
-              <div className="text-right flex-shrink-0">
-                <div className="font-bold" style={{ color: C.mustard }}>
+              <div className="flex flex-shrink-0 flex-col items-end gap-1">
+                <div className="text-xl font-black" style={{ color: C.mustard }}>
                   {fmt(o.total)}
                 </div>
                 <span
-                  className="text-xs px-2 py-0.5 rounded-full font-medium"
+                  className="rounded-full px-3 py-1.5 text-sm font-semibold"
                   style={{ background: badge?.bg, color: badge?.color }}
                 >
                   {o.status}
                 </span>
                 {paymentStatus !== "Pendiente" && (
-                  <div
-                    className="mt-1 text-[10px] font-semibold"
+                  <span
+                    className="text-xs font-semibold"
                     style={{
                       color:
                         paymentStatus === "Pagado"
@@ -5760,21 +5872,130 @@ function OrderList({
                     }}
                   >
                     Pago: {paymentStatus}
-                  </div>
+                  </span>
                 )}
               </div>
             </div>
+
+            {o.tipoEntrega === "domicilio" && (
+              <div className="mt-4 flex flex-wrap gap-2 border-t pt-3.5" style={{ borderColor: BORDER }}>
+                {o.barrio && (
+                  <span className="rounded-lg px-3 py-2 text-sm" style={{ background: dark ? "rgba(244,238,220,0.06)" : "#F8F5EC", color: TEXT }}>
+                    Barrio <strong>{o.barrio}</strong>
+                  </span>
+                )}
+                {o.costoDomicilio != null && (
+                  <span className="rounded-lg px-3 py-2 text-sm" style={{ background: dark ? "rgba(244,238,220,0.06)" : "#F8F5EC", color: TEXT }}>
+                    Domicilio <strong>{fmt(o.costoDomicilio)}</strong>
+                  </span>
+                )}
+                {o.estimacion?.estimatedMinutes != null && (
+                  <span className="rounded-lg px-3 py-2 text-sm" style={{ background: dark ? "rgba(244,238,220,0.06)" : "#F8F5EC", color: TEXT }}>
+                    Tiempo estimado <strong>{formatDuration(o.estimacion.estimatedMinutes)}</strong>
+                  </span>
+                )}
+                {o.estimacion?.distanceKm != null && (
+                  <span className="rounded-lg px-3 py-2 text-sm" style={{ background: dark ? "rgba(244,238,220,0.06)" : "#F8F5EC", color: TEXT }}>
+                    Distancia <strong>{o.estimacion.distanceKm.toFixed(1)} km</strong>
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div
+              className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-t pt-3 text-sm"
+              style={{ borderColor: BORDER }}
+            >
+              {o.nombre && (
+                <div className="min-w-0">
+                  <span className="block text-xs" style={{ color: MUTED }}>Recibe</span>
+                  <span className="block break-words font-semibold" style={{ color: TEXT }}>{o.nombre}</span>
+                </div>
+              )}
+              {o.telefono && (
+                <div className="min-w-0">
+                  <span className="block text-xs" style={{ color: MUTED }}>Teléfono</span>
+                  <span className="block break-words font-semibold" style={{ color: TEXT }}>{o.telefono}</span>
+                </div>
+              )}
+              {o.tipoEntrega === "domicilio" && o.direccion && (
+                <div className="col-span-2 min-w-0">
+                  <span className="block text-xs" style={{ color: MUTED }}>Dirección</span>
+                  <span className="block break-words font-semibold leading-relaxed" style={{ color: TEXT }}>{o.direccion}</span>
+                </div>
+              )}
+            </div>
+
             <button
               onClick={() => onSelect(o)}
-              className="mt-3 w-full py-2 rounded-xl text-xs font-bold cursor-pointer hover:opacity-90"
-              style={{ background: `${C.mustard}15`, color: C.mustard }}
+              className="mt-4 flex w-full items-center justify-between rounded-xl px-4 py-3 text-base font-bold transition hover:opacity-85 cursor-pointer"
+              style={{
+                background: dark ? "rgba(244,238,220,0.07)" : "#FBF7EC",
+                color: C.mustard,
+              }}
             >
-              Ver detalle
+              <span>Ver detalle del pedido</span>
+              <span aria-hidden="true">→</span>
             </button>
           </div>
         )
       })}
     </div>
+  )
+}
+
+function OrderProgress({ status, dark }: { status: string; dark: boolean }) {
+  const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
+  const BORDER = dark ? "rgba(244,238,220,0.12)" : "rgba(30,30,30,0.12)"
+  const steps =
+    status === "Por confirmar"
+      ? ["Por confirmar", ...ORDER_STEPS.slice(1)]
+      : ORDER_STEPS
+  const currentStep = steps.indexOf(status)
+
+  if (status === "Cancelado" || currentStep < 0) {
+    const badge = badgeSt(status)
+    return (
+      <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: badge?.color || MUTED }}>
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: badge?.color || MUTED }} />
+        Estado del pedido: {status}
+      </div>
+    )
+  }
+
+  return (
+    <ol aria-label={`Seguimiento del pedido: ${status}`} className="flex w-full items-start">
+      {steps.map((step, index) => {
+        const complete = index <= currentStep
+        const active = index === currentStep
+        return (
+          <li key={step} className={`flex min-w-0 flex-1 items-start ${index === steps.length - 1 ? "flex-none" : ""}`}>
+            <div className="flex min-w-0 flex-col items-center">
+              <span
+                className="flex h-3 w-3 items-center justify-center rounded-full"
+                style={{
+                  background: complete ? C.mustard : BORDER,
+                  boxShadow: active ? `0 0 0 3px ${C.mustard}22` : "none",
+                }}
+              />
+              <span
+                className="mt-1.5 max-w-full text-center text-[10px] leading-tight"
+                style={{ color: active ? C.mustard : MUTED, fontWeight: active ? 700 : 500 }}
+              >
+                {step}
+              </span>
+            </div>
+            {index < steps.length - 1 && (
+              <span
+                className="mt-[5px] h-0.5 min-w-2 flex-1"
+                style={{ background: index < currentStep ? C.mustard : BORDER }}
+                aria-hidden="true"
+              />
+            )}
+          </li>
+        )
+      })}
+    </ol>
   )
 }
 
@@ -5821,19 +6042,6 @@ function OrderDetailModal({
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.09)"
-  // Big orders show "Por confirmar" as their first step until the owner approves
-  const steps =
-    order.status === "Por confirmar"
-      ? ["Por confirmar", ...ORDER_STEPS.slice(1)]
-      : ORDER_STEPS
-  const step = steps.indexOf(order.status)
-  const field = (label: string, value: string | undefined, wide = false) =>
-    value ? (
-      <div className={`min-w-0 ${wide ? "col-span-2" : ""}`}>
-        <div className="text-[10px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>{label}</div>
-        <div className="break-words text-[13px] font-semibold leading-snug">{value}</div>
-      </div>
-    ) : null
   const cardBg = dark ? "rgba(255,255,255,0.03)" : "#FBF6E9"
   return (
     <div
@@ -5863,19 +6071,6 @@ function OrderDetailModal({
                 {Ico.x}
               </button>
             </div>
-          </div>
-          <div className="mt-3 flex items-center">
-            {steps.map((s, i) => (
-              <div key={s} className="flex flex-1 items-center last:flex-none">
-                <div className="flex flex-col items-center">
-                  <div className="h-2.5 w-2.5 rounded-full" style={{ background: i <= step ? C.mustard : BORDER }} />
-                  <div className="mt-1 whitespace-nowrap text-center" style={{ color: i === step ? C.mustard : MUTED, fontSize: "0.58rem", fontWeight: i === step ? 700 : 400 }}>
-                    {s}
-                  </div>
-                </div>
-                {i < steps.length - 1 && <div className="mb-4 h-0.5 flex-1" style={{ background: i < step ? C.mustard : BORDER }} />}
-              </div>
-            ))}
           </div>
         </div>
 
@@ -5929,40 +6124,63 @@ function OrderDetailModal({
             })}
           </div>
 
-          {/* Delivery, payment, total and the transfer voucher */}
-          <div className="space-y-3 border-t p-4 md:overflow-y-auto md:border-l md:border-t-0 md:p-5" style={{ borderColor: BORDER }}>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
-              {field("Recibe", order.nombre)}
-              {field("Teléfono", order.telefono)}
-              {order.tipoEntrega === "domicilio" && field("Barrio", order.barrio)}
-              {field("Dirección", order.direccion, true)}
-              {order.tipoEntrega === "domicilio" && order.estimacion?.distanceKm != null && (
-                <div className="col-span-2 text-xs" style={{ color: MUTED }}>
-                  Distancia aproximada en línea recta: {order.estimacion.distanceKm.toFixed(1)} km
+          {/* Order-only summary: customer and address details are shown in Mis pedidos */}
+          <div className="space-y-4 border-t p-4 md:overflow-y-auto md:border-l md:border-t-0 md:p-5" style={{ borderColor: BORDER }}>
+            {order.tipoEntrega === "domicilio" && (
+              <section>
+                <h4 className="mb-2 text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>
+                  Domicilio
+                </h4>
+                <div className="grid grid-cols-2 gap-2">
+                  {order.costoDomicilio != null && (
+                    <div className="rounded-xl px-3 py-2.5" style={{ background: cardBg, border: `1px solid ${BORDER}` }}>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>Costo</span>
+                      <span className="mt-0.5 block text-sm font-bold">{fmt(order.costoDomicilio)}</span>
+                    </div>
+                  )}
+                  {order.estimacion?.estimatedMinutes != null && (
+                    <div className="rounded-xl px-3 py-2.5" style={{ background: cardBg, border: `1px solid ${BORDER}` }}>
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide" style={{ color: MUTED }}>Tiempo estimado</span>
+                      <span className="mt-0.5 block text-sm font-bold">{formatDuration(order.estimacion.estimatedMinutes)}</span>
+                    </div>
+                  )}
+                </div>
+                {order.estimacion?.distanceKm != null && (
+                  <p className="mt-2 text-xs" style={{ color: MUTED }}>
+                    Distancia aproximada: {order.estimacion.distanceKm.toFixed(1)} km
+                  </p>
+                )}
+              </section>
+            )}
+
+            <section className="rounded-xl border p-3.5" style={{ borderColor: BORDER }}>
+              <h4 className="mb-2 text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>
+                Pago
+              </h4>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span style={{ color: MUTED }}>Método</span>
+                <span className="font-semibold">{order.pago}</span>
+              </div>
+              {order.paymentStatus && (
+                <div className="mt-2 flex items-center justify-between gap-3 border-t pt-2 text-sm" style={{ borderColor: BORDER }}>
+                  <span style={{ color: MUTED }}>Estado</span>
+                  <span className="font-semibold">{order.paymentStatus}</span>
                 </div>
               )}
-              {order.tipoEntrega === "domicilio" && order.costoDomicilio != null && (
-                <div className="col-span-2 flex justify-between text-xs" style={{ color: MUTED }}>
-                  <span>Costo del domicilio</span>
-                  <span className="font-semibold">{fmt(order.costoDomicilio)}</span>
-                </div>
-              )}
-              {order.estimacion?.estimatedMinutes != null && (
-                <div className="col-span-2 flex justify-between text-xs" style={{ color: MUTED }}>
-                  <span>Tiempo estimado inicial</span>
-                  <span className="font-semibold">{formatDuration(order.estimacion.estimatedMinutes)}</span>
-                </div>
-              )}
-              {field("Pago", order.pago)}
-              {field("Estado del pago", order.paymentStatus)}
-              {field("Notas", order.notas, true)}
-            </div>
+            </section>
+
+            {order.notas && (
+              <section className="rounded-xl px-3.5 py-3" style={{ background: cardBg }}>
+                <h4 className="mb-1 text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>Notas del pedido</h4>
+                <p className="text-sm leading-relaxed">{order.notas}</p>
+              </section>
+            )}
             {order.paymentStatus === "Rechazado" && order.paymentRejectionReason && (
               <div className="rounded-xl px-3 py-2 text-xs" style={{ background: `${C.red}12`, color: C.red }}>
                 <strong>Motivo de rechazo:</strong> {order.paymentRejectionReason}
               </div>
             )}
-            <div className="flex items-center justify-between rounded-2xl px-4 py-3" style={{ background: `${C.mustard}14` }}>
+            <div className="flex items-center justify-between rounded-xl px-4 py-3.5" style={{ background: `${C.mustard}14` }}>
               <span className="text-sm font-bold">Total</span>
               <span className="text-xl font-black" style={{ color: C.mustard }}>{fmt(order.total)}</span>
             </div>
@@ -6312,7 +6530,7 @@ function NeighborhoodSearch({
                 >
                   <span>
                     {neighborhood.nombre}
-                    {neighborhood.costo_domicilio_cop != null && (
+                    {isKnownBelloNeighborhood(neighborhood.nombre) && neighborhood.costo_domicilio_cop != null && (
                       <span className="ml-2 text-xs" style={{ color: MUTED }}>
                         {neighborhood.tiempo_desplazamiento_minutos != null ? `${neighborhood.tiempo_desplazamiento_minutos} min · ` : ""}
                         {fmt(neighborhood.costo_domicilio_cop)}
@@ -6375,6 +6593,7 @@ function CheckoutPage({
   onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<number | void>
   onComplete: () => void
 }) {
+  const [cartNotice, showCartNotice] = useCartNotice()
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
   const [loginForm, setLoginForm] = useState({ email: "", pass: "" })
   const [regForm, setRegForm] = useState({
@@ -6403,8 +6622,8 @@ function CheckoutPage({
       : deliveryMethod === "recoger"
         ? "Recoger pedido"
         : "Pedir a domicilio"
-  // Address typed in parts; `direccion` is built from them (see composeDeliveryAddress)
-  const [addressParts, setAddressParts] = useState({ barrio: "", calle: "", tipoEdificio: "", nombreEdificio: "", unidad: "" })
+  // The backend still receives one formatted address string.
+  const [addressParts, setAddressParts] = useState<CheckoutAddressParts>(EMPTY_CHECKOUT_ADDRESS_PARTS)
   const [addressRetry, setAddressRetry] = useState(0)
   const fallbackNeighborhoods: DeliveryNeighborhood[] = BELLO_NEIGHBORHOODS.map((nombre) => ({
     id_barrio: null,
@@ -6413,13 +6632,9 @@ function CheckoutPage({
   const [neighborhoods, setNeighborhoods] = useState<DeliveryNeighborhood[]>(fallbackNeighborhoods)
   const [neighborhoodsLoading, setNeighborhoodsLoading] = useState(true)
   const [neighborhoodsError, setNeighborhoodsError] = useState("")
-  const setAddressPart = (key: keyof typeof addressParts, value: string) =>
+  const setAddressPart = (key: keyof CheckoutAddressParts, value: string) =>
     setAddressParts((current) => {
-      const next = {
-        ...current,
-        [key]: value,
-        ...(key === "tipoEdificio" && !value ? { nombreEdificio: "" } : {}),
-      }
+      const next = { ...current, [key]: value }
       setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(next) }))
       return next
     })
@@ -6440,6 +6655,13 @@ function CheckoutPage({
     (item) => !!barrioName
       && normalizeNeighborhood(item.nombre) === normalizeNeighborhood(barrioName),
   )
+  const geocodedInsideBello =
+    geo.status === "ok" &&
+    normalizeNeighborhood(geo.municipality || "") === normalizeNeighborhood("Bello")
+  const geocodedOutsideBello =
+    geo.status === "ok" &&
+    !!geo.municipality &&
+    !geocodedInsideBello
   const [deliveryEstimate, setDeliveryEstimate] = useState({
     status: "idle" as "idle" | "loading" | "ready" | "error",
     label: "Por confirmar",
@@ -6475,7 +6697,11 @@ function CheckoutPage({
     () => !(user?.addresses?.length),
   )
   // Locate the address (1 s after the last change: OpenStreetMap allows ~1 search per second)
-  const geoQueries = [addressParts.calle]
+  const streetAddress = composeStreetAddress(addressParts)
+  const geoQueries = [...new Set([
+    streetAddress,
+    [streetAddress, addressParts.barrio].filter(Boolean).join(", "),
+  ].filter(Boolean))]
   const geoKey = geoQueries.join("|")
   useEffect(() => {
     if (!isDelivery) {
@@ -6515,16 +6741,21 @@ function CheckoutPage({
     }
   }, [geoKey, addressRetry, isDelivery])
   useEffect(() => {
-    if (isDelivery && !selectedNeighborhood) {
+    if (
+      isDelivery &&
+      (geocodedOutsideBello ||
+        ((!selectedNeighborhood || !isKnownBelloNeighborhood(selectedNeighborhood.nombre)) &&
+          !geocodedInsideBello))
+    ) {
       setDeliveryEstimate({
         status: "idle",
-        label: addressParts.barrio ? "Elige tu barrio de la lista" : "Elige tu barrio para ver el tiempo y el costo",
+        label: "Fuera de cobertura",
         deliveryCost: null,
         distanceKm: null,
         distanceMethod: null,
         components: null,
       })
-      setDeliveryEstimateError(geo.status === "error" ? "No se pudo consultar la ubicación de la dirección." : "")
+      setDeliveryEstimateError("")
       return
     }
     if (!user) {
@@ -6555,11 +6786,11 @@ function CheckoutPage({
       "POST",
       {
         tipo_entrega: deliveryMethod,
-        ...(isDelivery && selectedNeighborhood
-          ? selectedNeighborhood.id_barrio !== null
-            ? { id_barrio: selectedNeighborhood.id_barrio }
-            : { nombre_barrio: selectedNeighborhood.nombre }
-          : {}),
+        ...(isDelivery && selectedNeighborhood && selectedNeighborhood.id_barrio !== null
+          ? { id_barrio: selectedNeighborhood.id_barrio }
+          : isDelivery && (selectedNeighborhood?.nombre || addressParts.barrio.trim())
+            ? { nombre_barrio: selectedNeighborhood?.nombre || addressParts.barrio.trim() }
+            : {}),
         ...(isDelivery ? { direccion: delivForm.direccion } : {}),
         ...(isDelivery && geo.status === "ok" && geo.lat !== undefined && geo.lon !== undefined
           ? { ubicacion: { lat: geo.lat, lon: geo.lon } }
@@ -6601,7 +6832,7 @@ function CheckoutPage({
         }
       })
     return () => controller.abort()
-  }, [selectedNeighborhood?.id_barrio, selectedNeighborhood?.nombre, delivForm.direccion, geo.status, geo.lat, geo.lon, user?.email, estimateRefresh, isDelivery, deliveryMethod, cart])
+  }, [selectedNeighborhood?.id_barrio, selectedNeighborhood?.nombre, addressParts.barrio, delivForm.direccion, geo.status, geo.municipality, geo.lat, geo.lon, geocodedInsideBello, geocodedOutsideBello, user?.email, estimateRefresh, isDelivery, deliveryMethod, cart])
   useEffect(() => {
     if (!user) return
     const interval = window.setInterval(() => setEstimateRefresh((value) => value + 1), 30_000)
@@ -6633,7 +6864,7 @@ function CheckoutPage({
       direccion: f.direccion || user.addresses?.[0] || "",
     }))
     const savedAddress = user.addresses?.[0] || ""
-    const savedParts = addressPartsFromAddress(savedAddress)
+    const savedParts = savedAddress ? addressPartsFromAddress(savedAddress) : EMPTY_CHECKOUT_ADDRESS_PARTS
     setAddressParts(savedParts)
     setEditingAddress(!hasSavedAddress)
     setSaveAddress(!hasSavedAddress)
@@ -6715,12 +6946,19 @@ function CheckoutPage({
     deliveryEstimate.status === "ready"
   )
   const orderTotal = subtotal + (displayedDeliveryCost ?? 0)
-  // A barrio chosen from the list is inside the coverage
   const neighborhoodOutOfRange =
     isDelivery &&
-    geo.status === "ok" &&
-    !selectedNeighborhood &&
-    normalizeNeighborhood(geo.municipality || "") !== normalizeNeighborhood("Bello")
+    !neighborhoodsLoading &&
+    (geocodedOutsideBello ||
+      (geo.status === "ok" && !geocodedInsideBello) ||
+      ((!selectedNeighborhood || !isKnownBelloNeighborhood(selectedNeighborhood.nombre)) &&
+        !geocodedInsideBello &&
+        (geo.status === "notfound" || geo.status === "error")))
+  const canShowDeliveryEstimate =
+    !isDelivery ||
+    (!neighborhoodOutOfRange &&
+      (geocodedInsideBello ||
+        (!!selectedNeighborhood && isKnownBelloNeighborhood(selectedNeighborhood.nombre))))
   const estimatedKitchenMinutes =
     deliveryEstimate.components?.kitchenWaitMinutes !== null &&
     deliveryEstimate.components?.kitchenWaitMinutes !== undefined &&
@@ -6738,13 +6976,25 @@ function CheckoutPage({
   const customerInfoFilled =
     !!delivForm.nombre.trim() &&
     !validatePhoneNumber(delivForm.telefono)
+  const validAddressNumber = (value: string) => /^[0-9]+$/.test(value.trim())
+  const validAddressLetter = (value: string) => /^[A-Za-z]?$/.test(value.trim())
+  const validStreetType = (value: string) =>
+    STREET_TYPES.some((type) => type === value) || value === "Circular"
+  const addressPartsValid =
+    validStreetType(addressParts.tipoVia) &&
+    validAddressNumber(addressParts.numeroVia) &&
+    validAddressLetter(addressParts.letraVia) &&
+    (!addressParts.tipoViaSecundaria || validStreetType(addressParts.tipoViaSecundaria)) &&
+    validAddressNumber(addressParts.numeroViaSecundaria) &&
+    validAddressLetter(addressParts.letraViaSecundaria) &&
+    validAddressNumber(addressParts.numeroPlaca) &&
+    validAddressLetter(addressParts.letraPlaca)
   const delivFilled = customerInfoFilled && (
     !isDelivery ||
     (
       !!delivForm.direccion.trim() &&
-      !!selectedNeighborhood &&
-      (!editingAddress || !!addressParts.calle.trim()) &&
-      geo.status === "ok"
+      (!!selectedNeighborhood || geocodedInsideBello) &&
+      addressPartsValid
     )
   )
   const canOrder = user && delivFilled && deliveryCostConfigured
@@ -6868,63 +7118,79 @@ function CheckoutPage({
         className="min-h-screen flex items-center justify-center px-4"
         style={{ background: "#FAF5E8", fontFamily: "DM Sans, sans-serif" }}
       >
-        <div className="w-full max-w-md p-8 rounded-3xl text-center" style={CARD_ST}>
-          <div
-            className="w-16 h-16 mx-auto mb-5 rounded-full flex items-center justify-center"
-            style={{ background: `${C.forest}18`, color: C.forest }}
-          >
-            <svg
-              width="30"
-              height="30"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
+        <div className="w-full max-w-lg overflow-hidden rounded-3xl" style={CARD_ST}>
+          <div className="h-1" style={{ background: `linear-gradient(90deg, ${C.forest}, ${C.mustard})` }} />
+          <div className="p-5 sm:p-7">
+            <div className="text-center">
+              <div
+                className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full"
+                style={{ background: `${C.forest}12`, color: C.forest }}
+              >
+              <svg
+                width="23"
+                height="23"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              </div>
+              <span className="text-xs font-bold uppercase tracking-wider" style={{ color: C.forest }}>
+                Pedido recibido
+              </span>
+              <h2
+                className="mt-1 text-2xl font-black"
+                style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
+              >
+                ¡Pedido confirmado!
+              </h2>
+              <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed" style={{ color: MUTED }}>
+                {delivForm.pago !== "Efectivo"
+                  ? "Recibimos tu comprobante. El pedido queda pendiente de verificación; cuando se apruebe, se enviará a producción."
+                  : placedTotal >= APPROVAL_MIN
+                    ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
+                    : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
+                Puedes seguir su estado en &quot;Mis pedidos&quot;.
+              </p>
+            </div>
+
+            <div
+              className="mt-5 rounded-2xl border p-4 sm:p-5"
+              style={{ borderColor: LINE, background: "#FCFBF8" }}
             >
-              <polyline points="20 6 9 17 4 12" />
-            </svg>
-          </div>
-          <h2
-            className="font-black text-2xl mb-2"
-            style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
-          >
-            ¡Pedido confirmado!
-          </h2>
-          <p className="text-sm mb-6" style={{ color: MUTED }}>
-            {delivForm.pago !== "Efectivo"
-              ? "Recibimos tu comprobante. El pedido queda pendiente de verificación; cuando se apruebe, se enviará a producción."
-              : placedTotal >= APPROVAL_MIN
-                ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
-                : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
-            Puedes seguir su estado en &quot;Mis pedidos&quot;.
-          </p>
-          <div
-            className="text-left text-sm rounded-2xl p-4 mb-6 space-y-2"
-            style={{ background: "rgba(30,30,30,0.03)" }}
-          >
-            {[
-              ["Tipo de pedido", deliveryMethodLabel],
-              ...(isDelivery ? [["Entrega en", delivForm.direccion]] : []),
-              ["Recibe", delivForm.nombre],
-              ["Método de pago", delivForm.pago],
-            ].map(([k, v]) => (
-              <div key={k} className="flex justify-between gap-4">
-                <span className="flex-shrink-0" style={{ color: MUTED }}>{k}</span>
-                <span className="min-w-0 break-words font-semibold text-right" style={{ color: C.dark }}>
-                  {k === "Entrega en" ? <AddressLines address={v} /> : v}
+              <div className="mb-3 flex items-center justify-between border-b pb-3" style={{ borderColor: LINE }}>
+                <h3 className="text-sm font-bold" style={{ color: C.dark }}>Resumen del pedido</h3>
+                <span className="rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ color: C.forest, background: `${C.forest}10` }}>
+                  {deliveryMethodLabel}
                 </span>
               </div>
-            ))}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="min-w-0 rounded-xl bg-white px-3 py-2.5">
+                  <span className="block text-xs" style={{ color: MUTED }}>Recibe</span>
+                  <span className="mt-0.5 block break-words text-sm font-semibold" style={{ color: C.dark }}>{delivForm.nombre}</span>
+                </div>
+                <div className="min-w-0 rounded-xl bg-white px-3 py-2.5">
+                  <span className="block text-xs" style={{ color: MUTED }}>Método de pago</span>
+                  <span className="mt-0.5 block break-words text-sm font-semibold" style={{ color: C.dark }}>{delivForm.pago}</span>
+                </div>
+              </div>
+              {isDelivery && (
+                <DeliveryAddressSummary address={delivForm.direccion} />
+              )}
+            </div>
+
+            <button
+              onClick={onComplete}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3 font-bold text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md cursor-pointer"
+              style={{ background: C.mustard, color: "#fff" }}
+            >
+              Ver mis pedidos <span aria-hidden="true">→</span>
+            </button>
           </div>
-          <button
-            onClick={onComplete}
-            className="w-full py-3.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
-            style={{ background: C.mustard, color: "#fff" }}
-          >
-            Ver mis pedidos
-          </button>
         </div>
       </div>
     )
@@ -7027,7 +7293,7 @@ function CheckoutPage({
           })}
         </ol>
 
-        <div className="grid lg:grid-cols-[1fr_380px] gap-6 items-start">
+        <div className="grid min-w-0 grid-cols-1 gap-5 items-start xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-6">
           {/* LEFT: current step */}
           <div className="flex flex-col gap-6 min-w-0">
             {checkoutStep === 1 && !showAuth && (
@@ -7409,19 +7675,28 @@ function CheckoutPage({
                           setAddressPart("barrio", n === null ? "" : typeof n === "string" ? n : n.nombre)
                           setNeighborhoodQuery(null)
                         }}
-                        error={deliveryTried && isDelivery && !selectedNeighborhood ? "Elige tu barrio de la lista." : undefined}
+                        error={deliveryTried && isDelivery && !selectedNeighborhood && !geocodedInsideBello
+                          ? "Elige un barrio habilitado o verifica que la dirección esté en Bello."
+                          : undefined}
                       />
-                      <p className="mt-1 text-xs" style={{ color: MUTED }}>
-                        {selectedNeighborhood?.costo_domicilio_cop != null
-                          ? `Domicilio a ${selectedNeighborhood.nombre}: ${fmt(selectedNeighborhood.costo_domicilio_cop)}${selectedNeighborhood.tiempo_desplazamiento_minutos != null ? ` · ${selectedNeighborhood.tiempo_desplazamiento_minutos} min de recorrido` : ""}.`
-                          : "El tiempo y el costo del domicilio dependen de tu barrio."}
-                      </p>
+                      {!neighborhoodOutOfRange &&
+                        selectedNeighborhood &&
+                        (isKnownBelloNeighborhood(selectedNeighborhood.nombre) || geocodedInsideBello) && (
+                        <p
+                          className="mt-2 rounded-lg px-3 py-2 text-xs font-semibold"
+                          style={{ background: `${C.mustard}12`, color: C.mustard }}
+                        >
+                          {selectedNeighborhood.costo_domicilio_cop != null
+                            ? `Domicilio a ${selectedNeighborhood.nombre}: ${fmt(selectedNeighborhood.costo_domicilio_cop)}${selectedNeighborhood.tiempo_desplazamiento_minutos != null ? ` · ${selectedNeighborhood.tiempo_desplazamiento_minutos} min de recorrido` : ""}.`
+                            : `Calcularemos el costo y el tiempo para ${selectedNeighborhood.nombre}.`}
+                        </p>
+                      )}
                       {(geo.status === "notfound" || geo.status === "error") && (
                         <div className="mt-2 flex items-center justify-between gap-3">
-                          <span className="text-xs" role="alert" style={{ color: C.red }}>
+                          <span className="text-xs" role="status" style={{ color: MUTED }}>
                             {geo.status === "notfound"
-                              ? "No encontramos esa dirección. Verifica la calle y el número."
-                              : "No se pudo consultar la ubicación en el mapa."}
+                              ? "No pudimos ubicar automáticamente la dirección. Si el barrio está habilitado, puedes continuar."
+                              : "No se pudo consultar el mapa; puedes continuar si el barrio está habilitado."}
                           </span>
                           <button
                             type="button"
@@ -7434,9 +7709,31 @@ function CheckoutPage({
                         </div>
                       )}
                       {neighborhoodOutOfRange && (
-                        <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
-                          La dirección detectada no corresponde a un barrio habilitado en Bello, Antioquia.
-                        </p>
+                        <div
+                          className="mt-3 flex items-start gap-3 rounded-xl border p-3.5"
+                          role="alert"
+                          style={{ background: "#FFF7E6", borderColor: "#E8C66A", color: "#76520A" }}
+                        >
+                          <span
+                            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-sm font-black"
+                            aria-hidden="true"
+                            style={{ background: "#F5E3B0", color: "#8A5E00" }}
+                          >
+                            !
+                          </span>
+                          <div>
+                            <p className="text-sm font-bold">
+                              {geocodedOutsideBello
+                                ? `Por ahora solo tenemos domicilios en Bello${geo.municipality ? `, no en ${geo.municipality}` : ""}.`
+                                : "No pudimos confirmar que este barrio esté dentro de la cobertura en Bello."}
+                            </p>
+                            <p className="mt-1 text-xs leading-relaxed">
+                              {geocodedOutsideBello
+                                ? "Puedes corregir la dirección o continuar para recoger el pedido en el local. No se cobrará domicilio."
+                                : "Verifica la dirección y selecciona un barrio habilitado de Bello, o continúa para recoger el pedido en el local."}
+                            </p>
+                          </div>
+                        </div>
                       )}
                       {neighborhoodsError && (
                         <p className="mt-2 text-xs" role="alert" style={{ color: C.red }}>
@@ -7446,52 +7743,143 @@ function CheckoutPage({
                     </div>
                     {editingAddress ? (
                       <div className="grid gap-3 sm:grid-cols-2">
-                        <InputField
-                          label="Dirección *"
-                          placeholder="Ej: Calle 50 # 45-20"
-                          value={addressParts.calle}
-                          onChange={(v) => setAddressPart("calle", v)}
-                          required
-                          error={deliveryTried && !addressParts.calle.trim() ? "La dirección es obligatoria." : undefined}
-                        />
-                        <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
-                          Tipo de edificio
+                        <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
+                          Tipo de vía *
                           <select
-                            value={addressParts.tipoEdificio}
-                            onChange={(e) => setAddressPart("tipoEdificio", e.target.value)}
+                            required
+                            value={addressParts.tipoVia}
+                            onChange={(event) => setAddressPart("tipoVia", event.target.value)}
+                            aria-invalid={deliveryTried && !addressParts.tipoVia}
                             className="w-full rounded-xl px-3.5 py-3 text-sm outline-none"
-                            style={{ background: "rgba(30,30,30,0.05)", border: "1.5px solid rgba(30,30,30,0.12)", color: "#1A1714" }}
+                            style={{
+                              background: "rgba(30,30,30,0.05)",
+                              border: `1.5px solid ${deliveryTried && !addressParts.tipoVia ? C.red : "rgba(30,30,30,0.12)"}`,
+                              color: C.dark,
+                            }}
                           >
-                            <option value="">Casa / ninguno</option>
-                            {BUILDING_TYPES.map((type) => (
-                              <option key={type} value={type}>{type}</option>
-                            ))}
+                            <option value="">Selecciona el tipo de vía</option>
+                            {[...STREET_TYPES, ...(addressParts.tipoVia === "Circular" ? ["Circular"] : [])].map((type) => <option key={type} value={type}>{type}</option>)}
                           </select>
+                          {deliveryTried && !addressParts.tipoVia && (
+                            <span className="text-xs font-normal" role="alert" style={{ color: C.red }}>Selecciona el tipo de vía.</span>
+                          )}
                         </label>
                         <InputField
-                          label="Apartamento, unidad, piso, casa y torre"
-                          placeholder="Ej: Torre 2, apto 301"
-                          value={addressParts.unidad}
-                          onChange={(v) => setAddressPart("unidad", v)}
+                          label="Número *"
+                          placeholder="Ej: 49"
+                          value={addressParts.numeroVia}
+                          onChange={(value) => setAddressPart("numeroVia", value)}
+                          required
+                          error={deliveryTried
+                            ? !addressParts.numeroVia.trim()
+                              ? "Ingresa el número."
+                              : !validAddressNumber(addressParts.numeroVia)
+                                ? "Usa solo números."
+                                : undefined
+                            : undefined}
                         />
-                        {addressParts.tipoEdificio && (
-                          <div className="sm:col-span-2">
-                            <InputField
-                              label="Nombre del edificio"
-                              placeholder="Ej: Torres de Santa Ana"
-                              value={addressParts.nombreEdificio}
-                              onChange={(v) => setAddressPart("nombreEdificio", v)}
-                            />
-                          </div>
-                        )}
+                        <InputField
+                          label="Letra (opcional)"
+                          placeholder="Ej: A"
+                          value={addressParts.letraVia}
+                          onChange={(value) => setAddressPart("letraVia", value.toUpperCase())}
+                          error={deliveryTried && !validAddressLetter(addressParts.letraVia)
+                            ? "Ingresa una sola letra."
+                            : undefined}
+                        />
+                        <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
+                          Tipo de vía (opcional)
+                          <select
+                            value={addressParts.tipoViaSecundaria}
+                            onChange={(event) => setAddressPart("tipoViaSecundaria", event.target.value)}
+                            aria-invalid={deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria)}
+                            className="w-full rounded-xl px-3.5 py-3 text-sm outline-none"
+                            style={{
+                              background: "rgba(30,30,30,0.05)",
+                              border: `1.5px solid ${deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) ? C.red : "rgba(30,30,30,0.12)"}`,
+                              color: C.dark,
+                            }}
+                          >
+                            <option value="">Selecciona el tipo de vía</option>
+                            {[...STREET_TYPES, ...(addressParts.tipoViaSecundaria === "Circular" ? ["Circular"] : [])].map((type) => <option key={type} value={type}>{type}</option>)}
+                          </select>
+                          {deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) && (
+                            <span className="text-xs font-normal" role="alert" style={{ color: C.red }}>Selecciona el tipo de vía.</span>
+                          )}
+                        </label>
+                        <InputField
+                          label="Número *"
+                          placeholder="Ej: 57"
+                          value={addressParts.numeroViaSecundaria}
+                          onChange={(value) => setAddressPart("numeroViaSecundaria", value)}
+                          required
+                          error={deliveryTried
+                            ? !addressParts.numeroViaSecundaria.trim()
+                              ? "Ingresa el segundo número."
+                              : !validAddressNumber(addressParts.numeroViaSecundaria)
+                                ? "Usa solo números."
+                                : undefined
+                            : undefined}
+                        />
+                        <InputField
+                          label="Letra (opcional)"
+                          placeholder="Ej: A"
+                          value={addressParts.letraViaSecundaria}
+                          onChange={(value) => setAddressPart("letraViaSecundaria", value.toUpperCase())}
+                          error={deliveryTried && !validAddressLetter(addressParts.letraViaSecundaria)
+                            ? "Ingresa una sola letra."
+                            : undefined}
+                        />
+                        <InputField
+                          label="Número *"
+                          placeholder="Ej: 18"
+                          value={addressParts.numeroPlaca}
+                          onChange={(value) => setAddressPart("numeroPlaca", value)}
+                          required
+                          error={deliveryTried
+                            ? !addressParts.numeroPlaca.trim()
+                              ? "Ingresa el tercer número."
+                              : !validAddressNumber(addressParts.numeroPlaca)
+                                ? "Usa solo números."
+                                : undefined
+                            : undefined}
+                        />
+                        <InputField
+                          label="Letra (opcional)"
+                          placeholder="Ej: C"
+                          value={addressParts.letraPlaca}
+                          onChange={(value) => setAddressPart("letraPlaca", value.toUpperCase())}
+                          error={deliveryTried && !validAddressLetter(addressParts.letraPlaca)
+                            ? "Ingresa una sola letra."
+                            : undefined}
+                        />
+                        <div className="sm:col-span-2">
+                          <InputField
+                            label="Complemento (opcional)"
+                            placeholder="Ej: apartamento 301, torre 2, interior, piso o local"
+                            value={addressParts.complemento}
+                            onChange={(value) => setAddressPart("complemento", value)}
+                          />
+                        </div>
+                        <div className="sm:col-span-2 rounded-xl px-3.5 py-3 text-sm" style={{ background: "rgba(30,30,30,0.04)", color: C.dark }}>
+                          <span className="block text-xs font-semibold" style={{ color: MUTED }}>Dirección completa</span>
+                          {composeDeliveryAddress(addressParts) || "Completa los campos para generar la dirección."}
+                        </div>
                       </div>
                     ) : (
-                      <div
-                        className="px-4 py-3 rounded-xl text-sm"
-                        style={{ background: "rgba(30,30,30,0.04)", color: C.dark }}
-                      >
-                        {delivForm.direccion}
-                      </div>
+                      <>
+                        <div
+                          className="px-4 py-3 rounded-xl text-sm"
+                          style={{ background: "rgba(30,30,30,0.04)", color: C.dark }}
+                        >
+                          {delivForm.direccion}
+                        </div>
+                        {deliveryTried && !addressPartsValid && (
+                          <p className="mt-1 text-xs" role="alert" style={{ color: C.red }}>
+                            Esta dirección guardada no tiene todos los datos requeridos. Pulsa «Cambiar dirección» para completarlos.
+                          </p>
+                        )}
+                      </>
                     )}
                     {editingAddress && (user.addresses?.length ?? 0) > 0 && (
                       <div className="flex flex-wrap gap-2 mt-3">
@@ -7502,7 +7890,7 @@ function CheckoutPage({
                             onClick={() => {
                               const parts = addressPartsFromAddress(address)
                               setAddressParts(parts)
-                              setDelivForm((form) => ({ ...form, direccion: address }))
+                              setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(parts) }))
                               setEditingAddress(false)
                               setSaveAddress(false)
                             }}
@@ -7534,13 +7922,13 @@ function CheckoutPage({
                           className="px-3 py-2 text-xs font-medium"
                           role="status"
                           style={{
-                            background: geo.status === "loading" || geo.status === "error" ? "rgba(30,30,30,0.04)" : `${C.red}12`,
-                            color: geo.status === "loading" || geo.status === "error" ? MUTED : C.red,
+                            background: geo.status === "notfound" ? "rgba(30,30,30,0.04)" : `${C.red}12`,
+                            color: geo.status === "notfound" ? MUTED : C.red,
                           }}
                         >
                           {geo.status === "loading" && "Ubicando la dirección en el mapa..."}
-                          {geo.status === "notfound" && "No encontramos esta dirección en el mapa. Revisa el barrio y la dirección (ej: Calle 50 # 45-20)."}
-                          {geo.status === "error" && "No pudimos cargar el mapa en este momento; el local confirmará la zona al recibir tu pedido."}
+                          {geo.status === "notfound" && "No pudimos ubicar automáticamente esta dirección. Si el barrio está habilitado, puedes continuar."}
+                          {geo.status === "error" && "No pudimos cargar el mapa en este momento. Reintenta o verifica que el barrio esté habilitado."}
                         </p>
                         )}
                       </div>
@@ -7564,7 +7952,7 @@ function CheckoutPage({
                   <label className="mt-5 block">
                     <span className="mb-1.5 flex items-baseline justify-between gap-2">
                       <span className="text-xs font-semibold" style={{ color: C.dark }}>
-                        Notas para el pedido <span className="font-normal" style={{ color: MUTED }}>(opcional)</span>
+                        {isDelivery ? "Indicaciones adicionales" : "Notas para el pedido"} <span className="font-normal" style={{ color: MUTED }}>(opcional)</span>
                       </span>
                       <span className="text-[10px]" style={{ color: MUTED }}>{delivForm.notas.length}/200</span>
                     </span>
@@ -7572,7 +7960,9 @@ function CheckoutPage({
                       value={delivForm.notas}
                       onChange={(e) => setDelivForm((f) => ({ ...f, notas: e.target.value.slice(0, 200) }))}
                       rows={2}
-                      placeholder="Ej: sin cebolla, el timbre no sirve, llamar al llegar"
+                      placeholder={isDelivery
+                        ? "Ej: portería, color de la casa o llamar al llegar"
+                        : "Ej: sin cebolla, el timbre no sirve, llamar al llegar"}
                       className="w-full resize-none rounded-xl px-3 py-2 text-sm outline-none"
                       style={{ background: "rgba(30,30,30,0.04)", border: `1px solid ${LINE}`, color: C.dark }}
                     />
@@ -7654,73 +8044,169 @@ function CheckoutPage({
             )}
 
             {user && checkoutStep === 3 && (
-              <section className="p-6 rounded-2xl" style={CARD_ST}>
-                <h2 className="font-bold text-lg mb-5" style={{ color: C.dark }}>
-                  Revisa y confirma
-                </h2>
-                {[
-                  {
-                    title: "Pedido",
-                    rows: [
-                      ["Tipo", deliveryMethodLabel],
-                      ["Recibe", delivForm.nombre],
-                      ["Teléfono", delivForm.telefono],
-                      ...(isDelivery
-                        ? [
-                            ["Barrio", addressParts.barrio],
-                            ["Dirección", delivForm.direccion],
-                          ]
-                        : []),
-                      ...(delivForm.notas ? [["Notas", delivForm.notas]] : []),
-                    ],
-                  },
-                  {
-                    title: "Pago",
-                    rows: [
-                      ["Método", delivForm.pago],
-                      ...(needsVoucher
-                        ? [["Comprobante", voucher ? "Adjunto ✓" : "Falta"]]
-                        : []),
-                    ],
-                  },
-                ].map((g) => (
+              <section className="min-w-0 space-y-4">
+                <div
+                  className="relative isolate overflow-hidden rounded-2xl p-4 text-white shadow-sm sm:p-5"
+                  style={{
+                    background: `linear-gradient(120deg, ${C.mustard} 0%, #C99C31 58%, #D6AD4A 100%)`,
+                  }}
+                >
                   <div
-                    key={g.title}
-                    className="pb-4 mb-4"
-                    style={{ borderBottom: `1px solid ${LINE}` }}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <h3
-                        className="text-xs font-bold uppercase tracking-wider"
-                        style={{ color: MUTED }}
-                      >
-                        {g.title}
-                      </h3>
-                      <button
-                        onClick={() => setCheckoutStep(2)}
-                        className="text-xs font-semibold cursor-pointer hover:opacity-70"
-                        style={{ color: C.mustard }}
-                      >
-                        Editar
-                      </button>
+                    className="pointer-events-none absolute -right-8 -top-12 h-36 w-36 rounded-full border-[18px]"
+                    style={{ borderColor: "rgba(255,255,255,0.12)" }}
+                    aria-hidden="true"
+                  />
+                  <div className="relative flex items-start justify-between gap-4">
+                    <div>
+                      <span className="mb-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"
+                        style={{ background: "rgba(255,255,255,0.18)" }}>
+                        {Ico.check} Paso final
+                      </span>
+                      <h2 className="text-xl font-black leading-tight sm:text-2xl" style={{ fontFamily: "League Spartan, sans-serif" }}>
+                        ¡Tu pedido está casi listo!
+                      </h2>
+                      <p className="mt-1 max-w-lg text-xs leading-relaxed text-white/90 sm:text-sm">
+                        Revisa que todo esté correcto. Puedes editar tus datos antes de confirmar.
+                      </p>
                     </div>
-                    {g.rows.map(([k, v]) => (
-                      <div key={k} className="flex justify-between gap-4 text-sm py-0.5">
-                        <span className="flex-shrink-0" style={{ color: MUTED }}>{k}</span>
-                        <span className="min-w-0 break-words font-medium text-right" style={{ color: C.dark }}>
-                          {k === "Dirección" ? <AddressLines address={v} /> : v}
+                    <div
+                      className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-white sm:flex"
+                      style={{ background: "rgba(255,255,255,0.18)" }}
+                      aria-hidden="true"
+                    >
+                      {Ico.check}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border p-4 sm:p-6" style={{ ...CARD_ST, borderColor: LINE }}>
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ color: C.mustard, background: `${C.mustard}14` }}>
+                        {Ico.mapPin}
+                      </span>
+                      <div>
+                        <h3 className="font-bold" style={{ color: C.dark }}>Datos de entrega</h3>
+                        <p className="text-xs" style={{ color: MUTED }}>{deliveryMethodLabel}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCheckoutStep(2)}
+                      className="rounded-full px-3.5 py-2 text-xs font-bold transition hover:-translate-y-0.5 hover:shadow-sm"
+                      style={{ color: C.mustard, background: `${C.mustard}12` }}
+                    >
+                      Editar
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {[
+                      { label: "Recibe", value: delivForm.nombre, icon: Ico.user },
+                      { label: "Teléfono", value: delivForm.telefono, icon: Ico.phone },
+                    ].map((item) => (
+                      <div
+                        key={item.label}
+                        className="flex min-w-0 items-center gap-3 rounded-2xl border p-3.5 transition hover:-translate-y-0.5 hover:shadow-sm"
+                        style={{ borderColor: LINE, background: "#fff" }}
+                      >
+                        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl" style={{ color: C.forest, background: `${C.forest}12` }}>
+                          {item.icon}
                         </span>
+                        <div className="min-w-0">
+                          <span className="block text-xs" style={{ color: MUTED }}>{item.label}</span>
+                          <span className="block break-words text-sm font-bold" style={{ color: C.dark }}>{item.value}</span>
+                        </div>
                       </div>
                     ))}
                   </div>
-                ))}
 
+                  {isDelivery && (
+                    <div
+                      className="mt-3 rounded-2xl border px-3.5 py-3 sm:px-4"
+                      style={{
+                        borderColor: `${C.mustard}35`,
+                        background: "linear-gradient(135deg, #FBF7EC 0%, #FFFDF8 100%)",
+                      }}
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <span
+                          className="flex h-7 w-7 items-center justify-center rounded-lg"
+                          style={{ color: C.mustard, background: `${C.mustard}18` }}
+                        >
+                          {Ico.mapPin}
+                        </span>
+                        <span className="text-[11px] font-bold uppercase tracking-wider" style={{ color: C.mustard }}>
+                          Dirección de entrega
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 pl-0.5 sm:pl-9">
+                        {delivForm.direccion.split(/,\s*/).filter(Boolean).map((part, index) => (
+                          index === 0 ? (
+                            <span key={index} className="w-full text-sm font-bold leading-relaxed" style={{ color: C.dark }}>
+                              {part}
+                            </span>
+                          ) : (
+                            <span
+                              key={index}
+                              className="rounded-full border px-2.5 py-1 text-xs font-medium"
+                              style={{
+                                borderColor: `${C.mustard}25`,
+                                background: "#fff",
+                                color: C.dark,
+                              }}
+                            >
+                              {part}
+                            </span>
+                          )
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {delivForm.notas && (
+                    <div className="mt-3 rounded-2xl px-4 py-3 text-sm" style={{ background: "rgba(30,30,30,0.035)" }}>
+                      <span className="mb-1 block text-xs font-semibold" style={{ color: MUTED }}>
+                        {isDelivery ? "Indicaciones para la entrega" : "Notas del pedido"}
+                      </span>
+                      <span style={{ color: C.dark }}>{delivForm.notas}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-3xl border p-4 sm:p-6" style={{ ...CARD_ST, borderColor: LINE }}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ color: C.forest, background: `${C.forest}12` }}>
+                        {Ico.cash}
+                      </span>
+                      <div>
+                        <span className="block text-xs" style={{ color: MUTED }}>Método de pago</span>
+                        <span className="block font-bold" style={{ color: C.dark }}>{delivForm.pago}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCheckoutStep(2)}
+                      className="rounded-full px-3.5 py-2 text-xs font-bold transition hover:-translate-y-0.5 hover:shadow-sm"
+                      style={{ color: C.mustard, background: `${C.mustard}12` }}
+                    >
+                      Editar
+                    </button>
+                  </div>
+                  {needsVoucher && (
+                    <div className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold"
+                      style={{ background: voucher ? `${C.forest}10` : `${C.red}10`, color: voucher ? C.forest : C.red }}>
+                      <span>{voucher ? Ico.check : "!"}</span>
+                      {voucher ? "Comprobante adjunto" : "Falta adjuntar el comprobante"}
+                    </div>
+                  )}
+                </div>
               </section>
             )}
           </div>
 
           {/* RIGHT: order summary */}
-          <aside className="p-6 rounded-2xl lg:sticky lg:top-24" style={CARD_ST}>
+          <aside className="min-w-0 rounded-2xl p-5 sm:p-6 xl:sticky xl:top-24" style={CARD_ST}>
             <h2 className="font-bold text-lg mb-4" style={{ color: C.dark }}>
               Resumen del pedido
             </h2>
@@ -7781,12 +8267,11 @@ function CheckoutPage({
                 <span>Subtotal</span>
                 <span>{fmt(subtotal)}</span>
               </div>
-              <div className="flex justify-between" style={{ color: MUTED }}>
-                <span>Domicilio</span>
-                <span style={{ color: MUTED }}>
-                  {neighborhoodOutOfRange
-                    ? "Fuera de cobertura"
-                    : !isDelivery
+              {canShowDeliveryEstimate && (
+                <div className="flex justify-between" style={{ color: MUTED }}>
+                  <span>Domicilio</span>
+                  <span style={{ color: isDelivery && deliveryEstimate.status === "ready" ? C.mustard : MUTED }}>
+                    {!isDelivery
                       ? "No aplica"
                       : geo.status === "ok" && displayedDeliveryCost !== null
                         ? fmt(displayedDeliveryCost)
@@ -7795,80 +8280,81 @@ function CheckoutPage({
                           : displayedDeliveryCost !== null
                             ? fmt(displayedDeliveryCost)
                             : "Por confirmar"}
-                </span>
-              </div>
-              {isDelivery && (
-                <div className="flex justify-between gap-4 text-xs" style={{ color: MUTED }}>
-                          <span>Distancia aproximada en línea recta</span>
-                          <span className="text-right">
-                            {deliveryEstimate.distanceKm !== null
-                              ? `${deliveryEstimate.distanceKm.toFixed(1)} km`
-                              : deliveryEstimate.status === "loading"
-                                ? "Calculando..."
-                                : "No disponible"}
-                          </span>
-                </div>
-              )}
-              {isDelivery && deliveryEstimate.status === "ready" && displayedDeliveryCost === null && (
-                <p className="text-xs" style={{ color: C.red }} role="status">
-                          No se pudo calcular el costo sin una distancia válida. Revisa la dirección para continuar.
-                </p>
-              )}
-              {isDelivery && deliveryEstimateError && (
-                <div className="mt-2 flex items-center justify-between gap-3">
-                          <p className="text-xs" style={{ color: C.red }} role="alert">
-                            No se pudo calcular la entrega: {deliveryEstimateError}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => setEstimateRefresh((value) => value + 1)}
-                            className="flex-shrink-0 text-xs font-bold underline"
-                            style={{ color: C.mustard }}
-                          >
-                            Reintentar
-                          </button>
-                </div>
-              )}
-              <div className="flex items-baseline justify-between gap-4">
-                <span className="font-bold" style={{ color: C.dark }}>Tiempo total estimado</span>
-                <span
-                  className="max-w-[70%] break-words text-right text-base font-bold"
-                  style={{ color: deliveryEstimate.status === "loading" ? MUTED : C.mustard }}
-                  role="status"
-                  aria-live="polite"
-                >
-                  {neighborhoodOutOfRange
-                    ? "Tu barrio no está en el rango de domicilio"
-                    : deliveryEstimate.label}
-                </span>
-              </div>
-              <div className="space-y-1 pl-2 text-xs" style={{ color: MUTED, opacity: 0.72 }}>
-                <div className="flex justify-between gap-4">
-                  <span>Tiempo de cocina</span>
-                  <span className="text-right">
-                    {estimatedKitchenMinutes !== null
-                      ? formatDuration(estimatedKitchenMinutes)
-                      : deliveryEstimate.status === "loading"
-                        ? "Calculando..."
-                        : "Por confirmar"}
                   </span>
                 </div>
-                <div className="flex justify-between gap-4">
-                  <span>Tiempo de domicilio</span>
+              )}
+              {isDelivery && canShowDeliveryEstimate && (
+                <div className="flex justify-between gap-4 text-xs" style={{ color: MUTED }}>
+                  <span>Distancia aproximada en línea recta</span>
                   <span className="text-right">
-                    {neighborhoodOutOfRange
-                      ? "Fuera de cobertura"
-                      : !isDelivery
-                        ? "No aplica"
-                        : estimatedDeliveryMinutes !== null
-                          ? formatDuration(estimatedDeliveryMinutes)
+                    {deliveryEstimate.distanceKm !== null
+                      ? `${deliveryEstimate.distanceKm.toFixed(1)} km`
+                      : deliveryEstimate.status === "loading"
+                        ? "Calculando..."
+                        : "No disponible"}
+                  </span>
+                </div>
+              )}
+              {isDelivery && canShowDeliveryEstimate && deliveryEstimate.status === "ready" && displayedDeliveryCost === null && (
+                <p className="text-xs" style={{ color: C.red }} role="status">
+                  No se pudo calcular el costo sin una distancia válida. Revisa la dirección para continuar.
+                </p>
+              )}
+              {isDelivery && canShowDeliveryEstimate && deliveryEstimateError && (
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <p className="text-xs" style={{ color: C.red }} role="alert">
+                    No se pudo calcular la entrega: {deliveryEstimateError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setEstimateRefresh((value) => value + 1)}
+                    className="flex-shrink-0 text-xs font-bold underline"
+                    style={{ color: C.mustard }}
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              )}
+              {canShowDeliveryEstimate && (
+                <>
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="font-bold" style={{ color: C.dark }}>Tiempo total estimado</span>
+                    <span
+                      className="max-w-[70%] break-words text-right text-base font-bold"
+                      style={{ color: deliveryEstimate.status === "loading" ? MUTED : C.mustard }}
+                      role="status"
+                      aria-live="polite"
+                    >
+                      {deliveryEstimate.label}
+                    </span>
+                  </div>
+                  <div className="space-y-1 pl-2 text-xs" style={{ color: MUTED, opacity: 0.72 }}>
+                    <div className="flex justify-between gap-4">
+                      <span>Tiempo de cocina</span>
+                      <span className="text-right" style={{ color: estimatedKitchenMinutes !== null ? C.mustard : MUTED }}>
+                        {estimatedKitchenMinutes !== null
+                          ? formatDuration(estimatedKitchenMinutes)
                           : deliveryEstimate.status === "loading"
                             ? "Calculando..."
                             : "Por confirmar"}
-                  </span>
-                </div>
-              </div>
-              {user && deliveryEstimate.status === "ready" && (
+                      </span>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <span>Tiempo de domicilio</span>
+                      <span className="text-right" style={{ color: estimatedDeliveryMinutes !== null ? C.mustard : MUTED }}>
+                        {!isDelivery
+                          ? "No aplica"
+                          : estimatedDeliveryMinutes !== null
+                            ? formatDuration(estimatedDeliveryMinutes)
+                            : deliveryEstimate.status === "loading"
+                              ? "Calculando..."
+                              : "Por confirmar"}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+              {user && canShowDeliveryEstimate && deliveryEstimate.status === "ready" && (
                 <p className="text-right text-[11px]" style={{ color: MUTED, opacity: 0.7 }}>
                   Se actualiza automáticamente cada 30 segundos
                 </p>
@@ -7891,11 +8377,6 @@ function CheckoutPage({
                     : "Por confirmar"}
               </span>
             </div>
-            {neighborhoodOutOfRange && (
-              <p className="mt-2 text-right text-xs" style={{ color: MUTED }}>
-                Si continúas para recoger, no se suma el domicilio.
-              </p>
-            )}
             <FieldError msg={orderError} />
             {cta ? (
               <button
@@ -7923,11 +8404,9 @@ function CheckoutPage({
                       ? "Cargando los barrios habilitados..."
                       : neighborhoodOutOfRange
                         ? "Al continuar, te preguntaremos si deseas recoger el pedido en el local."
-                        : geo.status === "notfound"
-                          ? "Revisa el barrio y la dirección: no la encontramos en el mapa."
-                          : geo.status === "loading"
-                            ? "Ubicando tu dirección..."
-                            : "Completa nombre, teléfono, barrio y dirección para continuar."
+                        : geo.status === "loading"
+                          ? "Ubicando tu dirección..."
+                          : "Completa nombre, teléfono, barrio y dirección para continuar."
                   : !deliveryCostConfigured
                     ? geo.status === "loading"
                       ? "Calculando la tarifa del domicilio..."
@@ -7964,12 +8443,11 @@ function CheckoutPage({
               className="mb-2 font-black text-xl"
               style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
             >
-              Barrio fuera del rango de domicilio
+              No hay domicilios para esta dirección
             </h2>
             <p id="out-of-range-description" className="mb-6 text-sm leading-relaxed" style={{ color: MUTED }}>
-              Tu barrio no está en el rango de domicilio, no podemos hacer el envío.
-              ¿Deseas continuar con tu pedido? Se asignará automáticamente para que
-              lo recojas en el local.
+              No tenemos servicio de domicilio para esta zona. ¿Deseas continuar con tu pedido?
+              Si continúas, quedará seleccionado para recogerlo en el local y no se cobrará el domicilio.
             </p>
             <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button
@@ -8050,10 +8528,12 @@ function CheckoutPage({
             )
             setAddProduct(null)
             setPickerOpen(false)
+            showCartNotice(product.name)
           }}
           dark={false}
         />
       )}
+      <CartAddedNotice message={cartNotice} />
     </div>
   )
 }
@@ -8207,18 +8687,14 @@ function ProfilePage({
   onBack,
   onLogout,
   onUpdateUser,
-  orders,
-  onVoucher,
+  onOrders,
 }: {
   user: User
   onBack: () => void
   onLogout: () => void
   onUpdateUser: (u: User) => void
-  orders: Order[]
-  onVoucher: (id: string, voucher: string) => void
+  onOrders: () => void
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const selected = orders.find((o) => o.id === selectedId)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({
     name: user.name,
@@ -8668,25 +9144,23 @@ function ProfilePage({
             Cambiar contraseña
           </button>
         </div>
-        {/* Purchase history */}
+        {/* Orders live in their own section instead of taking space on the profile page */}
         <div
-          className="p-5 rounded-2xl mb-4"
-          style={{ background: CARD, boxShadow: "0 2px 12px rgba(0,0,0,0.06)" }}
+          className="mb-4 flex items-center justify-between gap-4 rounded-2xl border p-4"
+          style={{ background: CARD, borderColor: "rgba(30,30,30,0.08)", boxShadow: "0 2px 12px rgba(0,0,0,0.04)" }}
         >
-          <h2 className="font-bold text-base mb-4" style={{ color: TEXT }}>
-            Historial de compras
-          </h2>
-          <OrderList
-            orders={orders}
-            dark={false}
-            onSelect={(o) => setSelectedId(o.id)}
-          />
-          <div className="mt-3 text-xs text-center" style={{ color: MUTED }}>
-            Total gastado:{" "}
-            <strong style={{ color: TEXT }}>
-              {fmt(orders.reduce((s, o) => s + o.total, 0))}
-            </strong>
+          <div>
+            <h2 className="font-bold text-base" style={{ color: TEXT }}>Mis pedidos</h2>
+            <p className="mt-1 text-xs" style={{ color: MUTED }}>Consulta el estado y los detalles de tus compras.</p>
           </div>
+          <button
+            type="button"
+            onClick={onOrders}
+            className="flex-shrink-0 rounded-xl px-4 py-2.5 text-sm font-bold transition hover:opacity-85"
+            style={{ background: `${C.mustard}15`, color: C.mustard }}
+          >
+            Ver pedidos →
+          </button>
         </div>
         {/* Actions */}
         <div className="flex flex-col gap-2">
@@ -8709,14 +9183,6 @@ function ProfilePage({
           </button>
         </div>
       </div>
-      {selected && (
-        <OrderDetailModal
-          order={selected}
-          dark={false}
-          onClose={() => setSelectedId(null)}
-          onVoucher={onVoucher}
-        />
-      )}
       {/* Logout confirmation modal */}
       {showLogoutModal && (
         <div
@@ -9006,6 +9472,7 @@ function ClientApp({
   onVoucher: (id: string, voucher: string) => void
   initialView?: "menu" | "cart" | "orders"
 }) {
+  const [cartNotice, showCartNotice] = useCartNotice()
   const [view, setView] = useState<"menu" | "cart" | "orders">(initialView)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selected = orders.find((o) => o.id === selectedId)
@@ -9038,6 +9505,7 @@ function ClientApp({
       }),
     )
     setAddProduct(null)
+    showCartNotice(p.name)
   }
   const quickAdd = (p: Product) =>
     setCart((c) => {
@@ -9142,6 +9610,7 @@ function ClientApp({
           dark={dark}
         />
       )}
+      <CartAddedNotice message={cartNotice} dark={dark} />
       {/* Quick-add feedback suppressed — quickAdd used from ProductCatalog + button */}
       <div style={{ display: "none" }} onClick={() => quickAdd(PRODUCTS[0])} />
     </div>
@@ -9446,6 +9915,7 @@ function LandingPage({
   cart: CartItem[]
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
 }) {
+  const [cartNotice, showCartNotice] = useCartNotice()
   const [dark, setDark] = useState(false)
   const [waBubble, setWaBubble] = useState(true)
   const [legalModal, setLegalModal] = useState<"envios" | "legal" | null>(null)
@@ -9501,6 +9971,7 @@ function LandingPage({
       }),
     )
     setAddProduct(null)
+    showCartNotice(p.name)
   }
   const goToMenu = onGuestMenu
 
@@ -10352,6 +10823,7 @@ function LandingPage({
           dark={dark}
         />
       )}
+      <CartAddedNotice message={cartNotice} dark={dark} />
       {legalModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center px-4"
@@ -10452,6 +10924,7 @@ function AdminProfilePage({
   onClose: () => void
   onUpdateUser: (u: User) => void
 }) {
+  const isProtectedAdmin = user.email.trim().toLowerCase() === SUPER_ADMIN_EMAIL
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState({
     name: user.name,
@@ -10890,17 +11363,19 @@ function AdminProfilePage({
             </button>
           </div>
           {/* Actions */}
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={() => setShowDeleteModal(true)}
-              className="admin-delete-account w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
-            >
-              Eliminar cuenta
-            </button>
-          </div>
+          {!isProtectedAdmin && (
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="admin-delete-account w-full py-3 rounded-2xl font-semibold text-sm cursor-pointer"
+              >
+                Eliminar cuenta
+              </button>
+            </div>
+          )}
         </div>
         {/* Delete account modal - Different alert for admin */}
-        {showDeleteModal && (
+        {showDeleteModal && !isProtectedAdmin && (
           <div
             className="fixed inset-0 z-50 flex items-center justify-center px-4"
             style={{ background: "rgba(0,0,0,0.6)" }}
@@ -15359,7 +15834,12 @@ function AdminPanel({
     const noDelete = !!cfg.noDelete
     const noExp = !!cfg.noExport
     const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))
-    const sRows = indexedRows
+    const sRows =
+      section === "usuarios"
+        ? [...indexedRows].sort(
+            (a, b) => Number(b.row[7] || 0) - Number(a.row[7] || 0),
+          )
+        : indexedRows
     const q = (search[section] || "").toLowerCase()
     const filterGroups = (TABLE_FILTERS[section] || [])
       .map(({ label, index }) => ({
@@ -15629,9 +16109,10 @@ function AdminPanel({
       const canShowProductionDelete =
         section !== "produccion" ||
         String(rows.produccion?.[rowIndex]?.[8] ?? "Recibida") === "Recibida"
-      const isPrincipalAdmin =
-        section === "usuarios" &&
-        String(rows.usuarios?.[rowIndex]?.[8] ?? "") === "Principal"
+      const isPrincipalAdmin = isSuperAdminRow(
+        section,
+        rows[section]?.[rowIndex],
+      )
       const deleteBlocked = !deleteAssessment.allowed
       const deleteButton = (
         <button
@@ -24240,8 +24721,10 @@ export default function App() {
         onBack={() => setPage("app")}
         onLogout={logout}
         onUpdateUser={updateUser}
-        orders={orders}
-        onVoucher={setVoucher}
+        onOrders={() => {
+          setClientView("orders")
+          setPage("app")
+        }}
       />
     )
   if (page === "admin" && user?.role === "admin" && ordersLoadedFor !== user.email)
