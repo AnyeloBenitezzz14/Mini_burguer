@@ -131,11 +131,11 @@ export function buildProductionRows(
       time,
       date,
       time,
-      "Recibida",
+      "Recibido",
       "",
       0,
       "Sí",
-      JSON.stringify([{ status: "Recibida", date, time }]),
+      JSON.stringify([{ status: "Recibido", date, time }]),
       JSON.stringify(lines.map((line) => ({
         id: line.id,
         name: line.product,

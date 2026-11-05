@@ -1,7 +1,7 @@
 import { ADDITIONS, PRODUCTS, PRODUCT_CAT_LABEL } from "@/features/menu/data/products"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
-import type { ModConfig } from "@/shared/types"
+import type { ModConfig, Row } from "@/shared/types"
 import { DOC_TYPES, USER_DOC_TYPES } from "@/shared/utils/validation"
 
 // How each stock movement origin (movimientos_stock.origen) reads in the insumo's history
@@ -38,10 +38,11 @@ export const PERMISSION_MODULES = [
 ] as const
 
 export const PRODUCTION_STATUSES = [
-  "Recibida",
-  "Iniciada",
+  "Recibido",
+  "Confirmado",
   "En cocina",
-  "Terminado",
+  "En camino",
+  "Entregado",
   "Producto no conforme",
 ] as const
 
@@ -523,6 +524,26 @@ export const MOD_CFG: Record<string, ModConfig> = {
     // 6 = returned products (JSON), shown in the detail
     hiddenCellIndexes: [1, 3, 6],
   },
+}
+
+// Quick filters per module. Pedidos: [7] estado, [8] estado de pago; Ventas: [8] estado; Insumos: [4] stock, [5] mínimo
+export const QUICK_FILTERS: Record<string, { label: string; test: (row: Row) => boolean }[]> = {
+  pedidos: [
+    { label: "Por confirmar", test: (row) => String(row[7]) === "Por confirmar" },
+    { label: "Pago por verificar", test: (row) => String(row[8]) === "Pendiente de verificación" },
+    { label: "En cocina", test: (row) => String(row[7]) === "En cocina" },
+    { label: "Sin pagar", test: (row) => String(row[8]) !== "Pagado" && String(row[7]) !== "Cancelado" },
+    { label: "Entregados", test: (row) => String(row[7]) === "Entregado" },
+    { label: "Cancelados", test: (row) => String(row[7]) === "Cancelado" },
+  ],
+  ventas: [
+    { label: "Vigentes", test: (row) => String(row[8]) !== "Anulada" },
+    { label: "Anuladas", test: (row) => String(row[8]) === "Anulada" },
+  ],
+  insumos: [
+    { label: "Bajo mínimo", test: (row) => Number(row[4]) <= Number(row[5]) },
+    { label: "Agotados", test: (row) => Number(row[4]) <= 0 },
+  ],
 }
 
 // A shop order still open (not delivered nor cancelled) after this many days shows a "Pedido sin movimiento" alert

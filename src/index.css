@@ -540,8 +540,7 @@ select {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  box-shadow: 0 8px 24px rgba(182,140,28,0.3), 0 0 24px rgba(213,169,51,0.18);
-  transition: transform 220ms cubic-bezier(0.2,0.7,0.25,1), box-shadow 220ms ease, filter 220ms ease;
+  transition: transform 220ms cubic-bezier(0.2,0.7,0.25,1), filter 220ms ease;
 }
 
 .landing-order-button::after {
@@ -558,8 +557,7 @@ select {
 
 .landing-order-button:hover,
 .landing-order-button:focus-visible {
-  transform: translateY(-3px) scale(1.025);
-  box-shadow: 0 10px 24px rgba(182,140,28,0.34);
+  transform: translateY(-2px);
   filter: brightness(1.06);
 }
 
@@ -573,14 +571,12 @@ select {
 }
 
 .landing-page button:not(.landing-order-button):not(:disabled) {
-  box-shadow: 0 4px 14px rgba(182,140,28,0.18);
-  transition: transform 220ms cubic-bezier(0.2,0.7,0.25,1), box-shadow 220ms ease, filter 220ms ease;
+  transition: transform 220ms cubic-bezier(0.2,0.7,0.25,1), filter 220ms ease;
 }
 
 .landing-page button:not(.landing-order-button):not(:disabled):hover,
 .landing-page button:not(.landing-order-button):not(:disabled):focus-visible {
   transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(182,140,28,0.3), 0 0 14px rgba(213,169,51,0.2);
   filter: brightness(1.04);
 }
 
@@ -647,14 +643,11 @@ select {
 }
 
 .landing-info-card:hover {
-  border-color: rgba(182,140,28,0.55) !important;
-  box-shadow: 0 14px 32px rgba(182,140,28,0.3), 0 0 22px rgba(182,140,28,0.2) !important;
+  transform: translateY(-3px);
 }
 
 .landing-story-frame {
-  border: 2px solid rgba(213,169,51,0.9);
-  box-shadow: 0 0 24px rgba(213,169,51,0.82), 0 0 52px rgba(182,140,28,0.62), 0 18px 42px rgba(43,33,18,0.2);
-  animation: story-frame-glow 9.5s ease-in-out infinite alternate;
+  background: #17130D;
 }
 
 .landing-story-image {
@@ -691,25 +684,18 @@ select {
   z-index: 1;
   max-width: calc(100% - 24px);
   overflow: hidden;
-  border: 1px solid rgba(255,225,132,0.86);
-  background: linear-gradient(135deg, #D5A82E 0%, #A87912 100%);
-  box-shadow: 0 0 18px rgba(245,196,63,0.54), 0 8px 24px rgba(43,33,18,0.28);
+  background: #B68C1C;
 }
 
 .landing-story-badge::after {
   position: absolute;
   inset: 0;
-  background: linear-gradient(115deg, transparent 20%, rgba(255,239,181,0.34) 48%, transparent 72%);
-  content: "";
-  pointer-events: none;
-  transform: translateX(-120%);
-  animation: story-badge-shine 17s ease-in-out 4s infinite;
+  content: none;
 }
 
 .landing-story-badge > div {
   position: relative;
   z-index: 1;
-  text-shadow: 0 1px 6px rgba(74,48,0,0.32);
 }
 
 @keyframes story-badge-shine {
@@ -722,7 +708,6 @@ select {
   background: #fff !important;
   border: 1.5px solid #B68C1C !important;
   border-radius: 999px !important;
-  box-shadow: 0 3px 12px rgba(43,33,18,0.06);
   transition: border-color 180ms ease, box-shadow 180ms ease;
 }
 
@@ -853,28 +838,21 @@ select {
 
 .landing-social-link {
   transform: translateY(0) scale(1);
-  box-shadow: 0 3px 10px rgba(0,0,0,0.22);
-  transition: transform 220ms cubic-bezier(0.2,0.7,0.25,1), box-shadow 220ms ease, filter 220ms ease;
+  transition: transform 220ms cubic-bezier(0.2,0.7,0.25,1), filter 220ms ease;
 }
 
 .landing-social-link:hover,
 .landing-social-link:focus-visible {
   transform: translateY(-4px) scale(1.12);
-  box-shadow: 0 9px 20px rgba(0,0,0,0.34);
   filter: brightness(1.08);
 }
 
 .landing-cta {
-  background:
-    radial-gradient(ellipse 82% 58% at 50% 100%, rgba(182,140,28,0.14), transparent 100%),
-    #17130D;
+  background: #17130D;
 }
 
 .landing-footer {
-  background:
-    radial-gradient(ellipse 82% 58% at 50% 0%, rgba(182,140,28,0.14), transparent 100%),
-    radial-gradient(ellipse at 10% 35%, rgba(182,140,28,0.07), transparent 38%),
-    linear-gradient(180deg, #17130D 0%, #110E09 42%, #0E0C09 100%);
+  background: #0E0C09;
 }
 
 .landing-footer .text-sm {
@@ -1022,8 +1000,37 @@ select {
 /* Bell rings for a moment every few seconds while there are unread alerts */
 .admin-bell-ring { transform-origin: 50% 10%; animation: admin-bell-ring 6s ease-in-out 1s infinite; }
 
+/* Order / sale detail slides in from the right */
+@keyframes admin-side-in { from { transform: translateX(32px); opacity: 0; } to { transform: none; opacity: 1; } }
+.admin-side-panel { animation: admin-side-in 280ms cubic-bezier(0.32,0.72,0,1) both; }
+
+/* Sidebar on hover: the icons never move; the labels and submenus fade and slide with the width.
+   Opening, they arrive just after the menu starts to widen; closing, they leave first so nothing gets cut */
+.admin-label {
+  white-space: nowrap;
+  transition: opacity 220ms ease 90ms, transform 300ms cubic-bezier(0.32,0.72,0,1) 90ms;
+}
+.admin-subnav {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 300ms cubic-bezier(0.32,0.72,0,1), opacity 220ms ease 90ms, transform 300ms cubic-bezier(0.32,0.72,0,1) 90ms;
+}
+@media (min-width: 1024px) {
+  .admin-label-hidden {
+    opacity: 0;
+    transform: translateX(-8px);
+    pointer-events: none;
+    transition-delay: 0ms;
+    transition-duration: 120ms, 160ms;
+  }
+  .admin-subnav.admin-label-hidden {
+    grid-template-rows: 0fr;
+    transition-duration: 300ms, 120ms, 160ms;
+  }
+}
+
 /* Submenu items slide in one after another when a group opens */
-.admin-subnav-open > * { animation: admin-slide-in 260ms cubic-bezier(0.2,0.7,0.25,1) both; }
+.admin-subnav-open > * { animation: admin-slide-in 260ms cubic-bezier(0.2,0.7,0.25,1) backwards; }
 .admin-subnav-open > :nth-child(2) { animation-delay: 40ms; }
 .admin-subnav-open > :nth-child(3) { animation-delay: 80ms; }
 .admin-subnav-open > :nth-child(n+4) { animation-delay: 120ms; }
@@ -1151,4 +1158,42 @@ select {
   .order-success-pop { animation: none; }
   .order-success-check { animation: none; stroke-dashoffset: 0; }
   .order-confetti { display: none; }
+}
+
+/* ── Landing: reviews row, dragged with the mouse, settles on a card ─────── */
+.reviews-track {
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  cursor: grab;
+  scroll-behavior: smooth;
+}
+.reviews-track::-webkit-scrollbar { display: none; }
+.reviews-track:focus-visible { outline: 2px solid #B68C1C; outline-offset: 4px; border-radius: 1.5rem; }
+/* While dragging it follows the cursor exactly; on release it snaps to the nearest card */
+.reviews-track-dragging { cursor: grabbing; scroll-snap-type: none; scroll-behavior: auto; user-select: none; }
+.reviews-track-dragging .reviews-card { transform: scale(0.98); }
+.reviews-card {
+  scroll-snap-align: start;
+  transition: transform 260ms cubic-bezier(0.2,0.7,0.25,1);
+}
+/* Bubbles lean slightly, alternating, like messages on a board; they straighten up on hover */
+.reviews-tilt-left { transform: rotate(-1.2deg); }
+.reviews-tilt-right { transform: rotate(1.2deg) translateY(10px); }
+.reviews-track:not(.reviews-track-dragging) .reviews-card:hover { transform: translateY(-6px) rotate(0deg); }
+/* The bubble's tail, in the bubble's own colour, pointing at the person below */
+.reviews-bubble::after {
+  position: absolute;
+  bottom: -12px;
+  left: 0;
+  width: 26px;
+  height: 14px;
+  background: var(--bubble);
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  content: "";
+}
+@media (prefers-reduced-motion: reduce) {
+  .admin-label, .admin-subnav { transition: none; }
+  .admin-side-panel { animation: none; }
+  .reviews-track { scroll-behavior: auto; }
+  .reviews-card { transition: none; }
 }
