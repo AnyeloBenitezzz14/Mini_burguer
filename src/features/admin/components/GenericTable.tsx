@@ -540,10 +540,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
   }
 
   return (
-    <div
-      className={`min-w-0 ${section === "roles" ? "w-full" : ""}`}
-      style={section === "roles" ? { maxWidth: 760 } : undefined}
-    >
+    <div className="min-w-0">
       <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
         <div
           className="search-control flex w-full min-w-0 items-center gap-2 rounded-full px-3 py-2 sm:w-72"

@@ -27,7 +27,7 @@ export default function ProductCatalog({
   // Changing page brings the menu back into view
   const goPage = (i: number) => {
     setPg(i)
-    topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+    if (!compact) topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
@@ -77,7 +77,7 @@ export default function ProductCatalog({
     <div ref={topRef}>
       {/* Category tabs */}
       <div
-        className="flex snap-x gap-2 overflow-x-auto pb-2 mb-4 md:flex-wrap md:overflow-visible"
+        className={`flex snap-x gap-2 overflow-x-auto pb-2 md:flex-wrap md:overflow-visible ${compact ? "mb-2" : "mb-4"}`}
         style={{ scrollbarWidth: "none" }}
         role="tablist"
         aria-label="Categorías del menú"
@@ -90,7 +90,7 @@ export default function ProductCatalog({
               role="tab"
               aria-selected={active}
               onClick={() => switchCat(cat.id)}
-              className={`flex flex-shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm font-semibold transition-all hover:-translate-y-px ${active ? "landing-menu-control" : ""}`}
+              className={`flex flex-shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 font-semibold transition-all hover:-translate-y-px ${compact ? "text-xs" : "text-sm"} ${active ? "landing-menu-control" : ""}`}
               style={{
                 background: active ? C.mustard : dark ? "rgba(255,255,255,0.05)" : "#fff",
                 border: `1px solid ${active ? C.mustard : BORDER}`,
@@ -98,7 +98,7 @@ export default function ProductCatalog({
               }}
             >
               <span
-                className="flex h-7 w-7 items-center justify-center rounded-full"
+                className={`flex items-center justify-center rounded-full ${compact ? "h-6 w-6" : "h-7 w-7"}`}
                 style={{
                   background: active ? "rgba(255,255,255,0.22)" : `${C.mustard}1A`,
                   color: active ? "#fff" : C.mustard,
@@ -113,7 +113,7 @@ export default function ProductCatalog({
       </div>
       {/* Search in catalog */}
       <div
-        className="search-control flex w-full items-center gap-2 px-3 py-2.5 rounded-full mb-5 sm:max-w-md"
+        className={`search-control flex w-full items-center gap-2 rounded-full px-3 ${compact ? "mb-3 py-2" : "mb-5 py-2.5"} sm:max-w-md`}
         style={{
           background: dark ? "#1E1C18" : "#fff",
           border: `1.5px solid ${C.mustard}`,
@@ -145,11 +145,11 @@ export default function ProductCatalog({
         )}
       </div>
       {/* Count */}
-      <p className="text-sm mb-4" style={{ color: MUTED }}>
+      <p className={`${compact ? "mb-2 text-xs" : "mb-4 text-sm"}`} style={{ color: MUTED }}>
         {filtered.length} productos
         {shouldPaginate && <> · Página {pg + 1} de {Math.max(1, totalPages)}</>}
       </p>
-      <div className={`grid grid-cols-2 sm:grid-cols-3 ${compact ? "gap-2" : "gap-3"} mb-5`}>
+      <div className={`grid grid-cols-2 sm:grid-cols-3 ${compact ? "mb-3 gap-2" : "mb-5 gap-3"}`}>
         {pageItems.length === 0 && (
           <div
             className="col-span-3 text-center py-10 text-sm"
@@ -184,22 +184,25 @@ export default function ProductCatalog({
               </div>
             </div>
             <div
-              className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+              className={`absolute inset-0 flex flex-col items-center justify-center text-center opacity-0 transition-opacity duration-300 group-hover:opacity-100 ${compact ? "p-2" : "p-3"}`}
               style={{ background: "rgba(10,8,5,0.85)" }}
             >
               {p.badge && (
                 <span
-                  className="font-label mb-2 rounded-full px-2 py-0.5 text-xs font-bold"
+                  className={`font-label rounded-full px-2 py-0.5 font-bold ${compact ? "mb-1 text-[10px]" : "mb-2 text-xs"}`}
                   style={{ background: C.mustard, color: "#fff" }}
                 >
                   {p.badge}
                 </span>
               )}
-              <div className="font-price mb-1 text-lg text-white">
+              <div className={`font-price text-white ${compact ? "mb-0.5 text-base" : "mb-1 text-lg"}`}>
                 {p.priceStr}
               </div>
               {p.desc && (
-                <p className="mb-3 text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.85)" }}>
+                <p
+                  className={`leading-tight ${compact ? "mb-1 line-clamp-2 text-[10px]" : "mb-3 text-sm leading-relaxed"}`}
+                  style={{ color: "rgba(255,255,255,0.85)" }}
+                >
                   {p.desc}
                 </p>
               )}
@@ -210,7 +213,7 @@ export default function ProductCatalog({
                   event.stopPropagation()
                   openProduct(p)
                 }}
-                className="cursor-pointer rounded-full px-4 py-2 text-sm font-bold text-white hover:opacity-90 disabled:cursor-not-allowed"
+                className={`cursor-pointer rounded-full font-bold text-white hover:opacity-90 disabled:cursor-not-allowed ${compact ? "px-3 py-1 text-xs" : "px-4 py-2 text-sm"}`}
                 style={{ background: C.mustard, opacity: p.soldOut ? 0.55 : 1 }}
               >
                 {p.soldOut ? "Agotado" : "+ Agregar"}
