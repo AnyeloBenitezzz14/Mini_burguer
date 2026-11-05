@@ -1935,12 +1935,12 @@ export default function CheckoutPage({
       )}
       {pickerOpen && (
         <div
-          className="fixed inset-0 z-40 flex items-center justify-center px-4 py-6"
+          className="fixed inset-0 z-[60] flex items-start justify-center px-4 pb-4 pt-20"
           style={{ background: "rgba(0,0,0,0.7)" }}
           onClick={() => setPickerOpen(false)}
         >
           <div
-            className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-3xl p-5"
+            className="max-h-[calc(100dvh-6rem)] w-full max-w-3xl overflow-hidden rounded-3xl p-4 sm:p-5"
             style={{ background: "#FAF5E8" }}
             onClick={(event) => event.stopPropagation()}
           >
@@ -1963,6 +1963,7 @@ export default function CheckoutPage({
             <ProductCatalog
               dark={false}
               onAddClick={setAddProduct}
+              compact
             />
           </div>
         </div>
