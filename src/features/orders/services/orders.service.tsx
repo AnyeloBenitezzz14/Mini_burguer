@@ -3,13 +3,23 @@ import { allMenuProducts } from "@/features/menu/data/products"
 import { orderDbId } from "@/features/orders/utils/orders"
 import { api } from "@/shared/services/api"
 import type { DbRecord, Order, User } from "@/shared/types"
-import { loadLS, saveLS } from "@/shared/utils/storage"
 
-// ponytail: all orders live in this browser's localStorage (client + admin
-// share it); move to a backend when the shop needs multiple devices.
-export const loadOrders = () => loadLS<Order[]>("orders", [])
+// A copy of the orders from the backend, per tab: a client tab only holds its own, the admin tab all of them
+export const loadOrders = (): Order[] => {
+  try {
+    return JSON.parse(sessionStorage.getItem("orders") || "[]")
+  } catch {
+    return []
+  }
+}
 
-export const saveOrders = (orders: Order[]) => saveLS("orders", orders)
+export const saveOrders = (orders: Order[]) => {
+  try {
+    sessionStorage.setItem("orders", JSON.stringify(orders))
+  } catch {
+    // storage full: the orders are re-read from the backend on the next refresh
+  }
+}
 
 export const orderFromDb = (p: DbRecord): Order => ({
   // Same format as the panel's orders (PED-0005): one numbering for every order
@@ -48,6 +58,7 @@ export const orderFromDb = (p: DbRecord): Order => ({
   paymentRejectionReason: p.motivo_rechazo_pago || undefined,
   productionAuthorized: p.produccion_autorizada,
   productionRecords: p.registros_produccion,
+  history: p.historial,
 })
 
 // Staff get every order; clients only their own

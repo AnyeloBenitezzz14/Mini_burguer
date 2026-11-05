@@ -14,3 +14,9 @@ export function saveLS(key: string, value: unknown) {
     // quota exceeded / storage blocked: state stays in memory for this session
   }
 }
+
+// The login token and the page live per tab (sessionStorage): a client tab and an admin tab keep their own
+// account, and a reload stays signed in
+export const getToken = () => sessionStorage.getItem("token") ?? ""
+export const setToken = (token: string) => sessionStorage.setItem("token", token)
+export const clearSession = () => ["token", "orders", "page"].forEach((key) => sessionStorage.removeItem(key))

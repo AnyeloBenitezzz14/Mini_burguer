@@ -109,6 +109,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     purchaseSupplySearch,
     returnLossToPurchase,
     rows,
+    tableOrder,
+    viewStep,
     saleReturnBlock,
     saveModal,
     saveError,
@@ -223,6 +225,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
   const isProduction = modal.section === "produccion"
   const isPnc = modal.section === "producto-no-conforme"
   const isSales = modal.section === "ventas"
+  // Order and sale details open as a side panel: the list stays in view and ↑ ↓ go to the next one
+  const isSidePanel = modal.mode === "view" && (modal.section === "pedidos" || isSales)
+  const sideOrder = isSidePanel ? tableOrder.current[modal.section] ?? [] : []
+  const sidePosition = modal.idx === null ? -1 : sideOrder.indexOf(modal.idx)
   const isReturns = modal.section === "devoluciones"
   const isClient = modal.section === "clientes"
   const isSupplier = modal.section === "proveedores"
@@ -791,8 +797,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
 
   return (
     <div
-      className={`fixed inset-0 z-[70] flex items-center justify-center px-4 py-3 ${isUser ? "lg:left-[72px]" : ""}`}
-      style={{ background: "rgba(0,0,0,0.65)" }}
+      className={`fixed inset-0 z-[70] flex ${isSidePanel ? "justify-end" : "items-center justify-center px-4 py-3"} ${isUser ? "lg:left-[72px]" : ""}`}
+      style={{ background: isSidePanel ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.65)" }}
       // Forms and details only close with their own buttons (X, Volver, Cancelar), never with a stray click outside
     >
       {discardAsk && (
@@ -830,11 +836,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
         </div>
       )}
       <div
-        className={`flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
-          maxHeight: isPurchaseModule || isProduct || isRoles || isUser ? "94vh" : "88vh",
+          maxHeight: isSidePanel ? "100vh" : isPurchaseModule || isProduct || isRoles || isUser ? "94vh" : "88vh",
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -872,6 +878,30 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   : "Ver detalle"}
           </h3>
           </div>
+          <div className="flex items-center gap-1.5">
+          {isSidePanel && sidePosition >= 0 && (
+            <>
+              <span className="mr-1 text-xs tabular-nums" style={{ color: t.muted }}>
+                {sidePosition + 1} de {sideOrder.length}
+              </span>
+              {([[-1, "Anterior", "m18 15-6-6-6 6"], [1, "Siguiente", "m6 9 6 6 6-6"]] as const).map(([dir, label, path]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => viewStep(dir)}
+                  disabled={!sideOrder[sidePosition + dir] && sideOrder[sidePosition + dir] !== 0}
+                  aria-label={`${label} (flecha ${dir < 0 ? "arriba" : "abajo"})`}
+                  title={`${label} (${dir < 0 ? "↑" : "↓"})`}
+                  className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl disabled:cursor-not-allowed disabled:opacity-35"
+                  style={{ background: t.input, color: t.muted }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d={path} />
+                  </svg>
+                </button>
+              ))}
+            </>
+          )}
           <button
             onClick={requestCloseModal}
             aria-label="Cerrar"
@@ -880,9 +910,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           >
             {Ico.x}
           </button>
+          </div>
         </div>
         <div
-          className={`min-w-0 overflow-x-hidden ${isRoles || isUser ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
+          className={`min-w-0 overflow-x-hidden ${isRoles || isUser || isSidePanel ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
             isUser
               ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
               : isRoles && !isView
@@ -903,7 +934,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   : "flex flex-col gap-3"
           }`}
           style={{
-            maxHeight: isPurchaseModule || isProduct ? undefined : isRoles ? undefined : isUser ? "58vh" : "65vh",
+            maxHeight: isPurchaseModule || isProduct || isSidePanel ? undefined : isRoles ? undefined : isUser ? "58vh" : "65vh",
             // A visible (thin) scrollbar tells the user there are more fields below
             scrollbarWidth: "thin",
           }}
@@ -1699,7 +1730,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 // Orders that can have a producto no conforme (already started, not marked yet)
                 const orders = (rows.produccion || [])
                   .map((order, index) => ({ order, index }))
-                  .filter(({ order }) => ["Iniciada", "En cocina", "Terminado"].includes(String(order[8])))
+                  .filter(({ order }) => ["Confirmado", "En cocina", "En camino", "Entregado"].includes(String(order[8])))
                 return (
                   <section className="flex flex-col gap-2 rounded-2xl p-4 sm:col-span-2" style={{ background: `${C.mustard}0d`, border: `1px solid ${C.mustard}35` }}>
                     <div>
@@ -2946,7 +2977,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         </div>
                         {fieldValidationError && <span className="text-[10px] font-medium">{fieldValidationError}</span>}
                         <span className="text-[10px] font-normal" style={{ color: t.muted }}>
-                          Solo salen las ventas que se pueden devolver: directas, o con su orden de producción en «Terminado».
+                          Solo salen las ventas que se pueden devolver: directas, o con su orden de producción en «Entregado».
                         </span>
                       </label>
                     )}
@@ -5122,7 +5153,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               .map((title, g) => ({ title, list: items.filter((item) => groupOf(item) === g) }))
               .filter((group) => group.list.length)
             const history = parseProductionHistory(row[12])
-            const status = String(row[8] || "Recibida")
+            const status = String(row[8] || "Recibido")
             // "17 oct 2026" and "18:34" (some old records saved "6:37:44 PM")
             const shortDate = (value: string | number | undefined) => {
               const d = new Date(`${String(value ?? "").slice(0, 10)}T00:00:00`)
@@ -5189,7 +5220,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 </div>
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="grid grid-cols-2 gap-2">
-                    {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Terminado" ? "#2E7D60" : t.text)}
+                    {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Entregado" ? "#2E7D60" : t.text)}
                     {info(row[15] ? "Pedido" : "Prioridad", row[15] ? String(row[15]) : `#${String(row[3] ?? "—")}`)}
                     {info("Creada", `${shortDate(row[4])} · ${shortTime(row[5])}`)}
                     {info("Actualizada", `${shortDate(row[6])} · ${shortTime(row[7])}`)}
@@ -5248,6 +5279,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   .map((line) => [line, ...orderDetails.filter((child) => child.parentId === line.id)])
                 const total = orderDetails.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0) || Number(row[6]) || 0
                 const comment = String(row[12] ?? "").trim()
+                // Who changed what and when (store orders; the backend keeps it in historial_estados_pedido)
+                const history = loadOrders().find((order) => order.id === String(row[0]))?.history ?? []
                 return (
                   <>
                     <div className="flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3 md:col-span-2" style={{ background: t.cardAlt }}>
@@ -5255,7 +5288,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         {Ico.orders}
                       </span>
                       <div className="min-w-0 flex-1">
-                        <div className="text-base font-semibold" style={{ color: t.text }}>{String(row[0])}</div>
+                        <div className="break-words text-base font-semibold" style={{ color: t.text }}>{String(row[0])}</div>
                         <div className="break-words text-xs" style={{ color: t.muted }}>{String(row[1] || "Sin cliente")}</div>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
@@ -5332,12 +5365,33 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(total)}</span>
                       </div>
                     </div>
+                    {history.length > 0 && (
+                      <div className="rounded-2xl px-4 py-3 md:col-start-2 self-start" style={{ border: `1px solid ${t.border}` }}>
+                        {title("Historial")}
+                        <ol className="relative ml-1.5 border-l pl-4" style={{ borderColor: t.border }}>
+                          {[...history].reverse().map((entry, i) => (
+                            <li key={`${entry.fecha}-${i}`} className="relative pb-3 last:pb-0">
+                              <span
+                                aria-hidden="true"
+                                className="absolute -left-[21px] top-1 h-2.5 w-2.5 rounded-full"
+                                style={{ background: i === 0 ? C.mustard : t.border, boxShadow: `0 0 0 3px ${t.card}` }}
+                              />
+                              <div className="text-sm font-semibold" style={{ color: t.text }}>{entry.estado}</div>
+                              <div className="text-xs" style={{ color: t.muted }}>
+                                {new Date(entry.fecha).toLocaleString("es-CO", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}
+                                {entry.usuario ? ` · ${entry.usuario}` : ""}
+                              </div>
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
                     {(comment || productionOrders.length > 0) && (
                       <div className="grid content-start gap-3 md:col-start-2 self-start">
                         {comment && (
                           <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
                             {title("Especificaciones")}
-                            <p className="whitespace-pre-line text-sm" style={{ color: t.text }}>{comment}</p>
+                            <p className="whitespace-pre-line text-sm [overflow-wrap:anywhere]" style={{ color: t.text }}>{comment}</p>
                           </div>
                         )}
                         {productionOrders.length > 0 && (
@@ -5346,7 +5400,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             {productionOrders.map((order) => (
                               <div key={String(order[0])} className="flex items-center justify-between gap-2 text-sm">
                                 <span style={{ color: t.text }}>{String(order[0])}</span>
-                                {badge(String(order[8] || "Recibida"), String(order[8]) === "Terminado", String(order[8]) === "Producto no conforme")}
+                                {badge(String(order[8] || "Recibido"), String(order[8]) === "Entregado", String(order[8]) === "Producto no conforme")}
                               </div>
                             ))}
                           </div>

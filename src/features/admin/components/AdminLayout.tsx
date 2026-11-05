@@ -1,6 +1,7 @@
 import AdminProfilePage from "@/features/admin/pages/AdminProfilePage"
 import { saveProfile } from "@/features/profile/services/profile.service"
 import { Ico } from "@/shared/components/icons"
+import { fmt } from "@/shared/utils/format"
 import { C } from "@/shared/styles/theme"
 import type { User } from "@/shared/types"
 import { loadLS, saveLS } from "@/shared/utils/storage"
@@ -32,6 +33,12 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
     setErrorToast,
     notifyError,
     saveToast,
+    newOrderToast,
+    setNewOrderToast,
+    orderSound,
+    toggleOrderSound,
+    openView,
+    rows,
     section,
     sectionLabel,
     setNotificationsOpen,
@@ -66,14 +73,14 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
       )}
       {/* On desktop it keeps the icons' width; the open menu floats over the content */}
       <div
-        className={`hidden flex-shrink-0 transition-[width] duration-300 lg:block ${
+        className={`hidden flex-shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] lg:block ${
           sidebarCollapsed ? "w-[72px]" : "w-[208px]"
         }`}
       />
       <aside
         onMouseEnter={() => window.innerWidth >= 1024 && setSidebarCollapsed(false)}
         onMouseLeave={() => window.innerWidth >= 1024 && setSidebarCollapsed(true)}
-        className={`fixed inset-y-0 left-0 z-50 flex w-[208px] flex-col overflow-hidden transition-[transform,width,box-shadow] duration-300 ease-out ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[208px] flex-col overflow-hidden transition-[transform,width,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         } ${sidebarCollapsed ? "lg:w-[72px]" : "lg:shadow-2xl"}`}
         style={{
@@ -82,7 +89,9 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
           flexShrink: 0,
         }}
       >
-        <SidebarContent />
+        {/* Called, not mounted: as <SidebarContent /> it was a new component on every render and the menu
+            remounted (its submenu animation replayed) whenever anything in the panel changed */}
+        {SidebarContent()}
       </aside>
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
@@ -100,6 +109,21 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
             {Ico.menu}
           </button>
           <div className="ml-auto flex items-center gap-2">
+            {/* Chime when a store order arrives */}
+            <button
+              type="button"
+              onClick={toggleOrderSound}
+              aria-pressed={orderSound}
+              aria-label={orderSound ? "Silenciar el sonido de pedidos nuevos" : "Activar el sonido de pedidos nuevos"}
+              title={orderSound ? "Sonido de pedidos nuevos: activado" : "Sonido de pedidos nuevos: silenciado"}
+              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl"
+              style={{ background: t.input, color: orderSound ? C.mustard : t.muted }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+                {orderSound ? <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /> : <path d="m16 9 5 6m0-6-5 6" />}
+              </svg>
+            </button>
             {/* Admin notifications */}
             <div className="relative" ref={notificationsRef}>
               <button
@@ -385,7 +409,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
         <div
           key={errorToast.id}
           role="alert"
-          className="admin-toast-enter fixed bottom-5 left-1/2 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-start gap-3 rounded-xl px-4 py-3 text-sm shadow-lg"
+          className="admin-toast-enter fixed bottom-20 left-1/2 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-start gap-3 rounded-xl px-4 py-3 text-sm shadow-lg"
           style={{ background: "#3a1712", color: "#FBE9E5", border: `1px solid ${C.red}` }}
         >
           <span className="mt-0.5 flex-shrink-0" style={{ color: "#F28B7A" }}>{Ico.alert}</span>
@@ -395,6 +419,46 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
             onClick={() => setErrorToast(null)}
             aria-label="Cerrar aviso"
             className="flex-shrink-0 cursor-pointer opacity-70 hover:opacity-100"
+          >
+            {Ico.x}
+          </button>
+        </div>
+      )}
+      {newOrderToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="admin-toast-enter fixed right-4 top-16 z-[95] flex w-[calc(100%-2rem)] max-w-sm items-center gap-3 rounded-2xl px-4 py-3 shadow-lg"
+          style={{ background: t.card, border: `1px solid ${C.mustard}66` }}
+        >
+          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.mustard}1f`, color: C.mustard }}>
+            {Ico.orders}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-bold" style={{ color: t.text }}>Pedido nuevo {newOrderToast.id}</div>
+            <div className="truncate text-xs" style={{ color: t.muted }}>
+              {newOrderToast.nombre || newOrderToast.cliente} · {fmt(newOrderToast.total)}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSection("pedidos")
+              const idx = (rows.pedidos || []).findIndex((row) => String(row[0]) === newOrderToast.id)
+              if (idx >= 0) openView("pedidos", idx)
+              setNewOrderToast(null)
+            }}
+            className="cursor-pointer rounded-xl px-3 py-1.5 text-xs font-bold"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            Ver
+          </button>
+          <button
+            type="button"
+            onClick={() => setNewOrderToast(null)}
+            aria-label="Cerrar aviso"
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+            style={{ color: t.muted }}
           >
             {Ico.x}
           </button>

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react"
-import { MOD_CFG, PRODUCTION_STATUSES, TABLE_FILTERS } from "@/features/admin/config/modules"
+import { MOD_CFG, PRODUCTION_STATUSES, QUICK_FILTERS, TABLE_FILTERS } from "@/features/admin/config/modules"
 import { isNaturalSupplier, isReturnedLoss, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
 import { isSodaName, sodaImage } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
@@ -33,6 +33,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     prodDay,
     prodImgs,
     prodStatus,
+    quickFilter,
+    tableOrder,
     reactivate,
     rows,
     loadedSections,
@@ -47,6 +49,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     setPg,
     setProdDay,
     setProdStatus,
+    setQuickFilter,
     setSearch,
     setTableFilter,
     t,
@@ -92,8 +95,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
   const filterValue = tableFilter[section] || ""
   const [filterCell, filterText] = filterValue ? filterValue.split("::") : []
   const isProductionList = section === "produccion"
-  // Production orders: [4] creation date "YYYY-MM-DD…", [8] status (empty = Recibida)
-  const orderStatus = (row: Row) => String(row[8] || "Recibida")
+  // Production orders: [4] creation date "YYYY-MM-DD…", [8] status (empty = Recibido)
+  const orderStatus = (row: Row) => String(row[8] || "Recibido")
   const matchesSearch = (row: Row) =>
     // Ignores accents and case: «lacteos» finds «Lácteos»
     (!q || row.some((cell) => normalizeName(cell).includes(normalizeName(q)))) &&
@@ -104,13 +107,20 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     (!isProductionList || !prodDay || String(row[4] ?? "").slice(0, 10) === prodDay)
   // Status counts follow the search and the day, so each button says how many it would show
   const beforeStatus = sRows.filter(({ row }) => matchesSearch(row))
-  const statusFiltered = beforeStatus.filter(({ row }) => !isProductionList || !prodStatus || orderStatus(row) === prodStatus)
+  // Tabs with counts above the table: what needs attention, one click away
+  const quickTabs = QUICK_FILTERS[section] ?? []
+  const quickTab = quickTabs.find((tab) => tab.label === quickFilter[section])
+  const statusFiltered = beforeStatus.filter(
+    ({ row }) => (!isProductionList || !prodStatus || orderStatus(row) === prodStatus) && (!quickTab || quickTab.test(row)),
+  )
   // Orders newest first, in order of arrival: shop and panel orders share the backend's id (shop code PED-<id>,
   // panel row[13]); one not saved yet is the newest
   const shopOrderIds = section === "pedidos" ? new Set(loadOrders().map((o) => o.id)) : null
+  // A shop order's [13] is its phone, not an id: its number comes from its code
   const arrival = (row: Row) =>
-    Number(row[13]) || (shopOrderIds?.has(String(row[0])) ? Number(/(\d+)$/.exec(String(row[0]))?.[1]) || 0 : Infinity)
+    shopOrderIds?.has(String(row[0])) ? Number(/(\d+)$/.exec(String(row[0]))?.[1]) || 0 : Number(row[13]) || Infinity
   const filtered = shopOrderIds ? [...statusFiltered].sort((a, b) => arrival(b.row) - arrival(a.row)) : statusFiltered
+  tableOrder.current[section] = filtered.map(({ index }) => index)
   const cur = pg[section] || 0
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const visiblePages = visiblePaginationPages(cur, totalPages)
@@ -236,6 +246,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     }
     if (section === "insumos" && row && rowCellIndex === 3) return Number(cell) > 0 ? fmt(Number(cell)) : "Sin compras"
     if (section === "insumos" && row && rowCellIndex === 4) return `${Number(cell) || 0} ${String(row[2] ?? "")}`.trim()
+    if (section === "pedidos" && rowCellIndex === 6) return Number.isFinite(Number(cell)) && cell !== "" ? fmt(Number(cell)) : "—"
     if (section !== "ventas") return cell
     if (rowCellIndex === 3) return formatSalesDate(cell)
     if (rowCellIndex === 7) {
@@ -346,7 +357,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     )
     const canShowProductionDelete =
       section !== "produccion" ||
-      String(rows.produccion?.[rowIndex]?.[8] ?? "Recibida") === "Recibida"
+      String(rows.produccion?.[rowIndex]?.[8] ?? "Recibido") === "Recibido"
     const isPrincipalAdmin = isSuperAdminRow(
       section,
       rows[section]?.[rowIndex],
@@ -685,6 +696,37 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           </button>
         )}
       </div>
+      {quickTabs.length > 0 && (
+        <div role="radiogroup" aria-label="Filtro rápido" className="-mt-1 mb-4 flex flex-wrap gap-1.5">
+          {[{ label: "Todos", test: () => true }, ...quickTabs].map((tab) => {
+            const on = (quickTab?.label ?? "Todos") === tab.label
+            const count = beforeStatus.filter(({ row }) => tab.test(row)).length
+            return (
+              <button
+                key={tab.label}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => {
+                  setQuickFilter((current) => ({ ...current, [section]: tab.label === "Todos" ? "" : tab.label }))
+                  setP(0)
+                }}
+                className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
+                style={
+                  on
+                    ? { background: C.mustard, color: "#fff", border: `1px solid ${C.mustard}` }
+                    : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }
+                }
+              >
+                {tab.label}
+                <span className="rounded-full px-1.5 text-[10px] font-bold" style={{ background: on ? "rgba(255,255,255,0.25)" : t.card }}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
       {isProductionList && (
         // One button per status with how many orders it has (for the search and day chosen)
         <div role="radiogroup" aria-label="Filtrar por estado" className="-mt-1 mb-4 flex flex-wrap gap-1.5">

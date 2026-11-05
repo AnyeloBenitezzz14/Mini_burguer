@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { MOD_CFG, PAYMENT_NEXT, PRODUCTION_STATUSES, SECTION_MODULE, SIDEBAR_MENU, STALE_ORDER_DAYS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
+import { MOD_CFG, PAYMENT_NEXT, PRODUCTION_STATUSES, QUICK_FILTERS, SECTION_MODULE, SIDEBAR_MENU, STALE_ORDER_DAYS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
 import { DB_SYNC, PANEL_SYNC, saveRowToDb } from "@/features/admin/services/sync.service"
 import { getDashPeriod } from "@/features/admin/utils/dashboard"
 import { buildProductionRows, clientOrderToPanelRow, derivePedidoPayment, fixShiftedSale, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isSuperAdminRow, nextAutoSaleCode, parseMainSupplies, parsePurchaseLines, permsFromDb, permsToDb, productionLabel, roleLabel, saleTypeOf, supplierRequiredKeys, supplyAsProduct, syncIdIndex, text, withId, withPanelId } from "@/features/admin/utils/rows"
@@ -23,6 +23,28 @@ type PncEntry = { product: string; whole: boolean; quantity: number; unit?: stri
 
 // Everything the admin panel keeps between renders: its state, effects and handlers, in the same order as before.
 // The views (Dashboard, tables, form, modals…) receive this object; see pages/AdminPanel.
+// Two soft rising notes, made in the browser (no sound file). Silent if the browser blocks audio.
+function playOrderChime() {
+  try {
+    const ctx = new AudioContext()
+    ;[[880, 0], [1320, 0.16]].forEach(([frequency, start]) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = "sine"
+      osc.frequency.value = frequency
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + start)
+      gain.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + start + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + 0.35)
+      osc.connect(gain).connect(ctx.destination)
+      osc.start(ctx.currentTime + start)
+      osc.stop(ctx.currentTime + start + 0.4)
+    })
+    window.setTimeout(() => ctx.close(), 1000)
+  } catch {
+    // no audio available: the notice still shows
+  }
+}
+
 export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   onSwitchToClient: () => void
   onLogout: () => void
@@ -51,7 +73,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     return () => window.clearTimeout(timeout)
   }, [])
   // Labels hide only on large screens (on a phone the menu is a full drawer)
-  const hideOnMini = sidebarCollapsed ? "lg:hidden" : ""
+  // Labels stay in place and fade/slide with the menu's width, opening and closing (see .admin-label in index.css)
+  const hideOnMini = sidebarCollapsed ? "admin-label admin-label-hidden" : "admin-label"
   const [profileOpen, setProfileOpen] = useState(false)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const [readNotifications, setReadNotifications] = useState<Set<number>>(
@@ -205,6 +228,37 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     return initialRows
   })
   const clientOrdersSnapshot = JSON.stringify(clientOrders)
+  // A store order arrives: a short chime (it can be muted), a notice with «Ver» and a count next to Pedidos
+  // until that module is opened. The orders already there when the panel opened don't count as new.
+  const [newOrders, setNewOrders] = useState<string[]>([])
+  const [newOrderToast, setNewOrderToast] = useState<Order | null>(null)
+  const [orderSound, setOrderSound] = useState(() => loadLS("adminOrderSound", true))
+  const toggleOrderSound = () =>
+    setOrderSound((on) => {
+      saveLS("adminOrderSound", !on)
+      return !on
+    })
+  const seenOrderIds = useRef<Set<string> | null>(null)
+  useEffect(() => {
+    if (!seenOrderIds.current) {
+      seenOrderIds.current = new Set(clientOrders.map((order) => order.id))
+      return
+    }
+    const fresh = clientOrders.filter((order) => !seenOrderIds.current!.has(order.id))
+    if (!fresh.length) return
+    fresh.forEach((order) => seenOrderIds.current!.add(order.id))
+    if (section !== "pedidos") setNewOrders((current) => [...new Set([...fresh.map((order) => order.id), ...current])])
+    setNewOrderToast(fresh[0])
+    if (orderSound) playOrderChime()
+  }, [clientOrdersSnapshot])
+  useEffect(() => {
+    if (section === "pedidos") setNewOrders([])
+  }, [section])
+  useEffect(() => {
+    if (!newOrderToast) return
+    const timer = window.setTimeout(() => setNewOrderToast(null), 10_000)
+    return () => window.clearTimeout(timer)
+  }, [newOrderToast])
   const productsSnapshot = JSON.stringify(rows.producto || [])
   const productionSnapshot = JSON.stringify(rows.produccion || [])
   useEffect(() => {
@@ -250,28 +304,30 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       ordersToPersist.forEach(({ id }) => pushOrder(id))
     }
   }, [clientOrdersSnapshot, productsSnapshot, productionSnapshot])
-  // Every order already sent to production must have its production order: one that never got saved
-  // (or vanished on a reload) is created again. Only once both tables came from the backend, so it
-  // never duplicates one that simply hasn't loaded yet. New rows are saved by the PANEL_SYNC sync.
+  // Every active order already sent to production must have its production order: one that never got
+  // saved is created again. Only when both tables really came from the backend (panelLoaded is set on
+  // success, not on a failed load), so it never duplicates one that just didn't load. PANEL_SYNC saves it.
   useEffect(() => {
-    if (!loadedSections.has("pedidos") || !loadedSections.has("produccion")) return
+    if (!panelLoaded.current.pedidos || !panelLoaded.current.produccion) return
     let produccion = rows.produccion || []
     const hasProduction = (code: string) => produccion.some((op) => String(op[15] ?? "") === code)
     const missing = (rows.pedidos || []).filter(
       (order) =>
         ["Enviada a producción", "Autorizada"].includes(String(order[9])) &&
-        String(order[7]) !== "Cancelado" &&
+        // A delivered or cancelled order is done: it doesn't go back to the kitchen
+        !["Cancelado", "Entregado"].includes(String(order[7])) &&
         !hasProduction(String(order[0])),
     )
     if (!missing.length) return
     // Oldest first, so the newest order's OP ends up on top
     for (const order of [...missing].reverse()) {
       const lines = getAdminOrderLines(order)
-      if (lines.length) produccion = buildProductionRows(lines, produccion, String(order[0]))
+      // With the order's comment, like every other OP made from an order
+      if (lines.length) produccion = buildProductionRows(lines, produccion, String(order[0]), String(order[12] ?? ""))
     }
     if (produccion !== rows.produccion) setRows((current) => ({ ...current, produccion }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loadedSections, rows.pedidos, rows.produccion])
+  }, [loadedSections, rows.pedidos, rows.produccion, rows.producto])
   // Real low-stock alerts from the active insumos, before the order ones
   const notifications: AdminNotification[] = [
     ...(rows.insumos || []).flatMap((r, i) =>
@@ -520,7 +576,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             [sec]: [
               ...dbRows,
               ...(current[sec] || []).filter(
-                (r) => !r[spec.idIndex] && (spec.keepLocal?.(r, dbRows) || spec.owns?.(r) === false),
+                // Store orders stay whatever their [13] holds (it's their phone, not a panel id)
+                (r) => spec.owns?.(r) === false || (!r[spec.idIndex] && !!spec.keepLocal?.(r, dbRows)),
               ),
             ],
           }
@@ -623,6 +680,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   // Órdenes de producción: filter by day ("YYYY-MM-DD") and by status ("" = all)
   const [prodDay, setProdDay] = useState("")
   const [prodStatus, setProdStatus] = useState("")
+  // Quick filter tab chosen per module (Pedidos, Ventas, Insumos): its label
+  const [quickFilter, setQuickFilter] = useState<Record<string, string>>({})
   const [pg, setPg] = useState<Record<string, number>>({})
   const [modalState, setModal] = useState<{
     mode: ModalMode
@@ -831,8 +890,12 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     document.addEventListener("mousedown", fn)
     return () => document.removeEventListener("mousedown", fn)
   }, [])
-  const toggleGrp = (k: string) =>
+  // Only a group the admin just opened slides its items in (not every time the collapsed menu expands on hover)
+  const [animatedGroup, setAnimatedGroup] = useState<string | null>(null)
+  const toggleGrp = (k: string) => {
+    setAnimatedGroup(k)
     setOpen((groups) => (groups.includes(k) ? [] : [k]))
+  }
   const sectionLabel =
     SIDEBAR_MENU.find((item) => item.key === section)?.label ??
     SIDEBAR_MENU.flatMap((item) => item.children).find(
@@ -1230,9 +1293,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       (order) => String(order[15] ?? "") === orderCode && String(order[8]) !== "Producto no conforme",
     )
     if (!orders.length) return `El pedido ${orderCode} no tiene orden de producción terminada.`
-    const pending = orders.find((order) => String(order[8]) !== "Terminado")
+    const pending = orders.find((order) => String(order[8]) !== "Entregado")
     return pending
-      ? `La orden de producción ${String(pending[0])} del pedido ${orderCode} está en «${String(pending[8] || "Recibida")}»: solo se puede devolver cuando esté «Terminado».`
+      ? `La orden de producción ${String(pending[0])} del pedido ${orderCode} está en «${String(pending[8] || "Recibido")}»: solo se puede devolver cuando esté «Entregado».`
       : ""
   }
   const getManagedFieldError = (
@@ -1841,7 +1904,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       setFormReturn(null)
       setSection("ventas")
       setModal({ mode: null, section: "", idx: null })
-      notifyError(`El pedido ${created} quedó pagado, así que su venta se registró automáticamente.`)
+      setSaveToast(`El pedido ${created} quedó pagado: su venta se registró sola ✓`)
       return true
     }
     // A supplier adds the new insumo to its list; a sale takes the new order (client and total);
@@ -1917,6 +1980,27 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modal.mode, modal.section, modal.idx])
   // X, Volver, Cancelar and Esc: a form with changes asks first
+  // Row order of each table as shown (filters and sorting applied), for ↑ ↓ in the order/sale side panel
+  const tableOrder = useRef<Record<string, number[]>>({})
+  const viewStep = (dir: 1 | -1) => {
+    if (modal.mode !== "view" || modal.idx === null) return
+    const order = tableOrder.current[modal.section] ?? []
+    const next = order[order.indexOf(modal.idx) + dir]
+    if (next === undefined) return
+    setOrderDetailOpen([])
+    openView(modal.section, next)
+  }
+  useEffect(() => {
+    if (modal.mode !== "view" || !["pedidos", "ventas"].includes(modal.section)) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return
+      if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select")) return
+      e.preventDefault()
+      viewStep(e.key === "ArrowUp" ? -1 : 1)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  })
   const requestCloseModal = () => {
     if (modal.mode !== "view" && formStateRef.current !== openedFormStateRef.current) setDiscardAsk(true)
     else closeModal()
@@ -2171,7 +2255,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""))
       newRow[4] = payment.modalidad
       newRow[7] = modal.mode === "edit" && formData["7"] ? formData["7"] : payment.estadoPago
-      // Orders created in the panel go to production on save (it starts at "Recibida");
+      // Orders created in the panel go to production on save (it starts at "Recibido");
       // a shop order keeps its approval flow
       const shopOrder = !!previousRow && loadOrders().some((order) => order.id === previousRow[0])
       newRow[8] = shopOrder ? previousRow![9] : "Enviada a producción"
@@ -2227,8 +2311,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       newRow[3] = modal.mode === "add" ? getNextProductionPriority(rows.produccion || []) : (previousRow?.[3] ?? getNextProductionPriority(rows.produccion || []))
       newRow[6] = previousRow?.[6] ?? currentDateTime.date
       newRow[7] = previousRow?.[7] ?? currentDateTime.time
-      newRow[8] = previousRow?.[8] ?? "Recibida"
-      if (newRow[8] === "Terminado") {
+      newRow[8] = previousRow?.[8] ?? "Recibido"
+      if (newRow[8] === "Entregado") {
         newRow[9] = previousRow?.[9] || `${currentDateTime.date} ${currentDateTime.time}`
         newRow[10] = previousRow?.[10] || 1
       } else {
@@ -2236,12 +2320,12 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         newRow[10] = 0
       }
       newRow[11] =
-        previousRow?.[11] ?? (newRow[8] === "Recibida" ? "No" : "Sí")
+        previousRow?.[11] ?? (newRow[8] === "Recibido" ? "No" : "Sí")
       newRow[12] =
         previousRow?.[12] ??
         JSON.stringify([
           {
-            status: "Recibida",
+            status: "Recibido",
             date: currentDateTime.date,
             time: currentDateTime.time,
           },
@@ -2285,7 +2369,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       replacementOrder[6] = currentDateTime.date
       replacementOrder[7] = currentDateTime.time
       replacementOrder[12] = JSON.stringify([
-        { status: "Recibida", date: currentDateTime.date, time: currentDateTime.time },
+        { status: "Recibido", date: currentDateTime.date, time: currentDateTime.time },
       ])
       newRow[0] = String(replacementOrder[0])
       newRow[5] = currentDateTime.date
@@ -2370,7 +2454,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         const produccion = (current.produccion || []).map((order) => {
           if (
             String(order[15] ?? "") !== String(newRow[0]) ||
-            ["Terminado", "Producto no conforme"].includes(String(order[8]))
+            ["Entregado", "Producto no conforme"].includes(String(order[8]))
           ) return order
           const updatedOrder = [...order]
           updatedOrder[1] = productionLabel(pedidoOrderLines)
@@ -2640,11 +2724,11 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     }
 
     if (sec === "produccion") {
-      const status = String(row[8] ?? "Recibida")
+      const status = String(row[8] ?? "Recibido")
       const authorized = String(row[11] ?? "No").toLowerCase() === "sí"
       const blockers: string[] = []
 
-      if (status !== "Recibida") {
+      if (status !== "Recibido") {
         blockers.push(`la orden ya se encuentra en estado «${status}»`)
       }
       if (authorized) {
@@ -2655,7 +2739,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         return {
           allowed: false,
           targetLabel,
-          reason: `${blockers.join(" y ")}. Para conservar la trazabilidad, solo se puede eliminar una orden nueva que siga en estado «Recibida» y no esté autorizada.`,
+          reason: `${blockers.join(" y ")}. Para conservar la trazabilidad, solo se puede eliminar una orden nueva que siga en estado «Recibido» y no esté autorizada.`,
         }
       }
 
@@ -2663,7 +2747,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         allowed: true,
         targetLabel,
         reason:
-          "La orden sigue en estado «Recibida», todavía no está autorizada para producción y no tiene bloqueos activos.",
+          "La orden sigue en estado «Recibido», todavía no está autorizada para producción y no tiene bloqueos activos.",
       }
     }
 
@@ -2949,8 +3033,11 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const storedOrders = loadOrders()
     const storedOrder = storedOrders.find((item) => item.id === order[0])
     if (storedOrder?.productionAuthorized) return
-    // One production order with every product of the order
-    const productionRecords = buildProductionRows(requestedItems, rows.produccion || [], String(order[0])).slice(0, 1)
+    // One production order with every product of the order; a store order already got its own from the server
+    const existingProduction = (rows.produccion || []).filter((op) => String(op[15] ?? "") === String(order[0])).slice(0, 1)
+    const productionRecords = existingProduction.length
+      ? existingProduction
+      : buildProductionRows(requestedItems, rows.produccion || [], String(order[0])).slice(0, 1)
     saveOrders(
       storedOrders.map((item) =>
         item.id === order[0]
@@ -2987,7 +3074,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       updatedOrder[11] = ""
       orderRows[orderIndex] = updatedOrder
 
-      const productionRows = [...productionRecords, ...(current.produccion || [])]
+      const productionRows = existingProduction.length ? current.produccion || [] : [...productionRecords, ...(current.produccion || [])]
 
       return {
         ...current,
@@ -2998,10 +3085,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   }
   // Order status -> status its production orders move to (forward only)
   const ORDER_TO_PRODUCTION: Record<string, (typeof PRODUCTION_STATUSES)[number]> = {
-    Confirmado: "Iniciada",
+    Confirmado: "Confirmado",
     "En cocina": "En cocina",
-    "En camino": "Terminado",
-    Entregado: "Terminado",
+    "En camino": "En camino",
+    Entregado: "Entregado",
   }
   // Choosing the current status again still catches up production that fell behind
   const setOrderPayment = (orderIndex: number, status: string) => {
@@ -3350,11 +3437,11 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       currentDateTime.time,
       currentDateTime.date,
       currentDateTime.time,
-      "Recibida",
+      "Recibido",
       "",
       0,
       "Sí",
-      JSON.stringify([{ status: "Recibida", date: currentDateTime.date, time: currentDateTime.time }]),
+      JSON.stringify([{ status: "Recibido", date: currentDateTime.date, time: currentDateTime.time }]),
       JSON.stringify(remadeItems),
       "No",
       String(updatedOrder[15] ?? ""),
@@ -3504,13 +3591,13 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       })
       updatedRow[12] = JSON.stringify(history)
       updatedRow[11] =
-        nextStatus !== "Recibida" || String(currentRow[11]).toLowerCase() === "sí"
+        nextStatus !== "Recibido" || String(currentRow[11]).toLowerCase() === "sí"
           ? "Sí"
           : "No"
       if (consumeStock) updatedRow[14] = "Sí"
 
-      if (nextStatus === "Terminado") {
-        if (currentRow[8] !== "Terminado") {
+      if (["En camino", "Entregado"].includes(nextStatus)) {
+        if (!["En camino", "Entregado"].includes(String(currentRow[8]))) {
           updatedRow[9] = `${currentDateTime.date} ${realTime}`
           const lastDeparture = Math.max(
             0,
@@ -3546,12 +3633,12 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           realTime,
           currentDateTime.date,
           realTime,
-          "Iniciada",
+          "Confirmado",
           "",
           0,
           "Sí",
           JSON.stringify([
-            { status: "Iniciada", date: currentDateTime.date, time: realTime },
+            { status: "Confirmado", date: currentDateTime.date, time: realTime },
           ]),
           updatedRow[13],
           "No",
@@ -3784,6 +3871,30 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   const seesReturns = canSee("devoluciones")
   const seesProduction = canSee("produccion")
   const shownKPI = KPI.filter((k) => (k.label === "Devoluciones" ? seesReturns : seesSales))
+  // What the KPI badges compare against
+  const prevPeriodLabel = { hoy: "el día anterior", semana: "la semana anterior", mes: "el mes anterior", año: "el año anterior" }[chartFilter]
+  // Top of the dashboard: what needs someone now; each one opens its list already filtered
+  const quickCount = (sec: string, label: string) => {
+    const tab = QUICK_FILTERS[sec]?.find((f) => f.label === label)
+    return tab ? (rows[sec] || []).filter(tab.test).length : 0
+  }
+  const PENDING = [
+    { sec: "pedidos", quick: "Por confirmar", count: quickCount("pedidos", "Por confirmar"), one: "pedido por confirmar", many: "pedidos por confirmar" },
+    { sec: "pedidos", quick: "Pago por verificar", count: quickCount("pedidos", "Pago por verificar"), one: "transferencia por verificar", many: "transferencias por verificar" },
+    {
+      sec: "produccion",
+      prodStatus: "Recibido",
+      count: (rows.produccion || []).filter((r) => String(r[8] || "Recibido") === "Recibido").length,
+      one: "orden esperando cocina",
+      many: "órdenes esperando cocina",
+    },
+    { sec: "insumos", quick: "Bajo mínimo", count: quickCount("insumos", "Bajo mínimo"), one: "insumo bajo el mínimo", many: "insumos bajo el mínimo" },
+  ].filter((p) => p.count > 0 && canSee(p.sec as AdminSection))
+  const openPending = (p: (typeof PENDING)[number]) => {
+    if (p.quick) setQuickFilter((current) => ({ ...current, [p.sec]: p.quick! }))
+    if (p.prodStatus) setProdStatus(p.prodStatus)
+    setSection(p.sec as AdminSection)
+  }
   // Without Ventas (cocina, domicilios...): a card per module of the role, with what is pending in it
   const MY_MODULES = visibleMenu
     .flatMap((g) => (g.children.length ? g.children : [{ key: g.key, label: g.label }]))
@@ -3794,7 +3905,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         m.key === "pedidos"
           ? list.filter((r) => !["Entregado", "Cancelado"].includes(String(r[7] ?? ""))).length
           : m.key === "produccion"
-            ? list.filter((r) => !["Terminado", "Producto no conforme"].includes(String(r[8] ?? "Recibida"))).length
+            ? list.filter((r) => !["Entregado", "Producto no conforme"].includes(String(r[8] ?? "Recibido"))).length
             : null
       return { key: m.key as AdminSection, label: m.label, total: list.length, pending }
     })
@@ -3873,6 +3984,18 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     setProdDay,
     prodStatus,
     setProdStatus,
+    quickFilter,
+    setQuickFilter,
+    PENDING,
+    openPending,
+    prevPeriodLabel,
+    newOrders,
+    newOrderToast,
+    setNewOrderToast,
+    orderSound,
+    toggleOrderSound,
+    tableOrder,
+    viewStep,
     pg,
     setPg,
     modal,
@@ -4037,6 +4160,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     permsLoaded,
     permsSaved,
     toggleGrp,
+    animatedGroup,
+    setAnimatedGroup,
     sectionLabel,
     markNotificationRead,
     markAllNotificationsRead,

@@ -5,7 +5,7 @@ import ForgotPage from "@/features/auth/pages/ForgotPage"
 import LoginPage from "@/features/auth/pages/LoginPage"
 import RegisterPage from "@/features/auth/pages/RegisterPage"
 import ResetPage from "@/features/auth/pages/ResetPage"
-import { saveRegisteredClient } from "@/features/auth/services/auth.service"
+import { saveRegisteredClient, toUser } from "@/features/auth/services/auth.service"
 import CheckoutPage from "@/features/checkout/pages/CheckoutPage"
 import ClientApp from "@/features/client/pages/ClientApp"
 import LandingPage from "@/features/landing/pages/LandingPage"
@@ -17,10 +17,10 @@ import { orderDbId } from "@/features/orders/utils/orders"
 import ProfilePage from "@/features/profile/pages/ProfilePage"
 import { saveProfile } from "@/features/profile/services/profile.service"
 import AccountMenu from "@/shared/components/AccountMenu"
-import { api } from "@/shared/services/api"
+import { api, listenEvents } from "@/shared/services/api"
 import { C } from "@/shared/styles/theme"
-import type { CartItem, DbRecord, Order, Page, User } from "@/shared/types"
-import { loadLS, saveLS } from "@/shared/utils/storage"
+import type { AuthData, CartItem, DbRecord, Order, Page, User } from "@/shared/types"
+import { clearSession, getToken, loadLS, saveLS } from "@/shared/utils/storage"
 
 // ── App Root ───────────────────────────────────────────────────────────────────
 export default function App() {
@@ -91,11 +91,21 @@ export default function App() {
       if (document.visibilityState === "visible") refresh()
     }
     refresh()
+    // Staff hear at once when a client places an order or edits their profile
+    const live = new AbortController()
+    if (user.role === "admin")
+      listenEvents("/panel/eventos", (module) => {
+        if (module === "pedidos") refresh()
+        if (module === "clientes") window.dispatchEvent(new Event("profile-updated"))
+      }, live.signal)
+    // Clients hear at once when the admin changes one of their orders
+    else listenEvents("/pedidos/mios/eventos", refresh, live.signal)
     const interval = window.setInterval(refresh, 15000)
     window.addEventListener("focus", refresh)
     document.addEventListener("visibilitychange", onVisibilityChange)
     return () => {
       active = false
+      live.abort()
       window.clearInterval(interval)
       window.removeEventListener("focus", refresh)
       document.removeEventListener("visibilitychange", onVisibilityChange)
@@ -118,7 +128,7 @@ export default function App() {
   const updateUser = (u: User) => {
     saveUserLocally(u)
     // Name, document, phone and addresses live in the backend (the photo stays in this browser)
-    if (loadLS("token", ""))
+    if (getToken())
       persistUserProfile(u).catch((err) => window.alert(`No se pudieron guardar tus datos: ${(err as Error).message}`))
   }
   const login = (u: User, next: Page = "app") => {
@@ -136,9 +146,19 @@ export default function App() {
     setClientView("menu")
     setPage(next)
   }
+  // A reload keeps this tab's account and page: the token is checked with the backend first
+  useEffect(() => {
+    if (!getToken()) return
+    const lastPage = (sessionStorage.getItem("page") || "app") as Page
+    api<Omit<AuthData, "token">>("/auth/me")
+      .then((data) => login(toUser({ ...data, token: getToken() } as AuthData), lastPage))
+      .catch(() => clearSession())
+  }, [])
+  useEffect(() => {
+    if (user) sessionStorage.setItem("page", page)
+  }, [page, user])
   const logout = () => {
-    localStorage.removeItem("token")
-    localStorage.removeItem("orders") // may hold every customer's orders (admin)
+    clearSession()
     setOrdersLoadedFor("")
     // The account's cart stays saved under its own key; the next person starts empty
     setCart([])
@@ -251,7 +271,7 @@ export default function App() {
                 ),
               ],
             }
-            if (loadLS("token", "")) await persistUserProfile(updatedUser)
+            if (getToken()) await persistUserProfile(updatedUser)
             saveUserLocally(updatedUser)
           }
           // The backend prices the order with the menu in the database and sets its status
