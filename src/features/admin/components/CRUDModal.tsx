@@ -5035,6 +5035,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               .filter((group) => group.list.length)
             const history = parseProductionHistory(row[12])
             const status = String(row[8] || "Recibido")
+            // Shop orders keep [15] = order code and [16] = comment; orders made in the panel keep the comment in [15]
+            const orderCode = /^PED-/i.test(String(row[15] ?? "")) ? String(row[15]) : ""
+            const comment = String(row[16] || (orderCode ? "" : row[15]) || "").trim()
             // "17 oct 2026" and "18:34" (some old records saved "6:37:44 PM")
             const shortDate = (value: string | number | undefined) => {
               const d = new Date(`${String(value ?? "").slice(0, 10)}T00:00:00`)
@@ -5105,7 +5108,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="grid grid-cols-2 gap-2">
                     {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Entregado" ? "#2E7D60" : t.text)}
-                    {info(row[15] ? "Pedido" : "Prioridad", row[15] ? String(row[15]) : `#${String(row[3] ?? "—")}`)}
+                    {info(orderCode ? "Pedido" : "Prioridad", orderCode || `#${String(row[3] ?? "—")}`)}
                     {info("Creada", `${shortDate(row[4])} · ${shortTime(row[5])}`)}
                     {info("Actualizada", `${shortDate(row[6])} · ${shortTime(row[7])}`)}
                   </div>

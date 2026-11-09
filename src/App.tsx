@@ -1,15 +1,15 @@
-import { useEffect, useState } from "react"
-import AdminPanel from "@/features/admin/pages/AdminPanel"
-import ChooseOwnPasswordPage from "@/features/auth/pages/ChooseOwnPasswordPage"
-import ForgotPage from "@/features/auth/pages/ForgotPage"
-import LoginPage from "@/features/auth/pages/LoginPage"
-import RegisterPage from "@/features/auth/pages/RegisterPage"
-import ResetPage from "@/features/auth/pages/ResetPage"
+import { Suspense, lazy, useEffect, useState } from "react"
+const AdminPanel = lazy(() => import("@/features/admin/pages/AdminPanel"))
+const ChooseOwnPasswordPage = lazy(() => import("@/features/auth/pages/ChooseOwnPasswordPage"))
+const ForgotPage = lazy(() => import("@/features/auth/pages/ForgotPage"))
+const LoginPage = lazy(() => import("@/features/auth/pages/LoginPage"))
+const RegisterPage = lazy(() => import("@/features/auth/pages/RegisterPage"))
+const ResetPage = lazy(() => import("@/features/auth/pages/ResetPage"))
 import { saveRegisteredClient, toUser } from "@/features/auth/services/auth.service"
-import CheckoutPage from "@/features/checkout/pages/CheckoutPage"
-import ClientApp from "@/features/client/pages/ClientApp"
-import LandingPage from "@/features/landing/pages/LandingPage"
-import GuestMenuPage from "@/features/menu/pages/GuestMenuPage"
+const CheckoutPage = lazy(() => import("@/features/checkout/pages/CheckoutPage"))
+const ClientApp = lazy(() => import("@/features/client/pages/ClientApp"))
+const LandingPage = lazy(() => import("@/features/landing/pages/LandingPage"))
+const GuestMenuPage = lazy(() => import("@/features/menu/pages/GuestMenuPage"))
 import { addCartItem } from "@/features/checkout/utils/cart"
 import { loadMenu, refreshCartProducts } from "@/features/menu/services/menu.service"
 import { loadOrders, orderFromDb, refreshOrders, saveOrders } from "@/features/orders/services/orders.service"
@@ -20,7 +20,7 @@ import AccountMenu from "@/shared/components/AccountMenu"
 import { api, listenEvents } from "@/shared/services/api"
 import { C } from "@/shared/styles/theme"
 import type { AuthData, CartItem, DbRecord, Order, Page, User } from "@/shared/types"
-import { clearSession, getToken, loadLS, saveLS } from "@/shared/utils/storage"
+import { clearSession, getToken, loadLS, loadSession, saveLS, saveSession } from "@/shared/utils/storage"
 
 // ── App Root ───────────────────────────────────────────────────────────────────
 function AppRoutes() {
@@ -147,17 +147,21 @@ function AppRoutes() {
     setClientView("menu")
     setPage(next)
   }
-  // A reload keeps this tab's account and page: the token is checked with the backend first
+  // Checks the saved token with the backend: refreshes the account, or signs out if the session expired
   useEffect(() => {
     if (!getToken()) return
     const lastPage = (sessionStorage.getItem("page") || "app") as Page
     api<Omit<AuthData, "token">>("/auth/me")
       .then((data) => login(toUser({ ...data, token: getToken() } as AuthData), lastPage))
-      .catch(() => clearSession())
+      // No connection: stay in the account; a rejected token (expired, deleted user) signs out
+      .catch((err: Error) => { if (!/conectar/i.test(err.message)) logout() })
   }, [])
   useEffect(() => {
     if (user) sessionStorage.setItem("page", page)
   }, [page, user])
+  useEffect(() => {
+    if (user) saveSession("user", { ...user, password: undefined })
+  }, [user])
   const logout = () => {
     clearSession()
     setOrdersLoadedFor("")

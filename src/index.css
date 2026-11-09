@@ -684,7 +684,7 @@ select {
   z-index: 1;
   max-width: calc(100% - 24px);
   overflow: hidden;
-  background: #B68C1C;
+  background: #8F6C12;
 }
 
 .landing-story-badge::after {
@@ -1168,7 +1168,7 @@ select {
   scroll-behavior: smooth;
 }
 .reviews-track::-webkit-scrollbar { display: none; }
-.reviews-track:focus-visible { outline: 2px solid #B68C1C; outline-offset: 4px; border-radius: 1.5rem; }
+.reviews-track:focus-visible { outline: 2px solid #8F6C12; outline-offset: 4px; border-radius: 1.5rem; }
 /* While dragging it follows the cursor exactly; on release it snaps to the nearest card */
 .reviews-track-dragging { cursor: grabbing; scroll-snap-type: none; scroll-behavior: auto; user-select: none; }
 .reviews-track-dragging .reviews-card { transform: scale(0.98); }
