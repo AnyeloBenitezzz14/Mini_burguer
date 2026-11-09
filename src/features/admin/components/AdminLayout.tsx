@@ -78,11 +78,9 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
         }`}
       />
       <aside
-        onMouseEnter={() => window.innerWidth >= 1024 && setSidebarCollapsed(false)}
-        onMouseLeave={() => window.innerWidth >= 1024 && setSidebarCollapsed(true)}
         className={`fixed inset-y-0 left-0 z-50 flex w-[208px] flex-col overflow-hidden transition-[transform,width,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        } ${sidebarCollapsed ? "lg:w-[72px]" : "lg:shadow-2xl"}`}
+        } ${sidebarCollapsed ? "lg:w-[72px]" : ""}`}
         style={{
           background: t.sidebarBg,
           borderRight: `1px solid ${t.sidebarBd}`,
@@ -99,11 +97,14 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
           className="admin-header flex items-center gap-3 px-4 py-3 flex-shrink-0"
           style={{ background: t.hdrBg, borderBottom: `1px solid ${t.hdrBd}` }}
         >
-          {/* Only on phones/tablets, where there is no cursor to open the menu */}
+          {/* Phones: slides the menu in; desktop: shows or hides the menu's labels */}
           <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            aria-label="Abrir el menú"
-            className="lg:hidden p-2 rounded-xl cursor-pointer"
+            onClick={() =>
+              window.innerWidth >= 1024 ? setSidebarCollapsed(!sidebarCollapsed) : setSidebarOpen(!sidebarOpen)
+            }
+            aria-label={sidebarCollapsed ? "Abrir el menú" : "Cerrar el menú"}
+            title={sidebarCollapsed ? "Abrir el menú" : "Cerrar el menú"}
+            className="p-2 rounded-xl cursor-pointer"
             style={{ color: t.muted, background: t.input }}
           >
             {Ico.menu}

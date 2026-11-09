@@ -8,6 +8,7 @@ export function addCartItem(items: CartItem[], item: CartItem): CartItem[] {
       i.name,
       [...(i.sauces ?? [])].sort(),
       [...(i.additions ?? [])].map((a) => `${a.name}x${a.qty}`).sort(),
+      i.note?.trim() ?? "",
     ])
   const same = items.find((i) => key(i) === key(item))
   return same ? items.map((i) => (i === same ? { ...i, qty: i.qty + item.qty } : i)) : [...items, item]

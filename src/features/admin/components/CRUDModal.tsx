@@ -12,7 +12,7 @@ import { C, badgeSt } from "@/shared/styles/theme"
 import type { AddressParts, AdminOrderLine, FieldType, ProductionItem, Row, TechnicalIngredient } from "@/shared/types"
 import { ADDRESS_VIAS, HOUSING, composeAddress } from "@/shared/utils/address"
 import { fmt, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
-import { RECIPE_UNIT_SUGGESTIONS, compatibleUnits, convertQty, convertibleUnits } from "@/shared/utils/units"
+import { RECIPE_UNIT_SUGGESTIONS, compatibleUnits, convertQty, convertibleUnits, packOf } from "@/shared/utils/units"
 import { normalizeDocumentInput, normalizePhoneInput } from "@/shared/utils/validation"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
@@ -83,6 +83,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     pedidoProductCategory,
     pedidoProductQuantity,
     pedidoProductSearch,
+    prodImgs,
     pedidoProductoSelect,
     pedidoSearchOpen,
     pncManual,
@@ -284,6 +285,20 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     return splitList(String(supplier?.[7] ?? "")).filter(
       (name) => supplyInfo(name) || isSodaName(name),
     )
+  }
+  // Categories a supplier sells: those of the insumos it already has (from its purchases or its card)
+  const supplierCategories = (supplierName: string) =>
+    [...new Set(supplierSupplies(supplierName).map((name) => currentCategory(String(supplyInfo(name)?.[1] ?? "").trim())).filter(Boolean))]
+  // What a purchase can buy: the active insumos of the supplier's categories (all of them for a new supplier),
+  // plus the sodas it already sells
+  const purchaseSupplies = (supplierName: string) => {
+    const categories = supplierCategories(supplierName)
+    return [...new Set([
+      ...(rows.insumos || [])
+        .filter((i) => isActiveStatus(i[12]) && (!categories.length || categories.includes(currentCategory(String(i[1] ?? "").trim()))))
+        .map((i) => String(i[0])),
+      ...supplierSupplies(supplierName).filter(isSodaName),
+    ])].sort((a, b) => a.localeCompare(b, "es"))
   }
   const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void) => {
     const groups = new Map<string, string[]>()
@@ -542,7 +557,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
         : d.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
     }
     if (f.type === "number" && /costo|subtotal|total/i.test(f.label)) return fmt(Number(raw))
-    if (isSupply && ["4", "5", "6"].includes(f.key))
+    if (isSupply && f.key === "6") return `${Number(raw).toLocaleString("es-CO")} ${String(row?.[14] || "und")} por paquete`
+    if (isSupply && ["4", "5"].includes(f.key))
       return `${Number(raw).toLocaleString("es-CO")} ${String(row?.[2] ?? "")}`.trim()
     return raw
   }
@@ -571,6 +587,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           (field) =>
             // "Stock actual" isn't entered when creating: it starts at 0
             !(modal.mode === "add" && field.key === "4") &&
+            // How many come in a package: only for the unit «paq»
+            (!["6", "14"].includes(field.key) || String(isView ? row?.[2] : formData["2"]) === "paq") &&
             // The unit cost is set by each purchase (its unit price): only the detail shows it
             !(modal.mode !== "view" && field.key === "3") &&
             (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
@@ -1042,7 +1060,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       if (!recipe.length) return null
                       const cost = recipe.reduce((sum, ingredient) => {
                         const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
-                        const value = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit)) * Number(supply?.[3] || 0)
+                        const value = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit), packOf(supply)) * Number(supply?.[3] || 0)
                         return sum + (Number.isFinite(value) ? value : 0)
                       }, 0)
                       return renderProfit(Number(row[2]) || 0, cost)
@@ -1144,7 +1162,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     Number(formData["2"] || 0),
                     technicalIngredients.reduce((sum, ingredient) => {
                       const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
-                      const value = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit)) * Number(supply?.[3] || 0)
+                      const value = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit), packOf(supply)) * Number(supply?.[3] || 0)
                       return sum + (Number.isFinite(value) ? value : 0)
                     }, 0),
                   )}
@@ -1232,7 +1250,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 const version = String((isView ? row?.[6] : formData["6"]) || getAutoTechVersion(rows.producto || []))
                 const lines = recipe.map((ingredient) => {
                   const supply = rows.insumos?.find((item) => item[0] === ingredient.name)
-                  const cost = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit)) * Number(supply?.[3] || 0)
+                  const cost = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit), packOf(supply)) * Number(supply?.[3] || 0)
                   return { ...ingredient, cost: Number.isFinite(cost) ? cost : 0 }
                 })
                 const totalCost = lines.reduce((sum, line) => sum + line.cost, 0)
@@ -1652,6 +1670,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               {item.parentId ? <span className="mr-1" style={{ color: t.muted }}>↳</span> : null}
                               {item.name}
                               {item.sauces?.length ? <span className="ml-1 text-[10px]" style={{ color: t.muted }}>· {item.sauces.join(", ")}</span> : null}
+                              {item.note ? <span className="ml-1 text-[10px] font-semibold" style={{ color: C.red }}>· {item.note}</span> : null}
                             </span>
                             {productionItemEdit?.index === index ? (
                               <>
@@ -2247,8 +2266,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   </div>
                 )
               }
-              // Production detail already shows "Creada" date/time in its summary
-              if (isView && isProduction && (f.key === "3" || f.key === "4")) return null
+              // Products, quantity and comment show in its products / summary columns below
+              if (isView && isProduction && ["0", "1", "3", "4", "15"].includes(f.key)) return null
               // Insumo technical sheet (fields 8-11) rendered as one card at field "8"
               if (isSupply && ["9", "10", "11"].includes(f.key)) return null
               if (isSupply && f.key === "8") {
@@ -2489,7 +2508,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               if (isPurchase && (f.key === "3" || f.key === "4")) return null
               if (isPurchase && f.key === "6") {
                 const supplier = String(formData["0"] ?? "")
-                const allowed = supplierSupplies(supplier)
+                const allowed = purchaseSupplies(supplier)
+                const categories = supplierCategories(supplier)
                 const items = parsePurchaseItems(formData["6"])
                 const total = items.reduce((sum, item) => sum + item.total, 0)
                 const setItems = (next: { name: string; quantity: string; unitPrice?: string }[]) =>
@@ -2575,12 +2595,14 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       </p>
                     ) : !allowed.length ? (
                       <p className="mt-1 text-xs" style={{ color: C.red }}>
-                        «{supplier}» no tiene insumos asignados. Asígnalos en Proveedores → Editar → «Insumos que suministra».
+                        No hay insumos activos para comprar. Créalos primero en Insumos.
                       </p>
                     ) : (
                       <>
                         <p className="mt-1 text-xs" style={{ color: t.muted }}>
-                          Insumos que vende «{supplier}». Agrega todos los que necesites.
+                          {categories.length
+                            ? <>Insumos de {categories.join(", ")}: lo que vende «{supplier}». Al guardar, los que compres quedan en su lista.</>
+                            : <>«{supplier}» aún no tiene compras: puedes elegir cualquier insumo. Al guardar, quedará vendiéndolo.</>}
                         </p>
                         <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_96px_120px_auto]">
                           <label className="flex min-w-0 flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
@@ -3476,7 +3498,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 }
                 if (isPurchase && f.key === "0") {
                   // Changing supplier keeps only the items the new supplier sells
-                  const allowed = supplierSupplies(value)
+                  const allowed = purchaseSupplies(value)
                   const nextForm = {
                     ...formData,
                     "0": value,
@@ -3519,120 +3541,18 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               }
               return (
                 <Fragment key={f.key}>
-                {isSupply && !isView && f.key === "7" && (() => {
-                  const toggle = (name: string) =>
-                    setSupplySuppliers(
-                      supplySuppliers.includes(name) ? supplySuppliers.filter((n) => n !== name) : [...supplySuppliers, name],
-                    )
-                  const query = normalizeName(supplierPickerQuery)
-                  const options = (rows.proveedores || [])
-                    .filter((p) => isActiveStatus(p[6]) || supplySuppliers.includes(String(p[0])))
-                    .filter((p) => !query || normalizeName(p[0]).includes(query))
-                  return (
-                    <div className="flex flex-col gap-1.5 sm:col-span-2">
-                      <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                        Proveedores que lo venden <span className="font-normal">(opcional si lo preparan ustedes)</span>
-                      </span>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setSupplierPickerOpen(!supplierPickerOpen)}
-                          aria-expanded={supplierPickerOpen}
-                          className="flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-left text-sm"
-                          style={{ background: t.input, border: `1.5px solid ${supplierPickerOpen ? C.mustard : t.inputB}` }}
-                        >
-                          <span className="min-w-0 truncate" style={{ color: supplySuppliers.length ? t.text : t.muted }}>
-                            {supplySuppliers.length ? supplySuppliers.join(", ") : "Selecciona proveedores..."}
-                          </span>
-                          <span className="flex flex-shrink-0 items-center gap-1.5" style={{ color: t.muted }}>
-                            {supplySuppliers.length > 0 && (
-                              <span className="rounded-full px-1.5 text-[10px] font-bold" style={{ background: C.mustard, color: "#fff" }}>
-                                {supplySuppliers.length}
-                              </span>
-                            )}
-                            {Ico.chevDown}
-                          </span>
-                        </button>
-                        {supplierPickerOpen && (
-                          <div
-                            className="absolute left-0 right-0 top-full z-30 mt-1 rounded-xl p-2 shadow-xl"
-                            style={{ background: t.card, border: `1px solid ${t.border}` }}
-                          >
-                            <div
-                              className="search-control mb-1.5 flex items-center gap-2 rounded-full px-2.5 py-1.5"
-                              style={{ background: t.input, border: `1px solid ${t.inputB}` }}
-                            >
-                              <span style={{ color: t.muted }}>{Ico.search}</span>
-                              <input
-                                type="search"
-                                value={supplierPickerQuery}
-                                onChange={(e) => setSupplierPickerQuery(e.target.value)}
-                                placeholder="Buscar proveedor..."
-                                aria-label="Buscar proveedor"
-                                autoFocus
-                                className="min-w-0 flex-1 bg-transparent text-xs outline-none"
-                                style={{ color: t.text }}
-                              />
-                            </div>
-                            <div className="max-h-44 overflow-y-auto">
-                              {options.length ? (
-                                options.map((p) => {
-                                  const name = String(p[0])
-                                  return (
-                                    <label
-                                      key={name}
-                                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs"
-                                      style={{ color: t.text, background: supplySuppliers.includes(name) ? `${C.mustard}12` : "transparent" }}
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={supplySuppliers.includes(name)}
-                                        onChange={() => toggle(name)}
-                                        style={{ accentColor: C.mustard }}
-                                      />
-                                      <span className="min-w-0 flex-1 break-words">{name}</span>
-                                      {p[1] && <span className="text-[10px]" style={{ color: t.muted }}>{String(p[1])}</span>}
-                                    </label>
-                                  )
-                                })
-                              ) : (
-                                <p className="px-2 py-2 text-center text-xs" style={{ color: t.muted }}>
-                                  {(rows.proveedores || []).length ? "Ningún proveedor coincide." : "No hay proveedores registrados."}
-                                </p>
-                              )}
-                            </div>
-                            <div className="mt-1.5 flex justify-end">
-                              <button
-                                type="button"
-                                onClick={() => setSupplierPickerOpen(false)}
-                                className="cursor-pointer rounded-lg px-3 py-1 text-xs font-bold"
-                                style={{ background: C.mustard, color: "#fff" }}
-                              >
-                                Listo
-                              </button>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      {supplySuppliers.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
-                          {supplySuppliers.map((name) => (
-                            <button
-                              key={name}
-                              type="button"
-                              onClick={() => toggle(name)}
-                              aria-label={`Quitar ${name}`}
-                              className="flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                              style={{ background: `${C.mustard}18`, color: C.mustard }}
-                            >
-                              {name} <span aria-hidden="true">×</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
+                {/* Insumo form in three parts: what it is, how much there is, who makes or sells it */}
+                {isSupply && !isView && (f.key === "0" || f.key === (modal.mode === "add" ? "5" : "4") || f.key === "7") && (
+                  <div
+                    className={`flex items-center gap-2 sm:col-span-full ${f.key === "0" ? "" : "mt-1 border-t pt-4"}`}
+                    style={{ borderColor: t.border }}
+                  >
+                    <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                      {f.key === "0" ? "Datos del insumo" : f.key === "7" ? "Preparación" : "Inventario"}
+                    </h4>
+                  </div>
+                )}
                 {isSales && !isView && (f.key === "1" || f.key === "0") && (
                   <div
                     className={`flex items-center gap-2 sm:col-span-3 ${f.key === "1" ? "" : "mt-1 border-t pt-4"}`}
@@ -4010,132 +3930,93 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   ) : isPedido && f.key === "1" && !isView ? (
                     <div className="flex flex-col gap-3">
                       <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                        {/* Category, a search that suggests as you type, quantity and Agregar: one compact row */}
-                        <div className="grid max-w-2xl gap-2 sm:grid-cols-[130px_minmax(0,1fr)_64px_auto]">
+                        {/* Category and a search that narrow the cards; a click on a card adds 1 to the order */}
+                        <div className="mb-3 grid max-w-xl gap-2 sm:grid-cols-[150px_minmax(0,1fr)]">
                           <select
                             value={pedidoProductCategory}
-                            onChange={(event) => {
-                              setPedidoProductCategory(event.target.value)
-                              setPedidoProductoSelect("")
-                              setPedidoProductSearch("")
-                            }}
+                            onChange={(event) => setPedidoProductCategory(event.target.value)}
                             className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none"
                             style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
                             aria-label="Filtrar productos por categoría"
                           >
                             {pedidoCategories.map((category) => <option key={category} value={category}>{category}</option>)}
                           </select>
-                          <div className="relative min-w-0">
-                            <div className="search-control flex min-w-0 items-center gap-2 rounded-full px-3">
-                              <span className="flex-shrink-0">{Ico.search}</span>
-                              <input
-                                type="text"
-                                value={pedidoProductSearch}
-                                onChange={(event) => {
-                                  const typed = event.target.value
-                                  setPedidoProductSearch(typed)
-                                  setPedidoSearchOpen(true)
-                                  // Typing a full name picks it; anything else waits for a click on the list
-                                  setPedidoProductoSelect(
-                                    availableProductos.find((name) => normalizeName(name) === normalizeName(typed.trim())) ?? "",
-                                  )
-                                }}
-                                onFocus={() => setPedidoSearchOpen(true)}
-                                onBlur={() => setTimeout(() => setPedidoSearchOpen(false), 150)}
-                                placeholder="Busca un producto..."
-                                aria-label="Buscar producto"
-                                aria-expanded={pedidoSearchOpen}
-                                className="min-w-0 flex-1 bg-transparent py-2.5 text-xs outline-none"
-                                style={{ color: t.text }}
-                              />
-                              {pedidoProductSearch && (
-                                <button
-                                  type="button"
-                                  className="search-clear"
-                                  aria-label="Limpiar búsqueda"
-                                  onClick={() => {
-                                    setPedidoProductSearch("")
-                                    setPedidoProductoSelect("")
-                                  }}
-                                >
-                                  ×
-                                </button>
-                              )}
-                            </div>
-                            {pedidoSearchOpen && !pedidoProductoSelect && (
-                              <div
-                                role="listbox"
-                                className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-xl py-1 shadow-lg"
-                                style={{ background: t.card, border: `1px solid ${t.border}` }}
-                              >
-                                {filteredOrderProducts.length ? (
-                                  filteredOrderProducts.map((product) => {
-                                    const productRow = rows.producto?.find((item) => item[0] === product)
-                                    return (
-                                      <button
-                                        key={product}
-                                        type="button"
-                                        role="option"
-                                        aria-selected={false}
-                                        onMouseDown={(event) => event.preventDefault()}
-                                        onClick={() => {
-                                          setPedidoProductoSelect(product)
-                                          setPedidoProductSearch(product)
-                                          setPedidoSearchOpen(false)
-                                        }}
-                                        className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-1.5 text-left text-xs hover:opacity-80"
-                                        style={{ color: t.text }}
-                                      >
-                                        <span className="min-w-0 truncate">{product}</span>
-                                        <span className="flex-shrink-0 text-[10px]" style={{ color: t.muted }}>
-                                          {String(productRow?.[1] ?? "")} · {fmt(Number(productRow?.[2]) || 0)}
-                                        </span>
-                                      </button>
-                                    )
-                                  })
-                                ) : (
-                                  <p className="px-3 py-2 text-center text-xs" style={{ color: t.muted }}>No hay productos que coincidan.</p>
-                                )}
-                              </div>
+                          <div className="search-control flex min-w-0 items-center gap-2 rounded-full px-3">
+                            <span className="flex-shrink-0">{Ico.search}</span>
+                            <input
+                              type="text"
+                              value={pedidoProductSearch}
+                              onChange={(event) => setPedidoProductSearch(event.target.value)}
+                              placeholder="Filtrar por nombre..."
+                              aria-label="Filtrar productos por nombre"
+                              className="min-w-0 flex-1 bg-transparent py-2.5 text-xs outline-none"
+                              style={{ color: t.text }}
+                            />
+                            {pedidoProductSearch && (
+                              <button type="button" className="search-clear" aria-label="Limpiar búsqueda" onClick={() => setPedidoProductSearch("")}>
+                                ×
+                              </button>
                             )}
                           </div>
-                          <input
-                            type="number"
-                            min="1"
-                            step="1"
-                            value={pedidoProductQuantity}
-                            onChange={(event) => setPedidoProductQuantity(event.target.value)}
-                            className="min-w-0 rounded-xl px-3 py-2.5 text-xs outline-none"
-                            style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
-                            aria-label="Cantidad"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const productRow = rows.producto?.find((item) => item[0] === pedidoProductoSelect)
-                              const quantity = Number(pedidoProductQuantity)
-                              if (!productRow || !Number.isInteger(quantity) || quantity <= 0) return
-                              const id = `order-line-${Date.now()}-${pedidoOrderLines.length}`
-                              const line: AdminOrderLine = {
-                                id,
-                                product: pedidoProductoSelect,
-                                category: String(productRow[1] ?? ""),
-                                quantity,
-                                unitPrice: Number(productRow[2]) || 0,
-                              }
-                              setPedidoOrderLines((current) => [...current, line])
-                              setPedidoProductoSelect("")
-                              setPedidoProductSearch("")
-                              setPedidoProductQuantity("1")
-                              // A meal is ready to take its additions right away
-                              setPedidoAdditionsFor(isMeal(line.category, line.product) ? id : "")
-                            }}
-                            className="rounded-xl px-3 py-2.5 text-xs font-bold cursor-pointer"
-                            style={{ background: C.mustard, color: "#fff" }}
-                          >
-                            Agregar
-                          </button>
                         </div>
+                        {filteredOrderProducts.length ? (
+                          <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
+                            {filteredOrderProducts.map((product) => {
+                              const productIndex = (rows.producto || []).findIndex((item) => item[0] === product)
+                              const productRow = rows.producto?.[productIndex]
+                              const photo = prodImgs[productIndex] || sodaImage(product) || ""
+                              const inOrder = pedidoOrderLines
+                                .filter((line) => line.product === product && !line.parentId)
+                                .reduce((sum, line) => sum + line.quantity, 0)
+                              return (
+                                <button
+                                  key={product}
+                                  type="button"
+                                  onClick={() => {
+                                    if (!productRow) return
+                                    const id = `order-line-${Date.now()}-${pedidoOrderLines.length}`
+                                    const line: AdminOrderLine = {
+                                      id,
+                                      product,
+                                      category: String(productRow[1] ?? ""),
+                                      quantity: 1,
+                                      unitPrice: Number(productRow[2]) || 0,
+                                    }
+                                    setPedidoOrderLines((current) => [...current, line])
+                                    // A meal is ready to take its additions right away
+                                    setPedidoAdditionsFor(isMeal(line.category, line.product) ? id : "")
+                                  }}
+                                  className="group relative flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-xl text-left transition-transform active:scale-[0.97]"
+                                  style={{ background: t.card, border: `1.5px solid ${inOrder ? C.mustard : t.border}` }}
+                                  title={`Agregar ${product}`}
+                                >
+                                  <span className="block aspect-[4/3] w-full overflow-hidden" style={{ background: t.input }}>
+                                    {photo ? (
+                                      <img src={photo} alt="" loading="lazy" className="h-full w-full object-cover transition-transform group-hover:scale-105" />
+                                    ) : (
+                                      <span className="flex h-full items-center justify-center text-2xl font-black" style={{ color: t.muted }}>
+                                        {product.charAt(0)}
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="flex min-w-0 flex-1 flex-col px-2 py-1.5">
+                                    <span className="line-clamp-2 text-xs font-semibold leading-tight" style={{ color: t.text }}>{product}</span>
+                                    <span className="mt-auto pt-0.5 text-[11px] font-bold" style={{ color: C.mustard }}>
+                                      {fmt(Number(productRow?.[2]) || 0)}
+                                    </span>
+                                  </span>
+                                  {inOrder > 0 && (
+                                    <span className="absolute right-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold" style={{ background: C.mustard, color: "#fff" }}>
+                                      ×{inOrder}
+                                    </span>
+                                  )}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        ) : (
+                          <p className="px-3 py-4 text-center text-xs" style={{ color: t.muted }}>No hay productos que coincidan.</p>
+                        )}
                       </div>
                       {!pedidoOrderLines.length ? (
                         <div className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.input, color: t.muted }}>
@@ -5154,6 +5035,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               .filter((group) => group.list.length)
             const history = parseProductionHistory(row[12])
             const status = String(row[8] || "Recibido")
+            // Shop orders keep [15] = order code and [16] = comment; orders made in the panel keep the comment in [15]
+            const orderCode = /^PED-/i.test(String(row[15] ?? "")) ? String(row[15]) : ""
+            const comment = String(row[16] || (orderCode ? "" : row[15]) || "").trim()
             // "17 oct 2026" and "18:34" (some old records saved "6:37:44 PM")
             const shortDate = (value: string | number | undefined) => {
               const d = new Date(`${String(value ?? "").slice(0, 10)}T00:00:00`)
@@ -5196,6 +5080,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                   Salsas: {item.sauces.join(", ")}
                                 </span>
                               ) : null}
+                              {item.note ? (
+                                <span className="block text-[11px] font-semibold" style={{ color: C.red }}>Nota: {item.note}</span>
+                              ) : null}
                               {item.parentId ? (
                                 <span className="block text-[11px]" style={{ color: t.muted }}>
                                   Adición de {items.find((parent) => parent.id === item.parentId)?.name ?? "producto"}
@@ -5221,11 +5108,17 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="grid grid-cols-2 gap-2">
                     {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Entregado" ? "#2E7D60" : t.text)}
-                    {info(row[15] ? "Pedido" : "Prioridad", row[15] ? String(row[15]) : `#${String(row[3] ?? "—")}`)}
+                    {info(orderCode ? "Pedido" : "Prioridad", orderCode || `#${String(row[3] ?? "—")}`)}
                     {info("Creada", `${shortDate(row[4])} · ${shortTime(row[5])}`)}
                     {info("Actualizada", `${shortDate(row[6])} · ${shortTime(row[7])}`)}
                   </div>
                   {row[9] ? info("Salida de producción", String(row[9]), C.mustard) : null}
+                  {comment ? (
+                    <div className="rounded-xl px-3 py-2.5" style={{ background: t.cardAlt }}>
+                      <div className="text-[11px]" style={{ color: t.muted }}>Comentario</div>
+                      <div className="whitespace-pre-wrap break-words text-sm" style={{ color: t.text }}>{comment}</div>
+                    </div>
+                  ) : null}
                   <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
                     {title("Actualizaciones")}
                     <ol className="relative flex flex-col gap-2.5">
@@ -5320,6 +5213,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                         <span style={{ color: t.muted }}> ×{main.quantity}</span>
                                         {main.sauces?.length ? (
                                           <span className="block text-[11px]" style={{ color: t.muted }}>Salsas: {main.sauces.join(", ")}</span>
+                                        ) : null}
+                                        {main.note ? (
+                                          <span className="block text-[11px] font-semibold" style={{ color: C.red }}>Nota: {main.note}</span>
                                         ) : null}
                                       </span>
                                       <span className="flex flex-shrink-0 items-center gap-2">
@@ -6011,7 +5907,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 const supplyOf = (name: string) => rows.insumos?.find((item) => item[0] === name)
                 const costOf = (ingredient: TechnicalIngredient) => {
                   const supply = supplyOf(ingredient.name)
-                  const cost = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit)) * Number(supply?.[3] || 0)
+                  const cost = convertQty(ingredient.quantity, ingredient.unit, String(supply?.[2] ?? ingredient.unit), packOf(supply)) * Number(supply?.[3] || 0)
                   return Number.isFinite(cost) ? cost : 0
                 }
                 const pickedSupply = supplyOf(technicalIngredientSelect)
@@ -6171,7 +6067,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             className="w-full cursor-pointer rounded-lg px-2 py-2 text-sm outline-none disabled:cursor-default disabled:opacity-60"
                             style={controlSt}
                           >
-                            {pickedSupply ? convertibleUnits(String(pickedSupply[2] ?? "")).map((unit) => (
+                            {pickedSupply ? convertibleUnits(String(pickedSupply[2] ?? ""), packOf(pickedSupply)).map((unit) => (
                               <option key={unit} value={unit}>{unit}</option>
                             )) : <option value="">—</option>}
                           </select>
@@ -6235,7 +6131,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                   className="w-full cursor-pointer rounded-lg px-1.5 py-1.5 text-sm outline-none"
                                   style={controlSt}
                                 >
-                                  {convertibleUnits(String(supply?.[2] ?? ingredient.unit)).map((unit) => (
+                                  {convertibleUnits(String(supply?.[2] ?? ingredient.unit), packOf(supply)).map((unit) => (
                                     <option key={unit} value={unit}>{unit}</option>
                                   ))}
                                 </select>

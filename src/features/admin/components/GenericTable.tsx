@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { MOD_CFG, PRODUCTION_STATUSES, QUICK_FILTERS, TABLE_FILTERS } from "@/features/admin/config/modules"
-import { isNaturalSupplier, isReturnedLoss, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
+import { isNaturalSupplier, isReturnedLoss, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
 import { isSodaName, sodaImage } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { loadOrders } from "@/features/orders/services/orders.service"
@@ -244,6 +244,29 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     if (section === "producto" && rowCellIndex === 2 && !(Number(cell) > 0)) {
       return "Sin precio"
     }
+    // A purchase shows what was bought (in the old "Subtotal" place): "Leche", "Leche + Queso", "Leche + Queso cre…"
+    if (section === "compras" && row && rowCellIndex === 3) {
+      const names = [...new Set(parsePurchaseLines(row[6]).map((line) => line.name))]
+      if (names.length <= 1) return names[0] ?? "—"
+      const second = names.length > 2 && names[1].length > 10 ? `${names[1].slice(0, 10).trimEnd()}…` : names[1]
+      return `${names[0]} + ${second}${names.length > 2 && !second.endsWith("…") ? "…" : ""}`
+    }
+    // Big orders: the first 2 products with how many extras each carries, then «y N más» (full list in the detail)
+    if (section === "produccion" && row && rowCellIndex === 1) {
+      try {
+        const items = JSON.parse(String(row[13] || "[]")) as { id?: string; name: string; quantity: number; parentId?: string }[]
+        const mains = items.filter((i) => !i.parentId)
+        if (mains.length) {
+          const shown = mains.slice(0, 2).map((m) => {
+            const extras = items.filter((i) => i.parentId && i.parentId === m.id).length
+            return `${m.quantity} × ${m.name}${extras ? ` (+${extras})` : ""}`
+          })
+          return shown.join(", ") + (mains.length > 2 ? ` y ${mains.length - 2} más` : "")
+        }
+      } catch { /* old rows without items: shows the saved text */ }
+    }
+    // A package shows what it holds: "paq · 100 g"
+    if (section === "insumos" && row && rowCellIndex === 2 && cell === "paq" && Number(row[6]) > 0) return `paq · ${Number(row[6]).toLocaleString("es-CO")} ${String(row[14] || "und")}`
     if (section === "insumos" && row && rowCellIndex === 3) return Number(cell) > 0 ? fmt(Number(cell)) : "Sin compras"
     if (section === "insumos" && row && rowCellIndex === 4) return `${Number(cell) || 0} ${String(row[2] ?? "")}`.trim()
     if (section === "pedidos" && rowCellIndex === 6) return Number.isFinite(Number(cell)) && cell !== "" ? fmt(Number(cell)) : "—"
@@ -415,7 +438,11 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         canDo(section, "EDITAR") &&
         !(section === "perdidas" && isReturnedLoss(rows.perdidas?.[rowIndex])) &&
         // An annulled purchase is history: not editable (its stock was already taken back)
-        !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) ? (
+        !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) &&
+        // Once the kitchen has it, the order's products can't change
+        !(section === "pedidos" && !["Por confirmar", "Pendiente", "Recibido"].includes(String(orderRow?.[7] ?? ""))) &&
+        // A production order is only editable while «Recibido»: from «Confirmado» on, the kitchen has it
+        !(section === "produccion" && !["", "Recibido"].includes(String(rows.produccion?.[rowIndex]?.[8] ?? ""))) ? (
           <button
             type="button"
             title="Editar"
@@ -495,7 +522,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         {cfg.statusIndex !== undefined ? (
           section === "producto" ? (
             canDo(section, "ELIMINAR") ? deleteButton : disabledAction("Eliminar", Ico.trash)
-          ) : (
+          ) : section === "ventas" ? null : (
             canDo(section, "ELIMINAR") &&
             !isPrincipalAdmin &&
             !noDelete &&

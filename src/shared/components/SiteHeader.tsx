@@ -96,6 +96,7 @@ export default function SiteHeader({
             {onToggleDark && (
             <button
               onClick={onToggleDark}
+              aria-label={dark ? "Usar modo claro" : "Usar modo oscuro"}
               className="w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
               style={{ background: BORDER, color: scrolled ? TEXT : "#fff" }}
             >

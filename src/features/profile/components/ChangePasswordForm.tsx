@@ -17,7 +17,7 @@ export default function ChangePasswordForm({
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
 
-  const MUSTARD = "#B68C1C"
+  const MUSTARD = "#8F6C12"
   const RED = "#A54131"
   const TEXT = "#1A1714"
   const MUTED = "rgba(30,30,30,0.5)"

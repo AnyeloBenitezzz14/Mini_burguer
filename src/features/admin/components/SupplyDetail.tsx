@@ -2,7 +2,7 @@ import { isActiveStatus, parseMainSupplies } from "@/features/admin/utils/rows"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
 import { fmt, splitNames } from "@/shared/utils/format"
-import { toBaseQuantity } from "@/shared/utils/units"
+import { packOf, toBaseQuantity } from "@/shared/utils/units"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
 
@@ -19,6 +19,7 @@ export default function SupplyDetail(adminState: AdminPanelState, row: (string |
   } = adminState
   const unit = String(row[2] || "und")
   const stock = Number(row[4]) || 0
+  const pack = packOf(row)
   const minimum = Number(row[5]) || 0
   const low = stock <= minimum
   const isProductSupply = String(row[7]).toLowerCase() === "sí"
@@ -30,7 +31,7 @@ export default function SupplyDetail(adminState: AdminPanelState, row: (string |
     const base = String(supply?.[2] || "")
     const quantity = Number(item.quantity) || 0
     const unit = item.unit || base
-    const inBase = toBaseQuantity(quantity, unit, base)
+    const inBase = toBaseQuantity(quantity, unit, base, packOf(supply))
     return { ...item, quantity, unit, cost: inBase === null ? null : inBase * (Number(supply?.[3]) || 0) }
   })
   const recipeCost = recipe.reduce((sum, item) => sum + (item.cost ?? 0), 0)
@@ -86,10 +87,12 @@ export default function SupplyDetail(adminState: AdminPanelState, row: (string |
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
-          ["Stock actual", `${stock.toLocaleString("es-CO")} ${unit}`, low ? C.red : t.text],
+          // "3 paq (90 und)" / "2 paq (200 g)": what the packages hold
+          ["Stock actual", `${stock.toLocaleString("es-CO")} ${unit}${unit === "paq" && pack ? ` (${(stock * pack.size).toLocaleString("es-CO")} ${pack.unit})` : ""}`, low ? C.red : t.text],
           ["Stock mínimo", `${minimum.toLocaleString("es-CO")} ${unit}`, t.text],
           ["Costo unitario", Number(row[3]) ? `${fmt(Number(row[3]))} / ${unit}` : "Sin compras", C.mustard],
           ["Valor en stock", fmt(stock * (Number(row[3]) || 0)), t.text],
+          ...(unit === "paq" ? [["Contenido por paquete", pack ? `${pack.size.toLocaleString("es-CO")} ${pack.unit}` : "Sin definir", t.text]] : []),
         ].map(([label, value, color]) => (
           <div key={label} className="rounded-xl px-3 py-2.5" style={box}>
             <div className="text-[10px] font-semibold" style={{ color: t.muted }}>{label}</div>

@@ -2,7 +2,7 @@
 @import 'tailwindcss';
 
 @theme inline {
-  --color-mustard: #B68C1C;
+  --color-mustard: #8F6C12;
   --color-amber: #D29A42;
   --color-tomato: #A54131;
   --color-cream: #F4EEDC;
@@ -15,7 +15,7 @@
   --foreground: #36393F;
   --card: #ffffff;
   --card-foreground: #36393F;
-  --primary: #B68C1C;
+  --primary: #8F6C12;
   --primary-foreground: #ffffff;
   --secondary: #A54131;
   --secondary-foreground: #ffffff;
@@ -24,7 +24,7 @@
   --accent: #D29A42;
   --accent-foreground: #36393F;
   --border: rgba(54,57,63,0.12);
-  --ring: #B68C1C;
+  --ring: #8F6C12;
   --radius: 1rem;
 }
 
@@ -68,7 +68,7 @@ body {
 }
 
 .admin-panel {
-  --admin-gold: #B68C1C;
+  --admin-gold: #8F6C12;
   --admin-cream: #F4EEDC;
   --admin-forest: #3A6D5E;
   --admin-tomato: #A54131;
@@ -684,7 +684,7 @@ select {
   z-index: 1;
   max-width: calc(100% - 24px);
   overflow: hidden;
-  background: #B68C1C;
+  background: #8F6C12;
 }
 
 .landing-story-badge::after {
@@ -706,7 +706,7 @@ select {
 .search-control {
   min-height: 42px;
   background: #fff !important;
-  border: 1.5px solid #B68C1C !important;
+  border: 1.5px solid #8F6C12 !important;
   border-radius: 999px !important;
   transition: border-color 180ms ease, box-shadow 180ms ease;
 }
@@ -740,7 +740,7 @@ select {
   border: 1px solid rgba(182,140,28,0.28);
   border-radius: 999px;
   background: rgba(182,140,28,0.1);
-  color: #B68C1C;
+  color: #8F6C12;
   font-size: 17px;
   line-height: 1;
   cursor: pointer;
@@ -749,13 +749,13 @@ select {
 
 .search-clear:hover,
 .search-clear:focus-visible {
-  background: #B68C1C;
+  background: #8F6C12;
   color: #fff;
   transform: rotate(90deg);
 }
 
 .landing-how-card {
-  --step-accent: #B68C1C;
+  --step-accent: #8F6C12;
   position: relative;
   overflow: hidden;
   transition: transform 260ms ease, box-shadow 260ms ease, border-color 260ms ease;
@@ -876,7 +876,7 @@ select {
   width: 34px;
   height: 2px;
   border-radius: 99px;
-  background: linear-gradient(90deg, #D29A42, #B68C1C);
+  background: linear-gradient(90deg, #D29A42, #8F6C12);
   content: "";
 }
 
@@ -891,7 +891,7 @@ select {
 
 .landing-page .pagination-control:not(:disabled):hover,
 .landing-page .pagination-control:not(:disabled):focus-visible {
-  background: #B68C1C !important;
+  background: #8F6C12 !important;
   color: #fff !important;
   box-shadow: 0 8px 20px rgba(182,140,28,0.3), 0 0 14px rgba(213,169,51,0.2);
 }
@@ -1168,7 +1168,7 @@ select {
   scroll-behavior: smooth;
 }
 .reviews-track::-webkit-scrollbar { display: none; }
-.reviews-track:focus-visible { outline: 2px solid #B68C1C; outline-offset: 4px; border-radius: 1.5rem; }
+.reviews-track:focus-visible { outline: 2px solid #8F6C12; outline-offset: 4px; border-radius: 1.5rem; }
 /* While dragging it follows the cursor exactly; on release it snaps to the nearest card */
 .reviews-track-dragging { cursor: grabbing; scroll-snap-type: none; scroll-behavior: auto; user-select: none; }
 .reviews-track-dragging .reviews-card { transform: scale(0.98); }

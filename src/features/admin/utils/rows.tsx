@@ -143,6 +143,7 @@ export function buildProductionRows(
         category: line.category,
         ...(line.parentId ? { parentId: line.parentId } : {}),
         ...(line.sauces?.length ? { sauces: line.sauces } : {}),
+        ...(line.note ? { note: line.note } : {}),
       }))),
       "No",
       orderCode,

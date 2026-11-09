@@ -1,4 +1,4 @@
-import traditionalBurgerImg from "@/imports/traditional-burger.png"
+import traditionalBurgerImg from "@/imports/traditional-burger.jpg"
 import { ADDITIONS, BEVERAGES, BEVERAGE_ORDER, BEVERAGE_SIZES, EXTRA_CATS, MENU_CAT_ID, MENU_EXTRAS, PRODUCTS, SAUCES, SODA_INFO, SODA_RE, allMenuProducts, beverageImage, currentCategory, sizeMl } from "@/features/menu/data/products"
 import { api, imageUrl } from "@/shared/services/api"
 import type { CartItem, CatalogItem } from "@/shared/types"
@@ -24,15 +24,13 @@ export async function loadMenu() {
     return m ? [{ name: p.nombre, flavor: m[1], size: m[2], price: p.precio, img: p.imagenes[0] ? imageUrl(p.imagenes[0]) : "" }] : []
   })
   // Bought sodas with no stock left (an older backend without this route sells them all)
-  const soldOut = new Set(
-    (await api<{ nombre: string; agotada: boolean }[]>("/catalogo/gaseosas").catch(() => []))
-      .filter((g) => g.agotada)
-      .map((g) => normalizeName(g.nombre)),
-  )
+  const sodaStock = await api<{ nombre: string; agotada: boolean; stock?: number }[]>("/catalogo/gaseosas").catch(() => [])
+  const soldOut = new Set(sodaStock.filter((g) => g.agotada).map((g) => normalizeName(g.nombre)))
+  const stockOf = new Map(sodaStock.map((g) => [normalizeName(g.nombre), g.stock]))
   SODA_INFO.clear()
   if (sodaProducts.length) {
     sodaProducts.forEach((s) =>
-      SODA_INFO.set(normalizeName(`Gaseosa ${s.flavor} (${s.size})`), { precio: s.price, img: s.img, agotada: soldOut.has(normalizeName(s.name)) }),
+      SODA_INFO.set(normalizeName(`Gaseosa ${s.flavor} (${s.size})`), { precio: s.price, img: s.img, agotada: soldOut.has(normalizeName(s.name)), stock: stockOf.get(normalizeName(s.name)) }),
     )
     BEVERAGES.splice(0, BEVERAGES.length, ...[...new Set(sodaProducts.map((s) => s.flavor))].sort((a, b) => rank(a) - rank(b)))
     // Size buttons from small to big, each showing its cheapest soda
