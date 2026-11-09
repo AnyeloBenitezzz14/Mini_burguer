@@ -14,12 +14,12 @@ export default function ProductionStatusSelect(adminState: AdminPanelState, { ro
   } = adminState
   const canEdit = canDo("produccion", "EDITAR")
   const value = String(
-    rows.produccion?.[rowIndex]?.[8] ?? "Recibida",
+    rows.produccion?.[rowIndex]?.[8] ?? "Recibido",
   ) as (typeof PRODUCTION_STATUSES)[number]
   const statusColor =
     value === "Producto no conforme"
       ? C.red
-      : value === "Terminado"
+      : value === "Entregado"
         ? "#2E7D60"
         : value === "En cocina"
           ? C.mustard
@@ -49,21 +49,21 @@ export default function ProductionStatusSelect(adminState: AdminPanelState, { ro
         }}
         className="h-9 w-full min-w-0 appearance-none rounded-xl py-2 pl-7 pr-7 text-xs font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60"
         style={{
-          background: value === "Producto no conforme" ? `${C.red}10` : value === "Terminado" ? "rgba(58,109,94,0.10)" : t.input,
+          background: value === "Producto no conforme" ? `${C.red}10` : value === "Entregado" ? "rgba(58,109,94,0.10)" : t.input,
           border: `1px solid ${value === "Producto no conforme" ? `${C.red}30` : t.inputB}`,
           color: statusColor,
           fontFamily: "DM Sans, sans-serif",
         }}
       >
-        {/* Recibida → Iniciada → En cocina → Terminado: the current one and the next (the earlier ones are gone) */}
+        {/* Recibido → Confirmado → En cocina → En camino → Entregado: the current one and the next (the earlier ones are gone) */}
         {(value === "Producto no conforme"
           ? [value]
           : [
               value,
-              ...(PRODUCTION_STATUSES[PRODUCTION_STATUSES.indexOf(value) + 1] && value !== "Terminado"
+              ...(PRODUCTION_STATUSES[PRODUCTION_STATUSES.indexOf(value) + 1] && value !== "Entregado"
                 ? [PRODUCTION_STATUSES[PRODUCTION_STATUSES.indexOf(value) + 1]]
                 : []),
-              ...(value !== "Recibida" ? ["Producto no conforme" as const] : []),
+              ...(value !== "Recibido" ? ["Producto no conforme" as const] : []),
             ]
         ).map((status) => (
           <option key={status} value={status}>{status}</option>

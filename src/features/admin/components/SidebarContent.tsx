@@ -21,25 +21,28 @@ export default function SidebarContent(adminState: AdminPanelState): ReactNode {
     sidebarScrollTop,
     t,
     toggleGrp,
+    newOrders,
+    animatedGroup,
+    setAnimatedGroup,
     user,
     visibleMenu,
   } = adminState
 return (
   <>
     <div
-      className={`flex items-center justify-between px-4 py-4 ${sidebarCollapsed ? "lg:justify-center lg:px-2" : ""}`}
+      className="flex items-center justify-between px-3 py-4"
       style={{ borderBottom: `1px solid ${t.sidebarBd}` }}
     >
       <button
         type="button"
         onClick={onSwitchToClient}
         aria-label="Volver al menú principal"
-        className={`flex min-w-0 cursor-pointer items-center gap-2.5 text-left ${sidebarCollapsed ? "lg:justify-center" : ""}`}
+        className="flex min-w-0 cursor-pointer items-center gap-2.5 text-left"
       >
         <img
           src={logoImg}
           alt="Logo"
-          className={`object-contain flex-shrink-0 ${sidebarCollapsed ? "w-12 h-12 lg:w-11 lg:h-11" : "w-12 h-12"}`}
+          className="h-12 w-12 flex-shrink-0 object-contain"
         />
         <div className={`min-w-0 ${hideOnMini}`}>
           <div
@@ -88,7 +91,7 @@ return (
               }}
               title={sidebarCollapsed ? g.label : undefined}
               aria-label={g.label}
-              className={`admin-nav-item w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl cursor-pointer ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
+              className="admin-nav-item w-full flex items-center gap-2.5 px-[19px] py-2.5 rounded-xl cursor-pointer"
               style={{
                 background: active
                   ? `${g.color}18`
@@ -100,10 +103,14 @@ return (
               }}
             >
               <span
-                className="flex w-[18px] flex-shrink-0 justify-center"
+                className="relative flex w-[18px] flex-shrink-0 justify-center"
                 style={{ color: active || anyChild ? g.color : t.sidebarMu }}
               >
                 {g.icon}
+                {/* Closed menu: a dot on Ventas when there are new orders */}
+                {g.children.some((c) => c.key === "pedidos") && newOrders.length > 0 && (
+                  <span aria-hidden="true" className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full" style={{ background: C.red, boxShadow: `0 0 0 2px ${t.sidebarBg}` }} />
+                )}
               </span>
               <span
                 className={`flex-1 truncate text-left text-xs font-medium ${hideOnMini}`}
@@ -111,14 +118,15 @@ return (
               >
                 {g.label}
               </span>
-              {!leaf && !(sidebarCollapsed && window.innerWidth >= 1024) && (
+              {!leaf && (
                 <span
+                  className={hideOnMini}
                   style={{
                     color: t.sidebarMu,
                     transform: open.includes(g.key)
                       ? "rotate(180deg)"
                       : "none",
-                    transition: "transform 0.2s",
+                    transition: "transform 0.2s, opacity 220ms ease 90ms",
                     display: "inline-flex",
                   }}
                 >
@@ -127,8 +135,12 @@ return (
               )}
             </button>
             {!leaf && open.includes(g.key) && (
+              <div className={`admin-subnav ${hideOnMini}`}>
               <div
-                className={`admin-subnav-open ml-5 mt-0.5 flex flex-col gap-0.5 ${hideOnMini}`}
+                className={`${animatedGroup === g.key ? "admin-subnav-open" : ""} ml-5 mt-0.5 flex min-h-0 flex-col gap-0.5 overflow-hidden`}
+                onAnimationEnd={(event) => {
+                  if (event.target === event.currentTarget.lastElementChild) setAnimatedGroup(null)
+                }}
                 style={{ borderLeft: `1.5px solid ${t.sidebarBd}` }}
               >
                 {g.children.map((item) => (
@@ -153,8 +165,18 @@ return (
                     >
                       {item.label}
                     </span>
+                    {item.key === "pedidos" && newOrders.length > 0 && (
+                      <span
+                        className="admin-badge-pop ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[10px] font-bold"
+                        style={{ background: C.red, color: "#fff" }}
+                        aria-label={`${newOrders.length} pedidos nuevos`}
+                      >
+                        {newOrders.length}
+                      </span>
+                    )}
                   </button>
                 ))}
+              </div>
               </div>
             )}
           </div>
@@ -168,7 +190,7 @@ return (
       <button
         onClick={onSwitchToClient}
         title={sidebarCollapsed ? (user ? "Vista de cliente" : "Ver sitio") : undefined}
-        className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80 ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
+        className={`w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80`}
         style={{ color: t.sidebarMu }}
       >
         {Ico.globe}
@@ -177,7 +199,7 @@ return (
       <button
         onClick={onLogout}
         title={sidebarCollapsed ? "Cerrar sesión" : undefined}
-        className={`mt-1 w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80 ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
+        className={`mt-1 w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80`}
         style={{ color: C.red }}
       >
         {Ico.logout}

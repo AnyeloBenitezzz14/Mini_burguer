@@ -64,7 +64,7 @@ export default function SiteHeader({
             />
             <div>
               <div
-                className="landing-brand-title landing-gold-shimmer landing-gold-shimmer-brand font-black text-lg sm:text-xl leading-tight"
+                className="landing-brand-title font-black text-lg sm:text-xl leading-tight"
                 style={{ color: C.mustard }}
               >
                 EL PARCHE

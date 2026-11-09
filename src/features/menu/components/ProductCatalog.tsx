@@ -95,7 +95,6 @@ export default function ProductCatalog({
                 background: active ? C.mustard : dark ? "rgba(255,255,255,0.05)" : "#fff",
                 border: `1px solid ${active ? C.mustard : BORDER}`,
                 color: active ? "#fff" : dark ? "#F4EEDC" : "#2A2622",
-                boxShadow: active ? `0 6px 16px ${C.mustard}55` : "0 1px 2px rgba(0,0,0,0.04)",
               }}
             >
               <span
@@ -166,9 +165,6 @@ export default function ProductCatalog({
             style={{
               aspectRatio: compact ? "3/2" : "4/3",
               background: dark ? "#1E1C18" : "#fff",
-              boxShadow: dark
-                ? "0 2px 12px rgba(0,0,0,0.3)"
-                : "0 2px 12px rgba(0,0,0,0.07)",
             }}
               onClick={() => openProduct(p)}
           >

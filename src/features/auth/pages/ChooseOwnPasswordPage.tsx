@@ -6,7 +6,7 @@ import InputField from "@/shared/components/InputField"
 import { api } from "@/shared/services/api"
 import { C } from "@/shared/styles/theme"
 import type { User } from "@/shared/types"
-import { saveLS } from "@/shared/utils/storage"
+import { setToken } from "@/shared/utils/storage"
 import { passwordErrors } from "@/shared/utils/validation"
 
 // After logging in with the provisional password from the sign-up e-mail
@@ -47,7 +47,7 @@ export default function ChooseOwnPasswordPage({
           setBusy(true)
           api<{ token: string }>("/auth/me/contrasena-inicial", "PATCH", { nueva: pass })
             .then(({ token }) => {
-              saveLS("token", token) // the new token no longer carries the "must change" mark
+              setToken(token) // the new token no longer carries the "must change" mark
               onDone()
             })
             .catch((err) => setServerErr((err as Error).message))

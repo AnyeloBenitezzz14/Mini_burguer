@@ -9,6 +9,9 @@ export default function Dashboard(adminState: AdminPanelState): ReactNode {
   const {
     ALERTS,
     MY_MODULES,
+    PENDING,
+    openPending,
+    prevPeriodLabel,
     RETURN_REASONS,
     TOP,
     chart,
@@ -54,6 +57,38 @@ return (
         </p>
       </div>
     </div>
+
+    {/* What needs attention now, before any total */}
+    <section aria-label="Necesita tu atención" className="admin-dashboard-card min-w-0 rounded-2xl p-4" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+      <div className="mb-3 text-sm font-semibold" style={{ color: t.text }}>
+        {PENDING.length ? "Necesita tu atención" : "Todo al día"}
+      </div>
+      {PENDING.length ? (
+        <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {PENDING.map((p) => (
+            <button
+              key={p.one}
+              type="button"
+              onClick={() => openPending(p)}
+              className="group flex min-w-0 cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors"
+              style={{ background: `${C.mustard}12`, border: `1px solid ${C.mustard}33` }}
+            >
+              <span className="font-black text-2xl tabular-nums" style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}>
+                {p.count}
+              </span>
+              <span className="min-w-0 flex-1 text-sm leading-snug" style={{ color: t.text }}>
+                {p.count === 1 ? p.one : p.many}
+              </span>
+              <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5" style={{ color: C.mustard }}>→</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm" style={{ color: t.muted }}>
+          No hay pedidos por confirmar, pagos por verificar, órdenes esperando ni insumos bajo el mínimo.
+        </p>
+      )}
+    </section>
 
     {/* Roles without Ventas: their own modules */}
     {!seesSales && (
@@ -121,6 +156,11 @@ return (
           <div className="text-sm mt-1" style={{ color: t.muted }}>
             {label}
           </div>
+          {badge !== "—" && badge !== "Nuevo" && (
+            <div className="mt-0.5 text-xs" style={{ color: t.subtle }}>
+              {badge} vs {prevPeriodLabel}
+            </div>
+          )}
         </div>
       ))}
     </div>
