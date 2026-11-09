@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { MOD_CFG, PRODUCTION_STATUSES, QUICK_FILTERS, TABLE_FILTERS } from "@/features/admin/config/modules"
-import { isNaturalSupplier, isReturnedLoss, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
+import { isNaturalSupplier, isReturnedLoss, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
 import { isSodaName, sodaImage } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { loadOrders } from "@/features/orders/services/orders.service"

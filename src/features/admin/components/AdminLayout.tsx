@@ -78,6 +78,8 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
         }`}
       />
       <aside
+        onMouseEnter={() => window.innerWidth >= 1024 && setSidebarCollapsed(false)}
+        onMouseLeave={() => window.innerWidth >= 1024 && setSidebarCollapsed(true)}
         className={`fixed inset-y-0 left-0 z-50 flex w-[208px] flex-col overflow-hidden transition-[transform,width,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         } ${sidebarCollapsed ? "lg:w-[72px]" : ""}`}

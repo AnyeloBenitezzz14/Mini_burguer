@@ -2325,7 +2325,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       newRow[6] = previousRow?.[6] ?? currentDateTime.date
       newRow[7] = previousRow?.[7] ?? currentDateTime.time
       newRow[8] = previousRow?.[8] ?? "Recibido"
-      if (["En camino", "Entregado"].includes(String(newRow[8]))) {
+      if (newRow[8] === "Entregado") {
         newRow[9] = previousRow?.[9] || `${currentDateTime.date} ${currentDateTime.time}`
         newRow[10] = previousRow?.[10] || 1
       } else {
