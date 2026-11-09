@@ -124,6 +124,7 @@ export default function AdminProfilePage({
             </h1>
             <button
               onClick={onClose}
+              aria-label="Cerrar perfil"
               className="w-8 h-8 flex items-center justify-center rounded-full cursor-pointer"
               style={{ background: "rgba(30,30,30,0.06)", color: MUTED }}
             >

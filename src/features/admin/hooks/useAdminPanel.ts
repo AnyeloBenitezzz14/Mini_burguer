@@ -15,7 +15,7 @@ import type { AdminNotification, AdminOrderLine, AdminSection, DashPeriod, DbRec
 import { parseAddress } from "@/shared/utils/address"
 import { fmt, normalizeDocument, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
 import { loadLS, saveLS } from "@/shared/utils/storage"
-import { convertQty, toBaseQuantity } from "@/shared/utils/units"
+import { convertQty, packOf, toBaseQuantity } from "@/shared/utils/units"
 import { DOC_RULES, EMAIL_PATTERN, EMAIL_RE, NAME_RE, digitsOnly, getPasswordError, normalizeAccountDocumentInput, normalizeDocumentInput, validateDocumentNumber, validatePhoneNumber } from "@/shared/utils/validation"
 
 export // Damaged products of one record: the whole product (quantity) or only some of its insumos (parts)
@@ -693,6 +693,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   const modalRowRef = useRef<Row | undefined>(undefined)
   const [saving, setSaving] = useState(false)
   const savingRef = useRef(false)
+  const awaitingDbRef = useRef(false)
   const [saveError, setSaveError] = useState("")
   const [formData, setFormData] = useState<Record<string, string>>({})
   const [formValidationAttempted, setFormValidationAttempted] = useState(false)
@@ -1048,6 +1049,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             unitPrice: Number(line.unitPrice),
             ...(line.parentId ? { parentId: String(line.parentId) } : {}),
             ...(Array.isArray(line.sauces) ? { sauces: line.sauces.map(String) } : {}),
+            ...(line.note ? { note: String(line.note) } : {}),
           }))
           .filter((line) => line.product && line.quantity > 0 && line.unitPrice >= 0)
       }
@@ -1092,6 +1094,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             unitPrice: Number(line.unitPrice),
             ...(line.parentId ? { parentId: String(line.parentId) } : {}),
             ...(Array.isArray(line.sauces) && line.sauces.length ? { sauces: line.sauces.map(String) } : {}),
+            ...(line.note ? { note: String(line.note) } : {}),
           }))
           .filter((line) => line.product && line.quantity > 0 && line.unitPrice >= 0)
       }
@@ -1128,6 +1131,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             ...(item.category ? { category: String(item.category) } : {}),
             ...(item.parentId ? { parentId: String(item.parentId) } : {}),
             ...(Array.isArray(item.sauces) ? { sauces: item.sauces.map(String) } : {}),
+            ...(item.note ? { note: String(item.note) } : {}),
           }))
           .filter((item) => item.name)
       }
@@ -1768,6 +1772,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     pedidos: ["0", "2", "3"],
   }
   const getFieldErrors = (): Record<string, string> => {
+    // While the database confirms a save the new row is already in the table: checking now would call it a duplicate of itself
+    if (awaitingDbRef.current) return {}
     const sec = modal.section
     const e: Record<string, string> = {}
     const v = (key: string) => String(formData[key] ?? "").trim()
@@ -1800,6 +1806,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       if (dup) e["0"] = `Ya existe el insumo «${String(dup[0])}».`
       if (!v("1")) e["1"] = "Selecciona la categoría."
       if (!v("2")) e["2"] = "Selecciona la unidad de medida."
+      if (v("2") === "paq" && !(Number.isInteger(n("6")) && n("6") > 0 && n("6") <= 100000))
+        e["6"] = "Escribe cuánto trae cada paquete: por ejemplo 30 (huevos) o 100 (g de un sobre)."
+      if (v("2") === "paq" && !["und", "g", "ml"].includes(v("14")))
+        e["14"] = "Elige si el paquete trae unidades, gramos o mililitros."
       // Changing kg → g would turn 5 kg into "5 g": the unit is fixed once there is stock or purchases
       const before = modal.mode === "edit" && modal.idx !== null ? rows.insumos?.[modal.idx] : undefined
       if (
@@ -2101,7 +2111,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             !Number.isFinite(ingredient.quantity) ||
             ingredient.quantity <= 0 ||
             !ingredient.unit ||
-            toBaseQuantity(1, ingredient.unit, String(supply[2] ?? "")) === null
+            toBaseQuantity(1, ingredient.unit, String(supply[2] ?? ""), packOf(supply)) === null
           )
         })
         if (invalidIngredient) {
@@ -2168,6 +2178,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       const serializedRecipe = JSON.stringify(
         technicalIngredients.map((ingredient) => {
           const stockUnit = String(rows.insumos?.find((item) => item[0] === ingredient.name)?.[2] ?? ingredient.unit)
+          // Eggs counted one by one stay in "und" even when the insumo is stocked by "paq" (converted when cooking)
+          if (Number.isNaN(convertQty(ingredient.quantity, ingredient.unit, stockUnit))) return ingredient
           return {
             ...ingredient,
             quantity: Math.round(convertQty(ingredient.quantity, ingredient.unit, stockUnit) * 1000) / 1000,
@@ -2199,7 +2211,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       newRow[0] = String(newRow[0] ?? "").trim()
       // New insumos start with no stock (the field isn't shown when creating)
       newRow[4] = modal.mode === "add" ? 0 : Number(newRow[4] || 0)
-      newRow[6] = previousRow?.[6] ?? "" // unused slot (old "Stock máximo")
+      // How much one package holds (unit "paq"); other units keep it empty
+      newRow[6] = String(newRow[2]) === "paq" ? Number(formData["6"]) || "" : ""
       if (String(newRow[7]).toLowerCase() === "sí") {
         newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
         newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"
@@ -2358,6 +2371,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         unitPrice: 0,
         ...(item.parentId ? { parentId: item.parentId } : {}),
         ...(item.sauces?.length ? { sauces: item.sauces } : {}),
+        ...(item.note ? { note: item.note } : {}),
       }))
       const replacementOrder = buildProductionRows(lines, rows.produccion || [], "")[0]
       if (!replacementOrder) {
@@ -2613,7 +2627,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       }
     }
     // The form stays open (with what was typed) until the database confirms the save
-    const syncError = await syncing
+    awaitingDbRef.current = true
+    const syncError = await syncing.finally(() => { awaitingDbRef.current = false })
     if (syncError) {
       setSaveError(syncError)
       return
@@ -3524,13 +3539,15 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         for (const ingredient of getProductRecipe(product)) {
           const supply = rows.insumos?.find((candidate) => candidate[0] === ingredient.name)
           const unit = String(supply?.[2] ?? "").trim()
-          if (!supply || !unit || unit.toLowerCase() !== ingredient.unit.trim().toLowerCase()) {
-            notifyError(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y use la misma unidad de la ficha técnica.`)
+          // Recipe in its own unit (e.g. 2 und of egg) → the insumo's unit (2/15 paq)
+          const perUnit = supply && unit ? toBaseQuantity(ingredient.quantity, ingredient.unit, unit, packOf(supply)) : null
+          if (perUnit === null) {
+            notifyError(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y que la unidad de la ficha técnica se pueda pasar a la del insumo.`)
             return false
           }
           const current = requiredSupplies.get(ingredient.name)
           requiredSupplies.set(ingredient.name, {
-            quantity: (current?.quantity ?? 0) + ingredient.quantity * item.quantity,
+            quantity: (current?.quantity ?? 0) + perUnit * item.quantity,
             unit,
           })
         }

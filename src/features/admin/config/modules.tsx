@@ -123,10 +123,13 @@ export const MOD_CFG: Record<string, ModConfig> = {
         type: "select",
         options: ["kg", "g", "L", "ml", "und", "paq"],
       },
+      // Unit "paq": row[6] (old "Stock máximo") is how much one package holds and row[14] its unit
+      // (30 und of egg, 100 g of a sobre), so recipes can use what's inside
+      { key: "6", label: "Contenido de cada paquete", type: "number" },
+      { key: "14", label: "Medida del contenido", type: "select", options: ["und", "g", "ml"] },
       { key: "3", label: "Costo unitario", type: "number" },
       { key: "4", label: "Stock actual", type: "number" },
       { key: "5", label: "Stock mínimo", type: "number" },
-      // row[6] (old "Stock máximo") is no longer used; kept so later indexes don't shift
       { key: "7", label: "Producto de insumo", type: "checkbox" },
       { key: "8", label: "Nombre de la ficha técnica", type: "text" },
       { key: "9", label: "Versión de la ficha", type: "text" },
@@ -136,7 +139,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
     seed: [],
     // Deletable only while no other module has records of it (see getDeleteAssessment)
     statusIndex: 12,
-    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11],
+    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11, 14],
   },
   proveedores: {
     columns: [
@@ -170,7 +173,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
     hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   },
   compras: {
-    columns: ["Proveedor", "Fecha", "Subtotal", "Total", "Estado"],
+    columns: ["Proveedor", "Fecha", "Insumos comprados", "Total", "Estado"],
     fields: [
       {
         key: "0",

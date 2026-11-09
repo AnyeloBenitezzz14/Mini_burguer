@@ -1,4 +1,4 @@
-import traditionalBurgerImg from "@/imports/traditional-burger.png"
+import traditionalBurgerImg from "@/imports/traditional-burger.jpg"
 import type { Product } from "@/shared/types"
 import { normalizeName } from "@/shared/utils/format"
 
@@ -49,7 +49,7 @@ export const BEVERAGE_ORDER = ["Coca-Cola", "Colombiana", "Pepsi", "Manzana", "U
 
 // The sodas for sale (normalized "Gaseosa <sabor> (<tamaño>)" → its product's price and photo, and whether it's
 // sold out). Filled by loadMenu; empty = old data, every flavour × size sells at the size price
-export const SODA_INFO = new Map<string, { precio: number; img: string; agotada: boolean }>()
+export const SODA_INFO = new Map<string, { precio: number; img: string; agotada: boolean; stock?: number }>()
 
 export const sodaInfo = (flavor: string, sizeLabel: string) => SODA_INFO.get(normalizeName(`Gaseosa ${flavor} (${sizeLabel})`))
 

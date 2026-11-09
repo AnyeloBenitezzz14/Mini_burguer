@@ -145,7 +145,7 @@ export default function ProductCatalog({
         )}
       </div>
       {/* Count */}
-      <p className={`text-xs ${compact ? "mb-2" : "mb-4"}`} style={{ color: MUTED }}>
+      <p className={`${compact ? "mb-2 text-xs" : "mb-4 text-sm"}`} style={{ color: MUTED }}>
         {filtered.length} productos
         {shouldPaginate && <> · Página {pg + 1} de {Math.max(1, totalPages)}</>}
       </p>
@@ -200,8 +200,8 @@ export default function ProductCatalog({
               </div>
               {p.desc && (
                 <p
-                  className={`leading-tight ${compact ? "mb-1 line-clamp-2 text-[10px]" : "mb-3 text-xs leading-relaxed"}`}
-                  style={{ color: "rgba(255,255,255,0.82)" }}
+                  className={`leading-tight ${compact ? "mb-1 line-clamp-2 text-[10px]" : "mb-3 text-sm leading-relaxed"}`}
+                  style={{ color: "rgba(255,255,255,0.85)" }}
                 >
                   {p.desc}
                 </p>

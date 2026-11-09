@@ -14,7 +14,7 @@ import { addCartItem } from "@/features/checkout/utils/cart"
 import { loadMenu, refreshCartProducts } from "@/features/menu/services/menu.service"
 import { loadOrders, orderFromDb, refreshOrders, saveOrders } from "@/features/orders/services/orders.service"
 import { orderDbId } from "@/features/orders/utils/orders"
-import ProfilePage from "@/features/profile/pages/ProfilePage"
+const ProfilePage = lazy(() => import("@/features/profile/pages/ProfilePage"))
 import { saveProfile } from "@/features/profile/services/profile.service"
 import AccountMenu from "@/shared/components/AccountMenu"
 import { api, listenEvents } from "@/shared/services/api"
@@ -23,9 +23,10 @@ import type { AuthData, CartItem, DbRecord, Order, Page, User } from "@/shared/t
 import { clearSession, getToken, loadLS, saveLS } from "@/shared/utils/storage"
 
 // ── App Root ───────────────────────────────────────────────────────────────────
-export default function App() {
-  const [page, setPage] = useState<Page>("landing")
-  const [user, setUser] = useState<User | null>(null)
+function AppRoutes() {
+  // A reload opens this tab's account at once (saved in the tab); the backend confirms it right after
+  const [user, setUser] = useState<User | null>(() => (getToken() ? loadSession<User | null>("user", null) : null))
+  const [page, setPage] = useState<Page>(() => (user ? (sessionStorage.getItem("page") || "app") as Page : "landing"))
   // The cart is kept in the browser: one per account ("cart:<email>") and one for guests ("cart")
   const [cart, setCart] = useState<CartItem[]>(() => loadLS("cart", []))
   const [forgotEmail, setForgotEmail] = useState("")
@@ -292,6 +293,7 @@ export default function App() {
                 producto: item.name,
                 cantidad: item.qty,
                 salsas: item.sauces || [],
+                ...(item.note?.trim() ? { nota: item.note.trim() } : {}),
                 adiciones: (item.additions || []).map((a) => ({ nombre: a.name, cantidad: a.qty })),
               })),
           })
@@ -379,5 +381,14 @@ export default function App() {
       cart={cart}
       setCart={setCart}
     />
+  )
+}
+
+// Each page is its own file: the landing doesn't download the admin panel, and the reverse
+export default function App() {
+  return (
+    <Suspense fallback={null}>
+      <AppRoutes />
+    </Suspense>
   )
 }

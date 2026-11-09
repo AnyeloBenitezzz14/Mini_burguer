@@ -34,6 +34,7 @@ export type CartItem = {
   qty: number
   img: string
   sauces?: string[]
+  note?: string
   additions?: { name: string; qty: number; price: number }[]
 }
 
@@ -132,6 +133,7 @@ export type AdminOrderLine = {
   unitPrice: number
   parentId?: string
   sauces?: string[]
+  note?: string
 }
 
 export type ProductionItem = {
@@ -142,6 +144,7 @@ export type ProductionItem = {
   category?: string
   parentId?: string
   sauces?: string[]
+  note?: string
   // Order remade after a producto no conforme: reused as is (takes nothing out of stock)…
   reuse?: boolean
   // …or only these damaged insumos are replaced (instead of the whole ficha técnica)

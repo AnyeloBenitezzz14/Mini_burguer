@@ -49,6 +49,7 @@ export const orderFromDb = (p: DbRecord): Order => ({
       qty: it.cantidad,
       img: product?.img || "",
       sauces: it.detalle?.salsas || [],
+      note: it.detalle?.nota || undefined,
       additions: (it.detalle?.adiciones || []).map((a: DbRecord) => ({ name: a.nombre, qty: a.cantidad, price: a.precio })),
     }
   }),

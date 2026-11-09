@@ -14,6 +14,7 @@ export default function AddToCartModal({
   onAdd,
   onCheckout,
   dark,
+  initial,
 }: {
   product: Product
   onClose: () => void
@@ -25,6 +26,8 @@ export default function AddToCartModal({
   ) => void
   onCheckout?: () => void
   dark: boolean
+  // Editing a cart line: starts with its choices and the button says «Guardar cambios»
+  initial?: { qty: number; sauces?: string[]; additions?: { name: string; qty: number }[] }
 }) {
   const [product, setProduct] = useState(selectedProduct)
   useEffect(() => {
@@ -38,13 +41,22 @@ export default function AddToCartModal({
     return () => window.removeEventListener("products-refreshed", refreshProduct)
   }, [selectedProduct.id, selectedProduct.name, onClose])
   useEffect(() => setProduct(selectedProduct), [selectedProduct])
-  const [qty, setQty] = useState(1)
+  const [qty, setQty] = useState(initial?.qty ?? 1)
   // What is typed in the quantity box (null = not typing, it shows qty)
   const [qtyDraft, setQtyDraft] = useState<string | null>(null)
   const MAX_QTY = 99
   const [descOpen, setDescOpen] = useState(false)
-  const [selSauces, setSelSauces] = useState<string[]>([])
-  const [addQtys, setAddQtys] = useState<Record<string, number>>({})
+  const [selSauces, setSelSauces] = useState<string[]>(initial?.sauces ?? [])
+  // Additions are keyed by name; sodas by «Gaseosa <sabor> <size id>» (saved as «Gaseosa <sabor> (<label>)»)
+  const [addQtys, setAddQtys] = useState<Record<string, number>>(() =>
+    Object.fromEntries(
+      (initial?.additions ?? []).map((a) => {
+        const soda = BEVERAGES.flatMap((f) => BEVERAGE_SIZES.map((s) => [`Gaseosa ${f} (${s.label})`, `Gaseosa ${f} ${s.id}`]))
+          .find(([saved]) => saved === a.name)
+        return [soda ? soda[1] : a.name, a.qty]
+      }),
+    ),
+  )
   const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0]?.id ?? "")
   // Drink whose picture is shown big (click again to close)
   const [zoomBeverage, setZoomBeverage] = useState<string | null>(null)
@@ -141,9 +153,12 @@ export default function AddToCartModal({
         (size) => (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0) > 0,
       ).map((size) => ({
         name: `Gaseosa ${flavor} (${size.label})`,
-        qty: addQtys[`Gaseosa ${flavor} ${size.id}`],
+        qty: Math.min(
+          addQtys[`Gaseosa ${flavor} ${size.id}`],
+          Math.floor((sodaInfo(flavor, size.label)?.stock ?? Infinity) / Math.max(1, qty)),
+        ),
         price: sodaPrice(flavor, size),
-      })),
+      })).filter((b) => b.qty > 0),
     )
     onAdd(product, qty, selSauces, [...adds, ...beverages])
     onClose()
@@ -444,6 +459,9 @@ export default function AddToCartModal({
                       </span>
                       <span className="text-[11px] font-bold leading-tight" style={{ color: soldOut ? C.red : C.mustard }}>
                         {soldOut ? unavailable : fmt(price)}
+                        {!soldOut && info?.stock != null && info.stock <= 10 && (
+                          <span className="font-semibold" style={{ color: MUTED }}> · quedan {info.stock}</span>
+                        )}
                       </span>
                     </div>
                     <QtyStepper
@@ -453,6 +471,8 @@ export default function AddToCartModal({
                       color={C.mustard}
                       text={TEXT}
                       disabledPlus={soldOut}
+                      // Each burger in the line carries these sodas: never more in total than the admin's stock
+                      max={info?.stock != null ? Math.floor(info.stock / Math.max(1, qty)) : 99}
                     />
                   </div>
                 )
@@ -543,7 +563,7 @@ export default function AddToCartModal({
           >
             <span key={added ? "added" : "add"} className={`flex items-center gap-1.5 ${added ? "cart-added-pop" : ""}`}>
               {Ico.check}
-              {added ? "Agregado" : "Agregar"}
+              {initial ? "Guardar cambios" : added ? "Agregado" : "Agregar"}
             </span>
             <span className="font-price font-black tabular-nums">{fmt(total)}</span>
           </button>

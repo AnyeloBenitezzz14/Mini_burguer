@@ -199,14 +199,14 @@ export const DB_SYNC: Record<string, SyncSpec> = {
     idOf: (i) => i.id_insumo_producto,
     toRow: (i) =>
       withId(
-        [i.nombre, i.nombre_categoria, i.medida || "und", i.costo, i.stock, i.minimo, "",
+        [i.nombre, i.nombre_categoria, i.medida || "und", i.costo, i.stock, i.minimo, i.unidades_paquete ?? "",
           i.tiene_ficha_tecnica ? "Sí" : "No",
           i.tiene_ficha_tecnica ? i.ficha?.nombre || `Ficha técnica - ${i.nombre}` : "",
           i.tiene_ficha_tecnica ? i.ficha?.version || "v1.0" : "",
           i.ficha?.insumos_principales || "", i.ficha?.preparacion || "", i.estado === "ACTIVO" ? "Activo" : "Inactivo"],
         13,
         i.id_insumo_producto,
-      ),
+      ).concat(i.contenido_unidad || "und"),
     toBody: async (row) => ({
       nombre: text(row[0]),
       id_categoria: await categoryIdByName("/categorias-insumos", row[1]),
@@ -214,6 +214,8 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       // Only on create: afterwards purchases, losses and production own cost and stock
       ...(row[13] ? {} : { costo: Number(row[3]) || 0, stock: 0 }),
       minimo: Number(row[5]) || 0,
+      unidades_paquete: text(row[2]) === "paq" && Number(row[6]) > 0 ? Number(row[6]) : null,
+      contenido_unidad: text(row[2]) === "paq" ? text(row[14]) || "und" : null,
       tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
       estado: estadoOf(row[12]),
     }),
@@ -272,8 +274,8 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       }
     },
     setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", { estado: isActiveStatus(row[5]) ? "REGISTRADA" : "ANULADA" }),
-    // producto: a soda's stock and cost live in its product
-    reloads: ["insumos", "producto"],
+    // producto: a soda's stock and cost live in its product; proveedores: what it bought joins the supplier's list
+    reloads: ["insumos", "producto", "proveedores"],
   },
   // [0 insumo, 1 cantidad con unidad ("0.5 kg"), 2 motivo, 3 responsable, 4 fecha, 5 origen]
   // The backend takes the quantity out of the insumo's stock.

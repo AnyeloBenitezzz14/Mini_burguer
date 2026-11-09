@@ -9,10 +9,10 @@ export default function AccessBackButton({ onClick }: { onClick: () => void }) {
       style={{
         background: "#FAF3E6",
         color: "#1A1714",
-        outlineColor: "#B68C1C",
+        outlineColor: "#8F6C12",
       }}
     >
-      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-[#B68C1C] transition-transform duration-200 group-hover:-translate-x-0.5" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-[#8F6C12] transition-transform duration-200 group-hover:-translate-x-0.5" aria-hidden="true">
         <path d="M19 12H5m0 0 6 6m-6-6 6-6" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
       <span className="pr-1">Inicio</span>
