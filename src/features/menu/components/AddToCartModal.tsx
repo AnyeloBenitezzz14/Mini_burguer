@@ -44,7 +44,7 @@ export default function AddToCartModal({
   const [qty, setQty] = useState(initial?.qty ?? 1)
   // What is typed in the quantity box (null = not typing, it shows qty)
   const [qtyDraft, setQtyDraft] = useState<string | null>(null)
-  const MAX_QTY = 99
+  const MAX_QTY = 999
   const [descOpen, setDescOpen] = useState(false)
   const [selSauces, setSelSauces] = useState<string[]>(initial?.sauces ?? [])
   // Additions are keyed by name; sodas by «Gaseosa <sabor> <size id>» (saved as «Gaseosa <sabor> (<label>)»)
@@ -96,6 +96,8 @@ export default function AddToCartModal({
   const changeAdd = (name: string, d: number) =>
     setAddQtys((p) => ({ ...p, [name]: Math.min(99, Math.max(0, (p[name] || 0) + d)) }))
   const setAdd = (name: string, n: number) => setAddQtys((p) => ({ ...p, [name]: n }))
+  // Each unit of the line carries these additions: never more in total than what was bought
+  const addMax = (a: (typeof ADDITIONS)[number]) => (a.stock != null ? Math.floor(a.stock / Math.max(1, qty)) : 99)
   const addTotal = ADDITIONS.reduce(
     (s, a) => s + (addQtys[a.name] || 0) * a.price,
     0,
@@ -146,8 +148,9 @@ export default function AddToCartModal({
   const handleAdd = () => {
     if (product.soldOut) return
     const adds = ADDITIONS.filter((a) => (addQtys[a.name] || 0) > 0).map(
-      (a) => ({ name: a.name, qty: addQtys[a.name], price: a.price }),
-    )
+      // never more than its stock across every unit of the line
+      (a) => ({ name: a.name, qty: Math.min(addQtys[a.name], addMax(a)), price: a.price }),
+    ).filter((a) => a.qty > 0)
     const beverages = BEVERAGES.flatMap((flavor) =>
       BEVERAGE_SIZES.filter(
         (size) => (addQtys[`Gaseosa ${flavor} ${size.id}`] || 0) > 0,
@@ -354,6 +357,7 @@ export default function AddToCartModal({
             <div className="grid grid-cols-2 gap-1.5">
               {ADDITIONS.map((a) => {
                 const q = addQtys[a.name] || 0
+                const soldOut = a.stock != null && a.stock <= 0
                 return (
                   <div
                     key={a.name}
@@ -369,9 +373,22 @@ export default function AddToCartModal({
                       </span>
                       <span className="text-[11px] font-bold leading-tight" style={{ color: C.mustard }}>
                         +{fmt(a.price)}
+                        {soldOut ? (
+                          <span className="font-semibold" style={{ color: MUTED }}> · agotada</span>
+                        ) : a.stock != null && a.stock <= 10 && (
+                          <span className="font-semibold" style={{ color: MUTED }}> · quedan {a.stock}</span>
+                        )}
                       </span>
                     </div>
-                    <QtyStepper value={q} onChange={(n) => setAdd(a.name, n)} label={a.name} color={C.mustard} text={TEXT} />
+                    <QtyStepper
+                      value={q}
+                      onChange={(n) => setAdd(a.name, n)}
+                      max={addMax(a)}
+                      disabledPlus={soldOut}
+                      label={a.name}
+                      color={C.mustard}
+                      text={TEXT}
+                    />
                   </div>
                 )
               })}
@@ -527,20 +544,20 @@ export default function AddToCartModal({
             >
               −
             </button>
-            {/* The quantity can be typed (1-99); while typing it may be empty, on leaving it goes back to a valid one */}
+            {/* The quantity can be typed (1-999); while typing it may be empty, on leaving it goes back to a valid one */}
             <input
               type="text"
               inputMode="numeric"
               value={qtyDraft ?? String(qty)}
               onChange={(event) => {
-                const digits = event.target.value.replace(/\D/g, "").slice(0, 2)
+                const digits = event.target.value.replace(/\D/g, "").slice(0, 3)
                 setQtyDraft(digits)
                 if (Number(digits) >= 1) setQty(Number(digits))
               }}
               onFocus={(event) => event.target.select()}
               onBlur={() => setQtyDraft(null)}
               aria-label="Cantidad"
-              className="w-9 bg-transparent text-center text-sm font-black outline-none"
+              className="w-10 bg-transparent text-center text-sm font-black outline-none"
               style={{ color: TEXT }}
             />
             <button

@@ -70,9 +70,7 @@ export default function CheckoutPage({
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryInfo["tipoEntrega"]>("domicilio")
   const isDelivery = deliveryMethod === "domicilio"
   const deliveryMethodLabel =
-    deliveryMethod === "local"
-      ? "Comer en el local"
-      : deliveryMethod === "recoger"
+    deliveryMethod === "recoger"
         ? "Recoger pedido"
         : "Pedir a domicilio"
   // The backend still receives one formatted address string.
@@ -352,9 +350,7 @@ export default function CheckoutPage({
           tipoEntrega: deliveryMethod,
           direccion: isDelivery
             ? delivForm.direccion
-            : deliveryMethod === "local"
-              ? "Consumo en el local"
-              : "Recoger en el local",
+            : "Recoger en el local",
           barrio: isDelivery ? selectedNeighborhood?.nombre : undefined,
           barrioId: isDelivery ? selectedNeighborhood?.id_barrio ?? undefined : undefined,
           distanciaKm: undefined,
@@ -389,7 +385,7 @@ export default function CheckoutPage({
     if (!delivFilled || !deliveryCostConfigured) return
     setCheckoutStep(3)
   }
-  // Nequi / Daviplata must attach the payment receipt before continuing
+  // Nequi / Bancolombia must attach the payment receipt before continuing
   const needsVoucher = delivForm.pago !== "Efectivo"
   const payReady = !needsVoucher || !!voucher
   const displayedDeliveryCost =
@@ -533,7 +529,7 @@ export default function CheckoutPage({
   const PAY_OPTS = [
     { id: "Efectivo", desc: "Pagas al recibir tu pedido" },
     { id: "Nequi", desc: "Transferencia con código QR" },
-    { id: "Daviplata", desc: "Transferencia con código QR" },
+    { id: "Bancolombia", desc: "Transferencia con código QR" },
   ]
   const overLimit = orderTotal >= APPROVAL_MIN
   const cta = !user
@@ -1043,9 +1039,8 @@ export default function CheckoutPage({
                     <legend className="mb-2 text-xs font-semibold" style={{ color: MUTED }}>
                       ¿Cómo quieres recibir tu pedido?
                     </legend>
-                    <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="grid gap-2 sm:grid-cols-2">
                       {([
-                        ["local", "Comer en el local", "Te lo servimos en bandeja, en el local"],
                         ["domicilio", "Pedir a domicilio", "Lo llevamos empacado a tu dirección"],
                         ["recoger", "Recoger pedido", "Lo empacamos para llevar; pasas por él"],
                       ] as const).map(([method, label, hint]) => {

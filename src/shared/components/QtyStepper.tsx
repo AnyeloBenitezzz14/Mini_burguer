@@ -25,14 +25,14 @@ export default function QtyStepper({ value, onChange, label, color, text, disabl
         inputMode="numeric"
         value={draft ?? String(value)}
         onChange={(event) => {
-          const digits = event.target.value.replace(/\D/g, "").slice(0, 2)
+          const digits = event.target.value.replace(/\D/g, "").slice(0, Math.max(2, String(max).length))
           setDraft(digits)
           onChange(Math.min(max, Number(digits) || 0))
         }}
         onFocus={(event) => event.target.select()}
         onBlur={() => setDraft(null)}
         aria-label={`Cantidad de ${label}`}
-        className="w-6 bg-transparent text-center text-sm font-bold tabular-nums outline-none"
+        className="w-7 bg-transparent text-center text-sm font-bold tabular-nums outline-none"
         style={{ color: on ? color : text }}
       />
       <button

@@ -1,6 +1,6 @@
 import { MOD_CFG, RETURNED_LOSS } from "@/features/admin/config/modules"
 import { estadoOf, isActiveStatus, optionalEmail, parsePurchaseLines, roleLabel, text, withId } from "@/features/admin/utils/rows"
-import { SODA_LOW_STOCK, SODA_PRODUCT, currentCategory, isSodaName } from "@/features/menu/data/products"
+import { SODA_LOW_STOCK, SODA_PRODUCT, currentCategory, isSodaName, isStockedExtra } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { api } from "@/shared/services/api"
 import type { DbRecord, PanelSyncSpec, Row, SyncSpec, TechnicalIngredient } from "@/shared/types"
@@ -252,16 +252,16 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       // A soda is bought as its product of «Bebidas» (its stock goes there), the rest as insumos
       const [insumos, productos] = await Promise.all([
         api<DbRecord[]>("/insumos"),
-        lines.some((l) => isSodaName(l.name)) ? api<DbRecord[]>("/productos") : Promise.resolve([] as DbRecord[]),
+        lines.some((l) => isStockedExtra(l.name)) ? api<DbRecord[]>("/productos") : Promise.resolve([] as DbRecord[]),
       ])
       const find = (name: string) =>
-        (isSodaName(name) ? productos : insumos).find((i) => normalizeName(i.nombre) === normalizeName(name))
+        (isStockedExtra(name) ? productos : insumos).find((i) => normalizeName(i.nombre) === normalizeName(name))
       const items = lines.map((line) => {
         const insumo = find(line.name)
         if (!insumo)
           throw new Error(
-            isSodaName(line.name)
-              ? `La gaseosa «${line.name}» no existe en Productos → Bebidas.`
+            isStockedExtra(line.name)
+              ? `«${line.name}» no existe en Productos.`
               : `El insumo «${line.name}» no existe en la base de datos.`,
           )
         return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice }
@@ -301,8 +301,8 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       if (!(cantidad > 0)) throw new Error(`La cantidad «${row[1]}» no es válida.`)
       return {
         // a soda sent to loss from its purchase is its product of «Bebidas»
-        id_insumo_producto: isSodaName(row[0])
-          ? await idByName("/productos", "nombre", "id_insumo_producto", row[0], "La gaseosa")
+        id_insumo_producto: isStockedExtra(row[0])
+          ? await idByName("/productos", "nombre", "id_insumo_producto", row[0], "El producto")
           : await idByName("/insumos", "nombre", "id_insumo_producto", row[0], "El insumo"),
         cantidad,
         motivo: text(row[2]),

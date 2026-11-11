@@ -2,8 +2,6 @@
 export const compatibleUnits = (base: string) =>
   base === "kg" || base === "g" ? ["g", "kg"] : base === "L" || base === "ml" ? ["ml", "L"] : base === "paq" ? ["paq", "und", "g", "kg", "ml", "L"] : [base || "und"]
 
-export const RECIPE_UNIT_SUGGESTIONS = ["g", "kg", "ml", "L", "und", "paq", "cucharada", "cucharadita", "taza", "pizca", "tajada", "porción"]
-
 export const UNIT_FACTOR: Record<string, { kind: string; factor: number }> = {
   g: { kind: "masa", factor: 1 },
   kg: { kind: "masa", factor: 1000 },
@@ -35,8 +33,11 @@ export const packOf = (row?: (string | number)[]): Pack | undefined =>
   row && Number(row[6]) > 0 ? { size: Number(row[6]), unit: String(row[14] || "und") } : undefined
 
 // Units a product recipe can use for an insumo stocked in `base` (only ones that convert: g ↔ kg, ml ↔ L)
-export const convertibleUnits = (base: string, pack?: Pack) =>
-  compatibleUnits(base).filter((unit) => toBaseQuantity(1, unit, base, pack) !== null)
+// A package is used by what it holds (1 und of a 12-pack of bread, 1 tajada of a 20-pack of cheese): that unit first
+export const convertibleUnits = (base: string, pack?: Pack) => {
+  const units = compatibleUnits(base).filter((unit) => toBaseQuantity(1, unit, base, pack) !== null)
+  return base === "paq" ? [...units.filter((u) => u !== "paq"), "paq"] : units
+}
 
 // Same as toBaseQuantity, NaN when it can't be converted
 export const convertQty = (quantity: number, from: string, to: string, pack?: Pack) => toBaseQuantity(quantity, from, to, pack) ?? NaN

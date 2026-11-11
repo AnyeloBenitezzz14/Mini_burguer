@@ -2,7 +2,7 @@ import { Fragment } from "react"
 import { MOD_CFG, NATURAL_SUPPLIER_KEYS, NATURAL_SUPPLIER_VIEW_KEYS, PAYMENT_NEXT, PURCHASE_ENTITIES, RETURNED_LOSS, STOCK_ORIGIN } from "@/features/admin/config/modules"
 import { DB_SYNC } from "@/features/admin/services/sync.service"
 import { derivePedidoPayment, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
-import { SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, sodaImage } from "@/features/menu/data/products"
+import { ADDITION_PRODUCT, SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import FieldError from "@/shared/components/FieldError"
@@ -12,7 +12,7 @@ import { C, badgeSt } from "@/shared/styles/theme"
 import type { AddressParts, AdminOrderLine, FieldType, ProductionItem, Row, TechnicalIngredient } from "@/shared/types"
 import { ADDRESS_VIAS, HOUSING, composeAddress } from "@/shared/utils/address"
 import { fmt, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
-import { RECIPE_UNIT_SUGGESTIONS, compatibleUnits, convertQty, convertibleUnits, packOf } from "@/shared/utils/units"
+import { convertQty, convertibleUnits, packOf } from "@/shared/utils/units"
 import { normalizeDocumentInput, normalizePhoneInput } from "@/shared/utils/validation"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
@@ -283,7 +283,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     const supplier = (rows.proveedores || []).find((p) => String(p[0]) === supplierName)
     // A soda can be bought before it exists as an insumo (the purchase creates it)
     return splitList(String(supplier?.[7] ?? "")).filter(
-      (name) => supplyInfo(name) || isSodaName(name),
+      (name) => supplyInfo(name) || isStockedExtra(name),
     )
   }
   // Categories a supplier sells: those of the insumos it already has (from its purchases or its card)
@@ -297,13 +297,13 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
       ...(rows.insumos || [])
         .filter((i) => isActiveStatus(i[12]) && (!categories.length || categories.includes(currentCategory(String(i[1] ?? "").trim()))))
         .map((i) => String(i[0])),
-      ...supplierSupplies(supplierName).filter(isSodaName),
+      ...supplierSupplies(supplierName).filter(isStockedExtra),
     ])].sort((a, b) => a.localeCompare(b, "es"))
   }
   const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void) => {
     const groups = new Map<string, string[]>()
     names.forEach((name) => {
-      const category = currentCategory(String(supplyInfo(name)?.[1] ?? "").trim()) || (isSodaName(name) ? "Bebidas" : "Sin categoría")
+      const category = currentCategory(String(supplyInfo(name)?.[1] ?? "").trim()) || (isSodaName(name) ? "Bebidas" : isStockedExtra(name) ? ADDITION_PRODUCT : "Sin categoría")
       groups.set(category, [...(groups.get(category) || []), name])
     })
     return (
@@ -943,8 +943,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     isSupplier
                       ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4"
                       : sheetBeside
-                        ? // left rows fit their fields; the ficha's extra height goes to the last (1fr) row
-                          "sm:grid-cols-2 lg:grid-cols-4 lg:grid-rows-[repeat(7,min-content)_1fr]"
+                        ? // the insumo's fields stay in the left half (one per row), the ficha takes the right half
+                          "sm:grid-cols-2 lg:grid-cols-4 lg:[&>*:not([data-sheet])]:col-span-2 lg:[&>*:not([data-sheet])]:col-start-1"
                         : (isProduction || isPedido || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
                   }`
                 : isProduct
@@ -1171,7 +1171,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 // Creating or editing a drink: no ficha técnica at all, its fields take this column
                 if (isDrinkForm) return <div className="flex flex-col gap-3">{renderProductFields()}</div>
                 // A resale soda has no ficha técnica: show its stock and margin instead
-                if (isView && row?.[1] === SODA_PRODUCT) {
+                if (isView && (row?.[1] === SODA_PRODUCT || row?.[1] === ADDITION_PRODUCT)) {
                   // Its purchases set its stock and cost on the product itself
                   const cost = Number(row[13]) || 0
                   const price = Number(row[2]) || 0
@@ -1183,7 +1183,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       </p>
                       <div className="grid grid-cols-3 gap-2">
                         {[
-                          ["En stock", isSodaName(row[0]) ? `${Number(row[12]) || 0} und · mín. ${Number(row[14]) || 0}` : "No lleva stock"],
+                          ["En stock", isStockedExtra(row[0]) ? `${Number(row[12]) || 0} und · mín. ${Number(row[14]) || 0}` : "No lleva stock"],
                           ["Costo de compra", cost ? fmt(cost) : "Sin compras"],
                           ["Ganancia por unidad", !cost ? "—" : price >= cost ? fmt(price - cost) : `−${fmt(cost - price)}`],
                         ].map(([label, value]) => (
@@ -2280,6 +2280,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   updateAdminField(modal.section, key, value)
                 }
                 const unitOf = (name: string) => String(supplyInfo(name)?.[2] ?? "und")
+                const unitsOf = (name: string) => convertibleUnits(unitOf(name), packOf(supplyInfo(name)))
                 // Stored as text the backend already keeps: "Azúcar (50 g), Limón (2 und)"
                 const setMainSupplies = (next: { name: string; quantity: string; unit: string }[]) =>
                   setSheet(
@@ -2297,7 +2298,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 return (
                   <section
                     key="ficha-tecnica"
-                    className={`rounded-xl p-4 sm:col-span-2 ${sheetBeside ? "lg:col-start-3 lg:row-span-8 lg:row-start-1" : ""}`}
+                    data-sheet
+                    className={`rounded-xl p-4 sm:col-span-2 ${sheetBeside ? "lg:col-start-3 lg:row-start-1 lg:row-end-[span_14] lg:self-start" : ""}`}
                     style={{ background: `${C.mustard}0D`, border: `1.5px solid ${C.mustard}55` }}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2361,11 +2363,6 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               <span className="w-[16rem] text-center">Cuánto usas y en qué unidad</span>
                               <span className="w-7" />
                             </div>
-                            <datalist id="recipe-unit-options">
-                              {RECIPE_UNIT_SUGGESTIONS.map((u) => (
-                                <option key={u} value={u} />
-                              ))}
-                            </datalist>
                             {mainSupplies.map((item, index) => (
                               <div key={item.name} className="flex items-center gap-2">
                                 <span className="min-w-0 flex-1 truncate text-sm font-semibold" style={{ color: t.text }}>
@@ -2417,23 +2414,24 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 >
                                   +
                                 </button>
-                                <input
-                                  list="recipe-unit-options"
-                                  value={item.unit}
+                                {/* Bought in kg it is measured in g by default (or kg); in L, in ml (or L) */}
+                                <select
+                                  value={item.unit || unitsOf(item.name)[0]}
                                   onChange={(e) =>
-                                    setMainSupplies(
-                                      mainSupplies.map((m, i) =>
-                                        // "," and "()" would break the stored text "Azúcar (50 g), ..."
-                                        i === index ? { ...m, unit: e.target.value.replace(/[(),]/g, "").slice(0, 20) } : m,
-                                      ),
-                                    )
+                                    setMainSupplies(mainSupplies.map((m, i) => (i === index ? { ...m, unit: e.target.value } : m)))
                                   }
-                                  placeholder={unitOf(item.name)}
                                   aria-label={`Unidad de ${item.name}`}
-                                  title={`Escribe la unidad que usas (se compra en ${unitOf(item.name)})`}
-                                  className="w-24 rounded-xl px-2 py-2 text-xs outline-none"
+                                  title={`Se compra en ${unitOf(item.name)}`}
+                                  className="w-24 cursor-pointer rounded-xl px-2 py-2 text-xs outline-none"
                                   style={sheetControl}
-                                />
+                                >
+                                  {/* Only units that convert to how it is bought: kg → g or kg, L → ml or L */}
+                                  {[...new Set([item.unit || unitsOf(item.name)[0], ...unitsOf(item.name)])].map((u) => (
+                                    <option key={u} value={u}>
+                                      {u === unitOf(item.name) ? `${u} (compra)` : u}
+                                    </option>
+                                  ))}
+                                </select>
                                 <button
                                   type="button"
                                   aria-label={`Quitar ${item.name} de la ficha`}
@@ -2448,27 +2446,32 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           </div>
                         )}
                         {!isView && (
-                          <select
-                            value=""
-                            onChange={(e) => {
-                              if (e.target.value)
-                                setMainSupplies([...mainSupplies, { name: e.target.value, quantity: "", unit: compatibleUnits(unitOf(e.target.value))[0] }])
-                            }}
-                            aria-invalid={!!formFieldErrors["10"]}
-                            className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                            style={{
-                              ...sheetControl,
-                              border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
-                              color: t.muted,
-                            }}
-                          >
-                            <option value="">+ Agregar insumo a la ficha...</option>
-                            {ingredientOptions.map((name) => (
-                              <option key={name} value={name}>
-                                {name} ({unitOf(name)})
-                              </option>
-                            ))}
-                          </select>
+                          <>
+                            {/* Search box: typing filters the insumos; picking one adds it to the ficha */}
+                            <input
+                              type="search"
+                              list="sheet-supply-options"
+                              placeholder="+ Buscar insumo para agregar a la ficha..."
+                              aria-label="Buscar insumo para agregar a la ficha"
+                              onChange={(e) => {
+                                const name = ingredientOptions.find((n) => n.toLowerCase() === e.target.value.trim().toLowerCase())
+                                if (!name) return
+                                setMainSupplies([...mainSupplies, { name, quantity: "", unit: unitsOf(name)[0] }])
+                                e.target.value = ""
+                              }}
+                              aria-invalid={!!formFieldErrors["10"]}
+                              className="rounded-xl px-3 py-2.5 text-sm outline-none"
+                              style={{
+                                ...sheetControl,
+                                border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
+                              }}
+                            />
+                            <datalist id="sheet-supply-options">
+                              {ingredientOptions.map((name) => (
+                                <option key={name} value={name} label={unitOf(name)} />
+                              ))}
+                            </datalist>
+                          </>
                         )}
                         {formFieldErrors["10"] && (
                           <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
@@ -2543,7 +2546,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   // A soda bought at or above its sale price would sell at a loss: say so (it still gets added)
                   const salePrice = Number(sodaProductRow(purchaseItemSelect)?.[2]) || 0
                   setPurchaseFormError(
-                    isSodaName(purchaseItemSelect) && salePrice > 0 && price >= salePrice
+                    isStockedExtra(purchaseItemSelect) && salePrice > 0 && price >= salePrice
                       ? `Ojo: «${purchaseItemSelect}» se vende a ${fmt(salePrice)} y la estás comprando a ${fmt(price)} por unidad: se vendería a pérdida. Revisa si el precio es por unidad o sube su precio de venta en Productos.`
                       : "",
                   )
@@ -3437,7 +3440,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           ? [...new Set([
                               ...(rows.insumos || []).filter((r) => isActiveStatus(r[12])).map((r) => String(r[0])),
                               // a soda (a broken bottle) is lost from its product's stock
-                              ...(rows.producto || []).filter((p) => p[1] === SODA_PRODUCT && isSodaName(p[0]) && isActiveStatus(p[4])).map((p) => String(p[0])),
+                              ...(rows.producto || []).filter((p) => ((p[1] === SODA_PRODUCT && isSodaName(p[0])) || p[1] === ADDITION_PRODUCT) && isActiveStatus(p[4])).map((p) => String(p[0])),
                               ...(formData["0"] ? [String(formData["0"])] : []),
                             ])]
                           : modal.section === "perdidas" && f.key === "3"

@@ -10,7 +10,7 @@ const CheckoutPage = lazy(() => import("@/features/checkout/pages/CheckoutPage")
 const ClientApp = lazy(() => import("@/features/client/pages/ClientApp"))
 const LandingPage = lazy(() => import("@/features/landing/pages/LandingPage"))
 const GuestMenuPage = lazy(() => import("@/features/menu/pages/GuestMenuPage"))
-import { addCartItem } from "@/features/checkout/utils/cart"
+import { addCartItem, kitchenNote } from "@/features/checkout/utils/cart"
 import { loadMenu, refreshCartProducts } from "@/features/menu/services/menu.service"
 import { loadOrders, orderFromDb, refreshOrders, saveOrders } from "@/features/orders/services/orders.service"
 import { orderDbId } from "@/features/orders/utils/orders"
@@ -297,7 +297,8 @@ function AppRoutes() {
                 producto: item.name,
                 cantidad: item.qty,
                 salsas: item.sauces || [],
-                ...(item.note?.trim() ? { nota: item.note.trim() } : {}),
+                // The kitchen reads what to leave out and the comment in the same note
+                ...((n) => (n ? { nota: n } : {}))(kitchenNote(item.without, item.note)),
                 adiciones: (item.additions || []).map((a) => ({ nombre: a.name, cantidad: a.qty })),
               })),
           })

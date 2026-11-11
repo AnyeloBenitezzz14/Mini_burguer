@@ -1,10 +1,11 @@
+import { withoutInNote } from "@/features/checkout/utils/cart"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { MOD_CFG, PAYMENT_NEXT, PRODUCTION_STATUSES, QUICK_FILTERS, SECTION_MODULE, SIDEBAR_MENU, STALE_ORDER_DAYS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
 import { DB_SYNC, PANEL_SYNC, saveRowToDb } from "@/features/admin/services/sync.service"
 import { getDashPeriod } from "@/features/admin/utils/dashboard"
 import { buildProductionRows, clientOrderToPanelRow, derivePedidoPayment, fixShiftedSale, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isSuperAdminRow, nextAutoSaleCode, parseMainSupplies, parsePurchaseLines, permsFromDb, permsToDb, productionLabel, roleLabel, saleTypeOf, supplierRequiredKeys, supplyAsProduct, syncIdIndex, text, withId, withPanelId } from "@/features/admin/utils/rows"
 import { loadRegisteredClients } from "@/features/auth/services/auth.service"
-import { SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, sodaImage } from "@/features/menu/data/products"
+import { ADDITION_PRODUCT, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders, pushOrder, readVoucher, saveOrders } from "@/features/orders/services/orders.service"
 import { isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import { Ico } from "@/shared/components/icons"
@@ -347,11 +348,11 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     ...(rows.producto || []).flatMap((p, i) => {
       const stock = Number(p[12]) || 0
       const bought = (rows.compras || []).some((c) => parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === normalizeName(p[0])))
-      return p[1] === SODA_PRODUCT && isSodaName(p[0]) && isActiveStatus(p[4]) && bought && stock <= (Number(p[14]) || 0)
+      return ((p[1] === SODA_PRODUCT && isSodaName(p[0])) || p[1] === ADDITION_PRODUCT) && isActiveStatus(p[4]) && bought && stock <= (Number(p[14]) || 0)
         ? [{
             id: 7000 + i,
             type: stock <= 0 ? ("danger" as const) : ("warn" as const),
-            title: stock <= 0 ? "Gaseosa agotada" : "Pocas gaseosas",
+            title: p[1] === ADDITION_PRODUCT ? (stock <= 0 ? "Adición agotada" : "Pocas adiciones") : stock <= 0 ? "Gaseosa agotada" : "Pocas gaseosas",
             message: stock <= 0
               ? `${String(p[0])} se agotó: no se muestra en la tienda hasta la próxima compra.`
               : `De ${String(p[0])} quedan ${stock} und; el mínimo es ${Number(p[14]) || 0} und.`,
@@ -974,7 +975,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   }
   // What carries stock: an insumo, or a resale soda (its product of «Bebidas»: row[12] stock, row[13] cost)
   const sodaProductRow = (name: string | number) =>
-    isSodaName(name) ? (rows.producto || []).find((p) => p[1] === SODA_PRODUCT && normalizeName(p[0]) === normalizeName(name)) : undefined
+    isStockedExtra(name) ? (rows.producto || []).find((p) => (p[1] === SODA_PRODUCT || p[1] === ADDITION_PRODUCT) && normalizeName(p[0]) === normalizeName(name)) : undefined
   const stockOf = (name: string | number) => {
     const insumo = rows.insumos?.find((i) => normalizeName(i[0]) === normalizeName(name))
     return insumo ? Number(insumo[4]) : Number(sodaProductRow(name)?.[12])
@@ -988,7 +989,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   const wasBought = (name: string | number) =>
     (rows.compras || []).some((c) => parsePurchaseLines(c[6]).some((l) => normalizeName(l.name) === normalizeName(name)))
   // Every soda for sale, named like the order line (Productos already lists them)
-  const sodaOptions = (rows.producto || []).filter((p) => p[1] === SODA_PRODUCT && isSodaName(p[0])).map((p) => String(p[0]))
+  // (and the additions: bought and sold the same way)
+  const sodaOptions = (rows.producto || []).filter((p) => (p[1] === SODA_PRODUCT && isSodaName(p[0])) || p[1] === ADDITION_PRODUCT).map((p) => String(p[0]))
   const getAvailableInsumos = () =>
     [...new Set((rows.insumos || []).map((row) => String(row[0] ?? "").trim()).filter(Boolean))].sort((a, b) =>
       a.localeCompare(b),
@@ -1234,6 +1236,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       insumos: [
         // Cost is an optional estimate; "Stock actual" isn't shown when creating (starts at 0)
         "3",
+        // «¿Lo preparan ustedes?» is optional: unchecked = bought ready
+        "7",
+        // What a package holds is only asked (and shown) for the unit "paq"
+        ...(String(draft["2"] ?? "") === "paq" ? [] : ["6", "14"]),
         ...(mode === "add" ? ["4"] : []),
         ...(String(draft["7"] ?? "").toLowerCase() === "sí"
           ? ["8", "9"]
@@ -2919,7 +2925,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       const used = [...bought].flatMap(([name, quantity]) => {
         // an insumo, or a soda (its stock is on its product)
         const stock = stockOf(name)
-        const unit = isSodaName(name) ? "und" : String(rows.insumos?.find((i) => normalizeName(i[0]) === normalizeName(name))?.[2] ?? "")
+        const unit = isStockedExtra(name) ? "und" : String(rows.insumos?.find((i) => normalizeName(i[0]) === normalizeName(name))?.[2] ?? "")
         return Number.isFinite(stock) && stock < quantity ? [`de «${name}» quedan ${stock} ${unit} y la compra sumó ${quantity}`] : []
       })
       if (used.length)
@@ -3528,7 +3534,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           continue
         }
         // A resale soda carries its own stock (its product): one sold = one out, once it has ever been bought
-        if (isSodaName(item.name)) {
+        if (isStockedExtra(item.name)) {
           if (wasBought(item.name)) {
             const current = requiredSupplies.get(item.name)
             requiredSupplies.set(item.name, { quantity: (current?.quantity ?? 0) + item.quantity, unit: "und" })
@@ -3536,7 +3542,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           continue
         }
         const product = rows.producto?.find((candidate) => candidate[0] === item.name)
-        for (const ingredient of getProductRecipe(product)) {
+        // What the customer asked to leave out isn't used, so it isn't taken out of the stock
+        const leftOut = withoutInNote(item.note)
+        for (const ingredient of getProductRecipe(product).filter((i) => !leftOut.includes(i.name.trim().toLowerCase()))) {
           const supply = rows.insumos?.find((candidate) => candidate[0] === ingredient.name)
           const unit = String(supply?.[2] ?? "").trim()
           // Recipe in its own unit (e.g. 2 und of egg) → the insumo's unit (2/15 paq)

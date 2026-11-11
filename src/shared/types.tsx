@@ -35,6 +35,8 @@ export type CartItem = {
   img: string
   sauces?: string[]
   note?: string
+  // Ingredients to leave out (sent to the kitchen with the note)
+  without?: string[]
   additions?: { name: string; qty: number; price: number }[]
 }
 
@@ -117,6 +119,8 @@ export type Product = {
   cat: string
   badge: string
   soldOut?: boolean
+  // Recipe ingredients the customer can ask to leave out
+  ingredients?: string[]
 }
 
 export type TechnicalIngredient = {
@@ -192,6 +196,7 @@ export type CatalogItem = {
   categoria: string
   imagenes: string[]
   estado?: string | null
+  ingredientes?: string[]
 }
 
 // ── Admin tables ↔ backend ─────────────────────────────────────────────────────
