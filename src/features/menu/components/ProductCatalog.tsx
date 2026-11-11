@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { aboutIcon } from "@/features/landing/utils/aboutIcons"
 import { MENU_CATS, SODA_RE, allMenuProducts, sizeMl } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
@@ -7,6 +7,7 @@ import { ITEMS_PER_PAGE } from "@/shared/constants"
 import { C } from "@/shared/styles/theme"
 import type { Product } from "@/shared/types"
 import { fmt } from "@/shared/utils/format"
+import { isStoreOpen, nextOpeningLabel } from "@/shared/utils/storeHours"
 
 // ── Product Catalog Grid (shared, landing + client) ────────────────────────────
 export default function ProductCatalog({
@@ -23,6 +24,13 @@ export default function ProductCatalog({
   const [activeCat, setActiveCat] = useState("todos")
   const [search, setSearch] = useState("")
   const [pg, setPg] = useState(0)
+  // Rechecked every minute so the "Tienda cerrada" notice appears and goes away by itself
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const open = isStoreOpen(now)
   const topRef = useRef<HTMLDivElement>(null)
   // Changing page brings the menu back into view
   const goPage = (i: number) => {
@@ -75,42 +83,63 @@ export default function ProductCatalog({
   }
   return (
     <div ref={topRef}>
-      {/* Category tabs */}
+      {/* Category tabs: a photo of one of its products over the name; the chosen one is underlined */}
       <div
-        className={`flex snap-x gap-2 overflow-x-auto pb-2 md:flex-wrap md:overflow-visible ${compact ? "mb-2" : "mb-4"}`}
-        style={{ scrollbarWidth: "none" }}
+        className={`-mx-1 flex snap-x gap-1 overflow-x-auto border-b px-1 ${compact ? "mb-3" : "mb-5"}`}
+        style={{ scrollbarWidth: "none", borderColor: BORDER }}
         role="tablist"
         aria-label="Categorías del menú"
       >
-        {MENU_CATS.filter((cat) => cat.id !== "salsas").map((cat) => {
+        {MENU_CATS.filter((cat) => cat.id !== "salsas" && (cat.id === "todos" || catalogProducts.some((p) => p.cat === cat.id))).map((cat) => {
           const active = activeCat === cat.id
+          const photo = (cat.id === "todos" ? catalogProducts : catalogProducts.filter((p) => p.cat === cat.id)).find((p) => p.img)?.img
           return (
             <button
               key={cat.id}
+              type="button"
               role="tab"
               aria-selected={active}
               onClick={() => switchCat(cat.id)}
-              className={`flex flex-shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 font-semibold transition-all hover:-translate-y-px ${compact ? "text-xs" : "text-sm"} ${active ? "landing-menu-control" : ""}`}
-              style={{
-                background: active ? C.mustard : dark ? "rgba(255,255,255,0.05)" : "#fff",
-                border: `1px solid ${active ? C.mustard : BORDER}`,
-                color: active ? "#fff" : dark ? "#F4EEDC" : "#2A2622",
-              }}
+              className={`group relative flex flex-shrink-0 snap-start cursor-pointer flex-col items-center gap-1.5 px-3 font-semibold ${compact ? "pb-2 text-xs" : "pb-3 text-sm"}`}
+              style={{ color: active ? C.mustard : TEXT }}
             >
               <span
-                className={`flex items-center justify-center rounded-full ${compact ? "h-6 w-6" : "h-7 w-7"}`}
+                className={`flex items-center justify-center overflow-hidden rounded-full transition-transform duration-200 group-hover:-translate-y-0.5 ${compact ? "h-11 w-11" : "h-14 w-14 md:h-16 md:w-16"}`}
                 style={{
-                  background: active ? "rgba(255,255,255,0.22)" : `${C.mustard}1A`,
-                  color: active ? "#fff" : C.mustard,
+                  background: `${C.mustard}1A`,
+                  color: C.mustard,
+                  outline: active ? `2px solid ${C.mustard}` : "none",
+                  outlineOffset: 2,
                 }}
               >
-                {aboutIcon(18, cat.icon)}
+                {photo ? <img src={photo} alt="" className="h-full w-full object-cover" /> : aboutIcon(22, cat.icon)}
               </span>
               <span className="whitespace-nowrap">{cat.label}</span>
+              <span
+                aria-hidden="true"
+                className="absolute bottom-0 left-2 right-2 h-[3px] rounded-full transition-opacity"
+                style={{ background: C.mustard, opacity: active ? 1 : 0 }}
+              />
             </button>
           )
         })}
       </div>
+      {/* Outside the store hours: says when it opens (the menu stays visible) */}
+      {!open && (
+        <div
+          role="status"
+          className={`flex items-center gap-3 rounded-2xl px-4 text-white ${compact ? "mb-3 py-2.5" : "mb-5 py-3.5"}`}
+          style={{ background: C.red }}
+        >
+          <span className="flex-shrink-0">{Ico.clock}</span>
+          <span className="min-w-0">
+            <span className={`block font-bold ${compact ? "text-sm" : "text-base"}`}>Tienda cerrada</span>
+            <span className="block text-xs sm:text-sm" style={{ color: "rgba(255,255,255,0.9)" }}>
+              El Parche atenderá {nextOpeningLabel(now)}
+            </span>
+          </span>
+        </div>
+      )}
       {/* Search in catalog */}
       <div
         className={`search-control flex w-full items-center gap-2 rounded-full px-3 ${compact ? "mb-3 py-2" : "mb-5 py-2.5"} sm:max-w-md`}

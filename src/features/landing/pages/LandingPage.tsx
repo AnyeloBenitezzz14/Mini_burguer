@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { STORE_HOURS_LABEL } from "@/shared/utils/storeHours"
 import landingBackgroundImg from "@/imports/landing-background.jpg"
 import logoImg from "@/imports/logo.png"
 import storyBelloImg from "@/imports/story-bello.jpg"
@@ -768,7 +769,7 @@ export default function LandingPage({
                     className="text-base font-semibold"
                     style={{ color: C.amber }}
                   >
-                    6:00pm a 11:30pm
+                    {STORE_HOURS_LABEL}
                   </span>
                 </div>
                 <div
