@@ -7,6 +7,7 @@ import { loadOrders } from "@/features/orders/services/orders.service"
 import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import FieldError from "@/shared/components/FieldError"
 import UserHistory from "@/features/admin/components/UserHistory"
+import SuggestInput from "@/features/admin/components/SuggestInput"
 import { Ico } from "@/shared/components/icons"
 import { FIRST_DAY, MAX_PRICE } from "@/shared/constants"
 import { C, badgeSt } from "@/shared/styles/theme"
@@ -738,24 +739,19 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           {f.key === "0" && !isView && formData["1"] === SODA_PRODUCT && (
             <label className="mt-1 flex flex-col gap-1.5 text-xs font-semibold" style={{ color: formFieldErrors.sodaSize ? C.red : t.muted }}>
               Tamaño (solo gaseosas)
-              <input
-                list="soda-size-options"
+              <SuggestInput
+                t={t}
                 value={formData.sodaSize ?? ""}
-                onChange={(e) => {
-                  setFormData((current) => ({ ...current, sodaSize: e.target.value }))
+                onChange={(v) => {
+                  setFormData((current) => ({ ...current, sodaSize: v }))
                   setFormFieldErrors((current) => ({ ...current, sodaSize: "" }))
                 }}
+                options={[...new Set((rows.producto || []).flatMap((p) => (p[1] === SODA_PRODUCT ? [SODA_RE.exec(String(p[0]))?.[2] ?? ""] : [])))].filter(Boolean)}
+                empty="Tamaño nuevo: se guarda tal cual"
                 placeholder="Ej: Personal, 1.5 L, 3 L"
                 className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm font-normal outline-none"
                 style={{ background: t.input, border: `1.5px solid ${formFieldErrors.sodaSize ? C.red : t.inputB}`, color: t.text }}
               />
-              <datalist id="soda-size-options">
-                {[...new Set((rows.producto || []).flatMap((p) => (p[1] === SODA_PRODUCT ? [SODA_RE.exec(String(p[0]))?.[2] ?? ""] : [])))]
-                  .filter(Boolean)
-                  .map((size) => (
-                    <option key={size} value={size} />
-                  ))}
-              </datalist>
               <FieldError msg={formFieldErrors.sodaSize} />
               <span className="text-[11px] font-normal">
                 {String(formData.sodaSize ?? "").trim()
@@ -2466,29 +2462,20 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         {!isView && (
                           <>
                             {/* Search box: typing filters the insumos; picking one adds it to the ficha */}
-                            <input
-                              type="search"
-                              list="sheet-supply-options"
+                            <SuggestInput
+                              t={t}
+                              clearOnPick
+                              options={ingredientOptions.map((name) => ({ value: name, hint: unitOf(name) }))}
+                              onPick={(name) => setMainSupplies([...mainSupplies, { name, quantity: "", unit: unitsOf(name)[0] }])}
+                              empty="No hay insumos con ese nombre"
                               placeholder="+ Buscar insumo para agregar a la ficha..."
-                              aria-label="Buscar insumo para agregar a la ficha"
-                              onChange={(e) => {
-                                const name = ingredientOptions.find((n) => n.toLowerCase() === e.target.value.trim().toLowerCase())
-                                if (!name) return
-                                setMainSupplies([...mainSupplies, { name, quantity: "", unit: unitsOf(name)[0] }])
-                                e.target.value = ""
-                              }}
-                              aria-invalid={!!formFieldErrors["10"]}
-                              className="rounded-xl px-3 py-2.5 text-sm outline-none"
+                              inputProps={{ "aria-label": "Buscar insumo para agregar a la ficha", "aria-invalid": !!formFieldErrors["10"] }}
+                              className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                               style={{
                                 ...sheetControl,
                                 border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
                               }}
                             />
-                            <datalist id="sheet-supply-options">
-                              {ingredientOptions.map((name) => (
-                                <option key={name} value={name} label={unitOf(name)} />
-                              ))}
-                            </datalist>
                           </>
                         )}
                         {formFieldErrors["10"] && (
@@ -2988,16 +2975,20 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         Busca la venta *
                         <div className="search-control flex items-center gap-2 rounded-full px-3">
                           <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
-                          <input
-                            list="return-sales"
+                          <SuggestInput
+                            t={t}
                             value={saleCode}
-                            onChange={(event) => {
-                              const code = event.target.value.trim()
+                            onChange={(v) => {
+                              const code = v.trim()
                               setFormData((current) => ({ ...current, "1": code, "6": "[]" }))
                               setFormFieldErrors((current) => ({ ...current, "1": "" }))
                             }}
+                            options={(rows.ventas || [])
+                              .filter((v) => !saleReturnBlock(v))
+                              .map((v) => ({ value: String(v[0]), hint: `${String(v[2] ?? "")} · ${fmt(Number(v[7]) || 0)}` }))}
+                            empty="No hay ventas que se puedan devolver con ese dato"
                             placeholder="Código de la venta o cliente..."
-                            className="min-w-0 flex-1 bg-transparent py-2.5 text-sm font-normal outline-none"
+                            className="w-full min-w-0 bg-transparent py-2.5 text-sm font-normal outline-none"
                             style={{ color: t.text }}
                           />
                           {saleCode && (
@@ -3010,13 +3001,6 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               ×
                             </button>
                           )}
-                          <datalist id="return-sales">
-                            {(rows.ventas || [])
-                              .filter((v) => !saleReturnBlock(v))
-                              .map((v) => (
-                                <option key={String(v[0])} value={String(v[0])}>{`${String(v[2] ?? "")} · ${fmt(Number(v[7]) || 0)}`}</option>
-                              ))}
-                          </datalist>
                         </div>
                         {fieldValidationError && <span className="text-[10px] font-medium">{fieldValidationError}</span>}
                         <span className="text-[10px] font-normal" style={{ color: t.muted }}>
@@ -3910,14 +3894,15 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     <div className="flex min-w-0 gap-2">
                       <div className="search-control flex min-w-0 flex-1 items-center gap-2 rounded-full px-3">
                         <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
-                        <input
-                          list="sale-clients"
-                          value={val}
-                          onChange={(event) => updateAdminField(modal.section, f.key, event.target.value)}
+                        <SuggestInput
+                          t={t}
+                          value={String(val ?? "")}
+                          onChange={(v) => updateAdminField(modal.section, f.key, v)}
+                          options={clientOptions}
+                          empty="No hay clientes con ese nombre. Usa «Crear cliente»."
                           placeholder="Busca por nombre..."
-                          aria-label="Cliente"
-                          aria-invalid={!!fieldValidationError}
-                          className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
+                          inputProps={{ "aria-label": "Cliente", "aria-invalid": !!fieldValidationError }}
+                          className="w-full min-w-0 bg-transparent py-2.5 text-sm outline-none"
                           style={{ color: t.text }}
                         />
                         {val && (
@@ -3930,9 +3915,6 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             ×
                           </button>
                         )}
-                        <datalist id="sale-clients">
-                          {clientOptions.map((name) => <option key={name} value={name} />)}
-                        </datalist>
                       </div>
                       <button
                         type="button"
