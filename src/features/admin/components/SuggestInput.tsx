@@ -6,6 +6,8 @@ export type Suggestion = { value: string; hint?: string }
 
 type Props = {
   value?: string
+  // Starting text when the box keeps its own text (no `value`)
+  initial?: string
   onChange?: (value: string) => void
   // Called when an option is chosen (click or Enter); the ficha search uses it and then clears
   onPick?: (value: string) => void
@@ -20,8 +22,8 @@ type Props = {
 }
 
 // Search box with a themed suggestion list (replaces the browser's <datalist>, which can't be styled)
-export default function SuggestInput({ value, onChange, onPick, clearOnPick, options, t, placeholder, className, style, inputProps, empty = "Sin coincidencias" }: Props) {
-  const [own, setOwn] = useState("")
+export default function SuggestInput({ value, initial, onChange, onPick, clearOnPick, options, t, placeholder, className, style, inputProps, empty = "Sin coincidencias" }: Props) {
+  const [own, setOwn] = useState(initial ?? "")
   const text = value ?? own
   const [open, setOpen] = useState(false)
   const [active, setActive] = useState(0)

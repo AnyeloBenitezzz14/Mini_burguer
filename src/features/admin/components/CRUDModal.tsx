@@ -4439,6 +4439,25 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           </div>
                         )}
                       </div>
+                    ) : isPedido && f.key === "0" && !isView ? (
+                      // Only a client picked from the list counts; typed text that matches none leaves the field empty
+                      <SuggestInput
+                        key={`pedido-cliente-${modal.mode}-${modal.idx ?? "new"}`}
+                        t={t}
+                        initial={String(val ?? "")}
+                        options={fieldOptions || []}
+                        onPick={(v) => updateFieldValue(v)}
+                        onChange={(v) => { if (!(fieldOptions || []).includes(v) && val) updateFieldValue("") }}
+                        empty="No hay clientes con ese nombre"
+                        placeholder="Buscar cliente por nombre..."
+                        inputProps={{
+                          "aria-label": "Buscar cliente que recibe",
+                          "aria-invalid": !!fieldValidationError,
+                          onBlur: () => { if (requiredFormField) setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode)) },
+                        }}
+                        className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none"
+                        style={{ background: t.input, border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`, color: t.text }}
+                      />
                     ) : (
                     <select
                       value={val}
