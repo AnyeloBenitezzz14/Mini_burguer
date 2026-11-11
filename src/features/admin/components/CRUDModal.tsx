@@ -22,14 +22,6 @@ import type { ReactNode } from "react"
 // Called as a plain function ({CRUDModal()}), not <CRUDModal />: a component
 // declared inside AdminPanel is a new type on every render, which remounted the
 // form on each keystroke and dropped input focus. Keep hooks out of here.
-// Preparation time of a ficha: the minutes of each ingredient added up ("1 h 5 min")
-const prepMinutes = (recipe: TechnicalIngredient[]) => recipe.reduce((sum, i) => sum + (Number(i.minutes) || 0), 0)
-const formatMinutes = (total: number) => {
-  const h = Math.floor(total / 60)
-  const m = Math.round((total - h * 60) * 10) / 10
-  return h ? `${h} h${m ? ` ${m.toLocaleString("es-CO")} min` : ""}` : `${m.toLocaleString("es-CO")} min`
-}
-
 export default function CRUDModal(adminState: AdminPanelState): ReactNode {
   const {
     ORDER_TO_PRODUCTION,
@@ -1281,7 +1273,6 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   return { ...ingredient, cost: Number.isFinite(cost) ? cost : 0 }
                 })
                 const totalCost = lines.reduce((sum, line) => sum + line.cost, 0)
-                const totalMinutes = prepMinutes(recipe)
                 return (
                   <section className="flex flex-col gap-3 rounded-2xl px-4 py-4" style={{ border: `1px solid ${t.border}` }}>
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1317,27 +1308,23 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       <>
                         <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
                           <div
-                            className="grid grid-cols-[minmax(0,1fr)_auto_3.5rem_5.5rem] gap-x-3 px-3 py-2 text-[11px]"
+                            className="grid grid-cols-[minmax(0,1fr)_auto_5.5rem] gap-x-3 px-3 py-2 text-[11px]"
                             style={{ background: t.cardAlt, color: t.muted }}
                           >
                             <span>Insumo</span>
                             <span className="text-right">Cantidad</span>
-                            <span className="text-right">Tiempo</span>
                             <span className="text-right">Costo</span>
                           </div>
                           {lines.length ? (
                             lines.map((line, index) => (
                               <div
                                 key={`${line.name}-${index}`}
-                                className="grid grid-cols-[minmax(0,1fr)_auto_3.5rem_5.5rem] items-center gap-x-3 border-t px-3 py-1.5 text-sm"
+                                className="grid grid-cols-[minmax(0,1fr)_auto_5.5rem] items-center gap-x-3 border-t px-3 py-1.5 text-sm"
                                 style={{ borderColor: t.border, color: t.text }}
                               >
                                 <span className="min-w-0 break-words">{line.name}</span>
                                 <span className="text-right" style={{ color: t.muted }}>
                                   {line.quantity.toLocaleString("es-CO")} {line.unit}
-                                </span>
-                                <span className="text-right tabular-nums" style={{ color: t.muted }}>
-                                  {line.minutes ? `${line.minutes.toLocaleString("es-CO")} min` : "—"}
                                 </span>
                                 <span className="text-right">{fmt(Math.round(line.cost))}</span>
                               </div>
@@ -1351,12 +1338,6 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             <div className="flex items-center justify-between border-t px-3 py-2.5 text-sm" style={{ borderColor: t.border, background: `${C.mustard}0d` }}>
                               <span style={{ color: t.muted }}>Costo de los insumos por unidad</span>
                               <span className="font-semibold" style={{ color: C.mustard }}>{fmt(Math.round(totalCost))}</span>
-                            </div>
-                          )}
-                          {lines.length > 0 && (
-                            <div className="flex items-center justify-between border-t px-3 py-2.5 text-sm" style={{ borderColor: t.border }}>
-                              <span style={{ color: t.muted }}>Tiempo de preparación (suma de cada ingrediente)</span>
-                              <span className="font-semibold" style={{ color: t.text }}>{totalMinutes ? formatMinutes(totalMinutes) : "Sin tiempos"}</span>
                             </div>
                           )}
                         </div>
@@ -6153,7 +6134,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             return (
                               <div
                                 key={`${ingredient.name}-${index}`}
-                                className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_4.5rem_5rem_auto] items-center gap-2 border-b px-3 py-2 last:border-b-0"
+                                className="grid grid-cols-[minmax(0,1fr)_4.5rem_4.5rem_5rem_auto] items-center gap-2 border-b px-3 py-2 last:border-b-0"
                                 style={{ borderColor: t.border }}
                               >
                                 <span className="min-w-0">
@@ -6183,21 +6164,6 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                     <option key={unit} value={unit}>{unit}</option>
                                   ))}
                                 </select>
-                                <label className="relative block" title="Minutos que toma preparar este ingrediente">
-                                  <input
-                                    aria-label={`Minutos de preparación de ${ingredient.name}`}
-                                    type="number"
-                                    min="0"
-                                    max="600"
-                                    step="0.5"
-                                    placeholder="0"
-                                    value={ingredient.minutes ?? ""}
-                                    onChange={(event) => updateIngredient(index, { minutes: event.target.value === "" ? undefined : Math.max(0, Math.min(600, Number(event.target.value))) })}
-                                    className="w-full rounded-lg py-1.5 pl-2 pr-7 text-sm outline-none"
-                                    style={controlSt}
-                                  />
-                                  <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px]" style={{ color: t.muted }}>min</span>
-                                </label>
                                 <span className="text-right text-sm" style={{ color: t.text }}>{fmt(Math.round(costOf(ingredient)))}</span>
                                 <button
                                   type="button"
@@ -6214,12 +6180,6 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           <div className="flex items-center justify-between px-3 py-2.5 text-sm" style={{ background: `${C.mustard}0d` }}>
                             <span style={{ color: t.muted }}>Costo de los insumos por unidad</span>
                             <span className="font-semibold" style={{ color: C.mustard }}>{fmt(Math.round(totalCost))}</span>
-                          </div>
-                          <div className="flex items-center justify-between border-t px-3 py-2.5 text-sm" style={{ borderColor: t.border }}>
-                            <span style={{ color: t.muted }}>Tiempo de preparación (suma de cada ingrediente)</span>
-                            <span className="font-semibold" style={{ color: t.text }}>
-                              {prepMinutes(technicalIngredients) ? formatMinutes(prepMinutes(technicalIngredients)) : "Escribe los minutos de cada ingrediente"}
-                            </span>
                           </div>
                         </div>
                       ) : null}
