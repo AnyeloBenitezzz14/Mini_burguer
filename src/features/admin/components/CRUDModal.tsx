@@ -921,6 +921,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               ))}
             </>
           )}
+          {isSales && isView && (
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="flex h-8 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-xs font-semibold"
+              style={{ background: t.input, color: t.text }}
+            >
+              {Ico.download} Imprimir comprobante
+            </button>
+          )}
           <button
             onClick={requestCloseModal}
             aria-label="Cerrar"
@@ -932,7 +942,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           </div>
         </div>
         <div
-          className={`min-w-0 overflow-x-hidden ${isRoles || isUser || isSidePanel ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
+          className={`${isSales && isView ? "print-receipt " : ""}min-w-0 overflow-x-hidden ${isRoles || isUser || isSidePanel ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
             isUser
               ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
               : isRoles && !isView
@@ -958,6 +968,12 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             scrollbarWidth: "thin",
           }}
         >
+          {isSales && isView && (
+            <div className="print-only mb-3 border-b pb-2 text-center">
+              <p className="text-base font-bold">El Parche Mini Burguer</p>
+              <p className="text-xs">Comprobante de venta {String(row?.[0] ?? "")} · impreso el {new Date().toLocaleString("es-CO")}</p>
+            </div>
+          )}
           {/* Purchase module detail header: record name + status */}
           {isView && isPurchaseModule && !isPurchase && !isSupply && !isSupplier && !isClient && !isPedido && !isSales &&
             modal.section !== "cat-insumos" && modal.section !== "perdidas" && row && (

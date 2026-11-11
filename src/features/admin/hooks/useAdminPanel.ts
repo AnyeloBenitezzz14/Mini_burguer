@@ -3871,6 +3871,54 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   )
   const topUnits = [...unitsByProduct].sort((x, y) => y[1] - x[1]).slice(0, 5)
   const TOP = topUnits.map(([name, units]) => ({ name, units, pct: Math.round((units / topUnits[0][1]) * 100) }))
+  // Least sold of the period (among products that sold at least one)
+  const LEAST = [...unitsByProduct].sort((x, y) => x[1] - y[1]).slice(0, 5).map(([name, units]) => ({ name, units }))
+  // Top 10 clients of the period by money spent
+  const byClient = new Map<string, { total: number; count: number }>()
+  periodSales.forEach((r) => {
+    const name = String(r[2] ?? "").trim() || "Sin cliente"
+    const c = byClient.get(name) ?? { total: 0, count: 0 }
+    byClient.set(name, { total: c.total + saleTotal(r), count: c.count + 1 })
+  })
+  const TOP_CLIENTS = [...byClient].sort((x, y) => y[1].total - x[1].total).slice(0, 10).map(([name, v]) => ({ name, ...v }))
+  const bySaleTotal = [...periodSales].sort((x, y) => saleTotal(y) - saleTotal(x))
+  const saleSummary = (r?: (string | number)[]) => (r ? { code: String(r[0] ?? ""), client: String(r[2] ?? ""), total: saleTotal(r) } : null)
+  const SALE_EXTREMES = { max: saleSummary(bySaleTotal[0]), min: saleSummary(bySaleTotal[bySaleTotal.length - 1]) }
+  const PERIOD_SUBTOTALS = chart.labels.map((label, i) => ({ label, total: chart.values[i] }))
+  // Annual card: this calendar year (of the chosen date) against the previous one, all from the sales rows
+  const annual = (() => {
+    const y = chartAnchor.getFullYear()
+    const inYear = (year: number) => validSales.filter((r) => dateOf(r[3])?.getFullYear() === year)
+    const thisYear = inYear(y)
+    const total = thisYear.reduce((s, r) => s + saleTotal(r), 0)
+    const prevTotal = inYear(y - 1).reduce((s, r) => s + saleTotal(r), 0)
+    const months = Array.from({ length: 12 }, () => 0)
+    thisYear.forEach((r) => { months[dateOf(r[3])!.getMonth()] += saleTotal(r) })
+    const bestMonthIdx = months.indexOf(Math.max(...months))
+    const categoryOf = new Map((rows.producto || []).map((p) => [normalizeName(p[0]), String(p[1] ?? "")]))
+    const unitsByCategory = new Map<string, number>()
+    let units = 0
+    thisYear.forEach((r) =>
+      saleLines(r).filter((l) => l.product && !l.parentId).forEach((l) => {
+        const q = Number(l.quantity) || 0
+        const cat = categoryOf.get(normalizeName(l.product)) || "Sin categoría"
+        unitsByCategory.set(cat, (unitsByCategory.get(cat) ?? 0) + q)
+        units += q
+      }),
+    )
+    const bestCategory = [...unitsByCategory].sort((a, b) => b[1] - a[1])[0]
+    const avg = (list: (string | number)[][]) => (list.length ? list.reduce((s, r) => s + saleTotal(r), 0) / list.length : 0)
+    return {
+      year: y,
+      count: thisYear.length,
+      total,
+      vsPrev: change(total, prevTotal),
+      bestMonth: total ? { name: new Date(y, bestMonthIdx, 1).toLocaleDateString("es-CO", { month: "long" }), total: months[bestMonthIdx] } : null,
+      bestCategory: bestCategory && units ? { name: bestCategory[0], pct: Math.round((bestCategory[1] / units) * 100) } : null,
+      ticket: avg(periodSales),
+      ticketVsPrev: change(avg(periodSales), avg(prevSales)),
+    }
+  })()
   const KPI = [
     {
       icon: Ico.cash,
@@ -4304,6 +4352,11 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     unitsByProduct,
     topUnits,
     TOP,
+    LEAST,
+    TOP_CLIENTS,
+    SALE_EXTREMES,
+    PERIOD_SUBTOTALS,
+    annual,
     KPI,
     returnReasons,
     seesSales,

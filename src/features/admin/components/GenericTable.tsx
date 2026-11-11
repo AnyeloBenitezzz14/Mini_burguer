@@ -6,6 +6,7 @@ import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import { Ico } from "@/shared/components/icons"
+import PurchaseProjection from "@/features/admin/components/PurchaseProjection"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { Row } from "@/shared/types"
 import { fmt, normalizeName } from "@/shared/utils/format"
@@ -699,6 +700,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
             Valor perdido: {fmt(Math.round(filtered.reduce((sum, { row }) => sum + lossValue(row), 0)))}
           </span>
         )}
+        {section === "insumos" && <PurchaseProjection t={t} />}
         {!noExp && (
           <button
             type="button"
