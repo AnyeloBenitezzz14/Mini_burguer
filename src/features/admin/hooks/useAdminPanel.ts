@@ -1020,6 +1020,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             name: String(item.name ?? "").trim(),
             quantity: Number(item.quantity),
             unit: String(item.unit ?? "").trim(),
+            ...(Number.isFinite(Number(item.minutes)) && item.minutes !== null && item.minutes !== undefined ? { minutes: Number(item.minutes) } : {}),
           }))
           .filter(
             (item) => item.name && Number.isFinite(item.quantity) && item.quantity > 0 && item.unit,

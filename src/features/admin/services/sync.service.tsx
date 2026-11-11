@@ -105,7 +105,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
         [p.nombre, currentCategory(p.nombre_categoria), p.precio, p.descripcion || "", p.estado === "ACTIVO" ? "Activo" : "Inactivo",
           p.ficha?.nombre || `Ficha ${p.nombre}`, p.ficha?.version || "v1.0", p.ficha?.insumos_principales || "",
           p.ficha?.preparacion || "",
-          JSON.stringify((p.ficha?.ingredientes || []).map((i: DbRecord) => ({ name: i.insumo, quantity: i.cantidad, unit: i.medida || "" }))),
+          JSON.stringify((p.ficha?.ingredientes || []).map((i: DbRecord) => ({ name: i.insumo, quantity: i.cantidad, unit: i.medida || "", ...(i.minutos != null ? { minutes: Number(i.minutos) } : {}) }))),
           "Disponible"],
         11,
         p.id_insumo_producto,
@@ -142,7 +142,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
         preparacion: text(row[8]),
         ingredientes: recipe
           .filter((i) => Number(i.quantity) > 0)
-          .map((i) => ({ insumo: i.name, cantidad: Number(i.quantity), medida: i.unit || undefined })),
+          .map((i) => ({ insumo: i.name, cantidad: Number(i.quantity), medida: i.unit || undefined, ...(Number(i.minutes) >= 0 && i.minutes !== undefined ? { minutos: Number(i.minutes) } : {}) })),
       })
     },
   },

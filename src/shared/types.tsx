@@ -127,6 +127,8 @@ export type TechnicalIngredient = {
   name: string
   quantity: number
   unit: string
+  // Minutes this ingredient takes to prepare; the product's time is the sum
+  minutes?: number
 }
 
 export type AdminOrderLine = {
