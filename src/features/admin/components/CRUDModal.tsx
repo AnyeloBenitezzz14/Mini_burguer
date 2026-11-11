@@ -2213,6 +2213,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               // These details have their own layout below
               if (isView && (isSupply || isSupplier || modal.section === "cat-insumos" || modal.section === "perdidas")) return null
               if (isView && isPurchase) return null // the purchase ticket shows everything
+              if (isView && isUser && f.key === "6") return null // the password is never shown
               if (isPurchase && !isView && f.key === "2") return null
               // Shown in the detail header (with autoId, row[0] is the code, so field "0" stays)
               if (isView && isPurchaseModule && f.key === "0" && !cfg.autoId) return null

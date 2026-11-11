@@ -59,7 +59,7 @@ export default function SuggestInput({ value, initial, onChange, onPick, clearOn
     <div ref={box} className="relative min-w-0 flex-1">
       <input
         {...inputProps}
-        type="search"
+        type="text"
         role="combobox"
         aria-expanded={open}
         aria-controls={listId}

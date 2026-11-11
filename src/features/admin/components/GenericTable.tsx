@@ -245,6 +245,13 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     if (section === "producto" && rowCellIndex === 2 && !(Number(cell) > 0)) {
       return "Sin precio"
     }
+    // Money columns as $13.000: product price, purchase total, delivery cost
+    if (
+      cell !== "" && Number.isFinite(Number(cell)) &&
+      ((section === "producto" && rowCellIndex === 2) || (section === "compras" && rowCellIndex === 4) || (section === "domicilios" && rowCellIndex === 3))
+    ) {
+      return fmt(Number(cell))
+    }
     // A purchase shows what was bought (in the old "Subtotal" place): "Leche", "Leche + Queso", "Leche + Queso cre…"
     if (section === "compras" && row && rowCellIndex === 3) {
       const names = [...new Set(parsePurchaseLines(row[6]).map((line) => line.name))]

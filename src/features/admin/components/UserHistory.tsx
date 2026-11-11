@@ -18,7 +18,7 @@ export default function UserHistory({ id, t }: { id: number; t: ReturnType<typeo
     api<Change[]>(`/usuarios/${id}/historial`).then(setItems).catch((e: Error) => setError(e.message))
   }, [id])
   return (
-    <section className="sm:col-span-full mt-2 border-t pt-4" style={{ borderColor: t.border }}>
+    <section className="order-last col-span-full mt-2 border-t pt-4" style={{ borderColor: t.border }}>
       <h4 className="mb-2 text-xs font-bold uppercase tracking-wider" style={{ color: t.text }}>Historial de cambios</h4>
       {error ? (
         <p className="text-xs" style={{ color: t.muted }}>No se pudo cargar el historial: {error}</p>
