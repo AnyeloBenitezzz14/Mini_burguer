@@ -838,6 +838,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   const [anulTarget, setAnulTarget] = useState<{
     section: string
     idx: number
+    // Same dialog, used to confirm before reactivating a user
+    reactivate?: boolean
   } | null>(null)
   const [chartFilter, setChartFilter] = useState<DashPeriod>("semana")
   // Any day inside the chosen period
@@ -3703,6 +3705,12 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     if (!target) return
 
     const row = rows[target.section]?.[target.idx]
+    if (target.reactivate) {
+      const statusIndex = MOD_CFG[target.section]?.statusIndex
+      if (statusIndex !== undefined) toggleStatus(target.section, target.idx, statusIndex)
+      setAnulTarget(null)
+      return
+    }
     if (!getAnulAssessment(target.section, row, target.idx).allowed) return
 
     const statusIndex = MOD_CFG[target.section]?.statusIndex

@@ -48,7 +48,7 @@ export const PRODUCTION_STATUSES = [
 
 export const MOD_CFG: Record<string, ModConfig> = {
   roles: {
-    columns: ["Nombre", "Descripción", "Estado"],
+    columns: ["Nombre", "Descripción", "Estado", "Creado", "Actualizado"],
     fields: [
       { key: "0", label: "Nombre del rol", type: "text" },
       { key: "1", label: "Descripción", type: "textarea" },

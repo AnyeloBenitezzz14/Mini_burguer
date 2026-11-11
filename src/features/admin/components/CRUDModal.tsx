@@ -6,6 +6,7 @@ import { ADDITION_PRODUCT, SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSod
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import FieldError from "@/shared/components/FieldError"
+import UserHistory from "@/features/admin/components/UserHistory"
 import { Ico } from "@/shared/components/icons"
 import { FIRST_DAY, MAX_PRICE } from "@/shared/constants"
 import { C, badgeSt } from "@/shared/styles/theme"
@@ -2160,6 +2161,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               })()}
               {isView && isSupply && row && supplyDetail(row)}
               {isView && isSupplier && row && supplierDetail(row)}
+              {isView && isUser && row && Number(row[7]) > 0 && <UserHistory id={Number(row[7])} t={t} />}
               {isUser && !isView && modal.mode === "add" && (
                 <div
                   className="rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2"

@@ -1,0 +1,10 @@
+Mejora el diseño del modal de detalle del producto sin cambiar su estructura horizontal: imagen e información a la izquierda, personalización a la derecha.
+
+- Organiza mejor la categoría, nombre, precio y descripción debajo de la imagen, con espaciado compacto.
+- Ordena los controles de compra en la parte inferior derecha.
+- Haz los botones **compactos y cortos**, especialmente “Agregar al carrito” y “Finalizar compra”, evitando que ocupen demasiado espacio.
+- Alinea cantidad, botón y precio en una distribución limpia y equilibrada.
+- Conserva los colores dorados y crema, los bordes redondeados y el estilo actual.
+- Mantén toda la funcionalidad y adapta el modal a móviles.
+
+Modifica directamente el código existente, sin rediseñar todo ni alterar las opciones de personalización. Prioriza un diseño elegante, compacto y bien organizado.

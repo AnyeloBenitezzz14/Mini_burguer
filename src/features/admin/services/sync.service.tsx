@@ -34,15 +34,21 @@ export const categorySpec = (path: string, reloads: string[]): SyncSpec => ({
   reloads,
 })
 
+const shortDateTime = (v: unknown) =>
+  v ? new Date(String(v)).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" }) : ""
+
 export const DB_SYNC: Record<string, SyncSpec> = {
-  // [0 nombre, 1 descripción, 2 estado]. The permissions matrix is still kept in the browser.
+  // [0 nombre, 1 descripción, 2 estado, 3 id, 4 creado, 5 actualizado]. The permissions matrix is still kept in the browser.
   roles: {
     path: "/roles",
     update: "PUT",
     idIndex: 3,
     idOf: (r) => r.id_rol,
-    toRow: (r) =>
-      withId([roleLabel(r.nombre_rol), r.descripcion || "", r.estado === "ACTIVO" ? "Activo" : "Inactivo"], 3, r.id_rol),
+    toRow: (r) => [
+      ...withId([roleLabel(r.nombre_rol), r.descripcion || "", r.estado === "ACTIVO" ? "Activo" : "Inactivo"], 3, r.id_rol),
+      shortDateTime(r.fecha_creacion),
+      shortDateTime(r.fecha_actualizacion),
+    ],
     toBody: (row) => ({ nombre_rol: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
   },
   // [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, 6 contraseña, 7 id, 8 admin principal]

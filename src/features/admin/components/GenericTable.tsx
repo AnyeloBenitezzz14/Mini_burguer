@@ -511,7 +511,11 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               type="button"
               title="Reactivar"
               aria-label={`Reactivar ${entity}`}
-              onClick={() => toggleStatus(section, rowIndex, cfg.statusIndex!)}
+              onClick={() =>
+                section === "usuarios"
+                  ? setAnulTarget({ section, idx: rowIndex, reactivate: true })
+                  : toggleStatus(section, rowIndex, cfg.statusIndex!)
+              }
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
               style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
             >
