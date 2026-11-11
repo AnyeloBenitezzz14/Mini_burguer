@@ -7,7 +7,7 @@ import { ITEMS_PER_PAGE } from "@/shared/constants"
 import { C } from "@/shared/styles/theme"
 import type { Product } from "@/shared/types"
 import { fmt } from "@/shared/utils/format"
-import { isStoreOpen, nextOpeningLabel } from "@/shared/utils/storeHours"
+import { STORE_HOURS_LABEL, isStoreOpen, nextOpeningLabel } from "@/shared/utils/storeHours"
 
 // ── Product Catalog Grid (shared, landing + client) ────────────────────────────
 export default function ProductCatalog({
@@ -83,9 +83,9 @@ export default function ProductCatalog({
   }
   return (
     <div ref={topRef}>
-      {/* Category tabs: a photo of one of its products over the name; the chosen one is underlined */}
+      {/* Category tabs: a photo of one of its products over the name; the chosen one gets a mustard ring and underline */}
       <div
-        className={`-mx-1 flex snap-x gap-1 overflow-x-auto border-b px-1 ${compact ? "mb-3" : "mb-5"}`}
+        className={`-mx-1 flex snap-x gap-1 overflow-x-auto border-b px-1 pt-1 sm:gap-2 ${compact ? "mb-3" : "mb-6"}`}
         style={{ scrollbarWidth: "none", borderColor: BORDER }}
         role="tablist"
         aria-label="Categorías del menú"
@@ -100,44 +100,84 @@ export default function ProductCatalog({
               role="tab"
               aria-selected={active}
               onClick={() => switchCat(cat.id)}
-              className={`group relative flex flex-shrink-0 snap-start cursor-pointer flex-col items-center gap-1.5 px-3 font-semibold ${compact ? "pb-2 text-xs" : "pb-3 text-sm"}`}
-              style={{ color: active ? C.mustard : TEXT }}
+              className={`group relative flex flex-shrink-0 snap-start cursor-pointer flex-col items-center gap-2 px-2.5 sm:px-3 ${compact ? "pb-2.5" : "pb-3.5"}`}
             >
               <span
-                className={`flex items-center justify-center overflow-hidden rounded-full transition-transform duration-200 group-hover:-translate-y-0.5 ${compact ? "h-11 w-11" : "h-14 w-14 md:h-16 md:w-16"}`}
+                className={`relative flex items-center justify-center rounded-full p-[3px] transition-all duration-300 group-hover:-translate-y-1 ${compact ? "h-14 w-14 md:h-16 md:w-16" : "h-16 w-16 md:h-[72px] md:w-[72px]"}`}
                 style={{
-                  background: `${C.mustard}1A`,
-                  color: C.mustard,
-                  outline: active ? `2px solid ${C.mustard}` : "none",
-                  outlineOffset: 2,
+                  background: active ? `linear-gradient(135deg, ${C.amber}, ${C.mustard})` : dark ? "rgba(244,238,220,0.08)" : C.cream,
+                  boxShadow: active ? `0 8px 18px -8px ${C.mustard}` : dark ? "none" : "0 6px 14px -10px rgba(25,21,18,0.55)",
                 }}
               >
-                {photo ? <img src={photo} alt="" className="h-full w-full object-cover" /> : aboutIcon(22, cat.icon)}
+                <span
+                  className="flex h-full w-full items-center justify-center overflow-hidden rounded-full"
+                  style={{ background: dark ? "#1E1C18" : "#fff", color: C.mustard, border: `2px solid ${dark ? "#1E1C18" : "#fff"}` }}
+                >
+                  {photo ? (
+                    <img src={photo} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110" />
+                  ) : (
+                    aboutIcon(24, cat.icon)
+                  )}
+                </span>
               </span>
-              <span className="whitespace-nowrap">{cat.label}</span>
+              <span
+                className={`whitespace-nowrap font-bold tracking-wide transition-colors ${compact ? "text-xs" : "text-[13px]"}`}
+                style={{ fontFamily: "League Spartan, sans-serif", color: active ? C.mustard : TEXT, opacity: active ? 1 : 0.78 }}
+              >
+                {cat.label}
+              </span>
               <span
                 aria-hidden="true"
-                className="absolute bottom-0 left-2 right-2 h-[3px] rounded-full transition-opacity"
-                style={{ background: C.mustard, opacity: active ? 1 : 0 }}
+                className="absolute -bottom-px left-1/2 h-[3px] -translate-x-1/2 rounded-full transition-all duration-300"
+                style={{ background: C.mustard, width: active ? "70%" : "0%" }}
               />
             </button>
           )
         })}
       </div>
-      {/* Outside the store hours: says when it opens (the menu stays visible) */}
+      {/* Outside the store hours: a dark card like the landing's «Horario» (the menu stays visible) */}
       {!open && (
         <div
           role="status"
-          className={`flex items-center gap-3 rounded-2xl px-4 text-white ${compact ? "mb-3 py-2.5" : "mb-5 py-3.5"}`}
-          style={{ background: C.red }}
+          className={`relative flex flex-wrap items-center gap-x-4 gap-y-3 overflow-hidden rounded-2xl ${compact ? "mb-3 px-4 py-3" : "mb-6 px-5 py-4"}`}
+          style={{ background: C.dark, color: "#FAF3E0", boxShadow: "0 14px 30px -18px rgba(25,21,18,0.8)" }}
         >
-          <span className="flex-shrink-0">{Ico.clock}</span>
-          <span className="min-w-0">
-            <span className={`block font-bold ${compact ? "text-sm" : "text-base"}`}>Tienda cerrada</span>
-            <span className="block text-xs sm:text-sm" style={{ color: "rgba(255,255,255,0.9)" }}>
-              El Parche atenderá {nextOpeningLabel(now)}
+          <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1" style={{ background: `linear-gradient(${C.amber}, ${C.red})` }} />
+          <span
+            className={`flex flex-shrink-0 items-center justify-center rounded-xl ${compact ? "h-9 w-9" : "h-11 w-11"}`}
+            style={{ background: `${C.amber}22`, color: C.amber }}
+          >
+            {Ico.clock}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className={`font-bold ${compact ? "text-sm" : "text-lg"}`} style={{ fontFamily: "League Spartan, sans-serif" }}>
+                Tienda cerrada
+              </span>
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                style={{ background: `${C.red}33`, color: "#F2A493" }}
+              >
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full motion-reduce:hidden" style={{ background: "#F2A493", opacity: 0.7 }} />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ background: "#F2A493" }} />
+                </span>
+                Cerrado ahora
+              </span>
+            </span>
+            <span className={`mt-0.5 block ${compact ? "text-xs" : "text-sm"}`} style={{ color: "rgba(250,243,224,0.78)" }}>
+              El Parche atenderá <b style={{ color: C.amber }}>{nextOpeningLabel(now)}</b> · Puedes ir viendo el menú
             </span>
           </span>
+          {(
+            <span
+              className="hidden flex-shrink-0 rounded-xl px-3 py-2 text-xs sm:block"
+              style={{ background: "rgba(250,243,224,0.06)", border: "1px solid rgba(250,243,224,0.1)" }}
+            >
+              <span className="block" style={{ color: "rgba(250,243,224,0.6)" }}>Lun – Dom</span>
+              <span className="block font-semibold" style={{ color: C.amber }}>{STORE_HOURS_LABEL}</span>
+            </span>
+          )}
         </div>
       )}
       {/* Search in catalog */}
