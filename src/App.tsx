@@ -170,6 +170,26 @@ function AppRoutes() {
     setUser(null)
     setPage("landing")
   }
+  // 30 minutes without mouse, keyboard, touch or scroll: the session closes and the login opens
+  useEffect(() => {
+    if (!user) return
+    let timer = 0
+    const reset = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        logout()
+        setPage("login")
+        window.alert("Tu sesión se cerró por inactividad. Inicia sesión de nuevo.")
+      }, 30 * 60 * 1000)
+    }
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"]
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }))
+    reset()
+    return () => {
+      window.clearTimeout(timer)
+      events.forEach((e) => window.removeEventListener(e, reset))
+    }
+  }, [user])
   const updateOrders = (fn: (o: Order[]) => Order[]) => {
     saveOrders(fn(loadOrders()))
     setOrdersVersion((v) => v + 1)
