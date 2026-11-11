@@ -782,6 +782,12 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     .sort((a, b) => Number(isCounterClientRow("clientes", b)) - Number(isCounterClientRow("clientes", a)))
     .map((client) => String(client[0] ?? ""))
     .filter(Boolean)
+  // Client's document ("CC 1036…"), shown next to the name and searchable in the client search boxes
+  const clientDocOf = (name: string) => {
+    const c = (rows.clientes || []).find((r) => String(r[0] ?? "") === name)
+    return c && String(c[2] ?? "").trim() ? `${String(c[1] ?? "").trim()} ${String(c[2]).trim()}`.trim() : ""
+  }
+  const clientSuggestions = (names: string[]) => names.map((name) => ({ value: name, hint: clientDocOf(name) || undefined }))
 
   const handleSupplyCheckboxToggle = () => {
     setFormData((current) => {
@@ -2985,9 +2991,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             }}
                             options={(rows.ventas || [])
                               .filter((v) => !saleReturnBlock(v))
-                              .map((v) => ({ value: String(v[0]), hint: `${String(v[2] ?? "")} · ${fmt(Number(v[7]) || 0)}` }))}
+                              .map((v) => ({ value: String(v[0]), hint: [String(v[2] ?? ""), clientDocOf(String(v[2] ?? "")), fmt(Number(v[7]) || 0)].filter(Boolean).join(" · ") }))}
                             empty="No hay ventas que se puedan devolver con ese dato"
-                            placeholder="Código de la venta o cliente..."
+                            placeholder="Código de la venta, cliente o documento..."
                             className="w-full min-w-0 bg-transparent py-2.5 text-sm font-normal outline-none"
                             style={{ color: t.text }}
                           />
@@ -3898,9 +3904,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           t={t}
                           value={String(val ?? "")}
                           onChange={(v) => updateAdminField(modal.section, f.key, v)}
-                          options={clientOptions}
-                          empty="No hay clientes con ese nombre. Usa «Crear cliente»."
-                          placeholder="Busca por nombre..."
+                          options={clientSuggestions(clientOptions)}
+                          empty="No hay clientes con ese nombre o documento. Usa «Crear cliente»."
+                          placeholder="Busca por nombre o documento..."
                           inputProps={{ "aria-label": "Cliente", "aria-invalid": !!fieldValidationError }}
                           className="w-full min-w-0 bg-transparent py-2.5 text-sm outline-none"
                           style={{ color: t.text }}
@@ -4445,11 +4451,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         key={`pedido-cliente-${modal.mode}-${modal.idx ?? "new"}`}
                         t={t}
                         initial={String(val ?? "")}
-                        options={fieldOptions || []}
+                        options={clientSuggestions(fieldOptions || [])}
                         onPick={(v) => updateFieldValue(v)}
                         onChange={(v) => { if (!(fieldOptions || []).includes(v) && val) updateFieldValue("") }}
-                        empty="No hay clientes con ese nombre"
-                        placeholder="Buscar cliente por nombre..."
+                        empty="No hay clientes con ese nombre o documento"
+                        placeholder="Buscar cliente por nombre o documento..."
                         inputProps={{
                           "aria-label": "Buscar cliente que recibe",
                           "aria-invalid": !!fieldValidationError,
