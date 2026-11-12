@@ -184,7 +184,7 @@ export default function AddToCartModal({
   // One open at a time: opening a section closes the others (it starts on the first one)
   const [openSecs, setOpenSecs] = useState<Set<string>>(() => new Set([sodaParts ? "sec-size" : "sec-sauces"]))
   const toggleSec = (id: string) => setOpenSecs((cur) => (cur.has(id) ? new Set() : new Set([id])))
-  const Section = useMemo(() => ({ id, title, hint, summary, count, children }: { id: string; title: string; hint: string; summary?: string; count?: string; wide?: boolean; children: React.ReactNode }) => {
+  const Section = useMemo(() => ({ id, title, hint, summary, count, icon, children }: { id: string; title: string; hint: string; summary?: string; count?: string; wide?: boolean; icon?: React.ReactNode; children: React.ReactNode }) => {
     const open = openSecs.has(id)
     return (
       <section className="overflow-hidden rounded-2xl transition-shadow" style={{ background: CARD, border: `1px solid ${open ? `${C.mustard}55` : BORDER}`, boxShadow: open ? `0 10px 24px -18px ${C.mustard}` : "none" }}>
@@ -193,8 +193,17 @@ export default function AddToCartModal({
           onClick={() => toggleSec(id)}
           aria-expanded={open}
           aria-controls={`${id}-body`}
-          className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left sm:px-5 md:py-5"
+          className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left sm:px-5 md:py-4"
         >
+          {icon && (
+            <span
+              aria-hidden="true"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl transition-colors"
+              style={{ background: open || summary ? C.mustard : `${C.mustard}14`, color: open || summary ? "#fff" : C.mustard }}
+            >
+              {icon}
+            </span>
+          )}
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2">
               <span id={id} className="text-base font-black leading-tight sm:text-lg" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
@@ -336,32 +345,57 @@ export default function AddToCartModal({
         <div className="mx-auto grid w-full max-w-[1500px] gap-4 px-4 pb-6 pt-4 sm:px-8 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:gap-8 md:pb-8 md:pt-5 lg:px-14">
           {/* Left: the photo, price, name and description (stays in view while the options scroll) */}
           <div className="min-w-0 md:sticky md:top-0 md:self-start">
-            {/* The whole photo at its own proportion (no crop, no side bands), centred in the column */}
-            <div ref={photoRef} className="flex justify-center">
+            {/* Photo: the whole picture (no crop) on a warm frame that fills the column, «Favorita» on top */}
+            <div
+              ref={photoRef}
+              className="relative flex items-center justify-center overflow-hidden rounded-3xl p-3 sm:p-4"
+              style={{
+                background: dark
+                  ? "radial-gradient(120% 90% at 50% 20%, rgba(210,154,66,0.18), #1E1C18 70%)"
+                  : `radial-gradient(120% 90% at 50% 20%, #FFFFFF, ${C.cream} 75%)`,
+                border: `1px solid ${BORDER}`,
+                boxShadow: "0 18px 40px -26px rgba(25,21,18,0.55)",
+              }}
+            >
               {product.img && (
                 <ZoomableImage
                   src={product.img}
                   alt={product.name}
-                  className="block h-auto max-h-[32vh] w-auto max-w-full rounded-3xl shadow-[0_18px_40px_-24px_rgba(25,21,18,0.6)] md:max-h-[44vh]"
+                  className="block h-auto max-h-[30vh] w-auto max-w-full rounded-2xl shadow-[0_14px_30px_-18px_rgba(25,21,18,0.7)] md:max-h-[36vh] md:[@media(max-height:800px)]:max-h-[30vh]"
                 />
               )}
-            </div>
-            <div className="mt-3 px-1">
               {product.badge && (
-                <span className="mb-2 inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{ background: C.mustard, color: "#fff" }}>
-                  {product.badge}
+                <span className="absolute left-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-bold shadow-sm" style={{ background: C.mustard, color: "#fff" }}>
+                  ★ {product.badge}
                 </span>
               )}
-              <h1 className="text-xl font-black leading-tight sm:text-2xl" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
-                {product.name}
-              </h1>
-              <div className="font-price mt-0.5 text-lg font-bold sm:text-xl" style={{ color: C.mustard }}>{product.priceStr}</div>
+            </div>
+            {/* Info card: name and price, description, what it includes, and buying */}
+            <div className="mt-3 rounded-3xl p-4 sm:p-5" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+              <div className="flex items-start justify-between gap-3">
+                <h1 className="min-w-0 text-xl font-black leading-tight sm:text-2xl" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
+                  {product.name}
+                </h1>
+                <div className="font-price flex-shrink-0 rounded-full px-3 py-1 text-lg font-bold leading-none sm:text-xl" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                  {product.priceStr}
+                </div>
+              </div>
               {product.desc && (
                 <p className="mt-2 text-sm leading-relaxed" style={{ color: dark ? "rgba(244,238,220,0.7)" : "rgba(30,30,30,0.65)" }}>
                   {product.desc}
                 </p>
               )}
-              <div className="mt-4 hidden md:block">{actions}</div>
+              {!!product.ingredients?.length && (
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
+                  <span className="mr-0.5 text-[11px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>Incluye</span>
+                  {product.ingredients.map((i) => (
+                    <span key={i} className="rounded-full px-2.5 py-0.5 text-xs" style={{ background: `${C.mustard}12`, color: dark ? "#E9DCC0" : "#5C4A1A" }}>
+                      {i}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="mt-4 hidden border-t pt-4 md:block" style={{ borderColor: BORDER }}>{actions}</div>
             </div>
           </div>
 
@@ -381,7 +415,7 @@ export default function AddToCartModal({
                 setQtyDraft(null)
               }
               return (
-                <Section id="sec-size" wide title="Tamaño" hint={`Elige el tamaño de tu ${flavor}. Solo ves los que tenemos disponibles.`}>
+                <Section id="sec-size" wide icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 2h4v4l2 3v11a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V9l2-3V2Z" /><path d="M8 13h8" /></svg>} title="Tamaño" hint={`Elige el tamaño de tu ${flavor}. Solo ves los que tenemos disponibles.`}>
                   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                     {sizes.map((p) => {
                       const size = parts(p)[2]
@@ -411,7 +445,7 @@ export default function AddToCartModal({
             })()}
 
             {!isMenuExtra && (
-              <Section id="sec-sauces" title="Salsas" hint="Elige hasta 4, son gratis." summary={selSauces.length ? selSauces.join(", ") : undefined} count={`${selSauces.length}/4`}>
+              <Section id="sec-sauces" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.7c3.2 3.6 5.5 6.9 5.5 10a5.5 5.5 0 0 1-11 0c0-3.1 2.3-6.4 5.5-10Z" /></svg>} title="Salsas" hint={`${SAUCES.length} opciones · elige hasta 4, son gratis`} summary={selSauces.length ? selSauces.join(", ") : undefined} count={`${selSauces.length}/4`}>
                 <div role="group" aria-label="Salsas" className="flex flex-wrap gap-1.5">
                   {SAUCES.map((s) => {
                     const on = selSauces.includes(s)
@@ -446,7 +480,7 @@ export default function AddToCartModal({
             )}
 
             {!isMenuExtra && (
-              <Section id="sec-additions" title="Adiciones" hint={`Agrégale lo que quieras a tu ${product.name.toLowerCase()}.`} summary={additionsCount ? `${additionsCount} ${additionsCount === 1 ? "adición" : "adiciones"} · +${fmt(additionsMoney)}` : undefined} count={additionsCount ? `${additionsCount}` : undefined}>
+              <Section id="sec-additions" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5" /><path d="m3 17 9 5 9-5" /></svg>} title="Adiciones" hint={ADDITIONS.length ? `${ADDITIONS.length} opciones · desde +${fmt(Math.min(...ADDITIONS.map((a) => a.price)))}` : "Agrégale lo que quieras"} summary={additionsCount ? `${additionsCount} ${additionsCount === 1 ? "adición" : "adiciones"} · +${fmt(additionsMoney)}` : undefined} count={additionsCount ? `${additionsCount}` : undefined}>
                 <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2 xl:grid-cols-3">
                   {ADDITIONS.map((a) => {
                     const q = addQtys[a.name] || 0
@@ -477,7 +511,7 @@ export default function AddToCartModal({
             )}
 
             {!isMenuExtra && (
-              <Section id="sec-drinks" wide title="Bebidas" hint="Acompaña tu pedido con una gaseosa fría." summary={selectedBeverageCount ? `${selectedBeverageCount} ${selectedBeverageCount === 1 ? "bebida" : "bebidas"} · +${fmt(beverageTotal)}` : undefined} count={selectedBeverageCount ? `${selectedBeverageCount}` : undefined}>
+              <Section id="sec-drinks" wide icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8h12l-1.2 12.1a2 2 0 0 1-2 1.9H9.2a2 2 0 0 1-2-1.9L6 8Z" /><path d="M5 8h14" /><path d="m12 8 2-6" /></svg>} title="Bebidas" hint={BEVERAGES.length && sizesInStock.length ? `${BEVERAGES.length} sabores · desde ${fmt(Math.min(...sizesInStock.map((z) => z.price)))}` : "Acompaña tu pedido con una gaseosa fría"} summary={selectedBeverageCount ? `${selectedBeverageCount} ${selectedBeverageCount === 1 ? "bebida" : "bebidas"} · +${fmt(beverageTotal)}` : undefined} count={selectedBeverageCount ? `${selectedBeverageCount}` : undefined}>
                 {!BEVERAGES.length || !BEVERAGE_SIZES.length ? (
                   <p className="rounded-2xl px-3 py-4 text-center text-sm" style={{ background: SOFT, color: MUTED }}>
                     Por ahora no hay gaseosas disponibles.
