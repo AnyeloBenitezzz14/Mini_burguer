@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import BeverageArt from "@/features/menu/components/BeverageArt"
 import { ADDITIONS, BEVERAGES, BEVERAGE_SIZES, MENU_EXTRAS, SAUCES, SODA_INFO, SODA_RE, allMenuProducts, beverageLabel, sizeMl, sodaInfo, sodaPrice } from "@/features/menu/data/products"
 import QtyStepper from "@/shared/components/QtyStepper"
@@ -45,7 +45,6 @@ export default function AddToCartModal({
   // What is typed in the quantity box (null = not typing, it shows qty)
   const [qtyDraft, setQtyDraft] = useState<string | null>(null)
   const MAX_QTY = 999
-  const [descOpen, setDescOpen] = useState(false)
   const [selSauces, setSelSauces] = useState<string[]>(initial?.sauces ?? [])
   // Additions are keyed by name; sodas by «Gaseosa <sabor> <size id>» (saved as «Gaseosa <sabor> (<label>)»)
   const [addQtys, setAddQtys] = useState<Record<string, number>>(() =>
@@ -60,34 +59,14 @@ export default function AddToCartModal({
   const [beverageSize, setBeverageSize] = useState(BEVERAGE_SIZES[0]?.id ?? "")
   // Drink whose picture is shown big (click again to close)
   const [zoomBeverage, setZoomBeverage] = useState<string | null>(null)
-  const [customizationTab, setCustomizationTab] = useState<"sauces" | "additions" | "beverages">("sauces")
   const isMenuExtra = ["salsas", "adiciones", "bebidas"].includes(product.cat)
   // [, sabor, tamaño] when the product is a soda («Gaseosa Coca-Cola (1.5 L)»)
   const sodaParts = SODA_RE.exec(product.name)
-  // Photo width ÷ height: a vertical or square photo goes beside the details on a computer (complete, no side
-  // strips); a wide one stays on top. Read from the image itself, so it fits any photo the admin uploads
-  const [photoRatio, setPhotoRatio] = useState<number | null>(null)
-  useEffect(() => {
-    setPhotoRatio(null)
-    if (!product.img) return
-    const probe = new Image()
-    probe.onload = () => setPhotoRatio(probe.naturalWidth / probe.naturalHeight || null)
-    probe.src = product.img
-  }, [product.img])
-  // Computer: the photo's column, sized from the photo's proportion so it shows complete at most ~300px tall
-  // (~300px tall; a wide photo gets up to 420px wide, a tall one at least 300px). Fixed per photo: nothing resizes as you use it
-  const photoColW = Math.round(Math.min(420, Math.max(300, 300 * (photoRatio ?? 1.25))))
   // Cream card under the photo (the photo's curve blends into it)
   const CARD = dark ? "#1E1C18" : "#FBF6E9"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
-  // The tabs filter: only the chosen section shows. On a computer the three share one grid cell (the others
-  // just invisible), so the column keeps the tallest one's height and nothing jumps when changing tabs
-  const panelClass = (tab: typeof customizationTab) =>
-    isMenuExtra
-      ? "hidden"
-      : `min-w-0 md:[grid-area:1/1] ${customizationTab === tab ? "block" : "hidden md:invisible md:block"}`
   const toggleSauce = (s: string) =>
     setSelSauces((p) => {
       if (p.includes(s)) return p.filter((x) => x !== s)
@@ -164,7 +143,12 @@ export default function AddToCartModal({
       })).filter((b) => b.qty > 0),
     )
     onAdd(product, qty, selSauces, [...adds, ...beverages])
-    onClose()
+    close()
+  }
+  // Closing takes back this page's history step; the «popstate» then calls onClose
+  const close = () => {
+    if (window.history.state?.productPage) window.history.back()
+    else onClose()
   }
   const handleCheckout = () => {
     if (product.soldOut) return
@@ -172,374 +156,306 @@ export default function AddToCartModal({
     onCheckout?.()
   }
 
+  // A page of its own (not a floating window): the browser's / phone's «Atrás» closes it, Escape too, and the
+  // page behind doesn't scroll while it's open
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    // One history step for this page (StrictMode runs effects twice: don't add a second one)
+    if (!window.history.state?.productPage) window.history.pushState({ productPage: true }, "")
+    const onPop = () => { if (!window.history.state?.productPage) closeRef.current() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !zoomOpenRef.current) close() }
+    window.addEventListener("popstate", onPop)
+    window.addEventListener("keydown", onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener("popstate", onPop)
+      window.removeEventListener("keydown", onKey)
+    }
+  }, [])
+  const zoomOpenRef = useRef(false)
+  zoomOpenRef.current = !!zoomBeverage
+  const additionsCount = ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)
+  const PAGE = dark ? "#151310" : "#F6EFDF"
+  const SOFT = dark ? "rgba(244,238,220,0.04)" : "#fff"
+  // Section card with its title, a short hint and a counter
+  const Section = useMemo(() => ({ id, title, hint, count, children }: { id: string; title: string; hint: string; count?: string; children: React.ReactNode }) => (
+    <section aria-labelledby={id} className="rounded-3xl p-4 sm:p-5" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 id={id} className="text-lg font-black leading-tight sm:text-xl" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
+            {title}
+          </h2>
+          <p className="mt-0.5 text-xs sm:text-sm" style={{ color: MUTED }}>{hint}</p>
+        </div>
+        {count && (
+          <span className="flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-bold tabular-nums" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+            {count}
+          </span>
+        )}
+      </div>
+      {children}
+    </section>
+  ), [CARD, BORDER, TEXT, MUTED])
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-4"
-      style={{ background: "rgba(0,0,0,0.7)" }}
-      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={product.name}
+      className="fixed inset-0 z-50 flex flex-col overflow-hidden"
+      style={{ background: PAGE }}
     >
-      <div
-        className="relative w-full max-w-md md:max-w-4xl rounded-3xl overflow-hidden flex flex-col md:flex-row"
-        style={{
-          background: CARD,
-          maxHeight: "92dvh",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
-        }}
-        onClick={(e) => e.stopPropagation()}
+      {/* Top bar: back to the menu */}
+      <header
+        className="flex flex-shrink-0 items-center gap-3 px-4 py-3 sm:px-6"
+        style={{ background: CARD, borderBottom: `1px solid ${BORDER}` }}
       >
-        {/* Close: the window's top-right corner (z-30 keeps it above the photo so the tap closes, not zooms) */}
         <button
           type="button"
-          onClick={onClose}
-          aria-label="Cerrar"
-          className="absolute right-3 top-3 z-30 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full hover:opacity-90"
-          style={{ background: "rgba(0,0,0,0.55)", color: "#fff", backdropFilter: "blur(4px)" }}
+          onClick={close}
+          className="flex cursor-pointer items-center gap-2 rounded-full py-2 pl-2.5 pr-4 text-sm font-bold transition-colors hover:opacity-90"
+          style={{ background: dark ? "rgba(244,238,220,0.07)" : "rgba(30,30,30,0.06)", color: TEXT }}
         >
-          {Ico.x}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M19 12H5M12 19l-7-7 7-7" />
+          </svg>
+          Volver al menú
         </button>
-        {/* Left on a computer (top on a phone): the whole photo at its own proportion (no strips, no crop),
-            then name, price and description */}
-        <div
-          className="flex min-w-0 flex-shrink-0 flex-col md:w-[var(--photo-w)]"
-          style={{ "--photo-w": `${photoColW}px` } as React.CSSProperties}
-        >
-        <div ref={photoRef} className="relative flex-shrink-0 p-3 pb-0 md:p-4 md:pr-0" style={{ background: CARD }}>
-          {product.img && (
-            <ZoomableImage
-              src={product.img}
-              alt={product.name}
-              className="mx-auto block h-auto max-h-[28vh] w-auto max-w-full rounded-2xl min-[380px]:max-h-[30vh] md:max-h-none md:w-full"
-            />
-          )}
-        </div>
-        {/* Product info, like the reference: price, name, then the whole description (a phone shows 2 lines + «Ver más») */}
-        <div className="flex-shrink-0 px-5 pb-1 pt-2 min-[380px]:pb-2 min-[380px]:pt-3 md:px-5 md:pb-5 md:pt-4" style={{ background: CARD }}>
-          <div className="font-price text-lg font-bold leading-none md:text-xl" style={{ color: C.mustard }}>
-            {product.priceStr}
+        <span className="min-w-0 truncate text-sm font-semibold" style={{ color: MUTED }}>{product.name}</span>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto grid w-full max-w-6xl gap-5 px-4 py-5 sm:px-6 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:gap-8 md:py-8">
+          {/* Left: the photo, price, name and description (stays in view while the options scroll) */}
+          <div className="min-w-0 md:sticky md:top-0 md:self-start">
+            <div ref={photoRef} className="overflow-hidden rounded-3xl" style={{ background: SOFT, boxShadow: "0 18px 40px -24px rgba(25,21,18,0.6)" }}>
+              {product.img && (
+                <ZoomableImage
+                  src={product.img}
+                  alt={product.name}
+                  className="block aspect-[4/3] w-full object-cover md:aspect-square"
+                />
+              )}
+            </div>
+            <div className="mt-4 px-1">
+              {product.badge && (
+                <span className="mb-2 inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{ background: C.mustard, color: "#fff" }}>
+                  {product.badge}
+                </span>
+              )}
+              <h1 className="text-2xl font-black leading-tight sm:text-3xl" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
+                {product.name}
+              </h1>
+              <div className="font-price mt-1 text-xl font-bold sm:text-2xl" style={{ color: C.mustard }}>{product.priceStr}</div>
+              {product.desc && (
+                <p className="mt-3 text-sm leading-relaxed sm:text-[15px]" style={{ color: dark ? "rgba(244,238,220,0.7)" : "rgba(30,30,30,0.65)" }}>
+                  {product.desc}
+                </p>
+              )}
+            </div>
           </div>
-          <h3 className="mt-1 font-black text-lg leading-tight min-[380px]:text-xl md:mt-1.5" style={{ color: TEXT }}>
-            {product.name}
-          </h3>
-          <p
-            className={`mt-1 text-sm leading-relaxed md:mt-2 ${descOpen ? "" : "line-clamp-1 min-[380px]:line-clamp-2 md:line-clamp-none"}`}
-            style={{ color: dark ? "rgba(244,238,220,0.62)" : "rgba(30,30,30,0.55)" }}
-          >
-            {product.desc}
-          </p>
-          {product.desc.length > 90 && (
-            <button
-              type="button"
-              onClick={() => setDescOpen((open) => !open)}
-              className="mt-0.5 cursor-pointer text-xs font-bold hover:underline md:hidden"
-              style={{ color: C.mustard }}
-            >
-              {descOpen ? "Ver menos" : "Ver más"}
-            </button>
-          )}
-        </div>
-        </div>
-        {/* Right on a computer (below on a phone): the tabs, their options and the buttons */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div
-          className="@container min-h-0 flex-1 overflow-y-auto px-4 py-1.5 sm:px-5 md:px-6 md:pt-5"
-          style={{ background: CARD }}
-        >
-          {!isMenuExtra && <div className={`mb-1.5 grid grid-cols-3 gap-1 rounded-full p-1 md:mb-3 md:mr-10 ${dark ? "bg-white/5" : "bg-black/5"}`}>
-            {([
-              ["sauces", `Salsas ${selSauces.length}/4`],
-              ["additions", `Adiciones ${ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)}`],
-              ["beverages", `Bebidas ${selectedBeverageCount}`],
-            ] as const).map(([tab, label]) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setCustomizationTab(tab)}
-                className="cursor-pointer rounded-full px-2 py-1.5 text-sm font-bold transition-colors"
-                style={{
-                  background: customizationTab === tab ? C.mustard : "transparent",
-                  color: customizationTab === tab ? "#fff" : MUTED,
-                }}
-              >
-                {label}
-              </button>
-            ))}
-          </div>}
-          {sodaParts && (() => {
-            // A soda opened from the menu is already a flavour («Coca-Cola»): only its size is chosen here, among the
-            // sizes in stock. Choosing one switches the window to that soda
-            const [, flavor] = sodaParts
-            const parts = (p: Product) => SODA_RE.exec(p.name) as RegExpExecArray
-            const sizes = MENU_EXTRAS
-              .filter((p) => p.cat === "bebidas" && !p.soldOut && SODA_RE.test(p.name) && parts(p)[1] === flavor)
-              .sort((a, b) => sizeMl(parts(a)[2]) - sizeMl(parts(b)[2]))
-            const pick = (p: Product) => {
-              if (p.id === product.id) return
-              setProduct(p)
-              setQty(1)
-              setQtyDraft(null)
-            }
-            return (
-              <div className="md:mr-10">
-                <div className="mb-2 text-[11px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>
-                  Elige el tamaño de tu {flavor}
-                </div>
-                <div className="grid grid-cols-2 gap-2 md:gap-3">
-                  {sizes.map((p) => {
-                    const size = parts(p)[2]
-                    const on = p.id === product.id
+
+          {/* Right: every option at once, one section under the other */}
+          <div className="flex min-w-0 flex-col gap-4">
+            {sodaParts && (() => {
+              // A soda opened from the menu is already a flavour («Coca-Cola»): only its size is chosen here
+              const [, flavor] = sodaParts
+              const parts = (p: Product) => SODA_RE.exec(p.name) as RegExpExecArray
+              const sizes = MENU_EXTRAS
+                .filter((p) => p.cat === "bebidas" && !p.soldOut && SODA_RE.test(p.name) && parts(p)[1] === flavor)
+                .sort((a, b) => sizeMl(parts(a)[2]) - sizeMl(parts(b)[2]))
+              const pick = (p: Product) => {
+                if (p.id === product.id) return
+                setProduct(p)
+                setQty(1)
+                setQtyDraft(null)
+              }
+              return (
+                <Section id="sec-size" title="Tamaño" hint={`Elige el tamaño de tu ${flavor}. Solo ves los que tenemos disponibles.`}>
+                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                    {sizes.map((p) => {
+                      const size = parts(p)[2]
+                      const on = p.id === product.id
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => pick(p)}
+                          aria-pressed={on}
+                          className="flex cursor-pointer items-center gap-3 rounded-2xl p-3 text-left transition-colors"
+                          style={{ background: on ? `${C.mustard}14` : SOFT, border: `1.5px solid ${on ? C.mustard : BORDER}` }}
+                        >
+                          <span className="flex h-16 w-10 flex-shrink-0 items-center justify-center overflow-hidden">
+                            <BeverageArt flavor={flavor} size={size} />
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block text-base font-bold" style={{ color: on ? C.mustard : TEXT }}>{size}</span>
+                            <span className="block text-xs font-semibold" style={{ color: MUTED }}>{p.priceStr}</span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </Section>
+              )
+            })()}
+
+            {!isMenuExtra && (
+              <Section id="sec-sauces" title="Salsas" hint="Elige hasta 4, son gratis." count={`${selSauces.length}/4`}>
+                <div role="group" aria-label="Salsas" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {SAUCES.map((s) => {
+                    const on = selSauces.includes(s)
+                    const full = !on && selSauces.length >= 4
                     return (
                       <button
-                        key={p.id}
+                        key={s}
                         type="button"
-                        onClick={() => pick(p)}
+                        onClick={() => toggleSauce(s)}
+                        disabled={full}
                         aria-pressed={on}
-                        className="flex cursor-pointer items-center gap-3 rounded-2xl p-2 text-left transition-colors md:p-3"
-                        style={{
-                          background: on ? `${C.mustard}14` : dark ? "rgba(244,238,220,0.04)" : "#fff",
-                          border: `1.5px solid ${on ? C.mustard : BORDER}`,
-                        }}
+                        className="flex min-w-0 cursor-pointer items-center justify-between gap-2 rounded-2xl py-2.5 pl-3.5 pr-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45"
+                        style={{ border: `1.5px solid ${on ? C.mustard : BORDER}`, background: on ? `${C.mustard}14` : SOFT }}
                       >
-                        <span className="flex h-12 w-8 flex-shrink-0 items-center justify-center overflow-hidden md:h-16 md:w-10">
-                          <BeverageArt flavor={flavor} size={size} />
-                        </span>
-                        <span className="min-w-0">
-                          <span className="block text-sm font-bold md:text-base" style={{ color: on ? C.mustard : TEXT }}>{size}</span>
-                          <span className="block text-xs font-semibold" style={{ color: MUTED }}>{p.priceStr}</span>
+                        <span className="truncate text-sm font-semibold" style={{ color: on ? C.mustard : TEXT }}>{s}</span>
+                        <span
+                          className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                          style={{ background: on ? C.mustard : `${C.mustard}1A`, color: on ? "#fff" : C.mustard }}
+                        >
+                          {on ? "✓" : "+"}
                         </span>
                       </button>
                     )
                   })}
                 </div>
-                <p className="mt-3 hidden rounded-2xl px-3 py-2.5 text-xs leading-relaxed md:block" style={{ background: dark ? "rgba(244,238,220,0.05)" : "rgba(30,30,30,0.04)", color: MUTED }}>
-                  Bebida fría, servida en su envase original. Solo ves los tamaños que tenemos disponibles ahora.
-                </p>
-              </div>
-            )
-          })()}
-          <div className="md:grid">
-          <div className={panelClass("sauces")}>
-            <div className="mb-1.5 text-[11px] font-semibold max-[379px]:hidden md:mb-2" style={{ color: selSauces.length === 4 ? C.amber : MUTED }}>
-              Elige hasta 4 salsas (gratis)
-            </div>
-            <div role="group" aria-label="Salsas" className="grid grid-cols-2 gap-1 md:gap-1.5">
-              {SAUCES.map((s) => {
-                const on = selSauces.includes(s)
-                return (
-                  <div
-                    key={s}
-                    className="flex min-w-0 items-center justify-between gap-1 rounded-full py-0.5 pl-3 pr-1 md:py-2.5"
-                    style={{ border: `1px solid ${on ? C.mustard : BORDER}`, background: on ? `${C.mustard}12` : dark ? "rgba(244,238,220,0.03)" : "rgba(30,30,30,0.02)" }}
-                  >
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-xs leading-tight md:text-[13px]" style={{ color: TEXT }}>{s}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => toggleSauce(s)}
-                      disabled={!on && selSauces.length >= 4}
-                      aria-pressed={on}
-                      aria-label={on ? `Quitar salsa ${s}` : `Agregar salsa ${s}`}
-                      className="flex h-6 w-6 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                      style={{ background: C.mustard, color: "#fff" }}
-                    >
-                      {on ? "✓" : "+"}
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-          <div className={panelClass("additions")}>
-            <div className="mb-1.5 text-[11px] font-semibold max-[379px]:hidden md:mb-2" style={{ color: MUTED }}>
-              Agrégale lo que quieras a tu {product.name.toLowerCase()}
-            </div>
-            {/* Two compact columns: name and «+$ price», and a − amount + you can also type in */}
-            <div className="grid grid-cols-2 gap-1.5">
-              {ADDITIONS.map((a) => {
-                const q = addQtys[a.name] || 0
-                const soldOut = a.stock != null && a.stock <= 0
-                return (
-                  <div
-                    key={a.name}
-                    className="flex min-w-0 items-center justify-between gap-1.5 rounded-xl py-1.5 pl-2.5 pr-1.5 transition-colors"
-                    style={{
-                      border: `1px solid ${q ? C.mustard : BORDER}`,
-                      background: q ? `${C.mustard}12` : dark ? "rgba(244,238,220,0.04)" : "#fff",
-                    }}
-                  >
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-[13px] font-semibold leading-tight" style={{ color: TEXT }} title={a.name}>
-                        {a.name}
-                      </span>
-                      <span className="text-[11px] font-bold leading-tight" style={{ color: C.mustard }}>
-                        +{fmt(a.price)}
-                        {soldOut ? (
-                          <span className="font-semibold" style={{ color: MUTED }}> · agotada</span>
-                        ) : a.stock != null && a.stock <= 10 && (
-                          <span className="font-semibold" style={{ color: MUTED }}> · quedan {a.stock}</span>
-                        )}
-                      </span>
-                    </div>
-                    <QtyStepper
-                      value={q}
-                      onChange={(n) => setAdd(a.name, n)}
-                      max={addMax(a)}
-                      disabledPlus={soldOut}
-                      label={a.name}
-                      color={C.mustard}
-                      text={TEXT}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-          <div className={panelClass("beverages")}>
-          {!BEVERAGES.length && (
-            <p className="rounded-xl px-3 py-4 text-center text-sm" style={{ background: dark ? "rgba(244,238,220,0.05)" : "rgba(30,30,30,0.04)", color: MUTED }}>
-              Por ahora no hay gaseosas disponibles.
-            </p>
-          )}
-          {BEVERAGES.length > 0 && (
-          <div>
-            {/* Size as visible buttons: the bottle photos below change with it */}
-            <div
-              role="radiogroup"
-              aria-label="Tamaño de gaseosa"
-              className="mb-1.5 grid gap-1.5 md:mb-2"
-              style={{ gridTemplateColumns: `repeat(${Math.max(1, sizesInStock.length)}, minmax(0, 1fr))` }}
-            >
-              {sizesInStock.map((size) => {
-                const on = size.id === selectedBeverageSize.id
-                return (
-                  <button
-                    key={size.id}
-                    type="button"
-                    role="radio"
-                    aria-checked={on}
-                    onClick={() => setBeverageSize(size.id)}
-                    className="flex cursor-pointer flex-col items-center rounded-full px-1 py-1.5 leading-tight transition-colors"
-                    style={{
-                      background: on ? C.mustard : dark ? "rgba(244,238,220,0.05)" : "#fff",
-                      border: `1px solid ${on ? C.mustard : BORDER}`,
-                      color: on ? "#fff" : TEXT,
-                    }}
-                  >
-                    <span className="text-xs font-bold">{size.label}</span>
-                    <span className="text-[10px] font-semibold" style={{ opacity: on ? 0.9 : 0.6 }}>
-                      {fmt(size.price)}
-                    </span>
-                  </button>
-                )
-              })}
-            </div>
-            {!BEVERAGE_SIZES.length ? (
-              <p className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: dark ? "rgba(244,238,220,0.03)" : "#fff", color: MUTED }}>
-                No hay tamaños de bebida disponibles.
-              </p>
-            ) : (
-              <div className="grid grid-cols-2 gap-1.5">
-              {BEVERAGES.map((flavor) => {
-                const size = selectedBeverageSize
-                const key = `Gaseosa ${flavor} ${size.id}`
-                const quantity = addQtys[key] || 0
-                const info = sodaInfo(flavor, size.label)
-                // Only the sodas that exist as products (that flavour may not come in this size)
-                if (SODA_INFO.size && (!info || info.agotada)) return null // sin stock: no se muestra
-                const unavailable = info?.agotada ? "Agotada" : ""
-                const soldOut = !!unavailable
-                const price = sodaPrice(flavor, size)
-                return (
-                  // Compact: small bottle, flavour and price, and a − amount + you can also type in
-                  <div
-                    key={flavor}
-                    className="flex min-w-0 items-center gap-1.5 rounded-xl py-1 pl-1 pr-1.5 transition-colors"
-                    style={{
-                      border: `1px solid ${quantity > 0 ? C.mustard : BORDER}`,
-                      background: quantity > 0 ? `${C.mustard}12` : dark ? "rgba(244,238,220,0.04)" : "#fff",
-                      opacity: soldOut ? 0.55 : 1,
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setZoomBeverage(flavor)}
-                      aria-label={`Ver ${beverageLabel(flavor)} ${size.label} más grande`}
-                      className="flex h-10 w-7 flex-shrink-0 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg max-[379px]:hidden"
-                      style={{ background: "#fff" }}
-                    >
-                      <BeverageArt flavor={flavor} size={size.label} />
-                    </button>
-                    {/* Flavour only (the brand is on the bottle); nowrap keeps "Coca-Cola" in one piece */}
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate whitespace-nowrap text-[13px] font-semibold leading-tight" style={{ color: TEXT }} title={beverageLabel(flavor)}>
-                        {flavor}
-                      </span>
-                      <span className="text-[11px] font-bold leading-tight" style={{ color: soldOut ? C.red : C.mustard }}>
-                        {soldOut ? unavailable : fmt(price)}
-                        {!soldOut && info?.stock != null && info.stock <= 10 && (
-                          <span className="font-semibold" style={{ color: MUTED }}> · quedan {info.stock}</span>
-                        )}
-                      </span>
-                    </div>
-                    <QtyStepper
-                      value={quantity}
-                      onChange={(n) => setAdd(key, soldOut ? Math.min(n, quantity) : n)}
-                      label={`gaseosa ${flavor} ${size.label}`}
-                      color={C.mustard}
-                      text={TEXT}
-                      disabledPlus={soldOut}
-                      // Each burger in the line carries these sodas: never more in total than the admin's stock
-                      max={info?.stock != null ? Math.floor(info.stock / Math.max(1, qty)) : 99}
-                    />
-                  </div>
-                )
-              })}
-              </div>
+              </Section>
             )}
-            {zoomBeverage && (
-              <div
-                className="fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center p-6"
-                style={{ background: "rgba(0,0,0,0.75)" }}
-                onClick={() => setZoomBeverage(null)}
-                role="dialog"
-                aria-label={beverageLabel(zoomBeverage)}
-              >
-                <div className="flex flex-col items-center gap-3">
-                  <div
-                    className="flex h-[min(60vh,420px)] w-[min(70vw,300px)] items-center justify-center overflow-hidden rounded-2xl p-4"
-                    style={{ background: "#fff" }}
-                  >
-                    <BeverageArt flavor={zoomBeverage} size={selectedBeverageSize.label} />
-                  </div>
-                  <span className="text-base font-bold text-white">
-                    {beverageLabel(zoomBeverage)} · {selectedBeverageSize.label}
-                  </span>
-                  <span className="max-w-xs text-center text-[10px] text-white/60">Imagen de referencia del producto</span>
-                  <span className="text-xs text-white/70">Toca para volver</span>
+
+            {!isMenuExtra && (
+              <Section id="sec-additions" title="Adiciones" hint={`Agrégale lo que quieras a tu ${product.name.toLowerCase()}.`} count={additionsCount ? `${additionsCount}` : undefined}>
+                <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+                  {ADDITIONS.map((a) => {
+                    const q = addQtys[a.name] || 0
+                    const soldOut = a.stock != null && a.stock <= 0
+                    return (
+                      <div
+                        key={a.name}
+                        className="flex min-w-0 items-center justify-between gap-2 rounded-2xl py-2 pl-3.5 pr-2 transition-colors"
+                        style={{ border: `1.5px solid ${q ? C.mustard : BORDER}`, background: q ? `${C.mustard}12` : SOFT, opacity: soldOut ? 0.6 : 1 }}
+                      >
+                        <div className="flex min-w-0 flex-1 flex-col">
+                          <span className="truncate text-sm font-semibold leading-tight" style={{ color: TEXT }} title={a.name}>{a.name}</span>
+                          <span className="text-xs font-bold leading-tight" style={{ color: C.mustard }}>
+                            +{fmt(a.price)}
+                            {soldOut ? (
+                              <span className="font-semibold" style={{ color: MUTED }}> · agotada</span>
+                            ) : a.stock != null && a.stock <= 10 && (
+                              <span className="font-semibold" style={{ color: MUTED }}> · quedan {a.stock}</span>
+                            )}
+                          </span>
+                        </div>
+                        <QtyStepper value={q} onChange={(n) => setAdd(a.name, n)} max={addMax(a)} disabledPlus={soldOut} label={a.name} color={C.mustard} text={TEXT} />
+                      </div>
+                    )
+                  })}
                 </div>
-              </div>
+              </Section>
             )}
-          </div>
-          )}
-          </div>
+
+            {!isMenuExtra && (
+              <Section id="sec-drinks" title="Bebidas" hint="Acompaña tu pedido con una gaseosa fría." count={selectedBeverageCount ? `${selectedBeverageCount}` : undefined}>
+                {!BEVERAGES.length || !BEVERAGE_SIZES.length ? (
+                  <p className="rounded-2xl px-3 py-4 text-center text-sm" style={{ background: SOFT, color: MUTED }}>
+                    Por ahora no hay gaseosas disponibles.
+                  </p>
+                ) : (
+                  <>
+                    <div role="radiogroup" aria-label="Tamaño de gaseosa" className="mb-3 flex flex-wrap gap-2">
+                      {sizesInStock.map((size) => {
+                        const on = size.id === selectedBeverageSize.id
+                        return (
+                          <button
+                            key={size.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={on}
+                            onClick={() => setBeverageSize(size.id)}
+                            className="flex cursor-pointer items-baseline gap-1.5 rounded-full px-4 py-2 transition-colors"
+                            style={{ background: on ? C.mustard : SOFT, border: `1.5px solid ${on ? C.mustard : BORDER}`, color: on ? "#fff" : TEXT }}
+                          >
+                            <span className="text-sm font-bold">{size.label}</span>
+                            <span className="text-xs font-semibold" style={{ opacity: on ? 0.9 : 0.6 }}>{fmt(size.price)}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                    <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+                      {BEVERAGES.map((flavor) => {
+                        const size = selectedBeverageSize
+                        const key = `Gaseosa ${flavor} ${size.id}`
+                        const quantity = addQtys[key] || 0
+                        const info = sodaInfo(flavor, size.label)
+                        if (SODA_INFO.size && (!info || info.agotada)) return null // sin stock: no se muestra
+                        const soldOut = !!info?.agotada
+                        const price = sodaPrice(flavor, size)
+                        return (
+                          <div
+                            key={flavor}
+                            className="flex min-w-0 items-center gap-2.5 rounded-2xl py-2 pl-2 pr-2 transition-colors"
+                            style={{ border: `1.5px solid ${quantity > 0 ? C.mustard : BORDER}`, background: quantity > 0 ? `${C.mustard}12` : SOFT, opacity: soldOut ? 0.55 : 1 }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setZoomBeverage(flavor)}
+                              aria-label={`Ver ${beverageLabel(flavor)} ${size.label} más grande`}
+                              className="flex h-14 w-10 flex-shrink-0 cursor-zoom-in items-center justify-center overflow-hidden rounded-xl"
+                              style={{ background: "#fff" }}
+                            >
+                              <BeverageArt flavor={flavor} size={size.label} />
+                            </button>
+                            <div className="flex min-w-0 flex-1 flex-col">
+                              <span className="truncate whitespace-nowrap text-sm font-semibold leading-tight" style={{ color: TEXT }} title={beverageLabel(flavor)}>{flavor}</span>
+                              <span className="text-xs font-bold leading-tight" style={{ color: soldOut ? C.red : C.mustard }}>
+                                {soldOut ? "Agotada" : fmt(price)}
+                                {!soldOut && info?.stock != null && info.stock <= 10 && (
+                                  <span className="font-semibold" style={{ color: MUTED }}> · quedan {info.stock}</span>
+                                )}
+                              </span>
+                            </div>
+                            <QtyStepper
+                              value={quantity}
+                              onChange={(n) => setAdd(key, soldOut ? Math.min(n, quantity) : n)}
+                              label={`gaseosa ${flavor} ${size.label}`}
+                              color={C.mustard}
+                              text={TEXT}
+                              disabledPlus={soldOut}
+                              // Each unit of the line carries these sodas: never more in total than the stock
+                              max={info?.stock != null ? Math.floor(info.stock / Math.max(1, qty)) : 99}
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </Section>
+            )}
           </div>
         </div>
-        {/* Purchase: total on the left; quantity and the two short buttons on the right (on a phone the
-            buttons go below, side by side) */}
-        <div
-          className="flex w-full flex-shrink-0 flex-wrap items-center gap-x-3 gap-y-2.5 px-4 pb-4 pt-3 md:px-6 md:pb-5"
-          style={{ borderTop: `1px solid ${BORDER}`, background: CARD }}
-        >
-          <div
-            className="flex flex-shrink-0 items-center rounded-full p-0.5"
-            style={{ background: dark ? "rgba(244,238,220,0.07)" : "rgba(30,30,30,0.06)" }}
-          >
+      </div>
+
+      {/* Purchase bar, always in view: quantity, «Agregar» with the total, and «Finalizar compra» */}
+      <div className="flex-shrink-0" style={{ background: CARD, borderTop: `1px solid ${BORDER}`, boxShadow: "0 -10px 30px -20px rgba(25,21,18,0.5)" }}>
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2.5 px-4 py-3 sm:px-6">
+          <div className="flex flex-shrink-0 items-center rounded-full p-0.5" style={{ background: dark ? "rgba(244,238,220,0.07)" : "rgba(30,30,30,0.06)" }}>
             <button
               type="button"
               onClick={() => setQty((q) => Math.max(1, q - 1))}
               disabled={qty <= 1}
               aria-label="Una menos"
-              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-default disabled:opacity-35"
+              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-default disabled:opacity-35"
               style={{ color: TEXT }}
             >
               −
@@ -565,22 +481,22 @@ export default function AddToCartModal({
               onClick={() => setQty((q) => Math.min(MAX_QTY, q + 1))}
               disabled={qty >= MAX_QTY}
               aria-label="Una más"
-              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-not-allowed disabled:opacity-40"
               style={{ background: C.mustard, color: "#fff" }}
             >
               +
             </button>
           </div>
-          {/* The total lives only in the button: it goes up with the quantity, additions and drinks */}
           <button
             type="button"
             onClick={addWithFeedback}
-            className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 whitespace-nowrap rounded-full py-2.5 pl-5 pr-5 text-sm font-bold transition-[opacity,background-color] duration-200 hover:opacity-90 [&_svg]:h-4 [&_svg]:w-4"
-            style={{ background: added ? C.forest : C.mustard, color: "#fff", boxShadow: `0 4px 12px ${C.mustard}40` }}
+            disabled={product.soldOut}
+            className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 whitespace-nowrap rounded-full py-3 pl-5 pr-5 text-sm font-bold transition-[opacity,background-color] duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55 sm:text-base [&_svg]:h-4 [&_svg]:w-4"
+            style={{ background: added ? C.forest : C.mustard, color: "#fff", boxShadow: `0 6px 16px ${C.mustard}40` }}
           >
             <span key={added ? "added" : "add"} className={`flex items-center gap-1.5 ${added ? "cart-added-pop" : ""}`}>
               {Ico.check}
-              {initial ? "Guardar cambios" : added ? "Agregado" : "Agregar"}
+              {product.soldOut ? "Agotado" : initial ? "Guardar cambios" : added ? "Agregado" : "Agregar"}
             </span>
             <span className="font-price font-black tabular-nums">{fmt(total)}</span>
           </button>
@@ -588,15 +504,34 @@ export default function AddToCartModal({
             <button
               type="button"
               onClick={handleCheckout}
-              className="w-full cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-[13px] font-bold transition-colors md:w-auto"
+              disabled={product.soldOut}
+              className="w-full cursor-pointer whitespace-nowrap rounded-full px-5 py-2.5 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-55 sm:w-auto"
               style={{ border: `1.5px solid ${C.mustard}`, color: C.mustard, background: "transparent" }}
             >
               Finalizar compra
             </button>
           )}
         </div>
-        </div>
       </div>
+
+      {zoomBeverage && (
+        <div
+          className="fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center p-6"
+          style={{ background: "rgba(0,0,0,0.75)" }}
+          onClick={() => setZoomBeverage(null)}
+          role="dialog"
+          aria-label={beverageLabel(zoomBeverage)}
+        >
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex h-[min(60vh,420px)] w-[min(70vw,300px)] items-center justify-center overflow-hidden rounded-2xl p-4" style={{ background: "#fff" }}>
+              <BeverageArt flavor={zoomBeverage} size={selectedBeverageSize.label} />
+            </div>
+            <span className="text-base font-bold text-white">{beverageLabel(zoomBeverage)} · {selectedBeverageSize.label}</span>
+            <span className="max-w-xs text-center text-[10px] text-white/60">Imagen de referencia del producto</span>
+            <span className="text-xs text-white/70">Toca para volver</span>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
