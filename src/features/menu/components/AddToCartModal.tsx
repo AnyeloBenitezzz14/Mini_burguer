@@ -235,6 +235,76 @@ export default function AddToCartModal({
   }, [CARD, BORDER, TEXT, MUTED, openSecs])
   const additionsMoney = ADDITIONS.reduce((t, a) => t + (addQtys[a.name] || 0) * a.price, 0)
 
+  // Quantity next to «Agregar», then «Finalizar compra»
+  const actions = (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <div className="flex flex-shrink-0 items-center rounded-full p-0.5" aria-label="Cantidad del producto" role="group" style={{ background: dark ? "rgba(244,238,220,0.07)" : "rgba(30,30,30,0.06)" }}>
+          <button
+            type="button"
+            onClick={() => setQty((q) => Math.max(1, q - 1))}
+            disabled={qty <= 1}
+            aria-label="Una menos"
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-default disabled:opacity-35"
+            style={{ color: TEXT }}
+          >
+            −
+          </button>
+          {/* The quantity can be typed (1-999); while typing it may be empty, on leaving it goes back to a valid one */}
+          <input
+            type="text"
+            inputMode="numeric"
+            value={qtyDraft ?? String(qty)}
+            onChange={(event) => {
+              const digits = event.target.value.replace(/\D/g, "").slice(0, 3)
+              setQtyDraft(digits)
+              if (Number(digits) >= 1) setQty(Number(digits))
+            }}
+            onFocus={(event) => event.target.select()}
+            onBlur={() => setQtyDraft(null)}
+            aria-label="Cantidad"
+            className="w-10 bg-transparent text-center text-sm font-black outline-none"
+            style={{ color: TEXT }}
+          />
+          <button
+            type="button"
+            onClick={() => setQty((q) => Math.min(MAX_QTY, q + 1))}
+            disabled={qty >= MAX_QTY}
+            aria-label="Una más"
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            +
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={addWithFeedback}
+          disabled={product.soldOut}
+          className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-4 whitespace-nowrap rounded-full py-2.5 pl-5 pr-5 text-sm font-bold transition-[opacity,background-color] duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55 sm:text-base [&_svg]:h-4 [&_svg]:w-4"
+          style={{ background: added ? C.forest : C.mustard, color: "#fff", boxShadow: `0 6px 16px ${C.mustard}40` }}
+        >
+          <span key={added ? "added" : "add"} className={`flex items-center gap-1.5 ${added ? "cart-added-pop" : ""}`}>
+            {Ico.check}
+            {product.soldOut ? "Agotado" : initial ? "Guardar cambios" : added ? "Agregado" : "Agregar"}
+          </span>
+          <span className="font-price font-black tabular-nums">{fmt(total)}</span>
+        </button>
+      </div>
+      {onCheckout && (
+        <button
+          type="button"
+          onClick={handleCheckout}
+          disabled={product.soldOut}
+          className="w-full cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
+          style={{ border: `1.5px solid ${C.mustard}`, color: C.mustard, background: "transparent" }}
+        >
+          Finalizar compra
+        </button>
+      )}
+    </div>
+  )
+
   return (
     <div
       role="dialog"
@@ -284,65 +354,13 @@ export default function AddToCartModal({
               <h1 className="text-xl font-black leading-tight sm:text-2xl" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
                 {product.name}
               </h1>
-              {/* Price and how many, together with the product */}
-              <div className="mt-1 flex items-center justify-between gap-3">
-                <div className="font-price text-lg font-bold sm:text-xl" style={{ color: C.mustard }}>{product.priceStr}</div>
-                <div className="flex flex-shrink-0 items-center rounded-full p-0.5" aria-label="Cantidad del producto" role="group" style={{ background: dark ? "rgba(244,238,220,0.07)" : "rgba(30,30,30,0.06)" }}>
-                  <button
-                    type="button"
-                    onClick={() => setQty((q) => Math.max(1, q - 1))}
-                    disabled={qty <= 1}
-                    aria-label="Una menos"
-                    className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-default disabled:opacity-35"
-                    style={{ color: TEXT }}
-                  >
-                    −
-                  </button>
-                  {/* The quantity can be typed (1-999); while typing it may be empty, on leaving it goes back to a valid one */}
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={qtyDraft ?? String(qty)}
-                    onChange={(event) => {
-                      const digits = event.target.value.replace(/\D/g, "").slice(0, 3)
-                      setQtyDraft(digits)
-                      if (Number(digits) >= 1) setQty(Number(digits))
-                    }}
-                    onFocus={(event) => event.target.select()}
-                    onBlur={() => setQtyDraft(null)}
-                    aria-label="Cantidad"
-                    className="w-10 bg-transparent text-center text-sm font-black outline-none"
-                    style={{ color: TEXT }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setQty((q) => Math.min(MAX_QTY, q + 1))}
-                    disabled={qty >= MAX_QTY}
-                    aria-label="Una más"
-                    className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                    style={{ background: C.mustard, color: "#fff" }}
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
+              <div className="font-price mt-0.5 text-lg font-bold sm:text-xl" style={{ color: C.mustard }}>{product.priceStr}</div>
               {product.desc && (
                 <p className="mt-2 text-sm leading-relaxed" style={{ color: dark ? "rgba(244,238,220,0.7)" : "rgba(30,30,30,0.65)" }}>
                   {product.desc}
                 </p>
               )}
-              {!!product.ingredients?.length && (
-                <div className="mt-3">
-                  <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>Lleva</div>
-                  <div className="flex flex-wrap gap-1">
-                    {product.ingredients.map((i) => (
-                      <span key={i} className="rounded-full px-2.5 py-0.5 text-xs" style={{ background: `${C.mustard}12`, color: dark ? "#E9DCC0" : "#5C4A1A" }}>
-                        {i}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <div className="mt-4 hidden md:block">{actions}</div>
             </div>
           </div>
 
@@ -539,34 +557,9 @@ export default function AddToCartModal({
         </div>
       </div>
 
-      {/* Purchase bar, always in view: quantity, «Agregar» with the total, and «Finalizar compra» */}
-      <div className="flex-shrink-0" style={{ background: CARD, borderTop: `1px solid ${BORDER}`, boxShadow: "0 -10px 30px -20px rgba(25,21,18,0.5)" }}>
-        <div className="mx-auto flex w-full max-w-7xl items-center gap-2 px-4 py-2.5 sm:gap-3 sm:px-6">
-          <button
-            type="button"
-            onClick={addWithFeedback}
-            disabled={product.soldOut}
-            className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-4 sm:ml-auto whitespace-nowrap rounded-full py-2.5 pl-5 pr-5 text-sm font-bold sm:w-72 sm:flex-none transition-[opacity,background-color] duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55 sm:text-base [&_svg]:h-4 [&_svg]:w-4"
-            style={{ background: added ? C.forest : C.mustard, color: "#fff", boxShadow: `0 6px 16px ${C.mustard}40` }}
-          >
-            <span key={added ? "added" : "add"} className={`flex items-center gap-1.5 ${added ? "cart-added-pop" : ""}`}>
-              {Ico.check}
-              {product.soldOut ? "Agotado" : initial ? "Guardar cambios" : added ? "Agregado" : "Agregar"}
-            </span>
-            <span className="font-price font-black tabular-nums">{fmt(total)}</span>
-          </button>
-          {onCheckout && (
-            <button
-              type="button"
-              onClick={handleCheckout}
-              disabled={product.soldOut}
-              className="flex-none cursor-pointer whitespace-nowrap rounded-full px-4 py-2.5 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-55 sm:px-5"
-              style={{ border: `1.5px solid ${C.mustard}`, color: C.mustard, background: "transparent" }}
-            >
-              Finalizar compra
-            </button>
-          )}
-        </div>
+      {/* Phone: quantity, «Agregar» and «Finalizar compra» in a bar always in view (on a computer they sit under the product) */}
+      <div className="flex-shrink-0 md:hidden" style={{ background: CARD, borderTop: `1px solid ${BORDER}`, boxShadow: "0 -10px 30px -20px rgba(25,21,18,0.5)" }}>
+        <div className="px-4 py-2.5">{actions}</div>
       </div>
 
       {zoomBeverage && (
