@@ -333,7 +333,7 @@ export default function AddToCartModal({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto grid w-full max-w-[1500px] gap-4 px-4 py-4 sm:px-6 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:gap-6 md:py-5 lg:px-8">
+        <div className="mx-auto grid w-full max-w-[1500px] gap-4 px-4 pb-6 pt-4 sm:px-8 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:gap-8 md:pb-8 md:pt-5 lg:px-14">
           {/* Left: the photo, price, name and description (stays in view while the options scroll) */}
           <div className="min-w-0 md:sticky md:top-0 md:self-start">
             <div ref={photoRef} className="overflow-hidden rounded-3xl" style={{ background: `${C.mustard}14`, boxShadow: "0 18px 40px -24px rgba(25,21,18,0.6)" }}>
@@ -341,7 +341,7 @@ export default function AddToCartModal({
                 <ZoomableImage
                   src={product.img}
                   alt={product.name}
-                  className="block aspect-[16/10] max-h-[30vh] w-full object-cover md:aspect-[4/3] md:max-h-[56vh]"
+                  className="block aspect-[16/10] max-h-[30vh] w-full object-cover md:aspect-[4/3] md:max-h-[44vh]"
                 />
               )}
             </div>
