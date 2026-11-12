@@ -180,18 +180,10 @@ export default function AddToCartModal({
   const additionsCount = ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)
   const PAGE = dark ? "#151310" : "#F6EFDF"
   const SOFT = dark ? "rgba(244,238,220,0.04)" : "#fff"
-  // Collapsible sections (like the delivery apps): a computer opens all of them, a phone only the first,
-  // so there is less to scroll. Closed, each one says what was chosen
-  const [openSecs, setOpenSecs] = useState<Set<string>>(() =>
-    new Set(window.innerWidth >= 768 ? ["sec-size", "sec-sauces", "sec-additions", "sec-drinks"] : ["sec-size", "sec-sauces"]),
-  )
-  const toggleSec = (id: string) =>
-    setOpenSecs((cur) => {
-      const next = new Set(cur)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
+  // Collapsible sections (like the delivery apps). Closed, each one says what was chosen
+  // One open at a time: opening a section closes the others (it starts on the first one)
+  const [openSecs, setOpenSecs] = useState<Set<string>>(() => new Set([sodaParts ? "sec-size" : "sec-sauces"]))
+  const toggleSec = (id: string) => setOpenSecs((cur) => (cur.has(id) ? new Set() : new Set([id])))
   const Section = useMemo(() => ({ id, title, hint, summary, count, children }: { id: string; title: string; hint: string; summary?: string; count?: string; wide?: boolean; children: React.ReactNode }) => {
     const open = openSecs.has(id)
     return (
@@ -538,7 +530,7 @@ export default function AddToCartModal({
 
       {/* Purchase bar, always in view: quantity, «Agregar» with the total, and «Finalizar compra» */}
       <div className="flex-shrink-0" style={{ background: CARD, borderTop: `1px solid ${BORDER}`, boxShadow: "0 -10px 30px -20px rgba(25,21,18,0.5)" }}>
-        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 sm:px-6">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 sm:flex-nowrap sm:px-6">
           <div className="flex flex-shrink-0 items-center rounded-full p-0.5" style={{ background: dark ? "rgba(244,238,220,0.07)" : "rgba(30,30,30,0.06)" }}>
             <button
               type="button"
@@ -581,7 +573,7 @@ export default function AddToCartModal({
             type="button"
             onClick={addWithFeedback}
             disabled={product.soldOut}
-            className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 whitespace-nowrap rounded-full py-3 pl-5 pr-5 text-sm font-bold transition-[opacity,background-color] duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55 sm:text-base [&_svg]:h-4 [&_svg]:w-4"
+            className="ml-auto flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-4 whitespace-nowrap rounded-full py-2.5 pl-5 pr-5 text-sm font-bold sm:w-72 sm:flex-none transition-[opacity,background-color] duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55 sm:text-base [&_svg]:h-4 [&_svg]:w-4"
             style={{ background: added ? C.forest : C.mustard, color: "#fff", boxShadow: `0 6px 16px ${C.mustard}40` }}
           >
             <span key={added ? "added" : "add"} className={`flex items-center gap-1.5 ${added ? "cart-added-pop" : ""}`}>
@@ -595,7 +587,7 @@ export default function AddToCartModal({
               type="button"
               onClick={handleCheckout}
               disabled={product.soldOut}
-              className="w-full cursor-pointer whitespace-nowrap rounded-full px-5 py-2.5 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-55 sm:w-auto"
+              className="w-full cursor-pointer whitespace-nowrap rounded-full px-5 py-2.5 text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-55 sm:w-auto sm:flex-none"
               style={{ border: `1.5px solid ${C.mustard}`, color: C.mustard, background: "transparent" }}
             >
               Finalizar compra
