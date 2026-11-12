@@ -2,17 +2,19 @@ import { Fragment } from "react"
 import { MOD_CFG, NATURAL_SUPPLIER_KEYS, NATURAL_SUPPLIER_VIEW_KEYS, PAYMENT_NEXT, PURCHASE_ENTITIES, RETURNED_LOSS, STOCK_ORIGIN } from "@/features/admin/config/modules"
 import { DB_SYNC } from "@/features/admin/services/sync.service"
 import { derivePedidoPayment, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
-import { SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, sodaImage } from "@/features/menu/data/products"
+import { ADDITION_PRODUCT, SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import FieldError from "@/shared/components/FieldError"
+import UserHistory from "@/features/admin/components/UserHistory"
+import SuggestInput from "@/features/admin/components/SuggestInput"
 import { Ico } from "@/shared/components/icons"
 import { FIRST_DAY, MAX_PRICE } from "@/shared/constants"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { AddressParts, AdminOrderLine, FieldType, ProductionItem, Row, TechnicalIngredient } from "@/shared/types"
 import { ADDRESS_VIAS, HOUSING, composeAddress } from "@/shared/utils/address"
 import { fmt, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
-import { RECIPE_UNIT_SUGGESTIONS, compatibleUnits, convertQty, convertibleUnits, packOf } from "@/shared/utils/units"
+import { convertQty, convertibleUnits, packOf } from "@/shared/utils/units"
 import { normalizeDocumentInput, normalizePhoneInput } from "@/shared/utils/validation"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
@@ -283,7 +285,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     const supplier = (rows.proveedores || []).find((p) => String(p[0]) === supplierName)
     // A soda can be bought before it exists as an insumo (the purchase creates it)
     return splitList(String(supplier?.[7] ?? "")).filter(
-      (name) => supplyInfo(name) || isSodaName(name),
+      (name) => supplyInfo(name) || isStockedExtra(name),
     )
   }
   // Categories a supplier sells: those of the insumos it already has (from its purchases or its card)
@@ -297,13 +299,13 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
       ...(rows.insumos || [])
         .filter((i) => isActiveStatus(i[12]) && (!categories.length || categories.includes(currentCategory(String(i[1] ?? "").trim()))))
         .map((i) => String(i[0])),
-      ...supplierSupplies(supplierName).filter(isSodaName),
+      ...supplierSupplies(supplierName).filter(isStockedExtra),
     ])].sort((a, b) => a.localeCompare(b, "es"))
   }
   const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void) => {
     const groups = new Map<string, string[]>()
     names.forEach((name) => {
-      const category = currentCategory(String(supplyInfo(name)?.[1] ?? "").trim()) || (isSodaName(name) ? "Bebidas" : "Sin categoría")
+      const category = currentCategory(String(supplyInfo(name)?.[1] ?? "").trim()) || (isSodaName(name) ? "Bebidas" : isStockedExtra(name) ? ADDITION_PRODUCT : "Sin categoría")
       groups.set(category, [...(groups.get(category) || []), name])
     })
     return (
@@ -737,24 +739,19 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           {f.key === "0" && !isView && formData["1"] === SODA_PRODUCT && (
             <label className="mt-1 flex flex-col gap-1.5 text-xs font-semibold" style={{ color: formFieldErrors.sodaSize ? C.red : t.muted }}>
               Tamaño (solo gaseosas)
-              <input
-                list="soda-size-options"
+              <SuggestInput
+                t={t}
                 value={formData.sodaSize ?? ""}
-                onChange={(e) => {
-                  setFormData((current) => ({ ...current, sodaSize: e.target.value }))
+                onChange={(v) => {
+                  setFormData((current) => ({ ...current, sodaSize: v }))
                   setFormFieldErrors((current) => ({ ...current, sodaSize: "" }))
                 }}
+                options={[...new Set((rows.producto || []).flatMap((p) => (p[1] === SODA_PRODUCT ? [SODA_RE.exec(String(p[0]))?.[2] ?? ""] : [])))].filter(Boolean)}
+                empty="Tamaño nuevo: se guarda tal cual"
                 placeholder="Ej: Personal, 1.5 L, 3 L"
                 className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm font-normal outline-none"
                 style={{ background: t.input, border: `1.5px solid ${formFieldErrors.sodaSize ? C.red : t.inputB}`, color: t.text }}
               />
-              <datalist id="soda-size-options">
-                {[...new Set((rows.producto || []).flatMap((p) => (p[1] === SODA_PRODUCT ? [SODA_RE.exec(String(p[0]))?.[2] ?? ""] : [])))]
-                  .filter(Boolean)
-                  .map((size) => (
-                    <option key={size} value={size} />
-                  ))}
-              </datalist>
               <FieldError msg={formFieldErrors.sodaSize} />
               <span className="text-[11px] font-normal">
                 {String(formData.sodaSize ?? "").trim()
@@ -785,6 +782,12 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     .sort((a, b) => Number(isCounterClientRow("clientes", b)) - Number(isCounterClientRow("clientes", a)))
     .map((client) => String(client[0] ?? ""))
     .filter(Boolean)
+  // Client's document ("CC 1036…"), shown next to the name and searchable in the client search boxes
+  const clientDocOf = (name: string) => {
+    const c = (rows.clientes || []).find((r) => String(r[0] ?? "") === name)
+    return c && String(c[2] ?? "").trim() ? `${String(c[1] ?? "").trim()} ${String(c[2]).trim()}`.trim() : ""
+  }
+  const clientSuggestions = (names: string[]) => names.map((name) => ({ value: name, hint: clientDocOf(name) || undefined }))
 
   const handleSupplyCheckboxToggle = () => {
     setFormData((current) => {
@@ -920,6 +923,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               ))}
             </>
           )}
+          {isSales && isView && (
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="flex h-8 cursor-pointer items-center gap-1.5 rounded-xl px-3 text-xs font-semibold"
+              style={{ background: t.input, color: t.text }}
+            >
+              {Ico.download} Imprimir comprobante
+            </button>
+          )}
           <button
             onClick={requestCloseModal}
             aria-label="Cerrar"
@@ -931,7 +944,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           </div>
         </div>
         <div
-          className={`min-w-0 overflow-x-hidden ${isRoles || isUser || isSidePanel ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
+          className={`${isSales && isView ? "print-receipt " : ""}min-w-0 overflow-x-hidden ${isRoles || isUser || isSidePanel ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
             isUser
               ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
               : isRoles && !isView
@@ -943,8 +956,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     isSupplier
                       ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4"
                       : sheetBeside
-                        ? // left rows fit their fields; the ficha's extra height goes to the last (1fr) row
-                          "sm:grid-cols-2 lg:grid-cols-4 lg:grid-rows-[repeat(7,min-content)_1fr]"
+                        ? // the insumo's fields stay in the left half (one per row), the ficha takes the right half
+                          "sm:grid-cols-2 lg:grid-cols-4 lg:[&>*:not([data-sheet])]:col-span-2 lg:[&>*:not([data-sheet])]:col-start-1"
                         : (isProduction || isPedido || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
                   }`
                 : isProduct
@@ -957,6 +970,12 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             scrollbarWidth: "thin",
           }}
         >
+          {isSales && isView && (
+            <div className="print-only mb-3 border-b pb-2 text-center">
+              <p className="text-base font-bold">El Parche Mini Burguer</p>
+              <p className="text-xs">Comprobante de venta {String(row?.[0] ?? "")} · impreso el {new Date().toLocaleString("es-CO")}</p>
+            </div>
+          )}
           {/* Purchase module detail header: record name + status */}
           {isView && isPurchaseModule && !isPurchase && !isSupply && !isSupplier && !isClient && !isPedido && !isSales &&
             modal.section !== "cat-insumos" && modal.section !== "perdidas" && row && (
@@ -1171,7 +1190,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 // Creating or editing a drink: no ficha técnica at all, its fields take this column
                 if (isDrinkForm) return <div className="flex flex-col gap-3">{renderProductFields()}</div>
                 // A resale soda has no ficha técnica: show its stock and margin instead
-                if (isView && row?.[1] === SODA_PRODUCT) {
+                if (isView && (row?.[1] === SODA_PRODUCT || row?.[1] === ADDITION_PRODUCT)) {
                   // Its purchases set its stock and cost on the product itself
                   const cost = Number(row[13]) || 0
                   const price = Number(row[2]) || 0
@@ -1183,7 +1202,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       </p>
                       <div className="grid grid-cols-3 gap-2">
                         {[
-                          ["En stock", isSodaName(row[0]) ? `${Number(row[12]) || 0} und · mín. ${Number(row[14]) || 0}` : "No lleva stock"],
+                          ["En stock", isStockedExtra(row[0]) ? `${Number(row[12]) || 0} und · mín. ${Number(row[14]) || 0}` : "No lleva stock"],
                           ["Costo de compra", cost ? fmt(cost) : "Sin compras"],
                           ["Ganancia por unidad", !cost ? "—" : price >= cost ? fmt(price - cost) : `−${fmt(cost - price)}`],
                         ].map(([label, value]) => (
@@ -2160,6 +2179,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               })()}
               {isView && isSupply && row && supplyDetail(row)}
               {isView && isSupplier && row && supplierDetail(row)}
+              {isView && isUser && row && Number(row[7]) > 0 && <UserHistory id={Number(row[7])} t={t} />}
               {isUser && !isView && modal.mode === "add" && (
                 <div
                   className="rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2"
@@ -2193,6 +2213,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               // These details have their own layout below
               if (isView && (isSupply || isSupplier || modal.section === "cat-insumos" || modal.section === "perdidas")) return null
               if (isView && isPurchase) return null // the purchase ticket shows everything
+              if (isView && isUser && f.key === "6") return null // the password is never shown
               if (isPurchase && !isView && f.key === "2") return null
               // Shown in the detail header (with autoId, row[0] is the code, so field "0" stays)
               if (isView && isPurchaseModule && f.key === "0" && !cfg.autoId) return null
@@ -2280,6 +2301,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   updateAdminField(modal.section, key, value)
                 }
                 const unitOf = (name: string) => String(supplyInfo(name)?.[2] ?? "und")
+                const unitsOf = (name: string) => convertibleUnits(unitOf(name), packOf(supplyInfo(name)))
                 // Stored as text the backend already keeps: "Azúcar (50 g), Limón (2 und)"
                 const setMainSupplies = (next: { name: string; quantity: string; unit: string }[]) =>
                   setSheet(
@@ -2297,7 +2319,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 return (
                   <section
                     key="ficha-tecnica"
-                    className={`rounded-xl p-4 sm:col-span-2 ${sheetBeside ? "lg:col-start-3 lg:row-span-8 lg:row-start-1" : ""}`}
+                    data-sheet
+                    className={`rounded-xl p-4 sm:col-span-2 ${sheetBeside ? "lg:col-start-3 lg:row-start-1 lg:row-end-[span_14] lg:self-start" : ""}`}
                     style={{ background: `${C.mustard}0D`, border: `1.5px solid ${C.mustard}55` }}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2361,11 +2384,6 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               <span className="w-[16rem] text-center">Cuánto usas y en qué unidad</span>
                               <span className="w-7" />
                             </div>
-                            <datalist id="recipe-unit-options">
-                              {RECIPE_UNIT_SUGGESTIONS.map((u) => (
-                                <option key={u} value={u} />
-                              ))}
-                            </datalist>
                             {mainSupplies.map((item, index) => (
                               <div key={item.name} className="flex items-center gap-2">
                                 <span className="min-w-0 flex-1 truncate text-sm font-semibold" style={{ color: t.text }}>
@@ -2417,23 +2435,24 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 >
                                   +
                                 </button>
-                                <input
-                                  list="recipe-unit-options"
-                                  value={item.unit}
+                                {/* Bought in kg it is measured in g by default (or kg); in L, in ml (or L) */}
+                                <select
+                                  value={item.unit || unitsOf(item.name)[0]}
                                   onChange={(e) =>
-                                    setMainSupplies(
-                                      mainSupplies.map((m, i) =>
-                                        // "," and "()" would break the stored text "Azúcar (50 g), ..."
-                                        i === index ? { ...m, unit: e.target.value.replace(/[(),]/g, "").slice(0, 20) } : m,
-                                      ),
-                                    )
+                                    setMainSupplies(mainSupplies.map((m, i) => (i === index ? { ...m, unit: e.target.value } : m)))
                                   }
-                                  placeholder={unitOf(item.name)}
                                   aria-label={`Unidad de ${item.name}`}
-                                  title={`Escribe la unidad que usas (se compra en ${unitOf(item.name)})`}
-                                  className="w-24 rounded-xl px-2 py-2 text-xs outline-none"
+                                  title={`Se compra en ${unitOf(item.name)}`}
+                                  className="w-24 cursor-pointer rounded-xl px-2 py-2 text-xs outline-none"
                                   style={sheetControl}
-                                />
+                                >
+                                  {/* Only units that convert to how it is bought: kg → g or kg, L → ml or L */}
+                                  {[...new Set([item.unit || unitsOf(item.name)[0], ...unitsOf(item.name)])].map((u) => (
+                                    <option key={u} value={u}>
+                                      {u === unitOf(item.name) ? `${u} (compra)` : u}
+                                    </option>
+                                  ))}
+                                </select>
                                 <button
                                   type="button"
                                   aria-label={`Quitar ${item.name} de la ficha`}
@@ -2448,27 +2467,23 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           </div>
                         )}
                         {!isView && (
-                          <select
-                            value=""
-                            onChange={(e) => {
-                              if (e.target.value)
-                                setMainSupplies([...mainSupplies, { name: e.target.value, quantity: "", unit: compatibleUnits(unitOf(e.target.value))[0] }])
-                            }}
-                            aria-invalid={!!formFieldErrors["10"]}
-                            className="cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                            style={{
-                              ...sheetControl,
-                              border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
-                              color: t.muted,
-                            }}
-                          >
-                            <option value="">+ Agregar insumo a la ficha...</option>
-                            {ingredientOptions.map((name) => (
-                              <option key={name} value={name}>
-                                {name} ({unitOf(name)})
-                              </option>
-                            ))}
-                          </select>
+                          <>
+                            {/* Search box: typing filters the insumos; picking one adds it to the ficha */}
+                            <SuggestInput
+                              t={t}
+                              clearOnPick
+                              options={ingredientOptions.map((name) => ({ value: name, hint: unitOf(name) }))}
+                              onPick={(name) => setMainSupplies([...mainSupplies, { name, quantity: "", unit: unitsOf(name)[0] }])}
+                              empty="No hay insumos con ese nombre"
+                              placeholder="+ Buscar insumo para agregar a la ficha..."
+                              inputProps={{ "aria-label": "Buscar insumo para agregar a la ficha", "aria-invalid": !!formFieldErrors["10"] }}
+                              className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                              style={{
+                                ...sheetControl,
+                                border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
+                              }}
+                            />
+                          </>
                         )}
                         {formFieldErrors["10"] && (
                           <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
@@ -2543,7 +2558,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   // A soda bought at or above its sale price would sell at a loss: say so (it still gets added)
                   const salePrice = Number(sodaProductRow(purchaseItemSelect)?.[2]) || 0
                   setPurchaseFormError(
-                    isSodaName(purchaseItemSelect) && salePrice > 0 && price >= salePrice
+                    isStockedExtra(purchaseItemSelect) && salePrice > 0 && price >= salePrice
                       ? `Ojo: «${purchaseItemSelect}» se vende a ${fmt(salePrice)} y la estás comprando a ${fmt(price)} por unidad: se vendería a pérdida. Revisa si el precio es por unidad o sube su precio de venta en Productos.`
                       : "",
                   )
@@ -2967,16 +2982,20 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         Busca la venta *
                         <div className="search-control flex items-center gap-2 rounded-full px-3">
                           <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
-                          <input
-                            list="return-sales"
+                          <SuggestInput
+                            t={t}
                             value={saleCode}
-                            onChange={(event) => {
-                              const code = event.target.value.trim()
+                            onChange={(v) => {
+                              const code = v.trim()
                               setFormData((current) => ({ ...current, "1": code, "6": "[]" }))
                               setFormFieldErrors((current) => ({ ...current, "1": "" }))
                             }}
-                            placeholder="Código de la venta o cliente..."
-                            className="min-w-0 flex-1 bg-transparent py-2.5 text-sm font-normal outline-none"
+                            options={(rows.ventas || [])
+                              .filter((v) => !saleReturnBlock(v))
+                              .map((v) => ({ value: String(v[0]), hint: [String(v[2] ?? ""), clientDocOf(String(v[2] ?? "")), fmt(Number(v[7]) || 0)].filter(Boolean).join(" · ") }))}
+                            empty="No hay ventas que se puedan devolver con ese dato"
+                            placeholder="Código de la venta, cliente o documento..."
+                            className="w-full min-w-0 bg-transparent py-2.5 text-sm font-normal outline-none"
                             style={{ color: t.text }}
                           />
                           {saleCode && (
@@ -2989,13 +3008,6 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               ×
                             </button>
                           )}
-                          <datalist id="return-sales">
-                            {(rows.ventas || [])
-                              .filter((v) => !saleReturnBlock(v))
-                              .map((v) => (
-                                <option key={String(v[0])} value={String(v[0])}>{`${String(v[2] ?? "")} · ${fmt(Number(v[7]) || 0)}`}</option>
-                              ))}
-                          </datalist>
                         </div>
                         {fieldValidationError && <span className="text-[10px] font-medium">{fieldValidationError}</span>}
                         <span className="text-[10px] font-normal" style={{ color: t.muted }}>
@@ -3437,7 +3449,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           ? [...new Set([
                               ...(rows.insumos || []).filter((r) => isActiveStatus(r[12])).map((r) => String(r[0])),
                               // a soda (a broken bottle) is lost from its product's stock
-                              ...(rows.producto || []).filter((p) => p[1] === SODA_PRODUCT && isSodaName(p[0]) && isActiveStatus(p[4])).map((p) => String(p[0])),
+                              ...(rows.producto || []).filter((p) => ((p[1] === SODA_PRODUCT && isSodaName(p[0])) || p[1] === ADDITION_PRODUCT) && isActiveStatus(p[4])).map((p) => String(p[0])),
                               ...(formData["0"] ? [String(formData["0"])] : []),
                             ])]
                           : modal.section === "perdidas" && f.key === "3"
@@ -3889,14 +3901,15 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     <div className="flex min-w-0 gap-2">
                       <div className="search-control flex min-w-0 flex-1 items-center gap-2 rounded-full px-3">
                         <span className="flex-shrink-0" style={{ color: t.muted }}>{Ico.search}</span>
-                        <input
-                          list="sale-clients"
-                          value={val}
-                          onChange={(event) => updateAdminField(modal.section, f.key, event.target.value)}
-                          placeholder="Busca por nombre..."
-                          aria-label="Cliente"
-                          aria-invalid={!!fieldValidationError}
-                          className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none"
+                        <SuggestInput
+                          t={t}
+                          value={String(val ?? "")}
+                          onChange={(v) => updateAdminField(modal.section, f.key, v)}
+                          options={clientSuggestions(clientOptions)}
+                          empty="No hay clientes con ese nombre o documento. Usa «Crear cliente»."
+                          placeholder="Busca por nombre o documento..."
+                          inputProps={{ "aria-label": "Cliente", "aria-invalid": !!fieldValidationError }}
+                          className="w-full min-w-0 bg-transparent py-2.5 text-sm outline-none"
                           style={{ color: t.text }}
                         />
                         {val && (
@@ -3909,9 +3922,6 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             ×
                           </button>
                         )}
-                        <datalist id="sale-clients">
-                          {clientOptions.map((name) => <option key={name} value={name} />)}
-                        </datalist>
                       </div>
                       <button
                         type="button"
@@ -4436,6 +4446,25 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           </div>
                         )}
                       </div>
+                    ) : isPedido && f.key === "0" && !isView ? (
+                      // Only a client picked from the list counts; typed text that matches none leaves the field empty
+                      <SuggestInput
+                        key={`pedido-cliente-${modal.mode}-${modal.idx ?? "new"}`}
+                        t={t}
+                        initial={String(val ?? "")}
+                        options={clientSuggestions(fieldOptions || [])}
+                        onPick={(v) => updateFieldValue(v)}
+                        onChange={(v) => { if (!(fieldOptions || []).includes(v) && val) updateFieldValue("") }}
+                        empty="No hay clientes con ese nombre o documento"
+                        placeholder="Buscar cliente por nombre o documento..."
+                        inputProps={{
+                          "aria-label": "Buscar cliente que recibe",
+                          "aria-invalid": !!fieldValidationError,
+                          onBlur: () => { if (requiredFormField) setFormFieldErrors(validateManagedForm(modal.section, formData, modal.mode)) },
+                        }}
+                        className="w-full min-w-0 rounded-xl px-3.5 py-2.5 text-sm outline-none"
+                        style={{ background: t.input, border: `1.5px solid ${fieldValidationError ? C.red : t.inputB}`, color: t.text }}
+                      />
                     ) : (
                     <select
                       value={val}

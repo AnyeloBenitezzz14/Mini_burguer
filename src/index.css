@@ -1197,3 +1197,13 @@ select {
   .reviews-track { scroll-behavior: auto; }
   .reviews-card { transition: none; }
 }
+
+/* Printable sale receipt: only the sale detail is printed (window.print from the sale's "Ver detalle") */
+.print-only { display: none; }
+@media print {
+  body * { visibility: hidden; }
+  .print-receipt, .print-receipt * { visibility: visible; }
+  .print-receipt { position: fixed; inset: 0; width: 100%; max-height: none !important; overflow: visible !important; background: #fff !important; color: #000 !important; }
+  .print-receipt .print-only { display: block; grid-column: 1 / -1; }
+  .print-receipt button { display: none !important; }
+}

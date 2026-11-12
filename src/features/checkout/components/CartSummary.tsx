@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { activeCartItemsFirst, cartTotal, itemTotal } from "@/features/checkout/utils/cart"
 import AddToCartModal from "@/features/menu/components/AddToCartModal"
-import { PRODUCTS, allMenuProducts } from "@/features/menu/data/products"
+import { PRODUCTS, allMenuProducts, isSodaName } from "@/features/menu/data/products"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
 import type { CartItem } from "@/shared/types"
@@ -26,6 +26,19 @@ export default function CartSummary({
   const subtotal = cartTotal(cart)
   const [expandedItemId, setExpandedItemId] = useState<number | null>(null)
   const [editingItem, setEditingItem] = useState<CartItem | null>(null)
+  // Recipe ingredients the customer can leave out (none for sodas or products without a recipe)
+  const ingredientsOf = (item: CartItem) =>
+    isSodaName(item.name)
+      ? []
+      : (allMenuProducts().find((p) => p.id === item.productId) ?? allMenuProducts().find((p) => p.name === item.name))?.ingredients ?? []
+  const toggleWithout = (id: number, ingredient: string) =>
+    setCart((c) =>
+      c.map((i) => {
+        if (i.id !== id) return i
+        const without = i.without ?? []
+        return { ...i, without: without.includes(ingredient) ? without.filter((x) => x !== ingredient) : [...without, ingredient] }
+      }),
+    )
   const editingProduct = editingItem
     ? allMenuProducts().find((p) => p.id === editingItem.productId) ??
       allMenuProducts().find((p) => p.name === editingItem.name)
@@ -87,6 +100,11 @@ export default function CartSummary({
                   {item.additions && item.additions.length > 0 && (
                     <span className="block text-xs truncate" style={{ color: MUTED }}>
                       +{item.additions.map((a) => a.name).join(", ")}
+                    </span>
+                  )}
+                  {!!item.without?.length && (
+                    <span className="block text-xs truncate font-semibold" style={{ color: C.red }}>
+                      Sin {item.without.join(", ").toLowerCase()}
                     </span>
                   )}
                   {item.note?.trim() && (
@@ -194,6 +212,35 @@ export default function CartSummary({
                   ))}
                 </div>
                 <div className="min-w-0">
+                  {ingredientsOf(item).length > 0 && (
+                    <fieldset className="mb-2.5">
+                      <legend className="mb-1 block text-[11px] font-bold uppercase tracking-wide" style={{ color: TEXT }}>
+                        Quitar ingredientes
+                      </legend>
+                      <div className="flex flex-wrap gap-1">
+                        {ingredientsOf(item).map((ingredient) => {
+                          const off = item.without?.includes(ingredient) ?? false
+                          return (
+                            <button
+                              key={ingredient}
+                              type="button"
+                              aria-pressed={off}
+                              onClick={() => toggleWithout(item.id, ingredient)}
+                              className="cursor-pointer rounded-full px-2 py-0.5 transition-colors"
+                              style={{
+                                border: `1px solid ${off ? C.red : BORDER}`,
+                                background: off ? `${C.red}12` : "transparent",
+                                color: off ? C.red : TEXT,
+                                textDecoration: off ? "line-through" : "none",
+                              }}
+                            >
+                              {ingredient}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </fieldset>
+                  )}
                   <label className="block">
                     <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide" style={{ color: TEXT }}>
                       Especificaciones para la cocina
@@ -201,7 +248,7 @@ export default function CartSummary({
                     <input
                       value={item.note ?? ""}
                       maxLength={200}
-                      placeholder="Ej: sin cebolla, carne bien asada"
+                      placeholder="Ej: carne bien asada, salsas aparte"
                       onChange={(e) => setCart((c) => c.map((i) => (i.id === item.id ? { ...i, note: e.target.value } : i)))}
                       className="w-full rounded-lg border px-2.5 py-2 text-xs outline-none"
                       style={{ borderColor: BORDER, color: TEXT, background: "transparent" }}
@@ -212,7 +259,7 @@ export default function CartSummary({
                       type="button"
                       onClick={() => setCart((c) => [
                         ...c.map((i) => (i.id === item.id ? { ...i, qty: i.qty - 1 } : i)),
-                        { ...item, id: Math.max(...c.map((i) => i.id)) + 1, qty: 1, note: "" },
+                        { ...item, id: Math.max(...c.map((i) => i.id)) + 1, qty: 1, note: "", without: [] },
                       ])}
                       className="mt-1.5 font-semibold cursor-pointer hover:underline"
                       style={{ color: C.mustard }}

@@ -14,7 +14,6 @@ export async function loadMenu() {
       (item) => !["INACTIVO", "INACTIVA", "ANULADO", "ANULADA"].includes(String(item.estado ?? "").trim().toUpperCase()),
     )
   const inCat = (cat: string) => activeItems.filter((p) => p.categoria === cat)
-  ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio })))
   SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
   const rank = (f: string) => (BEVERAGE_ORDER.indexOf(f) + 1 || 99)
   // Each soda is a product of «Bebidas» named "Gaseosa <sabor> (<tamaño>)": flavours, sizes, prices and photos come from them
@@ -27,6 +26,8 @@ export async function loadMenu() {
   const sodaStock = await api<{ nombre: string; agotada: boolean; stock?: number }[]>("/catalogo/gaseosas").catch(() => [])
   const soldOut = new Set(sodaStock.filter((g) => g.agotada).map((g) => normalizeName(g.nombre)))
   const stockOf = new Map(sodaStock.map((g) => [normalizeName(g.nombre), g.stock]))
+  // The route also brings the additions' stock (they are bought in Compras like the sodas)
+  ADDITIONS.splice(0, ADDITIONS.length, ...inCat("Adiciones").map((p) => ({ name: p.nombre, price: p.precio, stock: stockOf.get(normalizeName(p.nombre)) })))
   SODA_INFO.clear()
   if (sodaProducts.length) {
     sodaProducts.forEach((s) =>
@@ -83,6 +84,7 @@ export async function loadMenu() {
           : imageUrl(p.imagenes[0]) || fallbackProduct?.img || "",
         cat: MENU_CAT_ID[currentCategory(p.categoria)] || p.categoria.toLowerCase(),
         badge: p.etiqueta || "",
+        ingredients: p.ingredientes ?? [],
       }
     }),
   )

@@ -1,5 +1,5 @@
 export const isTransferPaymentMethod = (method: string) =>
-  ["transferencia", "nequi", "daviplata"].includes(method.trim().toLowerCase())
+  ["transferencia", "nequi", "daviplata", "bancolombia"].includes(method.trim().toLowerCase())
 
 // ── Orders (shared by client app, profile and checkout) ───────────────────────
 export const ORDER_STEPS = ["Recibido", "Confirmado", "En cocina", "En camino", "Entregado"]

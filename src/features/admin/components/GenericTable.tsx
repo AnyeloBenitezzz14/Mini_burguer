@@ -6,6 +6,7 @@ import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import { Ico } from "@/shared/components/icons"
+import PurchaseProjection from "@/features/admin/components/PurchaseProjection"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { Row } from "@/shared/types"
 import { fmt, normalizeName } from "@/shared/utils/format"
@@ -243,6 +244,13 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     }
     if (section === "producto" && rowCellIndex === 2 && !(Number(cell) > 0)) {
       return "Sin precio"
+    }
+    // Money columns as $13.000: product price, purchase total, delivery cost
+    if (
+      cell !== "" && Number.isFinite(Number(cell)) &&
+      ((section === "producto" && rowCellIndex === 2) || (section === "compras" && rowCellIndex === 4) || (section === "domicilios" && rowCellIndex === 3))
+    ) {
+      return fmt(Number(cell))
     }
     // A purchase shows what was bought (in the old "Subtotal" place): "Leche", "Leche + Queso", "Leche + Queso cre…"
     if (section === "compras" && row && rowCellIndex === 3) {
@@ -511,7 +519,11 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               type="button"
               title="Reactivar"
               aria-label={`Reactivar ${entity}`}
-              onClick={() => toggleStatus(section, rowIndex, cfg.statusIndex!)}
+              onClick={() =>
+                section === "usuarios"
+                  ? setAnulTarget({ section, idx: rowIndex, reactivate: true })
+                  : toggleStatus(section, rowIndex, cfg.statusIndex!)
+              }
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
               style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
             >
@@ -695,6 +707,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
             Valor perdido: {fmt(Math.round(filtered.reduce((sum, { row }) => sum + lossValue(row), 0)))}
           </span>
         )}
+        {section === "insumos" && <PurchaseProjection t={t} />}
         {!noExp && (
           <button
             type="button"

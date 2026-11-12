@@ -1,6 +1,6 @@
 import { MOD_CFG, RETURNED_LOSS } from "@/features/admin/config/modules"
 import { estadoOf, isActiveStatus, optionalEmail, parsePurchaseLines, roleLabel, text, withId } from "@/features/admin/utils/rows"
-import { SODA_LOW_STOCK, SODA_PRODUCT, currentCategory, isSodaName } from "@/features/menu/data/products"
+import { SODA_LOW_STOCK, SODA_PRODUCT, currentCategory, isSodaName, isStockedExtra } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { api } from "@/shared/services/api"
 import type { DbRecord, PanelSyncSpec, Row, SyncSpec, TechnicalIngredient } from "@/shared/types"
@@ -34,15 +34,21 @@ export const categorySpec = (path: string, reloads: string[]): SyncSpec => ({
   reloads,
 })
 
+const shortDateTime = (v: unknown) =>
+  v ? new Date(String(v)).toLocaleString("es-CO", { dateStyle: "short", timeStyle: "short" }) : ""
+
 export const DB_SYNC: Record<string, SyncSpec> = {
-  // [0 nombre, 1 descripción, 2 estado]. The permissions matrix is still kept in the browser.
+  // [0 nombre, 1 descripción, 2 estado, 3 id, 4 creado, 5 actualizado]. The permissions matrix is still kept in the browser.
   roles: {
     path: "/roles",
     update: "PUT",
     idIndex: 3,
     idOf: (r) => r.id_rol,
-    toRow: (r) =>
-      withId([roleLabel(r.nombre_rol), r.descripcion || "", r.estado === "ACTIVO" ? "Activo" : "Inactivo"], 3, r.id_rol),
+    toRow: (r) => [
+      ...withId([roleLabel(r.nombre_rol), r.descripcion || "", r.estado === "ACTIVO" ? "Activo" : "Inactivo"], 3, r.id_rol),
+      shortDateTime(r.fecha_creacion),
+      shortDateTime(r.fecha_actualizacion),
+    ],
     toBody: (row) => ({ nombre_rol: text(row[0]), descripcion: text(row[1]), estado: estadoOf(row[2]) }),
   },
   // [0 nombre, 1 tipo doc, 2 documento, 3 rol, 4 correo, 5 estado, 6 contraseña, 7 id, 8 admin principal]
@@ -252,16 +258,16 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       // A soda is bought as its product of «Bebidas» (its stock goes there), the rest as insumos
       const [insumos, productos] = await Promise.all([
         api<DbRecord[]>("/insumos"),
-        lines.some((l) => isSodaName(l.name)) ? api<DbRecord[]>("/productos") : Promise.resolve([] as DbRecord[]),
+        lines.some((l) => isStockedExtra(l.name)) ? api<DbRecord[]>("/productos") : Promise.resolve([] as DbRecord[]),
       ])
       const find = (name: string) =>
-        (isSodaName(name) ? productos : insumos).find((i) => normalizeName(i.nombre) === normalizeName(name))
+        (isStockedExtra(name) ? productos : insumos).find((i) => normalizeName(i.nombre) === normalizeName(name))
       const items = lines.map((line) => {
         const insumo = find(line.name)
         if (!insumo)
           throw new Error(
-            isSodaName(line.name)
-              ? `La gaseosa «${line.name}» no existe en Productos → Bebidas.`
+            isStockedExtra(line.name)
+              ? `«${line.name}» no existe en Productos.`
               : `El insumo «${line.name}» no existe en la base de datos.`,
           )
         return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice }
@@ -301,8 +307,8 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       if (!(cantidad > 0)) throw new Error(`La cantidad «${row[1]}» no es válida.`)
       return {
         // a soda sent to loss from its purchase is its product of «Bebidas»
-        id_insumo_producto: isSodaName(row[0])
-          ? await idByName("/productos", "nombre", "id_insumo_producto", row[0], "La gaseosa")
+        id_insumo_producto: isStockedExtra(row[0])
+          ? await idByName("/productos", "nombre", "id_insumo_producto", row[0], "El producto")
           : await idByName("/insumos", "nombre", "id_insumo_producto", row[0], "El insumo"),
         cantidad,
         motivo: text(row[2]),

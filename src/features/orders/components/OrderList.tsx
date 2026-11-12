@@ -21,16 +21,12 @@ export default function OrderList({
         Aún no has hecho pedidos.
       </div>
     )
+  // The real creation date ("Pedido del jueves 6 de noviembre"); orders without it show their code
   const formatOrderDescription = (order: Order) => {
-    const days = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"]
-    const months = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
-    // Generate a consistent imaginary date based on the order ID
-    const idMatch = order.id.match(/\d+/)
-    const seed = idMatch ? parseInt(idMatch[0], 10) : Math.floor(Math.random() * 1000)
-    const dayIndex = seed % 7
-    const day = (seed % 28) + 1
-    const month = seed % 12
-    return `Pedido del ${days[dayIndex]} ${day} de ${months[month]}`
+    const d = order.createdAt ? new Date(order.createdAt) : null
+    if (!d || Number.isNaN(d.getTime())) return `Pedido ${order.id}`
+    const sameYear = d.getFullYear() === new Date().getFullYear()
+    return `Pedido del ${d.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long", ...(sameYear ? {} : { year: "numeric" }) }).replace(",", "")}`
   }
 
   return (
