@@ -345,27 +345,17 @@ export default function AddToCartModal({
         <div className="mx-auto grid w-full max-w-[1500px] gap-4 px-4 pb-6 pt-4 sm:px-8 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:gap-8 md:pb-8 md:pt-5 lg:px-14">
           {/* Left: the photo, price, name and description (stays in view while the options scroll) */}
           <div className="min-w-0 md:sticky md:top-0 md:self-start">
-            {/* Photo: the whole picture (no crop) on a warm frame that fills the column, «Favorita» on top */}
-            <div
-              ref={photoRef}
-              className="relative flex items-center justify-center overflow-hidden rounded-3xl p-3 sm:p-4"
-              style={{
-                background: dark
-                  ? "radial-gradient(120% 90% at 50% 20%, rgba(210,154,66,0.18), #1E1C18 70%)"
-                  : `radial-gradient(120% 90% at 50% 20%, #FFFFFF, ${C.cream} 75%)`,
-                border: `1px solid ${BORDER}`,
-                boxShadow: "0 18px 40px -26px rgba(25,21,18,0.55)",
-              }}
-            >
+            {/* Photo: the card is the picture itself (fills it, never cropped); «Favorita» on top */}
+            <div ref={photoRef} className="relative mx-auto w-fit max-w-full overflow-hidden rounded-3xl shadow-[0_18px_40px_-24px_rgba(25,21,18,0.6)]" style={{ background: `${C.mustard}14` }}>
               {product.img && (
                 <ZoomableImage
                   src={product.img}
                   alt={product.name}
-                  className="block h-auto max-h-[30vh] w-auto max-w-full rounded-2xl shadow-[0_14px_30px_-18px_rgba(25,21,18,0.7)] md:max-h-[36vh] md:[@media(max-height:800px)]:max-h-[30vh]"
+                  className="block h-auto max-h-[34vh] w-auto max-w-full md:max-h-[44vh] md:[@media(max-height:800px)]:max-h-[34vh]"
                 />
               )}
               {product.badge && (
-                <span className="absolute left-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-bold shadow-sm" style={{ background: C.mustard, color: "#fff" }}>
+                <span className="pointer-events-none absolute left-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-bold shadow-sm" style={{ background: C.mustard, color: "#fff" }}>
                   ★ {product.badge}
                 </span>
               )}
