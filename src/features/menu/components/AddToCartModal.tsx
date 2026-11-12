@@ -181,14 +181,14 @@ export default function AddToCartModal({
   const PAGE = dark ? "#151310" : "#F6EFDF"
   const SOFT = dark ? "rgba(244,238,220,0.04)" : "#fff"
   // Section card with its title, a short hint and a counter
-  const Section = useMemo(() => ({ id, title, hint, count, children }: { id: string; title: string; hint: string; count?: string; children: React.ReactNode }) => (
-    <section aria-labelledby={id} className="rounded-3xl p-4 sm:p-5" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
-      <div className="mb-3 flex items-start justify-between gap-3">
+  const Section = useMemo(() => ({ id, title, hint, count, wide, children }: { id: string; title: string; hint: string; count?: string; wide?: boolean; children: React.ReactNode }) => (
+    <section aria-labelledby={id} className={`rounded-2xl p-3.5 sm:p-4 ${wide ? "lg:col-span-2" : ""}`} style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+      <div className="mb-2.5 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 id={id} className="text-lg font-black leading-tight sm:text-xl" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
+          <h2 id={id} className="text-base font-black leading-tight sm:text-lg" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
             {title}
           </h2>
-          <p className="mt-0.5 text-xs sm:text-sm" style={{ color: MUTED }}>{hint}</p>
+          <p className="mt-0.5 text-xs" style={{ color: MUTED }}>{hint}</p>
         </div>
         {count && (
           <span className="flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-bold tabular-nums" style={{ background: `${C.mustard}18`, color: C.mustard }}>
@@ -210,7 +210,7 @@ export default function AddToCartModal({
     >
       {/* Top bar: back to the menu */}
       <header
-        className="flex flex-shrink-0 items-center gap-3 px-4 py-3 sm:px-6"
+        className="flex flex-shrink-0 items-center gap-3 px-4 py-2 sm:px-6"
         style={{ background: CARD, borderBottom: `1px solid ${BORDER}` }}
       >
         <button
@@ -228,7 +228,7 @@ export default function AddToCartModal({
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto grid w-full max-w-6xl gap-5 px-4 py-5 sm:px-6 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:gap-8 md:py-8">
+        <div className="mx-auto grid w-full max-w-7xl gap-4 px-4 py-4 sm:px-6 md:grid-cols-[minmax(0,4fr)_minmax(0,9fr)] md:gap-6 md:py-5">
           {/* Left: the photo, price, name and description (stays in view while the options scroll) */}
           <div className="min-w-0 md:sticky md:top-0 md:self-start">
             <div ref={photoRef} className="overflow-hidden rounded-3xl" style={{ background: SOFT, boxShadow: "0 18px 40px -24px rgba(25,21,18,0.6)" }}>
@@ -236,22 +236,22 @@ export default function AddToCartModal({
                 <ZoomableImage
                   src={product.img}
                   alt={product.name}
-                  className="block aspect-[4/3] w-full object-cover md:aspect-square"
+                  className="block aspect-[16/10] max-h-[30vh] w-full object-cover md:aspect-[4/3] md:max-h-[42vh]"
                 />
               )}
             </div>
-            <div className="mt-4 px-1">
+            <div className="mt-3 px-1">
               {product.badge && (
                 <span className="mb-2 inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold" style={{ background: C.mustard, color: "#fff" }}>
                   {product.badge}
                 </span>
               )}
-              <h1 className="text-2xl font-black leading-tight sm:text-3xl" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
+              <h1 className="text-xl font-black leading-tight sm:text-2xl" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
                 {product.name}
               </h1>
-              <div className="font-price mt-1 text-xl font-bold sm:text-2xl" style={{ color: C.mustard }}>{product.priceStr}</div>
+              <div className="font-price mt-0.5 text-lg font-bold sm:text-xl" style={{ color: C.mustard }}>{product.priceStr}</div>
               {product.desc && (
-                <p className="mt-3 text-sm leading-relaxed sm:text-[15px]" style={{ color: dark ? "rgba(244,238,220,0.7)" : "rgba(30,30,30,0.65)" }}>
+                <p className="mt-2 text-sm leading-relaxed" style={{ color: dark ? "rgba(244,238,220,0.7)" : "rgba(30,30,30,0.65)" }}>
                   {product.desc}
                 </p>
               )}
@@ -259,7 +259,7 @@ export default function AddToCartModal({
           </div>
 
           {/* Right: every option at once, one section under the other */}
-          <div className="flex min-w-0 flex-col gap-4">
+          <div className="grid min-w-0 content-start gap-3 lg:grid-cols-2">
             {sodaParts && (() => {
               // A soda opened from the menu is already a flavour («Coca-Cola»): only its size is chosen here
               const [, flavor] = sodaParts
@@ -274,7 +274,7 @@ export default function AddToCartModal({
                 setQtyDraft(null)
               }
               return (
-                <Section id="sec-size" title="Tamaño" hint={`Elige el tamaño de tu ${flavor}. Solo ves los que tenemos disponibles.`}>
+                <Section id="sec-size" wide title="Tamaño" hint={`Elige el tamaño de tu ${flavor}. Solo ves los que tenemos disponibles.`}>
                   <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                     {sizes.map((p) => {
                       const size = parts(p)[2]
@@ -305,7 +305,7 @@ export default function AddToCartModal({
 
             {!isMenuExtra && (
               <Section id="sec-sauces" title="Salsas" hint="Elige hasta 4, son gratis." count={`${selSauces.length}/4`}>
-                <div role="group" aria-label="Salsas" className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div role="group" aria-label="Salsas" className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-2">
                   {SAUCES.map((s) => {
                     const on = selSauces.includes(s)
                     const full = !on && selSauces.length >= 4
@@ -316,12 +316,12 @@ export default function AddToCartModal({
                         onClick={() => toggleSauce(s)}
                         disabled={full}
                         aria-pressed={on}
-                        className="flex min-w-0 cursor-pointer items-center justify-between gap-2 rounded-2xl py-2.5 pl-3.5 pr-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45"
+                        className="flex min-w-0 cursor-pointer items-center justify-between gap-2 rounded-xl py-1.5 pl-3 pr-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45"
                         style={{ border: `1.5px solid ${on ? C.mustard : BORDER}`, background: on ? `${C.mustard}14` : SOFT }}
                       >
                         <span className="truncate text-sm font-semibold" style={{ color: on ? C.mustard : TEXT }}>{s}</span>
                         <span
-                          className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold"
+                          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
                           style={{ background: on ? C.mustard : `${C.mustard}1A`, color: on ? "#fff" : C.mustard }}
                         >
                           {on ? "✓" : "+"}
@@ -335,14 +335,14 @@ export default function AddToCartModal({
 
             {!isMenuExtra && (
               <Section id="sec-additions" title="Adiciones" hint={`Agrégale lo que quieras a tu ${product.name.toLowerCase()}.`} count={additionsCount ? `${additionsCount}` : undefined}>
-                <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+                <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                   {ADDITIONS.map((a) => {
                     const q = addQtys[a.name] || 0
                     const soldOut = a.stock != null && a.stock <= 0
                     return (
                       <div
                         key={a.name}
-                        className="flex min-w-0 items-center justify-between gap-2 rounded-2xl py-2 pl-3.5 pr-2 transition-colors"
+                        className="flex min-w-0 items-center justify-between gap-2 rounded-xl py-1.5 pl-3 pr-1.5 transition-colors"
                         style={{ border: `1.5px solid ${q ? C.mustard : BORDER}`, background: q ? `${C.mustard}12` : SOFT, opacity: soldOut ? 0.6 : 1 }}
                       >
                         <div className="flex min-w-0 flex-1 flex-col">
@@ -365,14 +365,14 @@ export default function AddToCartModal({
             )}
 
             {!isMenuExtra && (
-              <Section id="sec-drinks" title="Bebidas" hint="Acompaña tu pedido con una gaseosa fría." count={selectedBeverageCount ? `${selectedBeverageCount}` : undefined}>
+              <Section id="sec-drinks" wide title="Bebidas" hint="Acompaña tu pedido con una gaseosa fría." count={selectedBeverageCount ? `${selectedBeverageCount}` : undefined}>
                 {!BEVERAGES.length || !BEVERAGE_SIZES.length ? (
                   <p className="rounded-2xl px-3 py-4 text-center text-sm" style={{ background: SOFT, color: MUTED }}>
                     Por ahora no hay gaseosas disponibles.
                   </p>
                 ) : (
                   <>
-                    <div role="radiogroup" aria-label="Tamaño de gaseosa" className="mb-3 flex flex-wrap gap-2">
+                    <div role="radiogroup" aria-label="Tamaño de gaseosa" className="mb-2.5 flex flex-wrap gap-1.5">
                       {sizesInStock.map((size) => {
                         const on = size.id === selectedBeverageSize.id
                         return (
@@ -382,7 +382,7 @@ export default function AddToCartModal({
                             role="radio"
                             aria-checked={on}
                             onClick={() => setBeverageSize(size.id)}
-                            className="flex cursor-pointer items-baseline gap-1.5 rounded-full px-4 py-2 transition-colors"
+                            className="flex cursor-pointer items-baseline gap-1.5 rounded-full px-3.5 py-1.5 transition-colors"
                             style={{ background: on ? C.mustard : SOFT, border: `1.5px solid ${on ? C.mustard : BORDER}`, color: on ? "#fff" : TEXT }}
                           >
                             <span className="text-sm font-bold">{size.label}</span>
@@ -391,7 +391,7 @@ export default function AddToCartModal({
                         )
                       })}
                     </div>
-                    <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2 lg:grid-cols-3">
                       {BEVERAGES.map((flavor) => {
                         const size = selectedBeverageSize
                         const key = `Gaseosa ${flavor} ${size.id}`
@@ -403,14 +403,14 @@ export default function AddToCartModal({
                         return (
                           <div
                             key={flavor}
-                            className="flex min-w-0 items-center gap-2.5 rounded-2xl py-2 pl-2 pr-2 transition-colors"
+                            className="flex min-w-0 items-center gap-2 rounded-xl py-1.5 pl-1.5 pr-1.5 transition-colors"
                             style={{ border: `1.5px solid ${quantity > 0 ? C.mustard : BORDER}`, background: quantity > 0 ? `${C.mustard}12` : SOFT, opacity: soldOut ? 0.55 : 1 }}
                           >
                             <button
                               type="button"
                               onClick={() => setZoomBeverage(flavor)}
                               aria-label={`Ver ${beverageLabel(flavor)} ${size.label} más grande`}
-                              className="flex h-14 w-10 flex-shrink-0 cursor-zoom-in items-center justify-center overflow-hidden rounded-xl"
+                              className="flex h-11 w-8 flex-shrink-0 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg"
                               style={{ background: "#fff" }}
                             >
                               <BeverageArt flavor={flavor} size={size.label} />
@@ -448,7 +448,7 @@ export default function AddToCartModal({
 
       {/* Purchase bar, always in view: quantity, «Agregar» with the total, and «Finalizar compra» */}
       <div className="flex-shrink-0" style={{ background: CARD, borderTop: `1px solid ${BORDER}`, boxShadow: "0 -10px 30px -20px rgba(25,21,18,0.5)" }}>
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2.5 px-4 py-3 sm:px-6">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 sm:px-6">
           <div className="flex flex-shrink-0 items-center rounded-full p-0.5" style={{ background: dark ? "rgba(244,238,220,0.07)" : "rgba(30,30,30,0.06)" }}>
             <button
               type="button"
