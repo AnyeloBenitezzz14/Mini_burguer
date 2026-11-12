@@ -193,7 +193,7 @@ export default function AddToCartModal({
           onClick={() => toggleSec(id)}
           aria-expanded={open}
           aria-controls={`${id}-body`}
-          className="flex w-full cursor-pointer items-center gap-3 px-3.5 py-3 text-left sm:px-4"
+          className="flex w-full cursor-pointer items-center gap-3 px-4 py-3.5 text-left sm:px-5 md:py-5"
         >
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-2">
@@ -227,7 +227,7 @@ export default function AddToCartModal({
           style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="px-3.5 pb-3.5 sm:px-4 sm:pb-4" inert={!open}>{children}</div>
+            <div className="px-4 pb-4 sm:px-5 sm:pb-5" inert={!open}>{children}</div>
           </div>
         </div>
       </section>
@@ -336,12 +336,13 @@ export default function AddToCartModal({
         <div className="mx-auto grid w-full max-w-[1500px] gap-4 px-4 pb-6 pt-4 sm:px-8 md:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] md:gap-8 md:pb-8 md:pt-5 lg:px-14">
           {/* Left: the photo, price, name and description (stays in view while the options scroll) */}
           <div className="min-w-0 md:sticky md:top-0 md:self-start">
-            <div ref={photoRef} className="overflow-hidden rounded-3xl" style={{ background: `${C.mustard}14`, boxShadow: "0 18px 40px -24px rgba(25,21,18,0.6)" }}>
+            {/* The whole photo at its own proportion (no crop, no side bands), centred in the column */}
+            <div ref={photoRef} className="flex justify-center">
               {product.img && (
                 <ZoomableImage
                   src={product.img}
                   alt={product.name}
-                  className="block aspect-[16/10] max-h-[30vh] w-full object-cover md:aspect-[4/3] md:max-h-[44vh]"
+                  className="block h-auto max-h-[32vh] w-auto max-w-full rounded-3xl shadow-[0_18px_40px_-24px_rgba(25,21,18,0.6)] md:max-h-[44vh]"
                 />
               )}
             </div>
@@ -365,7 +366,7 @@ export default function AddToCartModal({
           </div>
 
           {/* Right: every option at once, one section under the other */}
-          <div className="grid w-full min-w-0 content-start gap-3">
+          <div className="grid w-full min-w-0 content-start gap-3 md:self-center">
             {sodaParts && (() => {
               // A soda opened from the menu is already a flavour («Coca-Cola»): only its size is chosen here
               const [, flavor] = sodaParts
