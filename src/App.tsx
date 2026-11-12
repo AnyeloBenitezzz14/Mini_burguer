@@ -1,31 +1,32 @@
-import { useEffect, useState } from "react"
-import AdminPanel from "@/features/admin/pages/AdminPanel"
-import ChooseOwnPasswordPage from "@/features/auth/pages/ChooseOwnPasswordPage"
-import ForgotPage from "@/features/auth/pages/ForgotPage"
-import LoginPage from "@/features/auth/pages/LoginPage"
-import RegisterPage from "@/features/auth/pages/RegisterPage"
-import ResetPage from "@/features/auth/pages/ResetPage"
-import { saveRegisteredClient } from "@/features/auth/services/auth.service"
-import CheckoutPage from "@/features/checkout/pages/CheckoutPage"
-import ClientApp from "@/features/client/pages/ClientApp"
-import LandingPage from "@/features/landing/pages/LandingPage"
-import GuestMenuPage from "@/features/menu/pages/GuestMenuPage"
-import { addCartItem } from "@/features/checkout/utils/cart"
+import { Suspense, lazy, useEffect, useState } from "react"
+const AdminPanel = lazy(() => import("@/features/admin/pages/AdminPanel"))
+const ChooseOwnPasswordPage = lazy(() => import("@/features/auth/pages/ChooseOwnPasswordPage"))
+const ForgotPage = lazy(() => import("@/features/auth/pages/ForgotPage"))
+const LoginPage = lazy(() => import("@/features/auth/pages/LoginPage"))
+const RegisterPage = lazy(() => import("@/features/auth/pages/RegisterPage"))
+const ResetPage = lazy(() => import("@/features/auth/pages/ResetPage"))
+import { saveRegisteredClient, toUser } from "@/features/auth/services/auth.service"
+const CheckoutPage = lazy(() => import("@/features/checkout/pages/CheckoutPage"))
+const ClientApp = lazy(() => import("@/features/client/pages/ClientApp"))
+const LandingPage = lazy(() => import("@/features/landing/pages/LandingPage"))
+const GuestMenuPage = lazy(() => import("@/features/menu/pages/GuestMenuPage"))
+import { addCartItem, kitchenNote } from "@/features/checkout/utils/cart"
 import { loadMenu, refreshCartProducts } from "@/features/menu/services/menu.service"
 import { loadOrders, orderFromDb, refreshOrders, saveOrders } from "@/features/orders/services/orders.service"
 import { orderDbId } from "@/features/orders/utils/orders"
-import ProfilePage from "@/features/profile/pages/ProfilePage"
+const ProfilePage = lazy(() => import("@/features/profile/pages/ProfilePage"))
 import { saveProfile } from "@/features/profile/services/profile.service"
 import AccountMenu from "@/shared/components/AccountMenu"
-import { api } from "@/shared/services/api"
+import { api, listenEvents } from "@/shared/services/api"
 import { C } from "@/shared/styles/theme"
-import type { CartItem, DbRecord, Order, Page, User } from "@/shared/types"
-import { loadLS, saveLS } from "@/shared/utils/storage"
+import type { AuthData, CartItem, DbRecord, Order, Page, User } from "@/shared/types"
+import { clearSession, getToken, loadLS, loadSession, saveLS, saveSession } from "@/shared/utils/storage"
 
 // ── App Root ───────────────────────────────────────────────────────────────────
-export default function App() {
-  const [page, setPage] = useState<Page>("landing")
-  const [user, setUser] = useState<User | null>(null)
+function AppRoutes() {
+  // A reload opens this tab's account at once (saved in the tab); the backend confirms it right after
+  const [user, setUser] = useState<User | null>(() => (getToken() ? loadSession<User | null>("user", null) : null))
+  const [page, setPage] = useState<Page>(() => (user ? (sessionStorage.getItem("page") || "app") as Page : "landing"))
   // The cart is kept in the browser: one per account ("cart:<email>") and one for guests ("cart")
   const [cart, setCart] = useState<CartItem[]>(() => loadLS("cart", []))
   const [forgotEmail, setForgotEmail] = useState("")
@@ -91,11 +92,21 @@ export default function App() {
       if (document.visibilityState === "visible") refresh()
     }
     refresh()
+    // Staff hear at once when a client places an order or edits their profile
+    const live = new AbortController()
+    if (user.role === "admin")
+      listenEvents("/panel/eventos", (module) => {
+        if (module === "pedidos") refresh()
+        if (module === "clientes") window.dispatchEvent(new Event("profile-updated"))
+      }, live.signal)
+    // Clients hear at once when the admin changes one of their orders
+    else listenEvents("/pedidos/mios/eventos", refresh, live.signal)
     const interval = window.setInterval(refresh, 15000)
     window.addEventListener("focus", refresh)
     document.addEventListener("visibilitychange", onVisibilityChange)
     return () => {
       active = false
+      live.abort()
       window.clearInterval(interval)
       window.removeEventListener("focus", refresh)
       document.removeEventListener("visibilitychange", onVisibilityChange)
@@ -118,7 +129,7 @@ export default function App() {
   const updateUser = (u: User) => {
     saveUserLocally(u)
     // Name, document, phone and addresses live in the backend (the photo stays in this browser)
-    if (loadLS("token", ""))
+    if (getToken())
       persistUserProfile(u).catch((err) => window.alert(`No se pudieron guardar tus datos: ${(err as Error).message}`))
   }
   const login = (u: User, next: Page = "app") => {
@@ -136,15 +147,49 @@ export default function App() {
     setClientView("menu")
     setPage(next)
   }
+  // Checks the saved token with the backend: refreshes the account, or signs out if the session expired
+  useEffect(() => {
+    if (!getToken()) return
+    const lastPage = (sessionStorage.getItem("page") || "app") as Page
+    api<Omit<AuthData, "token">>("/auth/me")
+      .then((data) => login(toUser({ ...data, token: getToken() } as AuthData), lastPage))
+      // No connection: stay in the account; a rejected token (expired, deleted user) signs out
+      .catch((err: Error) => { if (!/conectar/i.test(err.message)) logout() })
+  }, [])
+  useEffect(() => {
+    if (user) sessionStorage.setItem("page", page)
+  }, [page, user])
+  useEffect(() => {
+    if (user) saveSession("user", { ...user, password: undefined })
+  }, [user])
   const logout = () => {
-    localStorage.removeItem("token")
-    localStorage.removeItem("orders") // may hold every customer's orders (admin)
+    clearSession()
     setOrdersLoadedFor("")
     // The account's cart stays saved under its own key; the next person starts empty
     setCart([])
     setUser(null)
     setPage("landing")
   }
+  // 30 minutes without mouse, keyboard, touch or scroll: the session closes and the login opens
+  useEffect(() => {
+    if (!user) return
+    let timer = 0
+    const reset = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        logout()
+        setPage("login")
+        window.alert("Tu sesión se cerró por inactividad. Inicia sesión de nuevo.")
+      }, 30 * 60 * 1000)
+    }
+    const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"]
+    events.forEach((e) => window.addEventListener(e, reset, { passive: true }))
+    reset()
+    return () => {
+      window.clearTimeout(timer)
+      events.forEach((e) => window.removeEventListener(e, reset))
+    }
+  }, [user])
   const updateOrders = (fn: (o: Order[]) => Order[]) => {
     saveOrders(fn(loadOrders()))
     setOrdersVersion((v) => v + 1)
@@ -251,7 +296,7 @@ export default function App() {
                 ),
               ],
             }
-            if (loadLS("token", "")) await persistUserProfile(updatedUser)
+            if (getToken()) await persistUserProfile(updatedUser)
             saveUserLocally(updatedUser)
           }
           // The backend prices the order with the menu in the database and sets its status
@@ -272,6 +317,8 @@ export default function App() {
                 producto: item.name,
                 cantidad: item.qty,
                 salsas: item.sauces || [],
+                // The kitchen reads what to leave out and the comment in the same note
+                ...((n) => (n ? { nota: n } : {}))(kitchenNote(item.without, item.note)),
                 adiciones: (item.additions || []).map((a) => ({ nombre: a.name, cantidad: a.qty })),
               })),
           })
@@ -359,5 +406,14 @@ export default function App() {
       cart={cart}
       setCart={setCart}
     />
+  )
+}
+
+// Each page is its own file: the landing doesn't download the admin panel, and the reverse
+export default function App() {
+  return (
+    <Suspense fallback={null}>
+      <AppRoutes />
+    </Suspense>
   )
 }

@@ -1,11 +1,12 @@
 import { useEffect, useRef } from "react"
-import { MOD_CFG, PRODUCTION_STATUSES, TABLE_FILTERS } from "@/features/admin/config/modules"
-import { isNaturalSupplier, isReturnedLoss, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
+import { MOD_CFG, PRODUCTION_STATUSES, QUICK_FILTERS, TABLE_FILTERS } from "@/features/admin/config/modules"
+import { isNaturalSupplier, isReturnedLoss, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
 import { isSodaName, sodaImage } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import { Ico } from "@/shared/components/icons"
+import PurchaseProjection from "@/features/admin/components/PurchaseProjection"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { Row } from "@/shared/types"
 import { fmt, normalizeName } from "@/shared/utils/format"
@@ -33,6 +34,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     prodDay,
     prodImgs,
     prodStatus,
+    quickFilter,
+    tableOrder,
     reactivate,
     rows,
     loadedSections,
@@ -47,6 +50,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     setPg,
     setProdDay,
     setProdStatus,
+    setQuickFilter,
     setSearch,
     setTableFilter,
     t,
@@ -92,8 +96,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
   const filterValue = tableFilter[section] || ""
   const [filterCell, filterText] = filterValue ? filterValue.split("::") : []
   const isProductionList = section === "produccion"
-  // Production orders: [4] creation date "YYYY-MM-DD…", [8] status (empty = Recibida)
-  const orderStatus = (row: Row) => String(row[8] || "Recibida")
+  // Production orders: [4] creation date "YYYY-MM-DD…", [8] status (empty = Recibido)
+  const orderStatus = (row: Row) => String(row[8] || "Recibido")
   const matchesSearch = (row: Row) =>
     // Ignores accents and case: «lacteos» finds «Lácteos»
     (!q || row.some((cell) => normalizeName(cell).includes(normalizeName(q)))) &&
@@ -104,13 +108,20 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     (!isProductionList || !prodDay || String(row[4] ?? "").slice(0, 10) === prodDay)
   // Status counts follow the search and the day, so each button says how many it would show
   const beforeStatus = sRows.filter(({ row }) => matchesSearch(row))
-  const statusFiltered = beforeStatus.filter(({ row }) => !isProductionList || !prodStatus || orderStatus(row) === prodStatus)
+  // Tabs with counts above the table: what needs attention, one click away
+  const quickTabs = QUICK_FILTERS[section] ?? []
+  const quickTab = quickTabs.find((tab) => tab.label === quickFilter[section])
+  const statusFiltered = beforeStatus.filter(
+    ({ row }) => (!isProductionList || !prodStatus || orderStatus(row) === prodStatus) && (!quickTab || quickTab.test(row)),
+  )
   // Orders newest first, in order of arrival: shop and panel orders share the backend's id (shop code PED-<id>,
   // panel row[13]); one not saved yet is the newest
   const shopOrderIds = section === "pedidos" ? new Set(loadOrders().map((o) => o.id)) : null
+  // A shop order's [13] is its phone, not an id: its number comes from its code
   const arrival = (row: Row) =>
-    Number(row[13]) || (shopOrderIds?.has(String(row[0])) ? Number(/(\d+)$/.exec(String(row[0]))?.[1]) || 0 : Infinity)
+    shopOrderIds?.has(String(row[0])) ? Number(/(\d+)$/.exec(String(row[0]))?.[1]) || 0 : Number(row[13]) || Infinity
   const filtered = shopOrderIds ? [...statusFiltered].sort((a, b) => arrival(b.row) - arrival(a.row)) : statusFiltered
+  tableOrder.current[section] = filtered.map(({ index }) => index)
   const cur = pg[section] || 0
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const visiblePages = visiblePaginationPages(cur, totalPages)
@@ -234,8 +245,39 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     if (section === "producto" && rowCellIndex === 2 && !(Number(cell) > 0)) {
       return "Sin precio"
     }
+    // Money columns as $13.000: product price, purchase total, delivery cost
+    if (
+      cell !== "" && Number.isFinite(Number(cell)) &&
+      ((section === "producto" && rowCellIndex === 2) || (section === "compras" && rowCellIndex === 4) || (section === "domicilios" && rowCellIndex === 3))
+    ) {
+      return fmt(Number(cell))
+    }
+    // A purchase shows what was bought (in the old "Subtotal" place): "Leche", "Leche + Queso", "Leche + Queso cre…"
+    if (section === "compras" && row && rowCellIndex === 3) {
+      const names = [...new Set(parsePurchaseLines(row[6]).map((line) => line.name))]
+      if (names.length <= 1) return names[0] ?? "—"
+      const second = names.length > 2 && names[1].length > 10 ? `${names[1].slice(0, 10).trimEnd()}…` : names[1]
+      return `${names[0]} + ${second}${names.length > 2 && !second.endsWith("…") ? "…" : ""}`
+    }
+    // Big orders: the first 2 products with how many extras each carries, then «y N más» (full list in the detail)
+    if (section === "produccion" && row && rowCellIndex === 1) {
+      try {
+        const items = JSON.parse(String(row[13] || "[]")) as { id?: string; name: string; quantity: number; parentId?: string }[]
+        const mains = items.filter((i) => !i.parentId)
+        if (mains.length) {
+          const shown = mains.slice(0, 2).map((m) => {
+            const extras = items.filter((i) => i.parentId && i.parentId === m.id).length
+            return `${m.quantity} × ${m.name}${extras ? ` (+${extras})` : ""}`
+          })
+          return shown.join(", ") + (mains.length > 2 ? ` y ${mains.length - 2} más` : "")
+        }
+      } catch { /* old rows without items: shows the saved text */ }
+    }
+    // A package shows what it holds: "paq · 100 g"
+    if (section === "insumos" && row && rowCellIndex === 2 && cell === "paq" && Number(row[6]) > 0) return `paq · ${Number(row[6]).toLocaleString("es-CO")} ${String(row[14] || "und")}`
     if (section === "insumos" && row && rowCellIndex === 3) return Number(cell) > 0 ? fmt(Number(cell)) : "Sin compras"
     if (section === "insumos" && row && rowCellIndex === 4) return `${Number(cell) || 0} ${String(row[2] ?? "")}`.trim()
+    if (section === "pedidos" && rowCellIndex === 6) return Number.isFinite(Number(cell)) && cell !== "" ? fmt(Number(cell)) : "—"
     if (section !== "ventas") return cell
     if (rowCellIndex === 3) return formatSalesDate(cell)
     if (rowCellIndex === 7) {
@@ -346,7 +388,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     )
     const canShowProductionDelete =
       section !== "produccion" ||
-      String(rows.produccion?.[rowIndex]?.[8] ?? "Recibida") === "Recibida"
+      String(rows.produccion?.[rowIndex]?.[8] ?? "Recibido") === "Recibido"
     const isPrincipalAdmin = isSuperAdminRow(
       section,
       rows[section]?.[rowIndex],
@@ -404,7 +446,11 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         canDo(section, "EDITAR") &&
         !(section === "perdidas" && isReturnedLoss(rows.perdidas?.[rowIndex])) &&
         // An annulled purchase is history: not editable (its stock was already taken back)
-        !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) ? (
+        !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) &&
+        // Once the kitchen has it, the order's products can't change
+        !(section === "pedidos" && !["Por confirmar", "Pendiente", "Recibido"].includes(String(orderRow?.[7] ?? ""))) &&
+        // A production order is only editable while «Recibido»: from «Confirmado» on, the kitchen has it
+        !(section === "produccion" && !["", "Recibido"].includes(String(rows.produccion?.[rowIndex]?.[8] ?? ""))) ? (
           <button
             type="button"
             title="Editar"
@@ -473,7 +519,11 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               type="button"
               title="Reactivar"
               aria-label={`Reactivar ${entity}`}
-              onClick={() => toggleStatus(section, rowIndex, cfg.statusIndex!)}
+              onClick={() =>
+                section === "usuarios"
+                  ? setAnulTarget({ section, idx: rowIndex, reactivate: true })
+                  : toggleStatus(section, rowIndex, cfg.statusIndex!)
+              }
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
               style={{ color: "#2E7D60", background: "rgba(46,125,96,0.12)" }}
             >
@@ -484,7 +534,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         {cfg.statusIndex !== undefined ? (
           section === "producto" ? (
             canDo(section, "ELIMINAR") ? deleteButton : disabledAction("Eliminar", Ico.trash)
-          ) : (
+          ) : section === "ventas" ? null : (
             canDo(section, "ELIMINAR") &&
             !isPrincipalAdmin &&
             !noDelete &&
@@ -657,6 +707,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
             Valor perdido: {fmt(Math.round(filtered.reduce((sum, { row }) => sum + lossValue(row), 0)))}
           </span>
         )}
+        {section === "insumos" && <PurchaseProjection t={t} />}
         {!noExp && (
           <button
             type="button"
@@ -682,6 +733,37 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           </button>
         )}
       </div>
+      {quickTabs.length > 0 && (
+        <div role="radiogroup" aria-label="Filtro rápido" className="-mt-1 mb-4 flex flex-wrap gap-1.5">
+          {[{ label: "Todos", test: () => true }, ...quickTabs].map((tab) => {
+            const on = (quickTab?.label ?? "Todos") === tab.label
+            const count = beforeStatus.filter(({ row }) => tab.test(row)).length
+            return (
+              <button
+                key={tab.label}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => {
+                  setQuickFilter((current) => ({ ...current, [section]: tab.label === "Todos" ? "" : tab.label }))
+                  setP(0)
+                }}
+                className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
+                style={
+                  on
+                    ? { background: C.mustard, color: "#fff", border: `1px solid ${C.mustard}` }
+                    : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }
+                }
+              >
+                {tab.label}
+                <span className="rounded-full px-1.5 text-[10px] font-bold" style={{ background: on ? "rgba(255,255,255,0.25)" : t.card }}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      )}
       {isProductionList && (
         // One button per status with how many orders it has (for the search and day chosen)
         <div role="radiogroup" aria-label="Filtrar por estado" className="-mt-1 mb-4 flex flex-wrap gap-1.5">

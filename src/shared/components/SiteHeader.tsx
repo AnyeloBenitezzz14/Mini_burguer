@@ -64,7 +64,7 @@ export default function SiteHeader({
             />
             <div>
               <div
-                className="landing-brand-title landing-gold-shimmer landing-gold-shimmer-brand font-black text-lg sm:text-xl leading-tight"
+                className="landing-brand-title font-black text-lg sm:text-xl leading-tight"
                 style={{ color: C.mustard }}
               >
                 EL PARCHE
@@ -96,6 +96,7 @@ export default function SiteHeader({
             {onToggleDark && (
             <button
               onClick={onToggleDark}
+              aria-label={dark ? "Usar modo claro" : "Usar modo oscuro"}
               className="w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
               style={{ background: BORDER, color: scrolled ? TEXT : "#fff" }}
             >

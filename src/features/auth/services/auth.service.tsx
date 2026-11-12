@@ -1,9 +1,9 @@
 import { api } from "@/shared/services/api"
 import type { AuthData, RegisteredClient, User } from "@/shared/types"
-import { loadLS, saveLS } from "@/shared/utils/storage"
+import { loadLS, saveLS, setToken } from "@/shared/utils/storage"
 
 export const toUser = ({ token, usuario: u, permisos, requiere_cambio_contrasena }: AuthData): User => {
-  saveLS("token", token)
+  setToken(token)
   return {
     permissions: permisos.filter((p) => p.privilegios.includes("VER")).map((p) => p.modulo),
     actions: Object.fromEntries(permisos.map((p) => [p.modulo, p.privilegios])),

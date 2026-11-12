@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { aboutIcon } from "@/features/landing/utils/aboutIcons"
 import { MENU_CATS, SODA_RE, allMenuProducts, sizeMl } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
@@ -7,6 +7,7 @@ import { ITEMS_PER_PAGE } from "@/shared/constants"
 import { C } from "@/shared/styles/theme"
 import type { Product } from "@/shared/types"
 import { fmt } from "@/shared/utils/format"
+import { STORE_HOURS_LABEL, isStoreOpen, nextOpeningLabel } from "@/shared/utils/storeHours"
 
 // ── Product Catalog Grid (shared, landing + client) ────────────────────────────
 export default function ProductCatalog({
@@ -23,6 +24,13 @@ export default function ProductCatalog({
   const [activeCat, setActiveCat] = useState("todos")
   const [search, setSearch] = useState("")
   const [pg, setPg] = useState(0)
+  // Rechecked every minute so the "Tienda cerrada" notice appears and goes away by itself
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const open = isStoreOpen(now)
   const topRef = useRef<HTMLDivElement>(null)
   // Changing page brings the menu back into view
   const goPage = (i: number) => {
@@ -75,43 +83,103 @@ export default function ProductCatalog({
   }
   return (
     <div ref={topRef}>
-      {/* Category tabs */}
+      {/* Category tabs: a photo of one of its products over the name; the chosen one gets a mustard ring and underline */}
       <div
-        className={`flex snap-x gap-2 overflow-x-auto pb-2 md:flex-wrap md:overflow-visible ${compact ? "mb-2" : "mb-4"}`}
-        style={{ scrollbarWidth: "none" }}
+        className={`-mx-1 flex snap-x gap-1 overflow-x-auto border-b px-1 pt-1 sm:gap-2 ${compact ? "mb-3" : "mb-6"}`}
+        style={{ scrollbarWidth: "none", borderColor: BORDER }}
         role="tablist"
         aria-label="Categorías del menú"
       >
-        {MENU_CATS.filter((cat) => cat.id !== "salsas").map((cat) => {
+        {MENU_CATS.filter((cat) => cat.id !== "salsas" && (cat.id === "todos" || catalogProducts.some((p) => p.cat === cat.id))).map((cat) => {
           const active = activeCat === cat.id
+          const photo = (cat.id === "todos" ? catalogProducts : catalogProducts.filter((p) => p.cat === cat.id)).find((p) => p.img)?.img
           return (
             <button
               key={cat.id}
+              type="button"
               role="tab"
               aria-selected={active}
               onClick={() => switchCat(cat.id)}
-              className={`flex flex-shrink-0 snap-start cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 font-semibold transition-all hover:-translate-y-px ${compact ? "text-xs" : "text-sm"} ${active ? "landing-menu-control" : ""}`}
-              style={{
-                background: active ? C.mustard : dark ? "rgba(255,255,255,0.05)" : "#fff",
-                border: `1px solid ${active ? C.mustard : BORDER}`,
-                color: active ? "#fff" : dark ? "#F4EEDC" : "#2A2622",
-                boxShadow: active ? `0 6px 16px ${C.mustard}55` : "0 1px 2px rgba(0,0,0,0.04)",
-              }}
+              className={`group relative flex flex-shrink-0 snap-start cursor-pointer flex-col items-center gap-2 px-2.5 sm:px-3 ${compact ? "pb-2.5" : "pb-3.5"}`}
             >
               <span
-                className={`flex items-center justify-center rounded-full ${compact ? "h-6 w-6" : "h-7 w-7"}`}
+                className={`relative flex items-center justify-center rounded-full p-[3px] transition-all duration-300 group-hover:-translate-y-1 ${compact ? "h-14 w-14 md:h-16 md:w-16" : "h-16 w-16 md:h-[72px] md:w-[72px]"}`}
                 style={{
-                  background: active ? "rgba(255,255,255,0.22)" : `${C.mustard}1A`,
-                  color: active ? "#fff" : C.mustard,
+                  background: active ? `linear-gradient(135deg, ${C.amber}, ${C.mustard})` : dark ? "rgba(244,238,220,0.08)" : C.cream,
+                  boxShadow: active ? `0 8px 18px -8px ${C.mustard}` : dark ? "none" : "0 6px 14px -10px rgba(25,21,18,0.55)",
                 }}
               >
-                {aboutIcon(18, cat.icon)}
+                <span
+                  className="flex h-full w-full items-center justify-center overflow-hidden rounded-full"
+                  style={{ background: dark ? "#1E1C18" : "#fff", color: C.mustard, border: `2px solid ${dark ? "#1E1C18" : "#fff"}` }}
+                >
+                  {photo ? (
+                    <img src={photo} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110" />
+                  ) : (
+                    aboutIcon(24, cat.icon)
+                  )}
+                </span>
               </span>
-              <span className="whitespace-nowrap">{cat.label}</span>
+              <span
+                className={`whitespace-nowrap font-bold tracking-wide transition-colors ${compact ? "text-xs" : "text-[13px]"}`}
+                style={{ fontFamily: "League Spartan, sans-serif", color: active ? C.mustard : TEXT, opacity: active ? 1 : 0.78 }}
+              >
+                {cat.label}
+              </span>
+              <span
+                aria-hidden="true"
+                className="absolute -bottom-px left-1/2 h-[3px] -translate-x-1/2 rounded-full transition-all duration-300"
+                style={{ background: C.mustard, width: active ? "70%" : "0%" }}
+              />
             </button>
           )
         })}
       </div>
+      {/* Outside the store hours: a dark card like the landing's «Horario» (the menu stays visible) */}
+      {!open && (
+        <div
+          role="status"
+          className={`relative flex flex-wrap items-center gap-x-4 gap-y-3 overflow-hidden rounded-2xl ${compact ? "mb-3 px-4 py-3" : "mb-6 px-5 py-4"}`}
+          style={{ background: C.dark, color: "#FAF3E0", boxShadow: "0 14px 30px -18px rgba(25,21,18,0.8)" }}
+        >
+          <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1" style={{ background: `linear-gradient(${C.amber}, ${C.red})` }} />
+          <span
+            className={`flex flex-shrink-0 items-center justify-center rounded-xl ${compact ? "h-9 w-9" : "h-11 w-11"}`}
+            style={{ background: `${C.amber}22`, color: C.amber }}
+          >
+            {Ico.clock}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className={`font-bold ${compact ? "text-sm" : "text-lg"}`} style={{ fontFamily: "League Spartan, sans-serif" }}>
+                Tienda cerrada
+              </span>
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
+                style={{ background: `${C.red}33`, color: "#F2A493" }}
+              >
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full motion-reduce:hidden" style={{ background: "#F2A493", opacity: 0.7 }} />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ background: "#F2A493" }} />
+                </span>
+                Cerrado ahora
+              </span>
+            </span>
+            <span className={`mt-0.5 block ${compact ? "text-xs" : "text-sm"}`} style={{ color: "rgba(250,243,224,0.78)" }}>
+              El Parche atenderá <b style={{ color: C.amber }}>{nextOpeningLabel(now)}</b> · Puedes ir viendo el menú
+            </span>
+          </span>
+          {(
+            <span
+              className="hidden flex-shrink-0 rounded-xl px-3 py-2 text-xs sm:block"
+              style={{ background: "rgba(250,243,224,0.06)", border: "1px solid rgba(250,243,224,0.1)" }}
+            >
+              <span className="block" style={{ color: "rgba(250,243,224,0.6)" }}>Lun – Dom</span>
+              <span className="block font-semibold" style={{ color: C.amber }}>{STORE_HOURS_LABEL}</span>
+            </span>
+          )}
+        </div>
+      )}
       {/* Search in catalog */}
       <div
         className={`search-control flex w-full items-center gap-2 rounded-full px-3 ${compact ? "mb-3 py-2" : "mb-5 py-2.5"} sm:max-w-md`}
@@ -146,7 +214,7 @@ export default function ProductCatalog({
         )}
       </div>
       {/* Count */}
-      <p className={`text-xs ${compact ? "mb-2" : "mb-4"}`} style={{ color: MUTED }}>
+      <p className={`${compact ? "mb-2 text-xs" : "mb-4 text-sm"}`} style={{ color: MUTED }}>
         {filtered.length} productos
         {shouldPaginate && <> · Página {pg + 1} de {Math.max(1, totalPages)}</>}
       </p>
@@ -166,9 +234,6 @@ export default function ProductCatalog({
             style={{
               aspectRatio: compact ? "3/2" : "4/3",
               background: dark ? "#1E1C18" : "#fff",
-              boxShadow: dark
-                ? "0 2px 12px rgba(0,0,0,0.3)"
-                : "0 2px 12px rgba(0,0,0,0.07)",
             }}
               onClick={() => openProduct(p)}
           >
@@ -204,8 +269,8 @@ export default function ProductCatalog({
               </div>
               {p.desc && (
                 <p
-                  className={`leading-tight ${compact ? "mb-1 line-clamp-2 text-[10px]" : "mb-3 text-xs leading-relaxed"}`}
-                  style={{ color: "rgba(255,255,255,0.82)" }}
+                  className={`leading-tight ${compact ? "mb-1 line-clamp-2 text-[10px]" : "mb-3 text-sm leading-relaxed"}`}
+                  style={{ color: "rgba(255,255,255,0.85)" }}
                 >
                   {p.desc}
                 </p>

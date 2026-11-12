@@ -3,13 +3,14 @@ import { useState } from "react"
 // ── Add to Cart Modal (centered, with sauces/additions) ────────────────────────
 // Compact "− amount +" where the amount can also be typed (0-99). While typing it may be empty; on leaving it
 // shows the real amount again
-export default function QtyStepper({ value, onChange, label, color, text, disabledPlus }: {
+export default function QtyStepper({ value, onChange, label, color, text, disabledPlus, max = 99 }: {
   value: number
   onChange: (n: number) => void
   label: string
   color: string
   text: string
   disabledPlus?: boolean
+  max?: number
 }) {
   const [draft, setDraft] = useState<string | null>(null)
   const on = value > 0
@@ -24,20 +25,20 @@ export default function QtyStepper({ value, onChange, label, color, text, disabl
         inputMode="numeric"
         value={draft ?? String(value)}
         onChange={(event) => {
-          const digits = event.target.value.replace(/\D/g, "").slice(0, 2)
+          const digits = event.target.value.replace(/\D/g, "").slice(0, Math.max(2, String(max).length))
           setDraft(digits)
-          onChange(Number(digits) || 0)
+          onChange(Math.min(max, Number(digits) || 0))
         }}
         onFocus={(event) => event.target.select()}
         onBlur={() => setDraft(null)}
         aria-label={`Cantidad de ${label}`}
-        className="w-6 bg-transparent text-center text-sm font-bold tabular-nums outline-none"
+        className="w-7 bg-transparent text-center text-sm font-bold tabular-nums outline-none"
         style={{ color: on ? color : text }}
       />
       <button
         type="button"
-        onClick={() => onChange(Math.min(99, value + 1))}
-        disabled={disabledPlus || value >= 99}
+        onClick={() => onChange(Math.min(max, value + 1))}
+        disabled={disabledPlus || value >= max}
         aria-label={`Agregar ${label}`}
         className={btn}
         style={{ background: on ? color : "transparent", border: `1.5px solid ${on ? color : `${text}40`}`, color: on ? "#fff" : text }}

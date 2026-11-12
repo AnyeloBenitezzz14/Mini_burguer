@@ -1,7 +1,7 @@
 import { isFutureDashAnchor, shiftDashAnchor } from "@/features/admin/utils/dashboard"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
-import { MONTHS_SHORT, toIsoDate } from "@/shared/utils/format"
+import { MONTHS_SHORT, fmt, toIsoDate } from "@/shared/utils/format"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
 
@@ -9,8 +9,16 @@ export default function Dashboard(adminState: AdminPanelState): ReactNode {
   const {
     ALERTS,
     MY_MODULES,
+    PENDING,
+    openPending,
+    prevPeriodLabel,
     RETURN_REASONS,
     TOP,
+    LEAST,
+    TOP_CLIENTS,
+    SALE_EXTREMES,
+    PERIOD_SUBTOTALS,
+    annual,
     chart,
     chartAnchor,
     chartFilter,
@@ -54,6 +62,38 @@ return (
         </p>
       </div>
     </div>
+
+    {/* What needs attention now, before any total */}
+    <section aria-label="Necesita tu atención" className="admin-dashboard-card min-w-0 rounded-2xl p-4" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+      <div className="mb-3 text-sm font-semibold" style={{ color: t.text }}>
+        {PENDING.length ? "Necesita tu atención" : "Todo al día"}
+      </div>
+      {PENDING.length ? (
+        <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          {PENDING.map((p) => (
+            <button
+              key={p.one}
+              type="button"
+              onClick={() => openPending(p)}
+              className="group flex min-w-0 cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors"
+              style={{ background: `${C.mustard}12`, border: `1px solid ${C.mustard}33` }}
+            >
+              <span className="font-black text-2xl tabular-nums" style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}>
+                {p.count}
+              </span>
+              <span className="min-w-0 flex-1 text-sm leading-snug" style={{ color: t.text }}>
+                {p.count === 1 ? p.one : p.many}
+              </span>
+              <span aria-hidden="true" className="transition-transform group-hover:translate-x-0.5" style={{ color: C.mustard }}>→</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm" style={{ color: t.muted }}>
+          No hay pedidos por confirmar, pagos por verificar, órdenes esperando ni insumos bajo el mínimo.
+        </p>
+      )}
+    </section>
 
     {/* Roles without Ventas: their own modules */}
     {!seesSales && (
@@ -121,6 +161,11 @@ return (
           <div className="text-sm mt-1" style={{ color: t.muted }}>
             {label}
           </div>
+          {badge !== "—" && badge !== "Nuevo" && (
+            <div className="mt-0.5 text-xs" style={{ color: t.subtle }}>
+              {badge} vs {prevPeriodLabel}
+            </div>
+          )}
         </div>
       ))}
     </div>
@@ -526,15 +571,18 @@ return (
         <div className="flex items-center gap-2 mb-4">
           <span style={{ color: C.mustard }}>{Ico.trending}</span>
           <div className="font-semibold text-sm" style={{ color: t.text }}>
-            Desempeño anual
+            Desempeño anual {annual.year}
           </div>
         </div>
+        {!annual.count ? (
+          <p className="text-xs" style={{ color: t.muted }}>No hay ventas registradas en {annual.year}.</p>
+        ) : (
         <div className="space-y-3">
           {[
-            ["Ventas este año", "$12.4M", "+23% vs año anterior"],
-            ["Mejor mes", "Diciembre", "$1.8M"],
-            ["Mejor categoría", "Hamburguesas", "41% de ventas"],
-            ["Promedio en dinero", "$18.200", "+$800 vs mes ant."],
+            ["Ventas este año", money(annual.total), `${annual.vsPrev} vs ${annual.year - 1}`],
+            ["Mejor mes", annual.bestMonth?.name ?? "—", annual.bestMonth ? money(annual.bestMonth.total) : ""],
+            ["Mejor categoría", annual.bestCategory?.name ?? "—", annual.bestCategory ? `${annual.bestCategory.pct}% de las unidades vendidas` : ""],
+            ["Ticket promedio", periodSales.length ? fmt(Math.round(annual.ticket)) : "—", periodSales.length ? `${annual.ticketVsPrev} vs ${prevPeriodLabel}` : "Sin ventas en este periodo"],
           ].map(([lbl, val, sub]) => (
             <div key={String(lbl)}>
               <div className="flex items-center justify-between">
@@ -551,8 +599,77 @@ return (
             </div>
           ))}
         </div>
+        )}
       </div>
       )}
+    </div>
+    )}
+
+    {/* Period detail: least sold, best clients, biggest and smallest sale, subtotals */}
+    {seesSales && (
+    <div className="grid min-w-0 gap-5 lg:grid-cols-3">
+      <div className="admin-dashboard-card min-w-0 rounded-2xl p-5" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+        <div className="mb-4 font-semibold text-sm" style={{ color: t.text }}>Menos vendidos</div>
+        {!LEAST.length ? (
+          <p className="text-xs" style={{ color: t.muted }}>No hay ventas en este periodo.</p>
+        ) : (
+          <ul className="space-y-2">
+            {LEAST.map((p) => (
+              <li key={p.name} className="flex justify-between gap-2 text-xs">
+                <span className="min-w-0 truncate" style={{ color: t.text }} title={p.name}>{p.name}</span>
+                <span className="tabular-nums" style={{ color: t.muted }}>{p.units} und</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="admin-dashboard-card min-w-0 rounded-2xl p-5" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+        <div className="mb-4 font-semibold text-sm" style={{ color: t.text }}>Top 10 clientes</div>
+        {!TOP_CLIENTS.length ? (
+          <p className="text-xs" style={{ color: t.muted }}>No hay ventas en este periodo.</p>
+        ) : (
+          <ol className="space-y-2">
+            {TOP_CLIENTS.map((c, i) => (
+              <li key={c.name} className="flex items-baseline gap-2 text-xs">
+                <span className="w-4 font-bold" style={{ color: i === 0 ? C.mustard : t.subtle }}>{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate" style={{ color: t.text }} title={c.name}>{c.name}</span>
+                <span className="tabular-nums" style={{ color: t.muted }}>{c.count} {c.count === 1 ? "compra" : "compras"}</span>
+                <span className="font-semibold tabular-nums" style={{ color: t.text }}>{fmt(c.total)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+      <div className="admin-dashboard-card min-w-0 rounded-2xl p-5" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+        <div className="mb-4 font-semibold text-sm" style={{ color: t.text }}>Ventas del periodo</div>
+        {!SALE_EXTREMES.max ? (
+          <p className="text-xs" style={{ color: t.muted }}>No hay ventas en este periodo.</p>
+        ) : (
+          <>
+            {[["Venta mayor", SALE_EXTREMES.max], ["Venta menor", SALE_EXTREMES.min]].map(([lbl, s]) => {
+              const sale = s as typeof SALE_EXTREMES.max
+              return (
+                <div key={String(lbl)} className="mb-2 flex items-baseline justify-between gap-2 text-xs">
+                  <span style={{ color: t.muted }}>{String(lbl)}</span>
+                  <span className="min-w-0 flex-1 truncate text-right" style={{ color: t.subtle }}>{sale?.code} · {sale?.client}</span>
+                  <span className="font-bold tabular-nums" style={{ color: t.text }}>{fmt(sale?.total ?? 0)}</span>
+                </div>
+              )
+            })}
+            <div className="mt-3 border-t pt-3" style={{ borderColor: t.border }}>
+              <div className="mb-2 text-xs font-semibold" style={{ color: t.muted }}>Subtotales</div>
+              <ul className="max-h-40 space-y-1 overflow-y-auto">
+                {PERIOD_SUBTOTALS.map((p, i) => (
+                  <li key={`${p.label}-${i}`} className="flex justify-between text-xs">
+                    <span style={{ color: t.muted }}>{p.label}</span>
+                    <span className="tabular-nums" style={{ color: t.text }}>{fmt(p.total)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </>
+        )}
+      </div>
     </div>
     )}
 

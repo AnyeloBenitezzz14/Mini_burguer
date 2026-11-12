@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react"
-import landingBackgroundImg from "@/imports/landing-background.png"
+import { STORE_HOURS_LABEL } from "@/shared/utils/storeHours"
+import landingBackgroundImg from "@/imports/landing-background.jpg"
 import logoImg from "@/imports/logo.png"
-import storyBelloImg from "@/imports/story-bello.png"
+import storyBelloImg from "@/imports/story-bello.jpg"
 import CartAddedNotice, { useCartNotice } from "@/features/checkout/components/CartAddedNotice"
 import { addCartItem } from "@/features/checkout/utils/cart"
 import { ABOUT_ICONS, aboutIcon } from "@/features/landing/utils/aboutIcons"
 import AddToCartModal from "@/features/menu/components/AddToCartModal"
 import ProductCatalog from "@/features/menu/components/ProductCatalog"
+import ReviewsCarousel from "@/features/landing/components/ReviewsCarousel"
 import SiteHeader from "@/shared/components/SiteHeader"
 import { Ico } from "@/shared/components/icons"
 import { C, WA } from "@/shared/styles/theme"
@@ -125,15 +127,11 @@ export default function LandingPage({
         <div className="relative z-10 max-w-7xl mx-auto px-5 sm:px-8 w-full pt-20 pb-16">
           <div className="max-w-[28rem]">
             <div
-              className="landing-enter landing-enter-1 inline-flex items-center gap-2 px-3 py-1.5 rounded-full mb-6 text-xs font-semibold"
-              style={{
-                background: "rgba(182,140,28,0.2)",
-                border: "1px solid rgba(182,140,28,0.35)",
-                color: C.amber,
-              }}
+              className="landing-enter landing-enter-1 inline-flex items-center gap-2 mb-5 text-base font-semibold"
+              style={{ color: C.amber }}
             >
               <span className="mr-1 inline-flex align-middle">{Ico.fire}</span>
-              <span className="landing-gold-shimmer landing-gold-shimmer-location">Desde 2013 en Bello, Antioquia</span>
+              <span >Desde 2013 en Bello, Antioquia</span>
             </div>
             <h1
               className="landing-display-title landing-enter landing-enter-2"
@@ -146,12 +144,11 @@ export default function LandingPage({
                 letterSpacing: "0.015em",
                 wordSpacing: "0.04em",
                 textTransform: "uppercase",
-                textShadow: "0 7px 15px rgba(0,0,0,0.35)",
               }}
             >
               <span style={{ fontSize: "1.02em" }}>EL SABOR QUE</span>
               <br />
-              <span className="landing-gold-shimmer landing-gold-shimmer-hero" style={{ color: C.mustard }}>TE REÚNE</span>
+              <span style={{ color: C.mustard }}>TE REÚNE</span>
             </h1>
             <p
               className="landing-enter landing-enter-3 mt-5 mb-8 text-lg sm:text-xl leading-relaxed"
@@ -172,7 +169,7 @@ export default function LandingPage({
               ].map(([val, lbl], i) => (
                 <div key={lbl}>
                   <div
-                    className={`landing-gold-shimmer landing-gold-shimmer-stat landing-gold-shimmer-stat-${i + 1} font-black text-2xl`}
+                    className="font-black text-2xl"
                     style={{
                       fontFamily: "League Spartan, sans-serif",
                       color: C.amber,
@@ -181,8 +178,8 @@ export default function LandingPage({
                     {val}
                   </div>
                   <div
-                    className="text-sm"
-                    style={{ color: "rgba(250,243,224,0.4)" }}
+                    className="text-base"
+                    style={{ color: "rgba(250,243,224,0.78)" }}
                   >
                     {lbl}
                   </div>
@@ -198,11 +195,9 @@ export default function LandingPage({
         <div className="max-w-7xl mx-auto grid sm:grid-cols-2 gap-4">
           <div
             data-reveal
-            className="landing-reveal landing-promo-card landing-promo-delivery rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5 border shadow-sm"
+            className="landing-reveal landing-promo-card landing-promo-delivery rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5"
             style={{
-              background: "#FFFDF7",
-              borderColor: "rgba(58,109,94,0.2)",
-              boxShadow: "0 8px 24px rgba(43,33,18,0.06)",
+              background: dark ? "#211D17" : "#FFFDF7",
             }}
           >
             <div
@@ -214,22 +209,20 @@ export default function LandingPage({
             <div>
               <div
                 className="font-extrabold text-lg sm:text-xl"
-                style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
+                style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
               >
                 Domicilios por toda la zona
               </div>
-              <div className="text-base mt-1 leading-relaxed" style={{ color: "#71695D" }}>
+              <div className="text-base mt-1 leading-relaxed" style={{ color: TEXT }}>
                 Consulta la cobertura y el costo del envío al realizar tu pedido.
               </div>
             </div>
           </div>
           <div
             data-reveal
-            className="landing-reveal landing-promo-card landing-promo-onion rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5 border shadow-sm"
+            className="landing-reveal landing-promo-card landing-promo-onion rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5"
             style={{
-              background: "#FFFDF7",
-              borderColor: "rgba(165,65,49,0.2)",
-              boxShadow: "0 8px 24px rgba(43,33,18,0.06)",
+              background: dark ? "#211D17" : "#FFFDF7",
             }}
           >
             <div
@@ -241,11 +234,11 @@ export default function LandingPage({
             <div>
               <div
                 className="font-extrabold text-lg sm:text-xl"
-                style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
+                style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
               >
                 Cebolla Marinada
               </div>
-              <div className="text-base mt-1 leading-relaxed" style={{ color: "#71695D" }}>
+              <div className="text-base mt-1 leading-relaxed" style={{ color: TEXT }}>
                 Nuestra especialidad —{" "}
                 <strong style={{ color: C.red }}>100% Gratis</strong>.
               </div>
@@ -259,10 +252,10 @@ export default function LandingPage({
         <div className="max-w-7xl mx-auto px-5 sm:px-8">
           <div className="mb-8">
             <div
-              className="inline-block text-sm font-bold tracking-widest uppercase px-4 py-1.5 rounded-full mb-3"
-              style={{ background: `${C.mustard}15`, color: C.mustard }}
+              className="mb-2 text-lg font-semibold"
+              style={{ color: dark ? C.mustard : "#8D6910" }}
             >
-              <span className="landing-gold-shimmer landing-gold-shimmer-menu">Nuestro Menú</span>
+              <span >Nuestro Menú</span>
             </div>
             <h2
               data-reveal
@@ -356,7 +349,6 @@ export default function LandingPage({
                 className="landing-reveal landing-how-card p-6 sm:p-8 rounded-2xl"
                 style={{
                   background: [`rgba(182,140,28,0.17)`, `rgba(165,65,49,0.2)`, `rgba(58,109,94,0.23)`][i],
-                  border: `1px solid ${[C.mustard, C.red, C.forest][i]}70`,
                 }}
               >
                 <span className={`landing-how-food landing-how-food-${i + 1}`} aria-hidden="true">
@@ -401,14 +393,14 @@ export default function LandingPage({
                   {s.n}
                 </div>
                 <h3
-                    className="landing-display-title font-semibold text-lg mb-2"
+                    className="landing-display-title font-semibold text-2xl mb-2"
                   style={{ color: "#FAF3E0" }}
                 >
                   {s.t}
                 </h3>
                 <p
-                  className="max-w-[calc(100%-3.5rem)] text-sm leading-relaxed"
-                  style={{ color: "rgba(250,243,224,0.82)", fontWeight: 400 }}
+                  className="max-w-[calc(100%-3.5rem)] text-base leading-relaxed"
+                  style={{ color: "#FAF3E0", fontWeight: 400 }}
                 >
                   {s.d}
                 </p>
@@ -426,8 +418,8 @@ export default function LandingPage({
       >
         <div className="max-w-7xl mx-auto">
           <div
-            className="inline-block text-xs font-bold tracking-widest uppercase px-4 py-1.5 rounded-full mb-4"
-            style={{ background: `${C.mustard}12`, color: C.mustard }}
+            className="mb-2 text-lg font-semibold"
+            style={{ color: dark ? C.mustard : "#8D6910" }}
           >
             Nuestra Historia
           </div>
@@ -446,19 +438,19 @@ export default function LandingPage({
               >
                 Más que un restaurante,
                 <br />
-                <span className="landing-gold-shimmer landing-gold-shimmer-story" style={{ color: C.mustard }}>somos el parche</span>
+                <span style={{ color: dark ? C.mustard : "#8D6910" }}>somos el parche</span>
               </h2>
               <p
-                className="text-base leading-relaxed mb-4"
-                style={{ color: dark ? "rgba(240,232,214,0.78)" : "#62594D", fontWeight: 400 }}
+                className="text-lg leading-relaxed mb-4"
+                style={{ color: TEXT, fontWeight: 400 }}
               >
                 Desde 2013, El Parche de las Mini Burguer nació en el corazón de
                 Bello como un pequeño sueño familiar. Hoy somos uno de los
                 puntos de encuentro más queridos del norte del Valle de Aburrá.
               </p>
               <p
-                className="text-base leading-relaxed"
-                style={{ color: dark ? "rgba(240,232,214,0.78)" : "#62594D", fontWeight: 400 }}
+                className="text-lg leading-relaxed"
+                style={{ color: TEXT, fontWeight: 400 }}
               >
                 Cada hamburguesa, perro caliente o salchipapa que sale de
                 nuestra cocina lleva el mismo amor y cuidado del primer día.
@@ -514,8 +506,6 @@ export default function LandingPage({
                 className="landing-reveal landing-info-card landing-mission-card p-6 rounded-2xl"
                 style={{
                   background: dark ? "#211D17" : "#FFFDF7",
-                  border: `1px solid ${dark ? "rgba(210,154,66,0.28)" : "rgba(182,140,28,0.2)"}`,
-                  boxShadow: dark ? "0 8px 24px rgba(0,0,0,0.18)" : "0 8px 24px rgba(43,33,18,0.06)",
                 }}
               >
                 <div
@@ -531,14 +521,16 @@ export default function LandingPage({
                   {v.title}
                 </h3>
                 <p
-                  className="text-[15px] leading-relaxed"
-                  style={{ color: dark ? "rgba(240,232,214,0.78)" : "#62594D", fontWeight: 400 }}
+                  className="text-base leading-relaxed"
+                  style={{ color: TEXT, fontWeight: 400 }}
                 >
                   {v.text}
                 </p>
               </div>
             ))}
           </div>
+          {/* Reseñas: before the team */}
+          <ReviewsCarousel dark={dark} />
           {/* Equipo */}
           <h3
             className="landing-display-title font-black text-xl mb-5"
@@ -571,20 +563,18 @@ export default function LandingPage({
                 className="landing-reveal landing-info-card p-5 rounded-2xl text-center"
                 style={{
                   background: dark ? "#211D17" : "#FFFDF7",
-                  border: `1px solid ${dark ? "rgba(210,154,66,0.28)" : "rgba(182,140,28,0.2)"}`,
-                  boxShadow: dark ? "0 8px 24px rgba(0,0,0,0.18)" : "0 8px 24px rgba(43,33,18,0.06)",
                 }}
               >
                 <div
                   className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full"
-                  style={{ background: `${C.mustard}1F`, color: C.mustard, border: `1px solid ${C.mustard}40` }}
+                  style={{ background: `${C.mustard}1F`, color: C.mustard }}
                 >
                   {aboutIcon(26, m.icon)}
                 </div>
                 <div className="font-bold text-base" style={{ color: TEXT }}>
                   {m.name}
                 </div>
-                <div className="text-sm mt-1" style={{ color: dark ? "rgba(240,232,214,0.72)" : "#62594D" }}>
+                <div className="text-base mt-1" style={{ color: TEXT }}>
                   {m.role}
                 </div>
               </div>
@@ -612,8 +602,8 @@ export default function LandingPage({
             ¿Listo para <span style={{ color: C.mustard }}>pedir?</span>
           </h2>
           <p
-            className="mb-8 text-base"
-            style={{ color: "rgba(250,243,224,0.48)", fontWeight: 300 }}
+            className="mb-8 text-lg"
+            style={{ color: "rgba(250,243,224,0.85)", fontWeight: 400 }}
           >
             Agrega productos al carrito sin necesidad de registro. ¡Pruébalo
             ahora!
@@ -684,7 +674,7 @@ export default function LandingPage({
                 {[
                   {
                     href: `https://www.instagram.com/elparchedelasminiburguers`,
-                    bg: "linear-gradient(135deg,#f09433,#e6683c,#dc2743)",
+                    bg: "#D62976",
                     path: "M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z",
                   },
                   {
@@ -779,7 +769,7 @@ export default function LandingPage({
                     className="text-base font-semibold"
                     style={{ color: C.amber }}
                   >
-                    6:00pm a 11:30pm
+                    {STORE_HOURS_LABEL}
                   </span>
                 </div>
                 <div

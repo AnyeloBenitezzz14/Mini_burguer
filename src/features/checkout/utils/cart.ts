@@ -8,6 +8,8 @@ export function addCartItem(items: CartItem[], item: CartItem): CartItem[] {
       i.name,
       [...(i.sauces ?? [])].sort(),
       [...(i.additions ?? [])].map((a) => `${a.name}x${a.qty}`).sort(),
+      i.note?.trim() ?? "",
+      [...(i.without ?? [])].sort(),
     ])
   const same = items.find((i) => key(i) === key(item))
   return same ? items.map((i) => (i === same ? { ...i, qty: i.qty + item.qty } : i)) : [...items, item]
@@ -24,3 +26,10 @@ export const activeCartItemsFirst = (items: CartItem[]) => [
   ...items.filter((item) => item.qty > 0),
   ...items.filter((item) => item.qty === 0),
 ]
+
+// Kitchen note of a line: «Sin lechuga, cebolla · <comentario>». The ingredients left out travel inside the note
+export const kitchenNote = (without: string[] = [], note = "") =>
+  [without.length ? `Sin ${without.join(", ").toLowerCase()}` : "", note.trim()].filter(Boolean).join(" · ").slice(0, 200)
+// …and are read back from it, so production doesn't take them out of the stock
+export const withoutInNote = (note = "") =>
+  /^Sin ([^·]+)/.exec(note.trim())?.[1].split(",").map((s) => s.trim().toLowerCase()).filter(Boolean) ?? []

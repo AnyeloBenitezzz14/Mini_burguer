@@ -1,7 +1,7 @@
 import { ADDITIONS, PRODUCTS, PRODUCT_CAT_LABEL } from "@/features/menu/data/products"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
-import type { ModConfig } from "@/shared/types"
+import type { ModConfig, Row } from "@/shared/types"
 import { DOC_TYPES, USER_DOC_TYPES } from "@/shared/utils/validation"
 
 // How each stock movement origin (movimientos_stock.origen) reads in the insumo's history
@@ -38,16 +38,17 @@ export const PERMISSION_MODULES = [
 ] as const
 
 export const PRODUCTION_STATUSES = [
-  "Recibida",
-  "Iniciada",
+  "Recibido",
+  "Confirmado",
   "En cocina",
-  "Terminado",
+  "En camino",
+  "Entregado",
   "Producto no conforme",
 ] as const
 
 export const MOD_CFG: Record<string, ModConfig> = {
   roles: {
-    columns: ["Nombre", "Descripción", "Estado"],
+    columns: ["Nombre", "Descripción", "Estado", "Creado", "Actualizado"],
     fields: [
       { key: "0", label: "Nombre del rol", type: "text" },
       { key: "1", label: "Descripción", type: "textarea" },
@@ -122,10 +123,13 @@ export const MOD_CFG: Record<string, ModConfig> = {
         type: "select",
         options: ["kg", "g", "L", "ml", "und", "paq"],
       },
+      // Unit "paq": row[6] (old "Stock máximo") is how much one package holds and row[14] its unit
+      // (30 und of egg, 100 g of a sobre), so recipes can use what's inside
+      { key: "6", label: "Contenido de cada paquete", type: "number" },
+      { key: "14", label: "Medida del contenido", type: "select", options: ["und", "g", "ml"] },
       { key: "3", label: "Costo unitario", type: "number" },
       { key: "4", label: "Stock actual", type: "number" },
       { key: "5", label: "Stock mínimo", type: "number" },
-      // row[6] (old "Stock máximo") is no longer used; kept so later indexes don't shift
       { key: "7", label: "Producto de insumo", type: "checkbox" },
       { key: "8", label: "Nombre de la ficha técnica", type: "text" },
       { key: "9", label: "Versión de la ficha", type: "text" },
@@ -135,7 +139,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
     seed: [],
     // Deletable only while no other module has records of it (see getDeleteAssessment)
     statusIndex: 12,
-    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11],
+    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11, 14],
   },
   proveedores: {
     columns: [
@@ -169,7 +173,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
     hiddenCellIndexes: [5, 7, 8, 9, 10, 11, 12, 13, 14, 15],
   },
   compras: {
-    columns: ["Proveedor", "Fecha", "Subtotal", "Total", "Estado"],
+    columns: ["Proveedor", "Fecha", "Insumos comprados", "Total", "Estado"],
     fields: [
       {
         key: "0",
@@ -523,6 +527,26 @@ export const MOD_CFG: Record<string, ModConfig> = {
     // 6 = returned products (JSON), shown in the detail
     hiddenCellIndexes: [1, 3, 6],
   },
+}
+
+// Quick filters per module. Pedidos: [7] estado, [8] estado de pago; Ventas: [8] estado; Insumos: [4] stock, [5] mínimo
+export const QUICK_FILTERS: Record<string, { label: string; test: (row: Row) => boolean }[]> = {
+  pedidos: [
+    { label: "Por confirmar", test: (row) => String(row[7]) === "Por confirmar" },
+    { label: "Pago por verificar", test: (row) => String(row[8]) === "Pendiente de verificación" },
+    { label: "En cocina", test: (row) => String(row[7]) === "En cocina" },
+    { label: "Sin pagar", test: (row) => String(row[8]) !== "Pagado" && String(row[7]) !== "Cancelado" },
+    { label: "Entregados", test: (row) => String(row[7]) === "Entregado" },
+    { label: "Cancelados", test: (row) => String(row[7]) === "Cancelado" },
+  ],
+  ventas: [
+    { label: "Vigentes", test: (row) => String(row[8]) !== "Anulada" },
+    { label: "Anuladas", test: (row) => String(row[8]) === "Anulada" },
+  ],
+  insumos: [
+    { label: "Bajo mínimo", test: (row) => Number(row[4]) <= Number(row[5]) },
+    { label: "Agotados", test: (row) => Number(row[4]) <= 0 },
+  ],
 }
 
 // A shop order still open (not delivered nor cancelled) after this many days shows a "Pedido sin movimiento" alert

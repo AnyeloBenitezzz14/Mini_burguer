@@ -21,7 +21,8 @@ export default function AnulModal(adminState: AdminPanelState): ReactNode {
     targetRow,
     anulTarget.idx,
   )
-  const canAnul = assessment.allowed
+  const reactivate = !!anulTarget.reactivate
+  const canAnul = reactivate || assessment.allowed
   const entity = {
     ...PURCHASE_ENTITIES,
     roles: { name: "rol", fem: false },
@@ -58,10 +59,12 @@ export default function AnulModal(adminState: AdminPanelState): ReactNode {
           className="mb-3 text-base font-semibold"
           style={{ color: t.text }}
         >
-          {canAnul ? "¿Deseas anular?" : "Anulación bloqueada"}
+          {reactivate ? "¿Deseas reactivar?" : canAnul ? "¿Deseas anular?" : "Anulación bloqueada"}
         </h3>
         <p className="mb-5 text-sm leading-relaxed" style={{ color: t.text }}>
-          {canAnul
+          {reactivate
+            ? `Vas a reactivar ${thisOne} «${String(targetRow?.[0] ?? "")}». Podrá volver a iniciar sesión con sus permisos.`
+            : canAnul
             ? `Vas a anular ${thisOne} «${String(targetRow?.[0] ?? "")}». El cambio se verá en los módulos que ${entity.fem ? "la" : "lo"} usan, y puedes deshacerlo justo después.`
             : `No puedes anular ${thisOne}. ${assessment.reason}`}
         </p>
@@ -79,9 +82,9 @@ export default function AnulModal(adminState: AdminPanelState): ReactNode {
               type="button"
               onClick={confirmAnul}
               className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
-              style={{ background: C.red, color: "#fff" }}
+              style={{ background: reactivate ? "#2E7D60" : C.red, color: "#fff" }}
             >
-              Anular
+              {reactivate ? "Reactivar" : "Anular"}
             </button>
           )}
         </div>

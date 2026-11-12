@@ -34,6 +34,9 @@ export type CartItem = {
   qty: number
   img: string
   sauces?: string[]
+  note?: string
+  // Ingredients to leave out (sent to the kitchen with the note)
+  without?: string[]
   additions?: { name: string; qty: number; price: number }[]
 }
 
@@ -93,6 +96,8 @@ export type Order = DeliveryInfo & {
   paymentRejectionReason?: string
   productionAuthorized?: boolean
   productionRecords?: (string | number)[][]
+  // Status and payment changes, oldest first (usuario: who in the staff did it; not sent to clients)
+  history?: { estado: string; fecha: string; usuario?: string }[]
 }
 
 export type ModalMode = "add" | "edit" | "view" | null
@@ -114,6 +119,8 @@ export type Product = {
   cat: string
   badge: string
   soldOut?: boolean
+  // Recipe ingredients the customer can ask to leave out
+  ingredients?: string[]
 }
 
 export type TechnicalIngredient = {
@@ -130,6 +137,7 @@ export type AdminOrderLine = {
   unitPrice: number
   parentId?: string
   sauces?: string[]
+  note?: string
 }
 
 export type ProductionItem = {
@@ -140,6 +148,7 @@ export type ProductionItem = {
   category?: string
   parentId?: string
   sauces?: string[]
+  note?: string
   // Order remade after a producto no conforme: reused as is (takes nothing out of stock)…
   reuse?: boolean
   // …or only these damaged insumos are replaced (instead of the whole ficha técnica)
@@ -187,6 +196,7 @@ export type CatalogItem = {
   categoria: string
   imagenes: string[]
   estado?: string | null
+  ingredientes?: string[]
 }
 
 // ── Admin tables ↔ backend ─────────────────────────────────────────────────────

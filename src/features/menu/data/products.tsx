@@ -1,4 +1,4 @@
-import traditionalBurgerImg from "@/imports/traditional-burger.png"
+import traditionalBurgerImg from "@/imports/traditional-burger.jpg"
 import type { Product } from "@/shared/types"
 import { normalizeName } from "@/shared/utils/format"
 
@@ -16,7 +16,8 @@ export const SAUCES = [
   "BBQ",
 ]
 
-export const ADDITIONS = [
+// `stock`: bought units left (loadMenu); undefined = not controlled
+export const ADDITIONS: { name: string; price: number; stock?: number }[] = [
   { name: "Queso", price: 8000 },
   { name: "Tocineta", price: 8000 },
   { name: "Ensalada", price: 8000 },
@@ -49,7 +50,7 @@ export const BEVERAGE_ORDER = ["Coca-Cola", "Colombiana", "Pepsi", "Manzana", "U
 
 // The sodas for sale (normalized "Gaseosa <sabor> (<tamaño>)" → its product's price and photo, and whether it's
 // sold out). Filled by loadMenu; empty = old data, every flavour × size sells at the size price
-export const SODA_INFO = new Map<string, { precio: number; img: string; agotada: boolean }>()
+export const SODA_INFO = new Map<string, { precio: number; img: string; agotada: boolean; stock?: number }>()
 
 export const sodaInfo = (flavor: string, sizeLabel: string) => SODA_INFO.get(normalizeName(`Gaseosa ${flavor} (${sizeLabel})`))
 
@@ -547,6 +548,11 @@ export const SODA_PRODUCT = "Bebidas"
 export const SODA_LOW_STOCK = 3
 
 export const isSodaName = (name: string | number | undefined) => SODA_RE.test(String(name ?? ""))
+
+// Resale items with their own stock, bought in Compras: sodas (product of «Bebidas») and additions («Adiciones»)
+export const ADDITION_PRODUCT = "Adiciones"
+export const isStockedExtra = (name: string | number | undefined) =>
+  isSodaName(name) || ADDITIONS.some((a) => normalizeName(a.name) === normalizeName(String(name ?? "")))
 
 export const sodaImage = (name: string | number | undefined) => {
   const m = SODA_RE.exec(String(name ?? ""))

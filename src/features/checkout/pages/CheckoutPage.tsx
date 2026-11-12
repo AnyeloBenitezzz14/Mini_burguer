@@ -70,9 +70,7 @@ export default function CheckoutPage({
   const [deliveryMethod, setDeliveryMethod] = useState<DeliveryInfo["tipoEntrega"]>("domicilio")
   const isDelivery = deliveryMethod === "domicilio"
   const deliveryMethodLabel =
-    deliveryMethod === "local"
-      ? "Comer en el local"
-      : deliveryMethod === "recoger"
+    deliveryMethod === "recoger"
         ? "Recoger pedido"
         : "Pedir a domicilio"
   // The backend still receives one formatted address string.
@@ -341,6 +339,7 @@ export default function CheckoutPage({
   const [showOutOfRangeDialog, setShowOutOfRangeDialog] = useState(false)
   const placeOrder = async () => {
     setDeliveryTried(true)
+    if (subtotal + (displayedDeliveryCost ?? 0) >= APPROVAL_MIN) return
     if (placing || !user || !delivFilled || !deliveryCostConfigured || !payReady || cart.length === 0) return
     setOrderError("")
     setPlacing(true)
@@ -351,9 +350,7 @@ export default function CheckoutPage({
           tipoEntrega: deliveryMethod,
           direccion: isDelivery
             ? delivForm.direccion
-            : deliveryMethod === "local"
-              ? "Consumo en el local"
-              : "Recoger en el local",
+            : "Recoger en el local",
           barrio: isDelivery ? selectedNeighborhood?.nombre : undefined,
           barrioId: isDelivery ? selectedNeighborhood?.id_barrio ?? undefined : undefined,
           distanciaKm: undefined,
@@ -388,7 +385,7 @@ export default function CheckoutPage({
     if (!delivFilled || !deliveryCostConfigured) return
     setCheckoutStep(3)
   }
-  // Nequi / Daviplata must attach the payment receipt before continuing
+  // Nequi / Bancolombia must attach the payment receipt before continuing
   const needsVoucher = delivForm.pago !== "Efectivo"
   const payReady = !needsVoucher || !!voucher
   const displayedDeliveryCost =
@@ -532,32 +529,33 @@ export default function CheckoutPage({
   const PAY_OPTS = [
     { id: "Efectivo", desc: "Pagas al recibir tu pedido" },
     { id: "Nequi", desc: "Transferencia con código QR" },
-    { id: "Daviplata", desc: "Transferencia con código QR" },
+    { id: "Bancolombia", desc: "Transferencia con código QR" },
   ]
+  const overLimit = orderTotal >= APPROVAL_MIN
   const cta = !user
     ? showAuth
       ? null
       : {
           label: "Hacer pedido",
           onClick: () => setShowAuth(true),
-          disabled: !hasActiveItems,
+          disabled: !hasActiveItems || overLimit,
         }
     : checkoutStep === 1
       ? {
           label: "Hacer pedido",
           onClick: () => setCheckoutStep(2),
-          disabled: !hasActiveItems,
+          disabled: !hasActiveItems || overLimit,
         }
     : checkoutStep === 2
       ? {
           label: "Confirma tus datos",
           onClick: continueToReview,
-          disabled: cart.length === 0,
+          disabled: cart.length === 0 || overLimit,
         }
       : {
           label: placing ? "Enviando pedido..." : "Confirmar pedido",
           onClick: placeOrder,
-          disabled: placing || !hasActiveItems || !canOrder || !payReady,
+          disabled: placing || !hasActiveItems || !canOrder || !payReady || overLimit,
         }
 
   if (ordered)
@@ -767,7 +765,8 @@ export default function CheckoutPage({
                     Tu carrito
                   </h2>
                   <button
-                    onClick={() => setPickerOpen(true)}
+                    onClick={() => setPickerOpen((open) => !open)}
+                    aria-expanded={pickerOpen}
                     className="flex-shrink-0 mt-2 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold cursor-pointer hover:opacity-80"
                     style={{
                       border: `1.5px dashed ${C.mustard}`,
@@ -775,9 +774,21 @@ export default function CheckoutPage({
                       background: "#fff",
                     }}
                   >
-                    + Agregar más productos
+                    {pickerOpen ? "× Cerrar menú" : "+ Agregar más productos"}
                   </button>
                 </div>
+                {pickerOpen && (
+                  <div className="mb-5 mt-3 rounded-2xl p-3 sm:p-4" style={{ background: "#FAF5E8", border: `1px solid ${LINE}` }}>
+                    <ProductCatalog
+                      dark={false}
+                      onAddClick={(product) => {
+                        setAddProduct(product)
+                        setPickerOpen(false)
+                      }}
+                      compact
+                    />
+                  </div>
+                )}
                 <p className="text-sm mb-5" style={{ color: MUTED }}>
                   Revisa tus productos antes de hacer el pedido.
                 </p>
@@ -1028,12 +1039,11 @@ export default function CheckoutPage({
                     <legend className="mb-2 text-xs font-semibold" style={{ color: MUTED }}>
                       ¿Cómo quieres recibir tu pedido?
                     </legend>
-                    <div className="grid gap-2 sm:grid-cols-3">
+                    <div className="grid gap-2 sm:grid-cols-2">
                       {([
-                        ["local", "Comer en el local"],
-                        ["domicilio", "Pedir a domicilio"],
-                        ["recoger", "Recoger pedido"],
-                      ] as const).map(([method, label]) => {
+                        ["domicilio", "Pedir a domicilio", "Lo llevamos empacado a tu dirección"],
+                        ["recoger", "Recoger pedido", "Lo empacamos para llevar; pasas por él"],
+                      ] as const).map(([method, label, hint]) => {
                         const selected = deliveryMethod === method
                         return (
                           <button
@@ -1049,6 +1059,7 @@ export default function CheckoutPage({
                             }}
                           >
                             {label}
+                            <span className="mt-0.5 block text-xs font-normal" style={{ color: MUTED }}>{hint}</span>
                           </button>
                         )
                       })}
@@ -1837,6 +1848,12 @@ export default function CheckoutPage({
               </span>
             </div>
             <FieldError msg={orderError} />
+            {overLimit && (
+              <div role="alert" className="mt-4 rounded-xl p-3 text-sm" style={{ background: `${C.red}10`, border: `1.5px solid ${C.red}`, color: C.red }}>
+                <strong className="block">No se puede realizar la compra</strong>
+                Tu pedido ({fmt(orderTotal)}) excede el precio permitido: debe ser menor a {fmt(APPROVAL_MIN)}. Quita productos o adiciones para continuar.
+              </div>
+            )}
             {cta ? (
               <button
                 onClick={cta.onClick}
@@ -1933,7 +1950,7 @@ export default function CheckoutPage({
           </section>
         </div>
       )}
-      {pickerOpen && (
+      {pickerOpen && checkoutStep !== 1 && (
         <div
           className="fixed inset-0 z-[60] flex items-start justify-center px-4 pb-4 pt-20"
           style={{ background: "rgba(0,0,0,0.7)" }}
