@@ -182,7 +182,7 @@ export default function AddToCartModal({
   const SOFT = dark ? "rgba(244,238,220,0.04)" : "#fff"
   // Section card with its title, a short hint and a counter
   const Section = useMemo(() => ({ id, title, hint, count, wide, children }: { id: string; title: string; hint: string; count?: string; wide?: boolean; children: React.ReactNode }) => (
-    <section aria-labelledby={id} className={`rounded-2xl p-3.5 sm:p-4 ${wide ? "lg:col-span-2" : ""}`} style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+    <section aria-labelledby={id} className="rounded-2xl p-3.5 sm:p-4" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
       <div className="mb-2.5 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 id={id} className="text-base font-black leading-tight sm:text-lg" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
@@ -231,7 +231,7 @@ export default function AddToCartModal({
         <div className="mx-auto grid w-full max-w-7xl gap-4 px-4 py-4 sm:px-6 md:grid-cols-[minmax(0,4fr)_minmax(0,9fr)] md:gap-6 md:py-5">
           {/* Left: the photo, price, name and description (stays in view while the options scroll) */}
           <div className="min-w-0 md:sticky md:top-0 md:self-start">
-            <div ref={photoRef} className="overflow-hidden rounded-3xl" style={{ background: SOFT, boxShadow: "0 18px 40px -24px rgba(25,21,18,0.6)" }}>
+            <div ref={photoRef} className="overflow-hidden rounded-3xl" style={{ background: `${C.mustard}14`, boxShadow: "0 18px 40px -24px rgba(25,21,18,0.6)" }}>
               {product.img && (
                 <ZoomableImage
                   src={product.img}
@@ -301,7 +301,7 @@ export default function AddToCartModal({
           </div>
 
           {/* Right: every option at once, one section under the other */}
-          <div className="grid min-w-0 content-start gap-3 lg:grid-cols-2">
+          <div className="grid min-w-0 content-start gap-3">
             {sodaParts && (() => {
               // A soda opened from the menu is already a flavour («Coca-Cola»): only its size is chosen here
               const [, flavor] = sodaParts
@@ -382,7 +382,7 @@ export default function AddToCartModal({
 
             {!isMenuExtra && (
               <Section id="sec-additions" title="Adiciones" hint={`Agrégale lo que quieras a tu ${product.name.toLowerCase()}.`} count={additionsCount ? `${additionsCount}` : undefined}>
-                <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2 lg:grid-cols-3">
                   {ADDITIONS.map((a) => {
                     const q = addQtys[a.name] || 0
                     const soldOut = a.stock != null && a.stock <= 0
@@ -438,7 +438,7 @@ export default function AddToCartModal({
                         )
                       })}
                     </div>
-                    <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2 xl:grid-cols-3">
                       {BEVERAGES.map((flavor) => {
                         const size = selectedBeverageSize
                         const key = `Gaseosa ${flavor} ${size.id}`
