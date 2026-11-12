@@ -180,25 +180,68 @@ export default function AddToCartModal({
   const additionsCount = ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)
   const PAGE = dark ? "#151310" : "#F6EFDF"
   const SOFT = dark ? "rgba(244,238,220,0.04)" : "#fff"
-  // Section card with its title, a short hint and a counter
-  const Section = useMemo(() => ({ id, title, hint, count, wide, children }: { id: string; title: string; hint: string; count?: string; wide?: boolean; children: React.ReactNode }) => (
-    <section aria-labelledby={id} className="rounded-2xl p-3.5 sm:p-4" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
-      <div className="mb-2.5 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h2 id={id} className="text-base font-black leading-tight sm:text-lg" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
-            {title}
-          </h2>
-          <p className="mt-0.5 text-xs" style={{ color: MUTED }}>{hint}</p>
-        </div>
-        {count && (
-          <span className="flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-bold tabular-nums" style={{ background: `${C.mustard}18`, color: C.mustard }}>
-            {count}
+  // Collapsible sections (like the delivery apps): a computer opens all of them, a phone only the first,
+  // so there is less to scroll. Closed, each one says what was chosen
+  const [openSecs, setOpenSecs] = useState<Set<string>>(() =>
+    new Set(window.innerWidth >= 768 ? ["sec-size", "sec-sauces", "sec-additions", "sec-drinks"] : ["sec-size", "sec-sauces"]),
+  )
+  const toggleSec = (id: string) =>
+    setOpenSecs((cur) => {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const Section = useMemo(() => ({ id, title, hint, summary, count, children }: { id: string; title: string; hint: string; summary?: string; count?: string; wide?: boolean; children: React.ReactNode }) => {
+    const open = openSecs.has(id)
+    return (
+      <section className="overflow-hidden rounded-2xl transition-shadow" style={{ background: CARD, border: `1px solid ${open ? `${C.mustard}55` : BORDER}`, boxShadow: open ? `0 10px 24px -18px ${C.mustard}` : "none" }}>
+        <button
+          type="button"
+          onClick={() => toggleSec(id)}
+          aria-expanded={open}
+          aria-controls={`${id}-body`}
+          className="flex w-full cursor-pointer items-center gap-3 px-3.5 py-3 text-left sm:px-4"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="flex items-center gap-2">
+              <span id={id} className="text-base font-black leading-tight sm:text-lg" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
+                {title}
+              </span>
+              {count && (
+                <span className="rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                  {count}
+                </span>
+              )}
+            </span>
+            <span className="mt-0.5 block truncate text-xs" style={{ color: !open && summary ? C.mustard : MUTED, fontWeight: !open && summary ? 600 : 400 }}>
+              {!open && summary ? summary : hint}
+            </span>
           </span>
-        )}
-      </div>
-      {children}
-    </section>
-  ), [CARD, BORDER, TEXT, MUTED])
+          <span
+            aria-hidden="true"
+            className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full transition-transform duration-300"
+            style={{ background: open ? C.mustard : `${C.mustard}14`, color: open ? "#fff" : C.mustard, transform: open ? "rotate(180deg)" : "none" }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+          </span>
+        </button>
+        {/* Height animates by grid rows (0fr ↔ 1fr), no measuring */}
+        <div
+          id={`${id}-body`}
+          role="region"
+          aria-labelledby={id}
+          className="grid transition-[grid-template-rows] duration-300 ease-out motion-reduce:transition-none"
+          style={{ gridTemplateRows: open ? "1fr" : "0fr" }}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="px-3.5 pb-3.5 sm:px-4 sm:pb-4" inert={!open}>{children}</div>
+          </div>
+        </div>
+      </section>
+    )
+  }, [CARD, BORDER, TEXT, MUTED, openSecs])
+  const additionsMoney = ADDITIONS.reduce((t, a) => t + (addQtys[a.name] || 0) * a.price, 0)
 
   return (
     <div
@@ -346,7 +389,7 @@ export default function AddToCartModal({
             })()}
 
             {!isMenuExtra && (
-              <Section id="sec-sauces" title="Salsas" hint="Elige hasta 4, son gratis." count={`${selSauces.length}/4`}>
+              <Section id="sec-sauces" title="Salsas" hint="Elige hasta 4, son gratis." summary={selSauces.length ? selSauces.join(", ") : undefined} count={`${selSauces.length}/4`}>
                 <div role="group" aria-label="Salsas" className="flex flex-wrap gap-1.5">
                   {SAUCES.map((s) => {
                     const on = selSauces.includes(s)
@@ -381,7 +424,7 @@ export default function AddToCartModal({
             )}
 
             {!isMenuExtra && (
-              <Section id="sec-additions" title="Adiciones" hint={`Agrégale lo que quieras a tu ${product.name.toLowerCase()}.`} count={additionsCount ? `${additionsCount}` : undefined}>
+              <Section id="sec-additions" title="Adiciones" hint={`Agrégale lo que quieras a tu ${product.name.toLowerCase()}.`} summary={additionsCount ? `${additionsCount} ${additionsCount === 1 ? "adición" : "adiciones"} · +${fmt(additionsMoney)}` : undefined} count={additionsCount ? `${additionsCount}` : undefined}>
                 <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2 lg:grid-cols-3">
                   {ADDITIONS.map((a) => {
                     const q = addQtys[a.name] || 0
@@ -412,7 +455,7 @@ export default function AddToCartModal({
             )}
 
             {!isMenuExtra && (
-              <Section id="sec-drinks" wide title="Bebidas" hint="Acompaña tu pedido con una gaseosa fría." count={selectedBeverageCount ? `${selectedBeverageCount}` : undefined}>
+              <Section id="sec-drinks" wide title="Bebidas" hint="Acompaña tu pedido con una gaseosa fría." summary={selectedBeverageCount ? `${selectedBeverageCount} ${selectedBeverageCount === 1 ? "bebida" : "bebidas"} · +${fmt(beverageTotal)}` : undefined} count={selectedBeverageCount ? `${selectedBeverageCount}` : undefined}>
                 {!BEVERAGES.length || !BEVERAGE_SIZES.length ? (
                   <p className="rounded-2xl px-3 py-4 text-center text-sm" style={{ background: SOFT, color: MUTED }}>
                     Por ahora no hay gaseosas disponibles.
