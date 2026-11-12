@@ -235,52 +235,48 @@ export default function AddToCartModal({
   }, [CARD, BORDER, TEXT, MUTED, openSecs])
   const additionsMoney = ADDITIONS.reduce((t, a) => t + (addQtys[a.name] || 0) * a.price, 0)
 
-  // − amount +, typed too (1-999)
-  const qtyControl = (
-    <div className="flex flex-shrink-0 items-center rounded-full p-0.5" aria-label="Cantidad del producto" role="group" style={{ background: dark ? "rgba(244,238,220,0.07)" : "rgba(30,30,30,0.06)" }}>
-      <button
-        type="button"
-        onClick={() => setQty((q) => Math.max(1, q - 1))}
-        disabled={qty <= 1}
-        aria-label="Una menos"
-        className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-default disabled:opacity-35"
-        style={{ color: TEXT }}
-      >
-        −
-      </button>
-      {/* The quantity can be typed (1-999); while typing it may be empty, on leaving it goes back to a valid one */}
-      <input
-        type="text"
-        inputMode="numeric"
-        value={qtyDraft ?? String(qty)}
-        onChange={(event) => {
-          const digits = event.target.value.replace(/\D/g, "").slice(0, 3)
-          setQtyDraft(digits)
-          if (Number(digits) >= 1) setQty(Number(digits))
-        }}
-        onFocus={(event) => event.target.select()}
-        onBlur={() => setQtyDraft(null)}
-        aria-label="Cantidad"
-        className="w-10 bg-transparent text-center text-sm font-black outline-none"
-        style={{ color: TEXT }}
-      />
-      <button
-        type="button"
-        onClick={() => setQty((q) => Math.min(MAX_QTY, q + 1))}
-        disabled={qty >= MAX_QTY}
-        aria-label="Una más"
-        className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-not-allowed disabled:opacity-40"
-        style={{ background: C.mustard, color: "#fff" }}
-      >
-        +
-      </button>
-    </div>
-  )
   // Quantity next to «Agregar», then «Finalizar compra»
   const actions = (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        {qtyControl}
+        <div className="flex flex-shrink-0 items-center rounded-full p-0.5" aria-label="Cantidad del producto" role="group" style={{ background: dark ? "rgba(244,238,220,0.07)" : "rgba(30,30,30,0.06)" }}>
+          <button
+            type="button"
+            onClick={() => setQty((q) => Math.max(1, q - 1))}
+            disabled={qty <= 1}
+            aria-label="Una menos"
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-default disabled:opacity-35"
+            style={{ color: TEXT }}
+          >
+            −
+          </button>
+          {/* The quantity can be typed (1-999); while typing it may be empty, on leaving it goes back to a valid one */}
+          <input
+            type="text"
+            inputMode="numeric"
+            value={qtyDraft ?? String(qty)}
+            onChange={(event) => {
+              const digits = event.target.value.replace(/\D/g, "").slice(0, 3)
+              setQtyDraft(digits)
+              if (Number(digits) >= 1) setQty(Number(digits))
+            }}
+            onFocus={(event) => event.target.select()}
+            onBlur={() => setQtyDraft(null)}
+            aria-label="Cantidad"
+            className="w-10 bg-transparent text-center text-sm font-black outline-none"
+            style={{ color: TEXT }}
+          />
+          <button
+            type="button"
+            onClick={() => setQty((q) => Math.min(MAX_QTY, q + 1))}
+            disabled={qty >= MAX_QTY}
+            aria-label="Una más"
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ background: C.mustard, color: "#fff" }}
+          >
+            +
+          </button>
+        </div>
         <button
           type="button"
           onClick={addWithFeedback}
@@ -364,6 +360,7 @@ export default function AddToCartModal({
                   {product.desc}
                 </p>
               )}
+              <div className="mt-4 hidden md:block">{actions}</div>
             </div>
           </div>
 
@@ -556,42 +553,6 @@ export default function AddToCartModal({
                 )}
               </Section>
             )}
-            {/* Computer: the purchase panel on the right, under the options and always in view */}
-            <div
-              className="sticky bottom-3 z-10 hidden items-center gap-4 rounded-2xl px-4 py-3 md:flex"
-              style={{ background: CARD, border: `1px solid ${C.mustard}40`, boxShadow: "0 16px 32px -18px rgba(25,21,18,0.55)" }}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="text-[11px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>
-                  Total · {qty} {qty === 1 ? "unidad" : "unidades"}
-                </div>
-                <div className="font-price text-2xl font-black leading-tight tabular-nums" style={{ color: TEXT }}>{fmt(total)}</div>
-              </div>
-              {qtyControl}
-              {onCheckout && (
-                <button
-                  type="button"
-                  onClick={handleCheckout}
-                  disabled={product.soldOut}
-                  className="flex-none cursor-pointer whitespace-nowrap rounded-full px-5 py-2.5 text-sm font-bold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
-                  style={{ border: `1.5px solid ${C.mustard}`, color: C.mustard, background: "transparent" }}
-                >
-                  Finalizar compra
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={addWithFeedback}
-                disabled={product.soldOut}
-                className="flex flex-none cursor-pointer items-center gap-2 whitespace-nowrap rounded-full px-6 py-2.5 text-sm font-bold transition-[opacity,background-color] duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55 [&_svg]:h-4 [&_svg]:w-4"
-                style={{ background: added ? C.forest : C.mustard, color: "#fff", boxShadow: `0 6px 16px ${C.mustard}40` }}
-              >
-                <span key={added ? "added" : "add"} className={`flex items-center gap-1.5 ${added ? "cart-added-pop" : ""}`}>
-                  {Ico.check}
-                  {product.soldOut ? "Agotado" : initial ? "Guardar cambios" : added ? "Agregado" : "Agregar al carrito"}
-                </span>
-              </button>
-            </div>
           </div>
         </div>
       </div>
