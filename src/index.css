@@ -871,10 +871,7 @@ select {
 }
 
 .landing-footer {
-  background:
-    radial-gradient(ellipse 82% 58% at 50% 0%, rgba(182,140,28,0.14), transparent 100%),
-    radial-gradient(ellipse at 10% 35%, rgba(182,140,28,0.07), transparent 38%),
-    linear-gradient(180deg, #17130D 0%, #110E09 42%, #0E0C09 100%);
+  background: #0E0C09;
 }
 
 .landing-footer .text-sm {
@@ -898,7 +895,7 @@ select {
   width: 34px;
   height: 2px;
   border-radius: 99px;
-  background: linear-gradient(90deg, #D29A42, #B68C1C);
+  background: linear-gradient(90deg, #D29A42, #8F6C12);
   content: "";
 }
 

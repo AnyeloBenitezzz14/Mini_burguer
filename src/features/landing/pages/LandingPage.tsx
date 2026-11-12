@@ -655,7 +655,6 @@ export default function LandingPage({
         <div className="max-w-7xl mx-auto">
           <div
             className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10 pb-10"
-            style={{ borderBottom: "1px solid rgba(250,243,224,0.07)" }}
           >
             <div className="flex flex-col items-start gap-4">
               <img
@@ -733,7 +732,7 @@ export default function LandingPage({
               <ul className="flex flex-col gap-3 text-base">
                 <li className="flex gap-2.5 items-start">
                   <span className="mt-0.5" style={{ color: C.amber }}>{Ico.mapPin}</span>
-                  <span style={{ color: "rgba(250,243,224,0.45)" }}>
+                  <span style={{ color: "rgba(250,243,224,0.8)" }}>
                     051053, Cra. 58A #42c-28, Bello, Antioquia
                   </span>
                 </li>
@@ -767,15 +766,12 @@ export default function LandingPage({
               </h4>
               <div
                 className="p-4 rounded-xl"
-                style={{
-                  background: "rgba(250,243,224,0.04)",
-                  border: "1px solid rgba(250,243,224,0.06)",
-                }}
+                style={{ background: "rgba(250,243,224,0.06)" }}
               >
                 <div className="flex justify-between py-1">
                   <span
                     className="text-base"
-                    style={{ color: "rgba(250,243,224,0.5)" }}
+                    style={{ color: "rgba(250,243,224,0.8)" }}
                   >
                     Lun – Dom
                   </span>
@@ -787,11 +783,8 @@ export default function LandingPage({
                   </span>
                 </div>
                 <div
-                  className="mt-3 pt-3 text-sm"
-                  style={{
-                    color: "rgba(250,243,224,0.3)",
-                    borderTop: "1px solid rgba(250,243,224,0.06)",
-                  }}
+                  className="mt-3 text-sm"
+                  style={{ color: "rgba(250,243,224,0.78)" }}
                 >
                   <span className="mr-1 inline-flex align-middle">{Ico.mapPin}</span>
                   Domicilios disponibles en toda la zona
@@ -815,7 +808,7 @@ export default function LandingPage({
                     onClick={() => setLegalModal("envios")}
                     className="text-base cursor-pointer hover:opacity-70 text-left"
                     style={{
-                      color: "rgba(250,243,224,0.4)",
+                      color: "rgba(250,243,224,0.8)",
                       background: "none",
                       border: "none",
                     }}
@@ -828,7 +821,7 @@ export default function LandingPage({
                     onClick={() => setLegalModal("legal")}
                     className="text-base cursor-pointer hover:opacity-70 text-left"
                     style={{
-                      color: "rgba(250,243,224,0.4)",
+                      color: "rgba(250,243,224,0.8)",
                       background: "none",
                       border: "none",
                     }}
@@ -841,7 +834,7 @@ export default function LandingPage({
           </div>
           <div
             className="pt-5 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm"
-            style={{ color: "rgba(250,243,224,0.2)" }}
+            style={{ color: "rgba(250,243,224,0.6)" }}
           >
             <span>© 2024 El Parche de las Mini Burguer · Bello, Antioquia</span>
           </div>
