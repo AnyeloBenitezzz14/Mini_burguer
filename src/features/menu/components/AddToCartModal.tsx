@@ -255,6 +255,48 @@ export default function AddToCartModal({
                   {product.desc}
                 </p>
               )}
+              {!!product.ingredients?.length && (
+                <div className="mt-3">
+                  <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>Lleva</div>
+                  <div className="flex flex-wrap gap-1">
+                    {product.ingredients.map((i) => (
+                      <span key={i} className="rounded-full px-2.5 py-0.5 text-xs" style={{ background: `${C.mustard}12`, color: dark ? "#E9DCC0" : "#5C4A1A" }}>
+                        {i}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!isMenuExtra && (() => {
+                // Live summary of what was chosen and how the unit price adds up
+                const lines = [
+                  ...ADDITIONS.filter((a) => (addQtys[a.name] || 0) > 0).map((a) => ({ name: a.name, qty: addQtys[a.name], price: a.price })),
+                  ...BEVERAGES.flatMap((f) => BEVERAGE_SIZES.filter((z) => (addQtys[`Gaseosa ${f} ${z.id}`] || 0) > 0)
+                    .map((z) => ({ name: `${f} ${z.label}`, qty: addQtys[`Gaseosa ${f} ${z.id}`], price: sodaPrice(f, z) }))),
+                ]
+                if (!selSauces.length && !lines.length) return null
+                return (
+                  <div className="mt-4 rounded-2xl p-3.5" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+                    <div className="mb-2 text-[11px] font-bold uppercase tracking-wider" style={{ color: MUTED }}>Tu selección</div>
+                    {selSauces.length > 0 && (
+                      <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
+                        <span className="min-w-0" style={{ color: TEXT }}>Salsas: <span style={{ color: MUTED }}>{selSauces.join(", ")}</span></span>
+                        <span className="flex-shrink-0 text-xs font-semibold" style={{ color: C.forest }}>Gratis</span>
+                      </div>
+                    )}
+                    {lines.map((l) => (
+                      <div key={l.name} className="flex items-baseline justify-between gap-3 text-sm">
+                        <span className="min-w-0 truncate" style={{ color: TEXT }}>{l.qty} × {l.name}</span>
+                        <span className="flex-shrink-0 tabular-nums" style={{ color: MUTED }}>+{fmt(l.qty * l.price)}</span>
+                      </div>
+                    ))}
+                    <div className="mt-2 flex items-baseline justify-between border-t pt-2 text-sm font-bold" style={{ borderColor: BORDER, color: TEXT }}>
+                      <span>Precio por unidad</span>
+                      <span className="tabular-nums" style={{ color: C.mustard }}>{fmt(unitPrice)}</span>
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           </div>
 
@@ -305,7 +347,7 @@ export default function AddToCartModal({
 
             {!isMenuExtra && (
               <Section id="sec-sauces" title="Salsas" hint="Elige hasta 4, son gratis." count={`${selSauces.length}/4`}>
-                <div role="group" aria-label="Salsas" className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-2">
+                <div role="group" aria-label="Salsas" className="flex flex-wrap gap-1.5">
                   {SAUCES.map((s) => {
                     const on = selSauces.includes(s)
                     const full = !on && selSauces.length >= 4
@@ -316,16 +358,21 @@ export default function AddToCartModal({
                         onClick={() => toggleSauce(s)}
                         disabled={full}
                         aria-pressed={on}
-                        className="flex min-w-0 cursor-pointer items-center justify-between gap-2 rounded-xl py-1.5 pl-3 pr-1.5 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-45"
-                        style={{ border: `1.5px solid ${on ? C.mustard : BORDER}`, background: on ? `${C.mustard}14` : SOFT }}
+                        className="flex cursor-pointer items-center gap-1.5 rounded-full py-1.5 pl-2 pr-3.5 text-sm font-semibold transition-all duration-150 hover:-translate-y-px active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+                        style={{
+                          border: `1.5px solid ${on ? C.mustard : BORDER}`,
+                          background: on ? C.mustard : SOFT,
+                          color: on ? "#fff" : TEXT,
+                          boxShadow: on ? `0 4px 10px -4px ${C.mustard}` : "none",
+                        }}
                       >
-                        <span className="truncate text-sm font-semibold" style={{ color: on ? C.mustard : TEXT }}>{s}</span>
                         <span
                           className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
-                          style={{ background: on ? C.mustard : `${C.mustard}1A`, color: on ? "#fff" : C.mustard }}
+                          style={{ background: on ? "rgba(255,255,255,0.25)" : `${C.mustard}1A`, color: on ? "#fff" : C.mustard }}
                         >
                           {on ? "✓" : "+"}
                         </span>
+                        {s}
                       </button>
                     )
                   })}
