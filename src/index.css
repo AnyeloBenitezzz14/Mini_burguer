@@ -864,14 +864,12 @@ select {
   filter: brightness(1.08);
 }
 
-.landing-cta {
+.landing-cta,
+.landing-footer {
   background:
     radial-gradient(ellipse 82% 58% at 50% 100%, rgba(182,140,28,0.14), transparent 100%),
-    #17130D;
-}
-
-.landing-footer {
-  background: #0E0C09;
+    linear-gradient(180deg, #17130D 0%, #110E09 55%, #0E0C09 100%);
+  background-attachment: fixed;
 }
 
 .landing-footer .text-sm {
