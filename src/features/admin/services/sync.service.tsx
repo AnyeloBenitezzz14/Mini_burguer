@@ -1,5 +1,5 @@
 import { MOD_CFG, RETURNED_LOSS } from "@/features/admin/config/modules"
-import { estadoOf, isActiveStatus, optionalEmail, parsePurchaseLines, roleLabel, text, withId } from "@/features/admin/utils/rows"
+import { estadoOf, isActiveStatus, optionalEmail, parseMainSupplies, parsePurchaseLines, roleLabel, text, withId } from "@/features/admin/utils/rows"
 import { SODA_LOW_STOCK, SODA_PRODUCT, currentCategory, isSodaName, isStockedExtra } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { api } from "@/shared/services/api"
@@ -235,7 +235,10 @@ export const DB_SYNC: Record<string, SyncSpec> = {
             version: text(row[9]),
             insumos_principales: text(row[10]),
             preparacion: text(row[11]),
-            // no recipe lines in the insumo form: the backend keeps the saved ones
+            // Its recipe: "Azúcar (50 g), Limón (2 und)" -> lines with amount (the stock is taken from these)
+            ingredientes: parseMainSupplies(row[10])
+              .filter((i) => Number(i.quantity) > 0)
+              .map((i) => ({ insumo: i.name, cantidad: Number(i.quantity), ...(i.unit ? { medida: i.unit } : {}) })),
           })
         : Promise.resolve(),
   },

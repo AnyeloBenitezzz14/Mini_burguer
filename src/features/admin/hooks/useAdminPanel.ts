@@ -463,7 +463,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             return updated
           }),
         }))
-        spec.reloads?.forEach(loadModule)
+        // Reload only after the extra saves (e.g. an insumo's ficha técnica), or the reload brings it back empty
+        if (statusOnly) spec.reloads?.forEach(loadModule)
         // Re-read people from the backend: e.g. a new client gets its app account there («Tiene cuenta en la app»)
         if (sec === "clientes" || sec === "usuarios") loadModule(sec)
         if (statusOnly) {
@@ -474,6 +475,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           })
         }
         return Promise.all([spec.afterSave?.(id, row), alsoSave?.(id)]).then(async () => {
+          spec.reloads?.forEach(loadModule)
           if (sec === "producto") {
             await loadModule(sec)
             window.dispatchEvent(new Event("products-updated"))
@@ -1951,6 +1953,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     // a purchase picks the new supplier
     const next = !created
       ? form
+      : section === "insumos"
+        ? // An insumo created from a ficha técnica joins its main insumos
+          { ...form, "10": [...String(form["10"] ?? "").split(",").map((item) => item.trim()).filter(Boolean), created].join(", ") }
       : section === "proveedores"
         ? { ...form, "7": [...new Set([...String(form["7"] ?? "").split(",").map((item) => item.trim()).filter(Boolean), created])].join(", ") }
         : section === "ventas"

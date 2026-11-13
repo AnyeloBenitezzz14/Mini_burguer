@@ -2516,6 +2516,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
                               }}
                             />
+                            {/* An insumo that doesn't exist yet: create it and come back with it added to the ficha */}
+                            <button
+                              type="button"
+                              onClick={() => openChildForm("insumos")}
+                              title="Crear un insumo nuevo y volver a esta ficha técnica"
+                              className="mt-2 flex cursor-pointer items-center gap-1 self-start rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+                              style={{ background: `${C.mustard}14`, color: C.mustard }}
+                            >
+                              {Ico.plus} Crear insumo nuevo
+                            </button>
                           </>
                         )}
                         {formFieldErrors["10"] && (
