@@ -615,14 +615,8 @@ export const SIDEBAR_MENU = [
       { key: "pedidos", label: "Pedidos" },
       { key: "ventas", label: "Ventas" },
       { key: "devoluciones", label: "Devoluciones" },
+      { key: "domicilios", label: "Domicilios" },
     ],
-    color: C.mustard,
-  },
-  {
-    key: "domicilios",
-    label: "Domicilios",
-    icon: Ico.mapPin,
-    children: [],
     color: C.mustard,
   },
 ]
