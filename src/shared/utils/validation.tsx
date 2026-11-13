@@ -1,7 +1,7 @@
 import type { FieldErrors } from "@/shared/types"
 
 export const DOC_TYPES = ["Cédula de Ciudadanía", "Cédula Extranjería", "NIT", "Pasaporte"]
-export const PPT_DOC_TYPE = "PPT (Permiso por Protección Temporal)"
+export const PPT_DOC_TYPE = "PPT (Permiso Prot. Temporal)" // max 30 caracteres: es lo que admite la base
 export const USER_DOC_TYPES = [...DOC_TYPES, PPT_DOC_TYPE]
 
 // Shared document rules; PPT is offered only in the user form.
