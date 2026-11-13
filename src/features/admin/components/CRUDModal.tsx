@@ -5743,7 +5743,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               {Ico.undo} Registrar devolución
             </button>
           )}
-          {isView && (isPurchaseModule || isProduct) && !isSupplyProductView && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
+          {isView && (isPurchaseModule || isProduct) && !isSupplyProductView && !isSales && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
             <button
               onClick={() => openEdit(modal.section, modal.idx!)}
               className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
