@@ -336,7 +336,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         ? [{
             id: 5000 + i,
             type: Number(r[4]) <= 0 ? ("danger" as const) : ("warn" as const),
-            title: Number(r[4]) <= 0 ? "Sin stock" : "Stock bajo",
+            title: `${Number(r[4]) <= 0 ? "Sin stock" : "Stock bajo"}${String(r[7]).toLowerCase() === "sí" ? " · producto de insumo" : ""}`,
             message: `${String(r[0])} tiene ${Number(r[4]) || 0} ${String(r[2] ?? "")}; el mínimo es ${Number(r[5]) || 0} ${String(r[2] ?? "")}.`,
             module: "Insumos",
             time: "Ahora",
@@ -1267,7 +1267,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           ? ["8", "9"]
           : ["8", "9", "10", "11"]),
       ],
-      producto: ["5", "6", "7", "8", "10"],
+      producto: ["5", "6", "7", "8", "10", ...(draft["1"] === ADDITION_PRODUCT ? ["3"] : [])],
       produccion: ["0", "1", "15"],
       "producto-no-conforme": ["0", "1", "2", "5", "6"],
       compras: ["2", "3", "4"],
@@ -1540,7 +1540,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         return finalError ? [[key, finalError]] : []
       }),
     )
-    if (sec === "producto" && mode === "add" && !imgPreview.trim() && !sodaImage(draft["0"])) {
+    if (sec === "producto" && mode === "add" && draft["1"] !== ADDITION_PRODUCT && !imgPreview.trim() && !sodaImage(draft["0"])) {
       return { ...errors, img: "Sube una imagen del producto." }
     }
     return errors

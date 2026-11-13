@@ -36,8 +36,15 @@ export default function SupplyDetail(adminState: AdminPanelState, row: (string |
   })
   const recipeCost = recipe.reduce((sum, item) => sum + (item.cost ?? 0), 0)
   const unpriced = recipe.some((item) => item.cost === null)
-  const steps = String(row[11] ?? "")
-    .split("\n")
+  const rawSteps = String(row[11] ?? "")
+  // Stored either as text (one step per line) or as a JSON list of steps
+  const steps = (() => {
+    try {
+      const list = JSON.parse(rawSteps)
+      if (Array.isArray(list)) return list.map(String)
+    } catch { /* plain text */ }
+    return rawSteps.split("\n")
+  })()
     // "1. Lavar" -> "Lavar" (a quantity like "500 g de azúcar" stays)
     .map((step) => step.replace(/^\s*\d+\s*[.)-]\s*/, "").trim())
     .filter(Boolean)

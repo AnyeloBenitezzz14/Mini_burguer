@@ -428,6 +428,40 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
       </button>
     )
 
+    // A producto de insumo is managed in Insumos (ficha técnica, stock, status): here it is only seen
+    const fromSupply = section === "producto" && rows.producto?.[rowIndex]?.[1] === "Producto de insumo"
+    const supplyOnly = (label: string, icon: ReactNode) => (
+      <button
+        type="button"
+        title={`${label}: se gestiona en el módulo Insumos`}
+        aria-label={`${label} no disponible: se gestiona en Insumos`}
+        disabled
+        className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded-lg opacity-40"
+        style={{ color: t.muted, background: t.input }}
+      >
+        {icon}
+      </button>
+    )
+    if (fromSupply)
+      return (
+        <div className="flex flex-shrink-0 flex-nowrap items-center justify-end gap-1.5">
+          {canDo(section, "VER") ? (
+            <button
+              type="button"
+              title="Ver detalle"
+              aria-label="Ver detalle"
+              onClick={() => openView(section, rowIndex)}
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+              style={{ color: C.amber, background: `${C.amber}15` }}
+            >
+              {Ico.eye}
+            </button>
+          ) : disabledAction("Ver detalle", Ico.eye)}
+          {supplyOnly("Editar", Ico.edit)}
+          {supplyOnly("Anular", Ico.ban)}
+          {supplyOnly("Eliminar", Ico.trash)}
+        </div>
+      )
     return (
       <div className="flex flex-shrink-0 flex-nowrap items-center justify-end gap-1.5">
         {canDo(section, "VER") ? (

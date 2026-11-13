@@ -32,6 +32,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     canDo,
     clientFormError,
     closeModal,
+    openView,
     requestCloseModal,
     discardAsk,
     setDiscardAsk,
@@ -568,7 +569,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     cfg.statusIndex !== undefined && row ? String(row[cfg.statusIndex] ?? "") : ""
   const dataFields = cfg.fields.filter((f) => f.type !== "image")
   const productCategory = normalizeName(currentCategory(String(isView ? row?.[1] ?? "" : formData["1"] ?? "")))
-  const hideProductTechnicalSheet = isProduct && productCategory === normalizeName(SODA_PRODUCT)
+  // An addition (Queso, Tocineta...) is only name, category and price: no photo, description nor ficha técnica
+  const isAdditionForm = isProduct && !isView && formData["1"] === ADDITION_PRODUCT
+  const isSupplyProductView = isProduct && isView && row?.[1] === "Producto de insumo"
+  const hideProductTechnicalSheet = isProduct && (productCategory === normalizeName(SODA_PRODUCT) || isAdditionForm || isSupplyProductView)
   const showSupplyTechnicalSheet =
     isSupply &&
     String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
@@ -606,7 +610,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
       : dataFields
   const productMainFields = isProduct
     ? dataFields.filter(
-        (field) => ["0", "1", "2", "3", "10", ...(formData["1"] === SODA_PRODUCT ? ["14"] : [])].includes(field.key),
+        (field) => ["0", "1", "2", ...(isAdditionForm ? [] : ["3"]), "10", ...(formData["1"] === SODA_PRODUCT ? ["14"] : [])].includes(field.key),
       )
     : dataFields
   // A drink (category «Bebidas») is a finished product: no ficha técnica, its own compact layout
@@ -857,7 +861,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
@@ -1035,7 +1039,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             </div>
           )}
           {isProduct ? (
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <div className={`grid grid-cols-1 gap-6 ${isAdditionForm || isSupplyProductView ? "" : "lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"}`}>
               <div className="flex flex-col gap-3">
                 {isView && row && (
                   <div className="flex flex-col gap-4">
@@ -1067,6 +1071,34 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         {Number(row[2]) > 0 ? fmt(Number(row[2])) : "Sin precio"}
                       </div>
                     </div>
+                    {row[1] === "Producto de insumo" && (
+                      // Same record as in Insumos: its ficha técnica, stock and status are managed there
+                      <div className="rounded-xl px-4 py-3 text-xs" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35`, color: t.muted }}>
+                        <span className="font-bold" style={{ color: C.mustard }}>Producto de insumo.</span> Aquí solo se consulta: su ficha técnica, stock y estado se manejan en Insumos.
+                        {(() => {
+                          const supply = (rows.insumos || []).find((r) => String(r[0]) === String(row[0]))
+                          return supply ? (
+                            <span className="mt-1.5 block" style={{ color: t.text }}>
+                              Stock: <strong>{Number(supply[4]) || 0} {String(supply[2] ?? "")}</strong> · mínimo {Number(supply[5]) || 0} {String(supply[2] ?? "")}
+                              {Number(supply[4]) <= Number(supply[5]) && <strong style={{ color: C.red }}> · stock bajo</strong>}
+                            </span>
+                          ) : null
+                        })()}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const idx = (rows.insumos || []).findIndex((r) => String(r[0]) === String(row[0]))
+                            closeModal()
+                            setSection("insumos")
+                            if (idx >= 0) setTimeout(() => openView("insumos", idx), 0)
+                          }}
+                          className="mt-2 block cursor-pointer font-bold underline"
+                          style={{ color: C.mustard }}
+                        >
+                          Abrir en Insumos →
+                        </button>
+                      </div>
+                    )}
                     <div className="rounded-xl px-4 py-3" style={{ background: t.cardAlt }}>
                       <div className="mb-1 text-[11px]" style={{ color: t.muted }}>Descripción</div>
                       <p className="text-sm leading-relaxed" style={{ color: String(row[3] ?? "").trim() ? t.text : t.muted }}>
@@ -1086,7 +1118,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     })()}
                   </div>
                 )}
-                {!isView && (
+                {!isView && !isAdditionForm && (
                   // Photo in the same place as in the detail; click (or drop) to change it
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-semibold" style={{ color: formFieldErrors.img ? C.red : t.muted }}>
@@ -5679,7 +5711,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               {Ico.undo} Registrar devolución
             </button>
           )}
-          {isView && (isPurchaseModule || isProduct) && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
+          {isView && (isPurchaseModule || isProduct) && !isSupplyProductView && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
             <button
               onClick={() => openEdit(modal.section, modal.idx!)}
               className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
