@@ -2554,6 +2554,30 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               }
               // Purchase form: subtotal/total are computed from the items below
               if (isPurchase && (f.key === "3" || f.key === "4")) return null
+              if (isPurchase && f.key === "6" && modal.mode === "edit") {
+                // Editing a purchase: its insumos, quantities and prices are fixed (only the date changes)
+                const items = parsePurchaseItems(formData["6"])
+                return (
+                  <section key="purchase-items" className="rounded-xl p-4 sm:col-span-2" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <div className="text-sm font-semibold" style={{ color: t.text }}>Insumos comprados</div>
+                    <p className="mt-1 text-xs" style={{ color: t.muted }}>No se pueden cambiar: al editar una compra solo cambia su fecha.</p>
+                    <div className="mt-3 divide-y" style={{ borderColor: t.border }}>
+                      {items.map((item) => (
+                        <div key={item.name} className="flex items-center justify-between gap-3 py-2 text-sm" style={{ borderColor: t.border }}>
+                          <span className="min-w-0 truncate" style={{ color: t.text }}>
+                            {item.name} <span style={{ color: t.muted }}>× {item.quantity} · {fmt(Number(item.unitPrice))} c/u</span>
+                          </span>
+                          <span className="flex-shrink-0 font-semibold" style={{ color: t.text }}>{fmt(item.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between border-t pt-2.5" style={{ borderColor: t.border }}>
+                      <span className="text-sm" style={{ color: t.muted }}>Total</span>
+                      <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(items.reduce((sum, item) => sum + item.total, 0))}</span>
+                    </div>
+                  </section>
+                )
+              }
               if (isPurchase && f.key === "6") {
                 const supplier = String(formData["0"] ?? "")
                 const allowed = purchaseSupplies(supplier)
@@ -3691,7 +3715,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       {fieldLabel}
                       {!isView && (isRequiredField(f.key) || requiredFormField) && " *"}
                     </label>
-                    {isPurchase && !isView && f.key === "0" && (
+                    {isPurchase && modal.mode === "add" && f.key === "0" && (
                       <button
                         type="button"
                         onClick={() => openChildForm("proveedores")}
@@ -4332,6 +4356,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         </span>
                       </span>
                     </button>
+                  ) : isPurchase && f.key === "0" && modal.mode === "edit" ? (
+                    // Editing a purchase: only its date changes
+                    <div className="rounded-xl px-3 py-2.5 text-sm" style={{ background: t.cardAlt, color: t.text, border: `1px solid ${t.border}` }} title="El proveedor no se puede cambiar">
+                      {val || "—"}
+                    </div>
                   ) : isPurchase && f.key === "0" ? (
                     <div className="relative">
                       <input
