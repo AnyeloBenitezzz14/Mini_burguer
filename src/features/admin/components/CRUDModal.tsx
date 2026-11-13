@@ -5752,6 +5752,69 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               Editar
             </button>
           )}
+          {isView && isPurchase && row && statusValue !== "Anulado" && canDo("perdidas", "CREAR") && (() => {
+            // «Enviar a pérdida» from the purchase detail: pick which bought insumo was lost (up to what's left)
+            const lostSoFar = (name: string) =>
+              (rows.perdidas || [])
+                .filter((l) => !isReturnedLoss(l) && isLossOfPurchase(l, row) && String(l[0]) === name)
+                .reduce((sum, l) => sum + (parseFloat(String(l[1])) || 0), 0)
+            const items = [...new Set(parsePurchaseItems(row[6]).map((i) => i.name))].map((name) => ({
+              name,
+              left: parsePurchaseItems(row[6]).filter((i) => i.name === name).reduce((sum, i) => sum + Number(i.quantity || 0), 0) - lostSoFar(name),
+            }))
+            const open = (name: string, max: number) => {
+              const now = new Date()
+              setLossError("")
+              setLossDraft({
+                insumo: name,
+                unit: String(supplyInfo(name)?.[2] ?? "und"),
+                max,
+                qty: "",
+                motivo: "",
+                responsable: user?.name ?? "",
+                fecha: [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-"),
+                origin: purchaseLabel(row),
+                purchaseId: String(row[DB_SYNC.compras.idIndex] ?? ""),
+              })
+            }
+            const style = { background: `${C.red}12`, color: C.red, border: `1.5px solid ${C.red}40` }
+            const cls = "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
+            if (items.length === 1)
+              return (
+                <button type="button" disabled={!(items[0].left > 0)} onClick={() => open(items[0].name, items[0].left)} className={`${cls} disabled:cursor-not-allowed disabled:opacity-40`} style={style}>
+                  {Ico.alert} Enviar a pérdida
+                </button>
+              )
+            return (
+              // Several insumos: a small list opens above the button
+              <details className="relative flex-1">
+                <summary className={`${cls} list-none [&::-webkit-details-marker]:hidden`} style={style}>
+                  {Ico.alert} Enviar a pérdida
+                </summary>
+                <div className="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-60 overflow-y-auto rounded-xl py-1 shadow-lg" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                  <p className="px-3 py-1.5 text-[11px] font-semibold" style={{ color: t.muted }}>¿Qué insumo se perdió?</p>
+                  {items.map((item) => (
+                    <button
+                      key={item.name}
+                      type="button"
+                      disabled={!(item.left > 0)}
+                      onClick={(e) => {
+                        e.currentTarget.closest("details")?.removeAttribute("open")
+                        open(item.name, item.left)
+                      }}
+                      className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ color: t.text }}
+                    >
+                      <span className="min-w-0 truncate">{item.name}</span>
+                      <span className="flex-shrink-0 text-[11px]" style={{ color: t.muted }}>
+                        {item.left > 0 ? `quedan ${item.left.toLocaleString("es-CO")} ${String(supplyInfo(item.name)?.[2] ?? "")}` : "ya todo en pérdida"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </details>
+            )
+          })()}
           {modal.section === "perdidas" && modal.mode !== "add" && canDo("perdidas", "EDITAR") && String(row?.[5] ?? "").startsWith("Compra a ") && !isReturnedLoss(row ?? undefined) && !isLossPurchaseAnnulled(row ?? undefined) && (
             <button
               type="button"
