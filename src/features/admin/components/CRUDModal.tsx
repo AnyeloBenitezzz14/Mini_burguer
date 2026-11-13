@@ -303,7 +303,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
       ...supplierSupplies(supplierName).filter(isStockedExtra),
     ])].sort((a, b) => a.localeCompare(b, "es"))
   }
-  const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void) => {
+  const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void, locked: string[] = []) => {
     const groups = new Map<string, string[]>()
     names.forEach((name) => {
       const category = currentCategory(String(supplyInfo(name)?.[1] ?? "").trim()) || (isSodaName(name) ? "Bebidas" : isStockedExtra(name) ? ADDITION_PRODUCT : "Sin categoría")
@@ -319,7 +319,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             </div>
             <div className="flex flex-wrap gap-1.5">
               {list.sort((a, b) => a.localeCompare(b)).map((name) =>
-                onRemove ? (
+                onRemove && locked.includes(name) ? (
+                  <span
+                    key={name}
+                    title="Ya tiene compras a este proveedor: no se puede quitar"
+                    className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                    style={{ background: `${C.mustard}18`, color: C.mustard }}
+                  >
+                    {name} <span aria-label="Con compras">🔒</span>
+                  </span>
+                ) : onRemove ? (
                   <button
                     key={name}
                     type="button"
@@ -3309,10 +3318,20 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               // Supplier form: pick which insumos this supplier sells (search box that opens a list)
               if (isSupplier && !isView && f.key === "7") {
                 const selected = splitList(String(formData["7"] ?? ""))
+                // Insumos already bought from this supplier (purchases not annulled) can't be taken off its list
+                const supplierName = String((modal.mode === "edit" ? row?.[0] : formData["0"]) ?? "")
+                const bought = new Set(
+                  getSupplierPurchases(supplierName)
+                    .filter((purchase) => String(purchase[5]) !== "Anulado")
+                    .flatMap((purchase) => parsePurchaseLines(purchase[6]).map((line) => line.name)),
+                )
+                const locked = selected.filter((name) => bought.has(name))
                 const setSelected = (next: string[]) =>
-                  updateAdminField("proveedores", "7", [...new Set(next)].join(", "))
+                  updateAdminField("proveedores", "7", [...new Set([...locked, ...next])].join(", "))
                 const toggleSupply = (name: string) =>
-                  setSelected(selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name])
+                  bought.has(name) && selected.includes(name)
+                    ? undefined
+                    : setSelected(selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name])
                 // Active insumos, plus any already chosen (even if deactivated later), grouped by category
                 const query = normalizeName(supplierSupplySearch)
                 const groups = new Map<string, string[]>()
@@ -3453,6 +3472,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                       <input
                                         type="checkbox"
                                         checked={selected.includes(name)}
+                                        disabled={locked.includes(name)}
+                                        title={locked.includes(name) ? "Ya tiene compras a este proveedor: no se puede quitar" : undefined}
                                         onChange={() => toggleSupply(name)}
                                         style={{ accentColor: C.mustard }}
                                       />
@@ -3466,7 +3487,12 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         </div>
                       </>
                     )}
-                    {selected.length > 0 && renderSupplyGroups(selected, "pt-1 sm:grid-cols-2", toggleSupply)}
+                    {selected.length > 0 && renderSupplyGroups(selected, "pt-1 sm:grid-cols-2", toggleSupply, locked)}
+                    {locked.length > 0 && (
+                      <span className="text-[11px]" style={{ color: t.muted }}>
+                        🔒 Los insumos con candado ya tienen compras a este proveedor y no se pueden quitar.
+                      </span>
+                    )}
                     <span className="text-[11px]" style={{ color: t.muted }}>
                       Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
                     </span>
