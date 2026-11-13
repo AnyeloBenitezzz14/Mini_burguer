@@ -1381,38 +1381,6 @@ export default function CheckoutPage({
                         ))}
                       </div>
                     )}
-                    {/* Map of the address and its distance from the shop */}
-                    {geo.status !== "idle" && (
-                      <div className="mt-3 overflow-hidden rounded-xl" style={{ border: `1px solid ${LINE}` }}>
-                        {geo.lat !== undefined && geo.lon !== undefined && (
-                          <iframe
-                            title="Ubicación de la dirección de entrega"
-                            className="block h-32 w-full"
-                            loading="lazy"
-                            src={`https://www.openstreetmap.org/export/embed.html?bbox=${geo.lon - 0.012}%2C${geo.lat - 0.008}%2C${geo.lon + 0.012}%2C${geo.lat + 0.008}&layer=mapnik&marker=${geo.lat}%2C${geo.lon}`}
-                          />
-                        )}
-                        {geo.status !== "ok" && (
-                        <p
-                          className="px-3 py-2 text-xs font-medium"
-                          role="status"
-                          style={{
-                            background: geo.status === "notfound" ? "rgba(30,30,30,0.04)" : `${C.red}12`,
-                            color: geo.status === "notfound" ? MUTED : C.red,
-                          }}
-                        >
-                          {geo.status === "loading" && "Ubicando la dirección en el mapa..."}
-                          {geo.status === "notfound" && "No pudimos ubicar automáticamente esta dirección. Si el barrio está habilitado, puedes continuar."}
-                          {geo.status === "error" && "No pudimos cargar el mapa en este momento. Reintenta o verifica que el barrio esté habilitado."}
-                        </p>
-                        )}
-                        {geo.status === "ok" && geo.approximate && (
-                          <p className="px-3 py-2 text-xs font-medium" role="status" style={{ background: "rgba(30,30,30,0.04)", color: MUTED }}>
-                            Mostramos una ubicación aproximada de {addressParts.barrio || geo.neighborhood || "este barrio"}; el punto exacto de la dirección no está disponible.
-                          </p>
-                        )}
-                      </div>
-                    )}
                     <label className="flex items-start gap-2 mt-2 text-xs cursor-pointer" style={{ color: MUTED }}>
                       <input
                         type="checkbox"

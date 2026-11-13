@@ -2395,7 +2395,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                   onClick={() =>
                                     setMainSupplies(
                                       mainSupplies.map((m, i) =>
-                                        i === index ? { ...m, quantity: String(Math.max(0, (Number(m.quantity) || 0) - 1)) } : m,
+                                        i === index && (Number(m.quantity) || 0) - 1 > 0 ? { ...m, quantity: String((Number(m.quantity) || 0) - 1) } : m,
                                       ),
                                     )
                                   }
@@ -2406,9 +2406,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 </button>
                                 <input
                                   type="number"
-                                  min="0"
+                                  min="0.001"
                                   step="any"
                                   value={item.quantity}
+                                  onKeyDown={(event) => ["-", "+", "e", "E"].includes(event.key) && event.preventDefault()}
                                   onChange={(e) =>
                                     setMainSupplies(
                                       mainSupplies.map((m, i) => (i === index ? { ...m, quantity: e.target.value } : m)),
@@ -5224,7 +5225,32 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       {info("Método de pago", String(row[4] ?? ""))}
                       {info("Producción", String(row[9] ?? ""))}
                     </div>
-                    <div className="rounded-2xl px-4 py-3 md:col-start-1 md:row-start-3 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
+                    {(() => {
+                      // Who receives it: may be someone other than the account that ordered
+                      const o = loadOrders().find((order) => order.id === String(row[0]))
+                      if (!o || !(o.nombre || o.telefono || o.direccion)) return null
+                      const other = !!o.nombre && o.nombre.trim().toLowerCase() !== String(row[1] ?? "").trim().toLowerCase()
+                      return (
+                        <div className="rounded-2xl px-4 py-3 md:col-span-2 md:row-start-3" style={{ border: `1px solid ${t.border}` }}>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {title("Recibe el pedido")}
+                            {other && (
+                              <span className="mb-2 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                                Otra persona · pidió {String(row[1] || "el cliente")}
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {info("Nombre", o.nombre || "")}
+                            {info("Teléfono", o.telefono || "")}
+                            {o.tipoEntrega === "domicilio"
+                              ? info("Dirección", [o.direccion, o.barrio].filter(Boolean).join(" · "))
+                              : info("Entrega", "Recoge en el local")}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                    <div className="rounded-2xl px-4 py-3 md:col-start-1 md:row-start-4 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
                       {title(`Productos (${groups.length})`)}
                       {groups.length ? (
                         <div className={`gap-x-6 ${groups.length > 4 ? "sm:columns-2" : ""}`}>
@@ -5406,10 +5432,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               )}
               {String(row?.[8]) === "Rechazado" && (
                 <p className="md:col-start-2 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
-                  Transferencia rechazada: {String(row?.[11] || "Sin motivo registrado.")}
+                  Comprobante rechazado: {String(row?.[11] || "Sin motivo registrado.")}
                 </p>
               )}
-              {isTransferPaymentMethod(String(row?.[4] ?? "")) &&
+              {(isTransferPaymentMethod(String(row?.[4] ?? "")) || paymentProofs[modal.idx!]) &&
               String(row?.[8]) === "Pendiente de verificación" ? (
                 <div className="md:col-start-2 flex flex-col gap-2">
                   <button
@@ -5422,7 +5448,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
                     style={{ background: `${C.red}12`, color: C.red }}
                   >
-                    Rechazar transferencia
+                    Rechazar comprobante
                   </button>
                   <button
                     type="button"
@@ -5431,7 +5457,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ background: C.mustard, color: "#fff" }}
                   >
-                    Aprobar transferencia y enviar a producción
+                    Aprobar comprobante y enviar a producción
                   </button>
                 </div>
               ) : String(row?.[9]) === "Autorizada" ? (
@@ -6082,6 +6108,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             min="0.001"
                             step="any"
                             value={technicalIngredientQuantity}
+                            onKeyDown={(event) => ["-", "+", "e", "E"].includes(event.key) && event.preventDefault()}
                             onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
                             className="w-full rounded-lg px-3 py-2 text-sm outline-none"
                             style={controlSt}
@@ -6149,9 +6176,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                   min="0.001"
                                   step="any"
                                   value={ingredient.quantity}
+                                  onKeyDown={(event) => ["-", "+", "e", "E"].includes(event.key) && event.preventDefault()}
                                   onChange={(event) => updateIngredient(index, { quantity: Number(event.target.value) })}
                                   className="w-full rounded-lg px-2 py-1.5 text-sm outline-none"
-                                  style={controlSt}
+                                  style={{ ...controlSt, ...(ingredient.quantity > 0 ? {} : { border: `1.5px solid ${C.red}` }) }}
                                 />
                                 <select
                                   aria-label={`Unidad de ${ingredient.name}`}

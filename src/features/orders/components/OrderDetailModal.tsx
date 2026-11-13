@@ -156,9 +156,10 @@ export default function OrderDetailModal({
                 <p className="text-sm leading-relaxed">{order.notas}</p>
               </section>
             )}
-            {order.paymentStatus === "Rechazado" && order.paymentRejectionReason && (
-              <div className="rounded-xl px-3 py-2 text-xs" style={{ background: `${C.red}12`, color: C.red }}>
-                <strong>Motivo de rechazo:</strong> {order.paymentRejectionReason}
+            {order.paymentStatus === "Rechazado" && (
+              <div role="alert" className="rounded-xl px-3 py-2 text-xs" style={{ background: `${C.red}12`, color: C.red }}>
+                <strong className="block">Comprobante rechazado, intenta mandar otro comprobante</strong>
+                {order.paymentRejectionReason && <span className="mt-1 block">{order.paymentRejectionReason}</span>}
               </div>
             )}
             <div className="flex items-center justify-between rounded-xl px-4 py-3.5" style={{ background: `${C.mustard}14` }}>

@@ -2134,6 +2134,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         return setSupplyFormError("Escribe el nombre del insumo.")
       if (!String(formData["10"] ?? "").trim())
         return setSupplyFormError("Ficha técnica: elige al menos un insumo principal.")
+      // "Azúcar (50 g), Limón (2 und)": every insumo needs an amount above zero
+      const noAmount = String(formData["10"]).split(", ").find((part) => !(Number(part.match(/\(([^\s)]+)/)?.[1]) > 0))
+      if (noAmount)
+        return setSupplyFormError(`Ficha técnica: la cantidad de «${noAmount.replace(/\s*\(.*$/, "")}» debe ser mayor que cero.`)
       if (!String(formData["11"] ?? "").trim())
         return setSupplyFormError("Ficha técnica: escribe cómo se prepara.")
     }
@@ -3036,7 +3040,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const order = rows.pedidos?.[orderIndex]
     const proof = paymentProofs[orderIndex]
     const paymentStatus = String(order?.[8] ?? "")
-    const transferPayment = isTransferPaymentMethod(String(order?.[4] ?? ""))
+    // Any order with an uploaded proof is checked like a transfer
+    const transferPayment = isTransferPaymentMethod(String(order?.[4] ?? "")) || !!proof
     const payOnDelivery = String(order?.[5]) === "Contraentrega"
     if (
       !order ||
@@ -3204,7 +3209,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       return
     }
     if (
-      !isTransferPaymentMethod(String(order[4] ?? "")) ||
+      !(isTransferPaymentMethod(String(order[4] ?? "")) || paymentProofs[orderIndex]) ||
       String(order[8]) !== "Pendiente de verificación"
     ) {
       setPaymentRejectionError("Este comprobante ya no está pendiente de revisión.")
