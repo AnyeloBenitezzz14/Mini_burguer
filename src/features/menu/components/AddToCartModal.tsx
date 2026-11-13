@@ -121,7 +121,7 @@ export default function AddToCartModal({
     )
     if (reduced || !cartButton) return handleAdd()
     setAdded(true)
-    flyToCart(photoRef.current?.querySelector("img"), cartButton)
+    flyToCart(photoRef.current?.querySelector<HTMLImageElement>("img:not([aria-hidden])"), cartButton)
     window.setTimeout(handleAdd, 550)
   }
   const handleAdd = () => {
@@ -346,13 +346,17 @@ export default function AddToCartModal({
           {/* Left: the photo, price, name and description (stays in view while the options scroll) */}
           <div className="min-w-0 md:sticky md:top-0 md:self-start">
             {/* Photo: the card is the picture itself (fills it, never cropped); «Favorita» on top */}
-            <div ref={photoRef} className="relative mx-auto w-fit max-w-full overflow-hidden rounded-3xl shadow-[0_18px_40px_-24px_rgba(25,21,18,0.6)]" style={{ background: `${C.mustard}14` }}>
+            <div
+              ref={photoRef}
+              className="relative flex h-[34vh] w-full items-center justify-center overflow-hidden rounded-3xl shadow-[0_22px_44px_-28px_rgba(25,21,18,0.7)] md:h-[42vh] md:[@media(max-height:800px)]:h-[34vh]"
+              style={{ background: dark ? "#1E1C18" : "#2A2420" }}
+            >
               {product.img && (
-                <ZoomableImage
-                  src={product.img}
-                  alt={product.name}
-                  className="block h-auto max-h-[34vh] w-auto max-w-full md:max-h-[44vh] md:[@media(max-height:800px)]:max-h-[34vh]"
-                />
+                <>
+                  {/* The same photo, blurred, fills the card behind the complete one: no empty bands, nothing cropped */}
+                  <img src={product.img} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-70 blur-2xl" />
+                  <ZoomableImage src={product.img} alt={product.name} className="relative block h-full w-auto max-w-full object-contain drop-shadow-[0_18px_24px_rgba(0,0,0,0.45)]" />
+                </>
               )}
               {product.badge && (
                 <span className="pointer-events-none absolute left-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-bold shadow-sm" style={{ background: C.mustard, color: "#fff" }}>
@@ -361,9 +365,9 @@ export default function AddToCartModal({
               )}
             </div>
             {/* Info card: name and price, description, what it includes, and buying */}
-            <div className="mt-3 rounded-3xl p-4 sm:p-5" style={{ background: CARD, border: `1px solid ${BORDER}` }}>
+            <div className="mt-4 rounded-3xl p-5 sm:p-6" style={{ background: CARD, border: `1px solid ${BORDER}`, boxShadow: "0 18px 40px -32px rgba(25,21,18,0.5)" }}>
               <div className="flex items-start justify-between gap-3">
-                <h1 className="min-w-0 text-xl font-black leading-tight sm:text-2xl" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
+                <h1 className="min-w-0 text-2xl font-black leading-tight tracking-tight sm:text-[1.7rem]" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
                   {product.name}
                 </h1>
                 <div className="font-price flex-shrink-0 rounded-full px-3 py-1 text-lg font-bold leading-none sm:text-xl" style={{ background: `${C.mustard}14`, color: C.mustard }}>
@@ -390,7 +394,11 @@ export default function AddToCartModal({
           </div>
 
           {/* Right: every option at once, one section under the other */}
-          <div className="grid w-full min-w-0 content-start gap-3 md:self-center">
+          <div className="grid w-full min-w-0 content-start gap-3">
+            <div className="mb-1 hidden md:block">
+              <div className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: C.mustard }}>Hazlo a tu gusto</div>
+              <h2 className="mt-1 text-2xl font-black leading-tight" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>Personaliza tu pedido</h2>
+            </div>
             {sodaParts && (() => {
               // A soda opened from the menu is already a flavour («Coca-Cola»): only its size is chosen here
               const [, flavor] = sodaParts
@@ -461,7 +469,7 @@ export default function AddToCartModal({
                         >
                           {on ? "✓" : "+"}
                         </span>
-                        {s}
+                        <span className="first-letter:uppercase">{s}</span>
                       </button>
                     )
                   })}
@@ -578,6 +586,38 @@ export default function AddToCartModal({
                 )}
               </Section>
             )}
+            {/* What the line carries so far, before adding it */}
+            <div className="mt-1 rounded-2xl px-5 py-4" style={{ background: `${C.mustard}0F`, border: `1px dashed ${C.mustard}55` }}>
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: C.mustard }}>Tu pedido</div>
+              <div className="space-y-1.5 text-sm" style={{ color: TEXT }}>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 truncate font-semibold">{qty} × {product.name}</span>
+                  <span className="font-price tabular-nums">{fmt(product.price * qty)}</span>
+                </div>
+                {selSauces.length > 0 && (
+                  <div className="flex items-baseline justify-between gap-3" style={{ color: MUTED }}>
+                    <span className="min-w-0 truncate">Salsas: {selSauces.join(", ")}</span>
+                    <span>Gratis</span>
+                  </div>
+                )}
+                {additionsCount > 0 && (
+                  <div className="flex items-baseline justify-between gap-3" style={{ color: MUTED }}>
+                    <span>{additionsCount} {additionsCount === 1 ? "adición" : "adiciones"}</span>
+                    <span className="tabular-nums">+{fmt(additionsMoney * qty)}</span>
+                  </div>
+                )}
+                {selectedBeverageCount > 0 && (
+                  <div className="flex items-baseline justify-between gap-3" style={{ color: MUTED }}>
+                    <span>{selectedBeverageCount} {selectedBeverageCount === 1 ? "bebida" : "bebidas"}</span>
+                    <span className="tabular-nums">+{fmt(beverageTotal * qty)}</span>
+                  </div>
+                )}
+                <div className="mt-2 flex items-baseline justify-between gap-3 border-t pt-2.5" style={{ borderColor: `${C.mustard}33` }}>
+                  <span className="font-bold">Total</span>
+                  <span className="font-price text-lg font-black tabular-nums" style={{ color: C.mustard }}>{fmt(total)}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
