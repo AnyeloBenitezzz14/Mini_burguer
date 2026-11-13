@@ -1582,6 +1582,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const initialFields = Object.fromEntries(
       cfg.fields.filter((f) => f.type !== "image").map((f) => [f.key, ""]),
     )
+    // A new role starts with no permissions checked (its draft key)
+    if (sec === "roles") setRolesPerms(({ __nuevo_rol__: _draft, ...rest }) => rest)
     if (sec === "producto") {
       initialFields["6"] = getAutoTechVersion(rows.producto || [])
       initialFields["10"] = "Disponible"
@@ -2643,6 +2645,11 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         return { ...current, ventas: salesRows }
       })
     }
+    // The new role's checks move from the draft to its name
+    if (sec === "roles" && modal.mode === "add") {
+      const roleName = String(newRow[0] ?? "")
+      setRolesPerms(({ __nuevo_rol__: draft, ...rest }) => ({ ...rest, [roleName]: draft || {} }))
+    }
     if (sec === "roles" && modal.mode === "edit" && previousRow) {
       const previousRoleName = String(previousRow[0] ?? "")
       const nextRoleName = String(newRow[0] ?? "")
@@ -2663,6 +2670,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       setSaveError(syncError)
       return
     }
+    // Roles: reload from the database so its dates and name show the saved values right away
+    if (sec === "roles") loadModule("roles")
     setSaveToast(modal.mode === "add" ? "Registro creado ✓" : "Cambios guardados ✓")
     setSavedHighlight({ section: sec, key: String(newRow[0] ?? "") })
     if (sec === "clientes") setClientFormError("")

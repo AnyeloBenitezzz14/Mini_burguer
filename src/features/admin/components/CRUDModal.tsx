@@ -2557,6 +2557,12 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               if (isPurchase && f.key === "6") {
                 const supplier = String(formData["0"] ?? "")
                 const allowed = purchaseSupplies(supplier)
+                // Empty search: the supplier's categories; typing: every active insumo (theirs first)
+                const searchPool = (q: string) =>
+                  q
+                    ? [...new Set([...allowed, ...(rows.insumos || []).filter((i) => isActiveStatus(i[12])).map((i) => String(i[0]))])]
+                        .filter((name) => normalizeName(name).includes(q))
+                    : allowed
                 const categories = supplierCategories(supplier)
                 const items = parsePurchaseItems(formData["6"])
                 const total = items.reduce((sum, item) => sum + item.total, 0)
@@ -2675,7 +2681,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                     if (e.key !== "Enter") return
                                     e.preventDefault()
                                     const q = normalizeName(purchaseSupplySearch ?? "")
-                                    const first = allowed.find((name) => normalizeName(name).includes(q))
+                                    const first = searchPool(q)[0]
                                     if (first) {
                                       pickSupply(first)
                                       setPurchaseSupplySearch(null)
@@ -2695,7 +2701,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 >
                                   {(() => {
                                     const q = normalizeName(purchaseSupplySearch)
-                                    const found = allowed.filter((name) => normalizeName(name).includes(q))
+                                    const found = searchPool(q)
                                     return found.length ? (
                                       found.map((name) => (
                                         <button
@@ -2719,7 +2725,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                       ))
                                     ) : (
                                       <p className="px-3 py-2 text-center text-xs" style={{ color: t.muted }}>
-                                        Ningún insumo de «{supplier}» coincide.
+                                        Ningún insumo coincide.
                                       </p>
                                     )
                                   })()}
@@ -5654,11 +5660,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             <div className="sm:col-span-2">
               <RolesPermMatrix
                 roleName={formData["0"] || ""}
-                permissionKey={
-                  modal.mode === "edit" && row
-                    ? String(row[0] ?? "")
-                    : formData["0"] || ""
-                }
+                // A new role keeps its checks under a fixed draft key, so typing the name never loses them
+                permissionKey={modal.mode === "edit" && row ? String(row[0] ?? "") : "__nuevo_rol__"}
               />
             </div>
           )}
