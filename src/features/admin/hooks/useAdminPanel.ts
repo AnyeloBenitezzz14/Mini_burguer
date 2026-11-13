@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { MOD_CFG, PAYMENT_NEXT, PRODUCTION_STATUSES, QUICK_FILTERS, SECTION_MODULE, SIDEBAR_MENU, STALE_ORDER_DAYS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
 import { DB_SYNC, PANEL_SYNC, saveRowToDb } from "@/features/admin/services/sync.service"
 import { getDashPeriod } from "@/features/admin/utils/dashboard"
-import { buildProductionRows, clientOrderToPanelRow, derivePedidoPayment, fixShiftedSale, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isSuperAdminRow, nextAutoSaleCode, parseMainSupplies, parsePurchaseLines, permsFromDb, permsToDb, productionLabel, roleLabel, saleTypeOf, supplierRequiredKeys, supplyAsProduct, syncIdIndex, text, withId, withPanelId } from "@/features/admin/utils/rows"
+import { buildProductionRows, clientOrderToPanelRow, isSupplyProductRow, derivePedidoPayment, fixShiftedSale, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isSuperAdminRow, nextAutoSaleCode, parseMainSupplies, parsePurchaseLines, permsFromDb, permsToDb, productionLabel, roleLabel, saleTypeOf, supplierRequiredKeys, supplyAsProduct, syncIdIndex, text, withId, withPanelId } from "@/features/admin/utils/rows"
 import { loadRegisteredClients } from "@/features/auth/services/auth.service"
 import { ADDITION_PRODUCT, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders, pushOrder, readVoucher, saveOrders } from "@/features/orders/services/orders.service"
@@ -391,7 +391,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           // Insumos marked "Producto de insumo" also show up in Productos
           if (sec === "insumos")
             next.producto = [
-              ...(current.producto || []).filter((row) => row[1] !== "Producto de insumo"),
+              ...(current.producto || []).filter((row) => !isSupplyProductRow(row)),
               ...next.insumos.filter((row) => text(row[7]).toLowerCase() === "sí").map(supplyAsProduct),
             ]
           return next
@@ -2541,7 +2541,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         const productRows = (current.producto || []).filter(
           (product) =>
             !(
-              product[1] === "Producto de insumo" &&
+              isSupplyProductRow(product) &&
               product[0] === previousName
             ),
         )
@@ -2549,7 +2549,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           const generatedProduct = supplyAsProduct(newRow)
           const existingIndex = productRows.findIndex(
             (product) =>
-              product[1] === "Producto de insumo" &&
+              isSupplyProductRow(product) &&
               product[0] === generatedProduct[0],
           )
           if (existingIndex >= 0) productRows[existingIndex] = generatedProduct
@@ -3045,7 +3045,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
 
       if (sec === "insumos" && String(updatedRow[7]).toLowerCase() === "sí") {
         const productRows = (current.producto || []).map((product) =>
-          product[1] === "Producto de insumo" && product[0] === updatedRow[0]
+          isSupplyProductRow(product) && product[0] === updatedRow[0]
             ? (() => {
                 const updatedProduct = [...product]
                 updatedProduct[4] = nextValue
@@ -3651,6 +3651,27 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         } catch (err) {
           notifyError(`No se pudo iniciar la producción: ${(err as Error).message}`)
           loadModule("insumos")
+          return false
+        }
+      }
+    }
+    // A producto de insumo (e.g. a house sauce) that's ready: what was prepared goes into its stock, once per order
+    const finishing = ["En camino", "Entregado"].includes(nextStatus) && !["En camino", "Entregado"].includes(String(sourceRow[8]))
+    if (finishing) {
+      const prepared = new Map<string, number>()
+      for (const item of getProductionOrderItems(sourceRow)) {
+        const supply = rows.insumos?.find((candidate) => candidate[0] === item.name && String(candidate[7]).toLowerCase() === "sí")
+        if (supply && item.quantity > 0) prepared.set(item.name, (prepared.get(item.name) ?? 0) + item.quantity)
+      }
+      if (prepared.size) {
+        try {
+          await api("/consumos-produccion/entrada", "POST", {
+            numero_orden: String(sourceRow[0]),
+            productos: [...prepared].map(([insumo, cantidad]) => ({ insumo, cantidad })),
+          })
+          loadModule("insumos")
+        } catch (err) {
+          notifyError(`No se pudo sumar lo preparado al stock: ${(err as Error).message}`)
           return false
         }
       }

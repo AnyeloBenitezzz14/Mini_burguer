@@ -4,9 +4,12 @@ import { APPROVAL_MIN, isTransferPaymentMethod } from "@/features/orders/utils/o
 import type { AdminOrderLine, Order, RolePerms, Row } from "@/shared/types"
 import { splitNames } from "@/shared/utils/format"
 
-export const supplyAsProduct = (row: (string | number)[]): (string | number)[] => [
+// A producto de insumo shown in Productos: its own category, and its stock/minimum (prepared in production)
+export const SUPPLY_PRODUCT_MARK = "PRODUCTO_DE_INSUMO"
+export const isSupplyProductRow = (row?: Row) => row?.[15] === SUPPLY_PRODUCT_MARK
+export const supplyAsProduct = (row: (string | number)[]): (string | number)[] => withSupplyMark([
   String(row[0] ?? "Producto de insumo"),
-  "Producto de insumo",
+  String(row[1] || "Producto de insumo"),
   Number(row[3] || 0),
   "Insumo configurado para comercializarse como producto.",
   String(row[12] ?? "Activo"),
@@ -14,7 +17,13 @@ export const supplyAsProduct = (row: (string | number)[]): (string | number)[] =
   String(row[9] || "v1.0"),
   String(row[10] || row[0] || "Insumo"),
   String(row[11] || "Insumo producto con ficha técnica y control de inventario."),
-]
+], row)
+const withSupplyMark = (product: (string | number)[], supply: (string | number)[]) => {
+  product[12] = Number(supply[4]) || 0
+  product[14] = Number(supply[5]) || 0
+  product[15] = SUPPLY_PRODUCT_MARK
+  return product
+}
 
 // ── Orders → production ───────────────────────────────────────────────────────
 // Pedido payment rules: the method decides the modality and whether it's paid,

@@ -1,7 +1,7 @@
 import { Fragment } from "react"
 import { MOD_CFG, NATURAL_SUPPLIER_KEYS, NATURAL_SUPPLIER_VIEW_KEYS, PAYMENT_NEXT, PURCHASE_ENTITIES, RETURNED_LOSS, STOCK_ORIGIN } from "@/features/admin/config/modules"
 import { DB_SYNC } from "@/features/admin/services/sync.service"
-import { derivePedidoPayment, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
+import { derivePedidoPayment, isActiveStatus, isSupplyProductRow, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
 import { ADDITION_PRODUCT, SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
@@ -571,7 +571,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
   const productCategory = normalizeName(currentCategory(String(isView ? row?.[1] ?? "" : formData["1"] ?? "")))
   // An addition (Queso, Tocineta...) is only name, category and price: no photo, description nor ficha técnica
   const isAdditionForm = isProduct && !isView && formData["1"] === ADDITION_PRODUCT
-  const isSupplyProductView = isProduct && isView && row?.[1] === "Producto de insumo"
+  const isSupplyProductView = isProduct && isView && isSupplyProductRow(row ?? undefined)
   const hideProductTechnicalSheet = isProduct && (productCategory === normalizeName(SODA_PRODUCT) || isAdditionForm || isSupplyProductView)
   const showSupplyTechnicalSheet =
     isSupply &&
@@ -1071,7 +1071,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         {Number(row[2]) > 0 ? fmt(Number(row[2])) : "Sin precio"}
                       </div>
                     </div>
-                    {row[1] === "Producto de insumo" && (
+                    {isSupplyProductRow(row) && (
                       // Same record as in Insumos: its ficha técnica, stock and status are managed there
                       <div className="rounded-xl px-4 py-3 text-xs" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35`, color: t.muted }}>
                         <span className="font-bold" style={{ color: C.mustard }}>Producto de insumo.</span> Aquí solo se consulta: su ficha técnica, stock y estado se manejan en Insumos.
@@ -1411,7 +1411,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   if (category === "salsas") return ["bolsita", "bolsitas"]
                   if (category === "adiciones") return ["porción", "porciones"]
                   if (category === "bebidas" || category === "gaseosas") return ["botella", "botellas"]
-                  if (category === "producto de insumo") {
+                  if (isSupplyProductRow(product) || category === "producto de insumo") {
                     const unit = String(supplyInfo(name)?.[2] ?? "und")
                     return [unit, unit]
                   }
@@ -3559,6 +3559,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 const category = normalizeName(String(product?.[1] ?? ""))
                 return (
                   !!product &&
+                  !isSupplyProductRow(product) &&
                   !notAlone.includes(category) &&
                   Number(product[2]) > 0 &&
                   (pedidoProductCategory === "Todas" || String(product[1] ?? "") === pedidoProductCategory) &&

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { MOD_CFG, PRODUCTION_STATUSES, QUICK_FILTERS, TABLE_FILTERS } from "@/features/admin/config/modules"
-import { isNaturalSupplier, isReturnedLoss, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
+import { isNaturalSupplier, isReturnedLoss, isSupplyProductRow, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
 import { isSodaName, sodaImage } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { loadOrders } from "@/features/orders/services/orders.service"
@@ -335,6 +335,12 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
             {isSuperAdmin ? "Superadministrador" : isLocalClient ? "Cliente de local" : "Lo preparamos nosotros"}
           </span>
         )}
+        {section === "producto" && isSupplyProductRow(row) && (
+          // What was prepared in production and is in stock (the same stock as in Insumos)
+          <span className={chip} style={{ background: t.input, color: t.text }}>
+            Stock: {Number(row[12]) || 0}
+          </span>
+        )}
         {isLow && (
           <span className={chip} style={{ background: `${C.red}18`, color: C.red }}>
             ⚠ Stock bajo
@@ -429,7 +435,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     )
 
     // A producto de insumo is managed in Insumos (ficha técnica, stock, status): here it is only seen
-    const fromSupply = section === "producto" && rows.producto?.[rowIndex]?.[1] === "Producto de insumo"
+    const fromSupply = section === "producto" && isSupplyProductRow(rows.producto?.[rowIndex])
     const supplyOnly = (label: string, icon: ReactNode) => (
       <button
         type="button"
@@ -919,8 +925,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                   section === "insumos" &&
                   Number(row[4]) <= Number(row[5])
                 const isSupplyProduct =
-                  section === "insumos" &&
-                  String(row[7]).toLowerCase() === "sí"
+                  (section === "insumos" && String(row[7]).toLowerCase() === "sí") ||
+                  (section === "producto" && isSupplyProductRow(row))
                 const isLocalClient =
                   section === "clientes" &&
                   String(row[6]).toLowerCase() === "sí"
@@ -1028,8 +1034,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                 section === "insumos" &&
                 Number(row[4]) <= Number(row[5])
               const isSupplyProduct =
-                section === "insumos" &&
-                String(row[7]).toLowerCase() === "sí"
+                (section === "insumos" && String(row[7]).toLowerCase() === "sí") ||
+                (section === "producto" && isSupplyProductRow(row))
               const isLocalClient =
                 section === "clientes" &&
                 String(row[6]).toLowerCase() === "sí"

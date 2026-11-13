@@ -1,5 +1,5 @@
 import { MOD_CFG, RETURNED_LOSS } from "@/features/admin/config/modules"
-import { estadoOf, isActiveStatus, optionalEmail, parseMainSupplies, parsePurchaseLines, roleLabel, text, withId } from "@/features/admin/utils/rows"
+import { estadoOf, isActiveStatus, isSupplyProductRow, optionalEmail, parseMainSupplies, parsePurchaseLines, roleLabel, text, withId } from "@/features/admin/utils/rows"
 import { SODA_LOW_STOCK, SODA_PRODUCT, currentCategory, isSodaName, isStockedExtra } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { api } from "@/shared/services/api"
@@ -123,7 +123,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       estado: estadoOf(row[4]),
       ...(row[1] === SODA_PRODUCT ? { minimo: text(row[14]) === "" ? SODA_LOW_STOCK : Number(row[14]) } : {}),
     }),
-    localOnly: (row) => row[1] === "Producto de insumo",
+    localOnly: (row) => isSupplyProductRow(row),
     afterSave: (id, row) => {
       // A soda has no ficha técnica
       if (row[1] === SODA_PRODUCT) return Promise.resolve()
