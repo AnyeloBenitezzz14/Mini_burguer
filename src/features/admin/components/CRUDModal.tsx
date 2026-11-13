@@ -6541,6 +6541,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           setLossError("")
           setLossDraft((current) => (current ? { ...current, ...patch } : current))
         }
+        // The loss can't be dated before its purchase
+        const purchaseDate = String(
+          (rows.compras || []).find((c) => String(c[DB_SYNC.compras.idIndex] ?? "") === lossDraft.purchaseId)?.[1] ?? "",
+        ).slice(0, 10)
         const confirmLoss = () => {
           const qty = toDecimal(lossDraft.qty)
           if (!(qty > 0)) return setLossError("Escribe cuánto se perdió.")
@@ -6549,15 +6553,19 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               `No puede ser más de lo comprado: máximo ${lossDraft.max.toLocaleString("es-CO")} ${lossDraft.unit}.`,
             )
           if (!lossDraft.motivo) return setLossError("Selecciona el motivo de la pérdida.")
-          if (!lossDraft.responsable.trim()) return setLossError("Selecciona quién es el responsable.")
+          // The person sending it to loss is whoever is using this account
+          const responsable = (user?.name ?? "").trim()
+          if (!responsable) return setLossError("No se pudo identificar tu usuario; vuelve a iniciar sesión.")
           if (!lossDraft.fecha) return setLossError("Selecciona la fecha.")
           if (lossDraft.fecha > getCurrentDateTimeParts().date)
             return setLossError("La fecha de la pérdida no puede ser posterior a hoy.")
+          if (purchaseDate && lossDraft.fecha < purchaseDate)
+            return setLossError("La fecha de la pérdida no puede ser anterior a la fecha de la compra.")
           const lossRow: Row = [
             lossDraft.insumo,
             `${qty} ${lossDraft.unit}`,
             lossDraft.motivo,
-            lossDraft.responsable.trim(),
+            responsable,
             lossDraft.fecha,
             lossDraft.origin,
             "", "", "", "", // estado, devolución, cantidad devuelta, id (the backend fills them)
@@ -6655,19 +6663,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
                   <label className={fieldLabel} style={{ color: t.muted }}>
                     Persona responsable
-                    <select
-                      value={lossDraft.responsable}
-                      onChange={(e) => updateLoss({ responsable: e.target.value })}
-                      className="min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                      style={{ ...controlSt, color: lossDraft.responsable ? t.text : t.muted }}
-                    >
-                      <option value="">Selecciona quién...</option>
-                      {staff.map((p) => (
-                        <option key={p.name} value={p.name}>
-                          {p.name}{p.rol && ` · ${p.rol}`}
-                        </option>
-                      ))}
-                    </select>
+                    {/* Always the person using this account: it can't be chosen */}
+                    <div className="min-w-0 truncate rounded-xl px-3 py-2.5 text-sm" style={{ ...controlSt, background: t.cardAlt }} title="Quien envía la pérdida es quien usa esta cuenta">
+                      {user?.name || "—"}
+                    </div>
                   </label>
                   <label className={fieldLabel} style={{ color: t.muted }}>
                     Fecha
@@ -6675,9 +6674,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       type="date"
                       value={lossDraft.fecha}
                       max={getCurrentDateTimeParts().date}
+                      min={purchaseDate || undefined}
                       onChange={(e) => {
                         const today = getCurrentDateTimeParts().date
-                        updateLoss({ fecha: e.target.value > today ? today : e.target.value })
+                        const v = e.target.value > today ? today : e.target.value
+                        updateLoss({ fecha: purchaseDate && v && v < purchaseDate ? purchaseDate : v })
                       }}
                       className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
                       style={controlSt}
