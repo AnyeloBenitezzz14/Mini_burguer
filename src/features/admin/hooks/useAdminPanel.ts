@@ -684,6 +684,26 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   // Quick filter tab chosen per module (Pedidos, Ventas, Insumos): its label
   const [quickFilter, setQuickFilter] = useState<Record<string, string>>({})
   const [pg, setPg] = useState<Record<string, number>>({})
+  // Leaving a module clears its search and filters (the module being opened keeps what was set for it)
+  const prevSection = useRef(section)
+  useEffect(() => {
+    const left = prevSection.current
+    prevSection.current = section
+    if (left === section) return
+    const drop = (current: Record<string, string>) => {
+      if (!(left in current)) return current
+      const { [left]: _gone, ...rest } = current
+      return rest
+    }
+    setSearch(drop)
+    setTableFilter(drop)
+    setQuickFilter(drop)
+    setPg((current) => ({ ...current, [left]: 0 }))
+    if (left === "produccion") {
+      setProdDay("")
+      setProdStatus("")
+    }
+  }, [section])
   const [modalState, setModal] = useState<{
     mode: ModalMode
     section: string
@@ -2280,10 +2300,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""))
       newRow[4] = payment.modalidad
       newRow[7] = modal.mode === "edit" && formData["7"] ? formData["7"] : payment.estadoPago
-      // Orders created in the panel go to production on save (it starts at "Recibido");
-      // a shop order keeps its approval flow
-      const shopOrder = !!previousRow && loadOrders().some((order) => order.id === previousRow[0])
-      newRow[8] = shopOrder ? previousRow![9] : "Enviada a producción"
+      // A new order waits in «Recibido» (still editable); its production order is created on «Confirmado»
+      newRow[8] = previousRow ? previousRow[9] : "Pendiente de confirmar"
       newRow[9] = JSON.stringify(pedidoOrderLines)
     }
 
@@ -3164,6 +3182,41 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const orderId = String(order[0])
     // Move the order's production first; "En cocina" takes the supplies out of the stock
     const target = ORDER_TO_PRODUCTION[status]
+    const hasProductionOrder =
+      (rows.produccion || []).some((r) => String(r[15] ?? "") === orderId) ||
+      !!loadOrders().find((o) => o.id === orderId)?.productionRecords?.length
+    if (target && !hasProductionOrder && !["Cancelado", "Entregado"].includes(String(order[7]))) {
+      // Its production order is born here, already «Confirmado»; from now on neither can be edited
+      if (status !== "Confirmado") {
+        notifyError("Primero pasa el pedido a «Confirmado»: ahí se crea su orden de producción.")
+        return
+      }
+      const lines = getAdminOrderLines(order)
+      if (!lines.length) {
+        notifyError("Este pedido no tiene productos para enviar a producción.")
+        return
+      }
+      const before = rows.produccion || []
+      const created = buildProductionRows(lines, before, orderId, String(order[12] ?? ""))
+        .filter((r) => !before.includes(r))
+        .slice(0, 1)
+        .map((r) => {
+          const u = [...r]
+          u[8] = "Confirmado"
+          return u
+        })
+      saveOrders(loadOrders().map((o) => (o.id === orderId ? { ...o, productionAuthorized: true, productionRecords: created } : o)))
+      setRows((current) => ({
+        ...current,
+        produccion: [...created, ...(current.produccion || [])],
+        pedidos: (current.pedidos || []).map((r, i) => {
+          if (i !== orderIndex) return r
+          const u = [...r]
+          u[9] = "Autorizada"
+          return u
+        }),
+      }))
+    }
     if (target) {
       const codes = new Set([
         ...(loadOrders().find((o) => o.id === orderId)?.productionRecords ?? []).map((r) => String(r[0])),

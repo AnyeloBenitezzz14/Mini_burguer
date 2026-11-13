@@ -90,6 +90,9 @@ export function clientOrderToPanelRow(order: Order, products: (string | number)[
         ? "Pendiente de pago"
         : order.status === "Por confirmar"
           ? "Pendiente admin"
+          // Its production order is created when the order is moved to «Confirmado»
+          : ["Recibido", "Pendiente"].includes(order.status)
+            ? "Pendiente de confirmar"
           : order.total >= APPROVAL_MIN
             ? "Autorizada"
             : "Enviada a producción",

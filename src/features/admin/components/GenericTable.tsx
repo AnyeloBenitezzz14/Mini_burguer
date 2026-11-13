@@ -444,6 +444,10 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         ) : disabledAction("Ver detalle", Ico.eye)}
         {!isAnulled &&
         canDo(section, "EDITAR") &&
+        // A sale comes from its order or is annulled; it isn't edited
+        section !== "ventas" &&
+        // Once its production order exists (from «Confirmado» on) the order can't change
+        !(section === "pedidos" && (rows.produccion || []).some((op) => String(op[15] ?? "") === String(orderRow?.[0] ?? ""))) &&
         !(section === "perdidas" && isReturnedLoss(rows.perdidas?.[rowIndex])) &&
         // An annulled purchase is history: not editable (its stock was already taken back)
         !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) &&
