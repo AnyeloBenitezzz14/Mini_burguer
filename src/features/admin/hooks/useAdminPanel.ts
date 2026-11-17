@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { MOD_CFG, PAYMENT_NEXT, PRODUCTION_STATUSES, QUICK_FILTERS, SECTION_MODULE, SIDEBAR_MENU, STALE_ORDER_DAYS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
 import { DB_SYNC, PANEL_SYNC, saveRowToDb } from "@/features/admin/services/sync.service"
 import { getDashPeriod } from "@/features/admin/utils/dashboard"
-import { buildProductionRows, clientOrderToPanelRow, isSupplyProductRow, derivePedidoPayment, fixShiftedSale, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isSuperAdminRow, nextAutoSaleCode, parseMainSupplies, parsePurchaseLines, permsFromDb, permsToDb, productionLabel, roleLabel, saleTypeOf, supplierRequiredKeys, supplyAsProduct, syncIdIndex, text, withId, withPanelId } from "@/features/admin/utils/rows"
+import { buildProductionRows, clientOrderToPanelRow, isProductionEditLocked, isSupplyProductRow, derivePedidoPayment, fixShiftedSale, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isSuperAdminRow, nextAutoSaleCode, parseMainSupplies, parsePurchaseLines, permsFromDb, permsToDb, productionLabel, roleLabel, saleTypeOf, supplierRequiredKeys, supplyAsProduct, syncIdIndex, text, withId, withPanelId } from "@/features/admin/utils/rows"
 import { loadRegisteredClients } from "@/features/auth/services/auth.service"
 import { ADDITION_PRODUCT, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders, pushOrder, readVoucher, saveOrders } from "@/features/orders/services/orders.service"
@@ -568,7 +568,12 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const spec = PANEL_SYNC[sec]
     return api<DbRecord[]>(spec.path)
       .then((records) => {
-        const dbRows = records.map((r) => withPanelId(sec === "ventas" ? fixShiftedSale(r.datos_panel) : r.datos_panel, spec.idIndex, r.id))
+        const dbRows = records.map((r) => {
+          const row = withPanelId(sec === "ventas" ? fixShiftedSale(r.datos_panel) : r.datos_panel, spec.idIndex, r.id)
+          // Older production orders ended in «En camino»/«Entregado»: production now ends in «Finalizada»
+          if (sec === "produccion" && ["En camino", "Entregado"].includes(String(row[8]))) row[8] = "Finalizada"
+          return row
+        })
         setRows((current) => {
           // Marked loaded together with its rows: if the sync ran between the two it would take every row
           // for deleted (it saw them saved but not on screen) and send a DELETE for each
@@ -1338,9 +1343,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       (order) => String(order[15] ?? "") === orderCode && String(order[8]) !== "Producto no conforme",
     )
     if (!orders.length) return `El pedido ${orderCode} no tiene orden de producción terminada.`
-    const pending = orders.find((order) => String(order[8]) !== "Entregado")
+    const pending = orders.find((order) => String(order[8]) !== "Finalizada")
     return pending
-      ? `La orden de producción ${String(pending[0])} del pedido ${orderCode} está en «${String(pending[8] || "Recibido")}»: solo se puede devolver cuando esté «Entregado».`
+      ? `La orden de producción ${String(pending[0])} del pedido ${orderCode} está en «${String(pending[8] || "Recibido")}»: solo se puede devolver cuando esté «Finalizada».`
       : ""
   }
   const getManagedFieldError = (
@@ -1685,6 +1690,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const cfg = MOD_CFG[sec]
     if (!cfg) return
     const row = rows[sec][idx]
+    if (sec === "produccion" && isProductionEditLocked(row)) {
+      notifyError(`La orden ${String(row?.[0] ?? "")} está en «${String(row?.[8] || "Recibido")}»: ya no se puede editar.`)
+      return
+    }
     if (isCounterClientRow(sec, row)) {
       notifyError("El cliente mostrador no se edita: es fijo para registrar ventas a personas que no dan sus datos.")
       return
@@ -2373,7 +2382,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       newRow[6] = previousRow?.[6] ?? currentDateTime.date
       newRow[7] = previousRow?.[7] ?? currentDateTime.time
       newRow[8] = previousRow?.[8] ?? "Recibido"
-      if (["En camino", "Entregado"].includes(String(newRow[8]))) {
+      if (String(newRow[8]) === "Finalizada") {
         newRow[9] = previousRow?.[9] || `${currentDateTime.date} ${currentDateTime.time}`
         newRow[10] = previousRow?.[10] || 1
       } else {
@@ -2516,7 +2525,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         const produccion = (current.produccion || []).map((order) => {
           if (
             String(order[15] ?? "") !== String(newRow[0]) ||
-            ["Entregado", "Producto no conforme"].includes(String(order[8]))
+            ["En cocina", "Finalizada", "Producto no conforme"].includes(String(order[8]))
           ) return order
           const updatedOrder = [...order]
           updatedOrder[1] = productionLabel(pedidoOrderLines)
@@ -3160,8 +3169,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   const ORDER_TO_PRODUCTION: Record<string, (typeof PRODUCTION_STATUSES)[number]> = {
     Confirmado: "Confirmado",
     "En cocina": "En cocina",
-    "En camino": "En camino",
-    Entregado: "Entregado",
+    // Production ends when the kitchen finishes; delivery is the order's own business
+    "En camino": "Finalizada",
+    Entregado: "Finalizada",
   }
   // Choosing the current status again still catches up production that fell behind
   const setOrderPayment = (orderIndex: number, status: string) => {
@@ -3601,7 +3611,11 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const sourceRow = rows.produccion?.[rowIndex]
     if (!sourceRow) return false
     if (String(sourceRow[8]) === nextStatus) return true
-    const consumeStock = nextStatus === "En cocina" && String(sourceRow[14]) !== "Sí"
+    // Supplies leave the stock once, when the order reaches «En cocina» (or jumps past it, e.g. straight to
+    // «Finalizada» when its pedido is sent); the backend refuses a second time for the same order
+    const rankOf = (status: string) => PRODUCTION_STATUSES.indexOf(status as (typeof PRODUCTION_STATUSES)[number])
+    const consumeStock =
+      nextStatus !== "Producto no conforme" && rankOf(nextStatus) >= rankOf("En cocina") && String(sourceRow[14]) !== "Sí"
     const requiredSupplies = new Map<string, { quantity: number; unit: string }>()
     if (consumeStock) {
       for (const item of getProductionOrderItems(sourceRow)) {
@@ -3670,7 +3684,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       }
     }
     // A producto de insumo (e.g. a house sauce) that's ready: what was prepared goes into its stock, once per order
-    const finishing = ["En camino", "Entregado"].includes(nextStatus) && !["En camino", "Entregado"].includes(String(sourceRow[8]))
+    const finishing = nextStatus === "Finalizada" && String(sourceRow[8]) !== "Finalizada"
     if (finishing) {
       const prepared = new Map<string, number>()
       for (const item of getProductionOrderItems(sourceRow)) {
@@ -3730,8 +3744,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           : "No"
       if (consumeStock) updatedRow[14] = "Sí"
 
-      if (["En camino", "Entregado"].includes(nextStatus)) {
-        if (!["En camino", "Entregado"].includes(String(currentRow[8]))) {
+      if (nextStatus === "Finalizada") {
+        if (String(currentRow[8]) !== "Finalizada") {
           updatedRow[9] = `${currentDateTime.date} ${realTime}`
           const lastDeparture = Math.max(
             0,
@@ -4100,7 +4114,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         m.key === "pedidos"
           ? list.filter((r) => !["Entregado", "Cancelado"].includes(String(r[7] ?? ""))).length
           : m.key === "produccion"
-            ? list.filter((r) => !["Entregado", "Producto no conforme"].includes(String(r[8] ?? "Recibido"))).length
+            ? list.filter((r) => !["Finalizada", "Producto no conforme"].includes(String(r[8] ?? "Recibido"))).length
             : null
       return { key: m.key as AdminSection, label: m.label, total: list.length, pending }
     })

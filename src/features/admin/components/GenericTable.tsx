@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { MOD_CFG, PRODUCTION_STATUSES, QUICK_FILTERS, TABLE_FILTERS } from "@/features/admin/config/modules"
-import { isNaturalSupplier, isReturnedLoss, isSupplyProductRow, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
+import { isNaturalSupplier, isProductionEditLocked, isReturnedLoss, isSupplyProductRow, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
 import { isSodaName, sodaImage } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { loadOrders } from "@/features/orders/services/orders.service"
@@ -492,8 +492,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) &&
         // Once the kitchen has it, the order's products can't change
         !(section === "pedidos" && !["Por confirmar", "Pendiente", "Recibido"].includes(String(orderRow?.[7] ?? ""))) &&
-        // A production order is only editable while «Recibido»: from «Confirmado» on, the kitchen has it
-        !(section === "produccion" && !["", "Recibido"].includes(String(rows.produccion?.[rowIndex]?.[8] ?? ""))) ? (
+        // From a pedido: editable only while «Recibido»; made by hand: until it goes «En cocina»
+        !(section === "produccion" && isProductionEditLocked(rows.produccion?.[rowIndex])) ? (
           <button
             type="button"
             title="Editar"

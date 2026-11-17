@@ -41,8 +41,7 @@ export const PRODUCTION_STATUSES = [
   "Recibido",
   "Confirmado",
   "En cocina",
-  "En camino",
-  "Entregado",
+  "Finalizada",
   "Producto no conforme",
 ] as const
 

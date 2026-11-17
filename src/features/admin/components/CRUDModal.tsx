@@ -5227,6 +5227,33 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               {item.note ? (
                                 <span className="block text-[11px] font-semibold" style={{ color: C.red }}>Nota: {item.note}</span>
                               ) : null}
+                              {(() => {
+                                // The cook reads the ficha técnica here, without leaving the order
+                                const product = rows.producto?.find((p) => p[0] === item.name)
+                                const recipe = getProductRecipe(product)
+                                const steps = String(product?.[8] ?? "").trim()
+                                if (!product || (!recipe.length && !steps)) return null
+                                return (
+                                  <details className="mt-1">
+                                    <summary className="cursor-pointer text-[11px] font-semibold" style={{ color: C.mustard }}>
+                                      Ver ficha técnica
+                                    </summary>
+                                    <div className="mt-1.5 rounded-lg px-2.5 py-2 text-[11px]" style={{ background: t.cardAlt, color: t.text }}>
+                                      {recipe.length > 0 && (
+                                        <ul className="mb-1.5 list-disc pl-4">
+                                          {recipe.map((ingredient: { name: string; quantity: number; unit: string }) => (
+                                            <li key={ingredient.name}>
+                                              {ingredient.name}: {ingredient.quantity.toLocaleString("es-CO")} {ingredient.unit}
+                                              {item.quantity > 1 ? ` (× ${item.quantity} = ${(ingredient.quantity * item.quantity).toLocaleString("es-CO")} ${ingredient.unit})` : ""}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                      {steps && <p className="whitespace-pre-wrap break-words" style={{ color: t.muted }}>{steps}</p>}
+                                    </div>
+                                  </details>
+                                )
+                              })()}
                               {item.parentId ? (
                                 <span className="block text-[11px]" style={{ color: t.muted }}>
                                   Adición de {items.find((parent) => parent.id === item.parentId)?.name ?? "producto"}
@@ -5251,7 +5278,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 </div>
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="grid grid-cols-2 gap-2">
-                    {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Entregado" ? "#2E7D60" : t.text)}
+                    {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Finalizada" ? "#2E7D60" : t.text)}
                     {info(orderCode ? "Pedido" : "Prioridad", orderCode || `#${String(row[3] ?? "—")}`)}
                     {info("Creada", `${shortDate(row[4])} · ${shortTime(row[5])}`)}
                     {info("Actualizada", `${shortDate(row[6])} · ${shortTime(row[7])}`)}
@@ -5465,7 +5492,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             {productionOrders.map((order) => (
                               <div key={String(order[0])} className="flex items-center justify-between gap-2 text-sm">
                                 <span style={{ color: t.text }}>{String(order[0])}</span>
-                                {badge(String(order[8] || "Recibido"), String(order[8]) === "Entregado", String(order[8]) === "Producto no conforme")}
+                                {badge(String(order[8] || "Recibido"), String(order[8]) === "Finalizada", String(order[8]) === "Producto no conforme")}
                               </div>
                             ))}
                           </div>

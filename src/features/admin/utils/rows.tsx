@@ -25,6 +25,13 @@ const withSupplyMark = (product: (string | number)[], supply: (string | number)[
   return product
 }
 
+// A production order from a pedido is fixed once «Confirmado» (the pedido locks with it); one made by hand
+// (e.g. a house sauce) can still change until the kitchen starts it («En cocina» or later)
+export const isProductionEditLocked = (row?: (string | number)[]) => {
+  const status = String(row?.[8] || "Recibido")
+  return String(row?.[15] ?? "").trim() ? status !== "Recibido" : !["Recibido", "Confirmado"].includes(status)
+}
+
 // ── Orders → production ───────────────────────────────────────────────────────
 // Pedido payment rules: the method decides the modality and whether it's paid,
 // so the admin doesn't pick them by hand. Cash in the shop is paid at the counter; cash for a delivery
