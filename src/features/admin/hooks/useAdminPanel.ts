@@ -1037,6 +1037,14 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   }
   const getProductRecipe = (product: (string | number)[] | undefined) => {
     if (!product) return []
+    // A producto de insumo (e.g. a house sauce): its recipe is the insumo's ficha «Nombre (cantidad unidad)»,
+    // per one unit of what it prepares
+    if (isSupplyProductRow(product)) {
+      const supply = rows.insumos?.find((candidate) => candidate[0] === product[0])
+      return parseMainSupplies(supply?.[10])
+        .map((part) => ({ name: part.name.trim(), quantity: Number(part.quantity), unit: part.unit }))
+        .filter((item) => item.name && Number.isFinite(item.quantity) && item.quantity > 0 && item.unit)
+    }
     try {
       const recipe = JSON.parse(String(product[9] ?? "[]"))
       if (Array.isArray(recipe)) {
@@ -3642,7 +3650,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       for (const [name, requirement] of requiredSupplies) {
         const stock = stockOf(name)
         if (!Number.isFinite(stock) || stock < requirement.quantity) {
-          notifyError(`Stock insuficiente de «${name}»: se necesitan ${requirement.quantity} ${requirement.unit} y hay ${Number.isFinite(stock) ? stock : 0}.`)
+          const round = (n: number) => Math.round(n * 1000) / 1000
+          notifyError(`No se puede pasar a «En cocina»: stock insuficiente de «${name}». Se necesitan ${round(requirement.quantity)} ${requirement.unit} y hay ${round(Number.isFinite(stock) ? stock : 0)} ${requirement.unit}. La orden sigue en «${String(sourceRow[8] || "Recibido")}».`)
           return false
         }
       }
@@ -3917,7 +3926,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       return []
     }
   }
-  const PAGE_SIZE = 6
+  const PAGE_SIZE = 7
   // Dashboard data, from the backend rows of the chosen period
   const period = getDashPeriod(chartFilter, chartAnchor)
   const dateOf = (v: string | number | undefined) => {

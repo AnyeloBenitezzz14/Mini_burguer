@@ -505,7 +505,7 @@ export default function AddToCartModal({
             )}
 
             {!isMenuExtra && (
-              <Section id="sec-drinks" wide icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8h12l-1.2 12.1a2 2 0 0 1-2 1.9H9.2a2 2 0 0 1-2-1.9L6 8Z" /><path d="M5 8h14" /><path d="m12 8 2-6" /></svg>} title="Bebidas" hint={BEVERAGES.length && sizesInStock.length ? `${BEVERAGES.length} sabores · desde ${fmt(Math.min(...sizesInStock.map((z) => z.price)))}` : "Acompaña tu pedido con una gaseosa fría"} summary={selectedBeverageCount ? `${selectedBeverageCount} ${selectedBeverageCount === 1 ? "bebida" : "bebidas"} · +${fmt(beverageTotal)}` : undefined} count={selectedBeverageCount ? `${selectedBeverageCount}` : undefined}>
+              <Section id="sec-drinks" wide title="Bebidas" hint={BEVERAGES.length && sizesInStock.length ? `${BEVERAGES.length} sabores · desde ${fmt(Math.min(...sizesInStock.map((z) => z.price)))}` : "Acompaña tu pedido con una gaseosa fría"} summary={selectedBeverageCount ? `${selectedBeverageCount} ${selectedBeverageCount === 1 ? "bebida" : "bebidas"} · +${fmt(beverageTotal)}` : undefined} count={selectedBeverageCount ? `${selectedBeverageCount}` : undefined}>
                 {!BEVERAGES.length || !BEVERAGE_SIZES.length ? (
                   <p className="rounded-2xl px-3 py-4 text-center text-sm" style={{ background: SOFT, color: MUTED }}>
                     Por ahora no hay gaseosas disponibles.
