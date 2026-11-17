@@ -135,11 +135,15 @@ export const MOD_CFG: Record<string, ModConfig> = {
       { key: "9", label: "Versión de la ficha", type: "text" },
       { key: "10", label: "Insumos principales", type: "textarea" },
       { key: "11", label: "Cómo se prepara", type: "textarea" },
+      // Producto de insumo offered in orders: 0 = cortesía (a free sauce), more = an addition that's charged;
+      // 16 = how much leaves its stock per serving, in its own unit
+      { key: "15", label: "Precio de venta", type: "number" },
+      { key: "16", label: "Porción por pedido", type: "number" },
     ],
     seed: [],
     // Deletable only while no other module has records of it (see getDeleteAssessment)
     statusIndex: 12,
-    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11, 14],
+    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11, 14, 15, 16],
   },
   proveedores: {
     columns: [

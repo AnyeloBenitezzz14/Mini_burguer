@@ -212,7 +212,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
           i.ficha?.insumos_principales || "", i.ficha?.preparacion || "", i.estado === "ACTIVO" ? "Activo" : "Inactivo"],
         13,
         i.id_insumo_producto,
-      ).concat(i.contenido_unidad || "und"),
+      ).concat(i.contenido_unidad || "und", Number(i.precio) || 0, Number(i.porcion) || ""),
     toBody: async (row) => ({
       nombre: text(row[0]),
       id_categoria: await categoryIdByName("/categorias-insumos", row[1]),
@@ -224,6 +224,10 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       contenido_unidad: text(row[2]) === "paq" ? text(row[14]) || "und" : null,
       tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
       estado: estadoOf(row[12]),
+      // Producto de insumo: its sale price (0 = cortesía) and the portion each serving takes from the stock
+      ...(text(row[7]).toLowerCase() === "sí"
+        ? { precio: Math.max(0, Number(row[15]) || 0), porcion: Number(row[16]) > 0 ? Number(row[16]) : null }
+        : {}),
     }),
     // Cost and stock come back from the backend (they don't change when editing);
     // producto: a new unit also reaches the fichas técnicas that use it (the backend aligns them)

@@ -10,7 +10,8 @@ export const isSupplyProductRow = (row?: Row) => row?.[15] === SUPPLY_PRODUCT_MA
 export const supplyAsProduct = (row: (string | number)[]): (string | number)[] => withSupplyMark([
   String(row[0] ?? "Producto de insumo"),
   String(row[1] || "Producto de insumo"),
-  Number(row[3] || 0),
+  // Its sale price (0 = cortesía), not its cost
+  Number(row[15] || 0),
   "Insumo configurado para comercializarse como producto.",
   String(row[12] ?? "Activo"),
   String(row[8] || `Ficha técnica - ${String(row[0] ?? "Producto de insumo")}`),
@@ -27,9 +28,12 @@ const withSupplyMark = (product: (string | number)[], supply: (string | number)[
 
 // A production order from a pedido is fixed once «Confirmado» (the pedido locks with it); one made by hand
 // (e.g. a house sauce) can still change until the kitchen starts it («En cocina» or later)
+// A pedido's production order keeps its code (PED-…) in [15]; one made by hand keeps its comment there
+export const isPedidoProduction = (row?: (string | number)[]) => /^PED-/i.test(String(row?.[15] ?? "").trim())
+
 export const isProductionEditLocked = (row?: (string | number)[]) => {
   const status = String(row?.[8] || "Recibido")
-  return String(row?.[15] ?? "").trim() ? status !== "Recibido" : !["Recibido", "Confirmado"].includes(status)
+  return isPedidoProduction(row) ? status !== "Recibido" : !["Recibido", "Confirmado"].includes(status)
 }
 
 // ── Orders → production ───────────────────────────────────────────────────────

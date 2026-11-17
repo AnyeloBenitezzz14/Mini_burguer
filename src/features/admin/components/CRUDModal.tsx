@@ -163,6 +163,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     setPurchaseItemEdit,
     setPurchaseItemPrice,
     setPurchaseItemPack,
+    setSupplyPriceDraft,
+    saveSupplySalePrice,
+    supplyPriceDraft,
     setPurchaseItemQty,
     setPurchaseItemSelect,
     setPurchaseNotice,
@@ -608,7 +611,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             (!["6", "14"].includes(field.key) || String(isView ? row?.[2] : formData["2"]) === "paq") &&
             // The unit cost is set by each purchase (its unit price): only the detail shows it
             !(modal.mode !== "view" && field.key === "3") &&
-            (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
+            (!["8", "9", "10", "11", "15", "16"].includes(field.key) || showSupplyTechnicalSheet),
         )
     : isUser
       ? dataFields.filter(
@@ -1089,7 +1092,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         {String(row[0] ?? "—")}
                       </h4>
                       <div className="text-xl font-semibold" style={{ color: C.mustard }}>
-                        {Number(row[2]) > 0 ? fmt(Number(row[2])) : "Sin precio"}
+                        {Number(row[2]) > 0 ? fmt(Number(row[2])) : isSupplyProductRow(row) ? "Cortesía ($0)" : "Sin precio"}
                       </div>
                     </div>
                     {isSupplyProductRow(row) && (
@@ -1104,6 +1107,50 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               {Number(supply[4]) <= Number(supply[5]) && <strong style={{ color: C.red }}> · stock bajo</strong>}
                             </span>
                           ) : null
+                        })()}
+                        {canDo("insumos", "EDITAR") && (() => {
+                          // Its sale price, right here: 0 = cortesía (free sauce), more = an addition that's charged
+                          const name = String(row[0])
+                          const draft = supplyPriceDraft?.name === name ? supplyPriceDraft : null
+                          return (
+                            <span className="mt-2 flex flex-wrap items-center gap-2" style={{ color: t.text }}>
+                              Precio de venta:
+                              {draft ? (
+                                <>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    autoFocus
+                                    value={draft.value}
+                                    onChange={(e) => setSupplyPriceDraft({ name, value: e.target.value })}
+                                    onKeyDown={(e) => { if (e.key === "Enter") saveSupplySalePrice(name, draft.value) }}
+                                    aria-label="Precio de venta (0 = cortesía)"
+                                    className="w-28 rounded-lg px-2 py-1 text-xs outline-none"
+                                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                                  />
+                                  <button type="button" disabled={draft.saving} onClick={() => saveSupplySalePrice(name, draft.value)}
+                                    className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-bold disabled:opacity-60" style={{ background: C.mustard, color: "#fff" }}>
+                                    {draft.saving ? "Guardando…" : "Guardar"}
+                                  </button>
+                                  <button type="button" onClick={() => setSupplyPriceDraft(null)}
+                                    className="cursor-pointer rounded-lg px-2.5 py-1 text-xs" style={{ background: t.input, color: t.muted }}>
+                                    Cancelar
+                                  </button>
+                                  <span className="basis-full text-[11px]" style={{ color: draft.error ? C.red : t.muted }}>
+                                    {draft.error || "0 = cortesía: sale gratis en Salsas. Con precio sale en Adiciones y se cobra."}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <strong>{Number(row[2]) > 0 ? fmt(Number(row[2])) : "Cortesía ($0)"}</strong>
+                                  <button type="button" onClick={() => setSupplyPriceDraft({ name, value: String(Number(row[2]) || 0) })}
+                                    className="cursor-pointer font-bold underline" style={{ color: C.mustard }}>
+                                    Cambiar
+                                  </button>
+                                </>
+                              )}
+                            </span>
+                          )
                         })()}
                         <button
                           type="button"
@@ -2343,7 +2390,107 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               // Products, quantity and comment show in its products / summary columns below
               if (isView && isProduction && ["0", "1", "3", "4", "15"].includes(f.key)) return null
               // Insumo technical sheet (fields 8-11) rendered as one card at field "8"
-              if (isSupply && ["9", "10", "11"].includes(f.key)) return null
+              if (isSupply && ["9", "10", "11", "16"].includes(f.key)) return null
+              // Producto de insumo in orders: cortesía or charged, its portion, and what preparing it costs
+              if (isSupply && f.key === "15") {
+                if (!showSupplyTechnicalSheet || isView) return null
+                const base = String(formData["2"] || "und")
+                const raw = String(formData["15"] ?? "0")
+                const charged = raw !== "0" && raw !== ""
+                  ? true
+                  : raw === "" && formData["15"] !== undefined
+                const price = Number(raw) || 0
+                const portion = Number(formData["16"]) || 0
+                // Cost of 1 unit of what's prepared: each ingredient of the ficha at its last purchase price
+                const parts = parseMainSupplies(formData["10"]).map((part) => {
+                  const supply = supplyInfo(part.name)
+                  const inBase = supply
+                    ? convertQty(Number(part.quantity) || 0, part.unit || String(supply[2] ?? ""), String(supply[2] ?? ""), packOf(supply))
+                    : NaN
+                  return Number.isFinite(inBase) ? inBase * (Number(supply?.[3]) || 0) : NaN
+                })
+                const unitCost = parts.reduce((sum, cost) => sum + (Number.isFinite(cost) ? cost : 0), 0)
+                const unpriced = parts.some((cost) => !Number.isFinite(cost))
+                const portionCost = unitCost * portion
+                const setField = (key: string, value: string) => {
+                  setSupplyFormError("")
+                  updateAdminField(modal.section, key, value)
+                }
+                const pill = (on: boolean) => ({
+                  background: on ? C.mustard : t.input,
+                  color: on ? "#fff" : t.text,
+                  border: `1px solid ${on ? C.mustard : t.border}`,
+                })
+                return (
+                  <section key="supply-sale" className="rounded-xl p-4 sm:col-span-2" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <div className="text-sm font-semibold" style={{ color: t.text }}>Venta en pedidos</div>
+                    <p className="mt-0.5 text-xs" style={{ color: t.muted }}>
+                      Mientras tenga stock se ofrece al cliente. Cada vez que se sirve, su porción sale del inventario, también si es gratis.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Cómo se ofrece">
+                      <button type="button" role="radio" aria-checked={!charged} onClick={() => setField("15", "0")}
+                        className="cursor-pointer rounded-xl px-3 py-2 text-xs font-bold" style={pill(!charged)}>
+                        Cortesía ($0) · sale en Salsas
+                      </button>
+                      <button type="button" role="radio" aria-checked={charged} onClick={() => setField("15", charged ? raw : "")}
+                        className="cursor-pointer rounded-xl px-3 py-2 text-xs font-bold" style={pill(charged)}>
+                        Con precio · sale en Adiciones
+                      </button>
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                        Porción por pedido ({base})
+                        <input type="text" inputMode="decimal" value={String(formData["16"] ?? "")}
+                          onChange={(e) => setField("16", e.target.value.replace(",", "."))}
+                          placeholder={base === "L" ? "0.03" : base === "kg" ? "0.05" : "1"}
+                          className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                          style={{ background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }} />
+                      </label>
+                      {charged && (
+                        <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                          Precio de venta por porción *
+                          <input type="number" min="0" value={raw}
+                            onChange={(e) => setField("15", e.target.value)}
+                            placeholder="$"
+                            className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                            style={{ background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }} />
+                        </label>
+                      )}
+                    </div>
+                    <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                      <div className="rounded-lg px-3 py-2" style={{ background: t.input }}>
+                        <div style={{ color: t.muted }}>Costo de preparar 1 {base}</div>
+                        <div className="font-bold" style={{ color: t.text }}>{fmt(Math.round(unitCost))}</div>
+                      </div>
+                      <div className="rounded-lg px-3 py-2" style={{ background: t.input }}>
+                        <div style={{ color: t.muted }}>Costo por porción</div>
+                        <div className="font-bold" style={{ color: t.text }}>{portion > 0 ? fmt(Math.round(portionCost)) : "—"}</div>
+                      </div>
+                      <div className="rounded-lg px-3 py-2" style={{ background: t.input }}>
+                        <div style={{ color: t.muted }}>{charged ? "Ganancia por porción" : "Te cuesta regalarla"}</div>
+                        <div className="font-bold" style={{ color: charged ? (price - portionCost >= 0 ? "#2E7D60" : C.red) : C.mustard }}>
+                          {portion > 0 ? fmt(Math.round(charged ? price - portionCost : portionCost)) : "—"}
+                        </div>
+                      </div>
+                    </div>
+                    {charged && portion > 0 && price > 0 && price < portionCost && (
+                      <p role="alert" className="mt-2 text-xs font-semibold" style={{ color: C.red }}>
+                        Ojo: el precio es menor que lo que cuesta prepararla; se vendería a pérdida.
+                      </p>
+                    )}
+                    {unpriced && (
+                      <p className="mt-2 text-[11px]" style={{ color: t.muted }}>
+                        Algún insumo de la ficha no tiene costo o su unidad no se puede convertir: no se cuenta en el costo.
+                      </p>
+                    )}
+                    {!(portion > 0) && (
+                      <p className="mt-2 text-[11px]" style={{ color: t.muted }}>
+                        Sin porción no se descuenta del stock cuando se sirve en un pedido.
+                      </p>
+                    )}
+                  </section>
+                )
+              }
               if (isSupply && f.key === "8") {
                 if (!showSupplyTechnicalSheet) return null
                 const src = (key: string) => String((isView ? row?.[Number(key)] : formData[key]) ?? "")

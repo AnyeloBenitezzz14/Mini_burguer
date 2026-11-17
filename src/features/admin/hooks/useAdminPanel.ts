@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { MOD_CFG, PAYMENT_NEXT, PRODUCTION_STATUSES, QUICK_FILTERS, SECTION_MODULE, SIDEBAR_MENU, STALE_ORDER_DAYS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
 import { DB_SYNC, PANEL_SYNC, saveRowToDb } from "@/features/admin/services/sync.service"
 import { getDashPeriod } from "@/features/admin/utils/dashboard"
-import { buildProductionRows, clientOrderToPanelRow, isProductionEditLocked, isSupplyProductRow, derivePedidoPayment, fixShiftedSale, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isSuperAdminRow, nextAutoSaleCode, parseMainSupplies, parsePurchaseLines, permsFromDb, permsToDb, productionLabel, roleLabel, saleTypeOf, supplierRequiredKeys, supplyAsProduct, syncIdIndex, text, withId, withPanelId } from "@/features/admin/utils/rows"
+import { buildProductionRows, clientOrderToPanelRow, isPedidoProduction, isProductionEditLocked, isSupplyProductRow, derivePedidoPayment, fixShiftedSale, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isSuperAdminRow, nextAutoSaleCode, parseMainSupplies, parsePurchaseLines, permsFromDb, permsToDb, productionLabel, roleLabel, saleTypeOf, supplierRequiredKeys, supplyAsProduct, syncIdIndex, text, withId, withPanelId } from "@/features/admin/utils/rows"
 import { loadRegisteredClients } from "@/features/auth/services/auth.service"
 import { ADDITION_PRODUCT, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders, pushOrder, readVoucher, saveOrders } from "@/features/orders/services/orders.service"
@@ -773,6 +773,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   const [purchaseItemQty, setPurchaseItemQty] = useState("1")
   // Bought by the box/pack/sack: kind "" = in the insumo's own unit; per = how much of that unit one holds
   const [purchaseItemPack, setPurchaseItemPack] = useState({ kind: "", per: "" })
+  // Sale price of a producto de insumo, edited straight from its product view ("" = not editing)
+  const [supplyPriceDraft, setSupplyPriceDraft] = useState<{ name: string; value: string; error?: string; saving?: boolean } | null>(null)
 
   const [purchaseItemPrice, setPurchaseItemPrice] = useState("")
   const [purchaseFormError, setPurchaseFormError] = useState("")
@@ -2200,6 +2202,13 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         return setSupplyFormError(`Ficha técnica: la cantidad de «${noAmount.replace(/\s*\(.*$/, "")}» debe ser mayor que cero.`)
       if (!String(formData["11"] ?? "").trim())
         return setSupplyFormError("Ficha técnica: escribe cómo se prepara.")
+      // Venta en pedidos: "" = «Con precio» chosen but no price typed
+      const salePrice = formData["15"]
+      if (salePrice !== undefined && salePrice !== "0" && !(Number(salePrice) > 0))
+        return setSupplyFormError("Venta en pedidos: escribe el precio de venta o elige «Cortesía».")
+      const portion = String(formData["16"] ?? "").trim()
+      if (portion && !(Number(portion) > 0))
+        return setSupplyFormError("Venta en pedidos: la porción debe ser un número mayor que cero.")
     }
     if (sec === "compras") {
       if (!String(formData["0"] ?? "").trim()) {
@@ -3629,8 +3638,23 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const needs = new Map<string, { quantity: number; unit: string }>()
     const add = (name: string, quantity: number, unit: string) =>
       needs.set(name, { quantity: (needs.get(name)?.quantity ?? 0) + quantity, unit })
+    // In a pedido, a house sauce (producto de insumo) is served already made: each one takes its portion from
+    // its own stock, free or charged. An order made by hand to prepare it uses its ficha instead (below).
+    const servedFromPedido = isPedidoProduction(sourceRow)
+    const houseSupply = (name: string) =>
+      rows.insumos?.find((s) => normalizeName(s[0]) === normalizeName(name) && String(s[7]).toLowerCase() === "sí")
+    const serve = (name: string, servings: number) => {
+      const supply = houseSupply(name)
+      const portion = Number(supply?.[16]) || 0
+      if (supply && portion > 0 && servings > 0) add(String(supply[0]), portion * servings, String(supply[2] ?? ""))
+      return !!supply
+    }
     for (const item of getProductionOrderItems(sourceRow)) {
       if (item.reuse) continue
+      if (servedFromPedido) {
+        for (const sauce of item.sauces ?? []) serve(sauce, item.quantity)
+        if (serve(item.name, item.quantity)) continue
+      }
       if (item.onlySupplies) {
         for (const part of item.onlySupplies) {
           const supply = rows.insumos?.find((candidate) => candidate[0] === part.name)
@@ -3673,6 +3697,28 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     }
     return ""
   }
+  // 0 = cortesía (free sauce), more = charged as an addition. Same record as in Insumos, so both reload.
+  const saveSupplySalePrice = async (name: string, value: string) => {
+    const price = Number(value)
+    if (!(price >= 0) || value.trim() === "") {
+      setSupplyPriceDraft({ name, value, error: "Escribe un precio (0 = cortesía)." })
+      return
+    }
+    const supply = rows.insumos?.find((s) => s[0] === name)
+    const id = supply?.[DB_SYNC.insumos.idIndex]
+    if (!id) {
+      setSupplyPriceDraft({ name, value, error: "Este insumo aún no está guardado en la base de datos." })
+      return
+    }
+    setSupplyPriceDraft({ name, value, saving: true })
+    try {
+      await api(`/insumos/${id}`, "PATCH", { precio: price })
+      setSupplyPriceDraft(null)
+      await Promise.all([loadModule("insumos"), loadModule("producto")])
+    } catch (err) {
+      setSupplyPriceDraft({ name, value, error: `No se pudo guardar el precio: ${(err as Error).message}` })
+    }
+  }
   const changeProductionStatus = async (
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
@@ -3711,7 +3757,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       }
     }
     // A producto de insumo (e.g. a house sauce) that's ready: what was prepared goes into its stock, once per order
-    const finishing = nextStatus === "Finalizada" && String(sourceRow[8]) !== "Finalizada"
+    // Only an order made to prepare it (not a pedido serving it) adds to its stock
+    const finishing = nextStatus === "Finalizada" && String(sourceRow[8]) !== "Finalizada" && !isPedidoProduction(sourceRow)
     if (finishing) {
       const prepared = new Map<string, number>()
       for (const item of getProductionOrderItems(sourceRow)) {
@@ -4316,6 +4363,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     setPurchaseItemQty,
     purchaseItemPack,
     setPurchaseItemPack,
+    supplyPriceDraft,
+    setSupplyPriceDraft,
+    saveSupplySalePrice,
     purchaseItemPrice,
     setPurchaseItemPrice,
     purchaseFormError,

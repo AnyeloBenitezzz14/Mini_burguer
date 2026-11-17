@@ -106,6 +106,13 @@ export default function SupplyDetail(adminState: AdminPanelState, row: (string |
           ["Costo unitario", Number(row[3]) ? `${fmt(Number(row[3]))} / ${unit}` : "Sin compras", C.mustard],
           ["Valor en stock", fmt(stock * (Number(row[3]) || 0)), t.text],
           ...(unit === "paq" ? [["Contenido por paquete", pack ? `${pack.size.toLocaleString("es-CO")} ${pack.unit}` : "Sin definir", t.text]] : []),
+          // Producto de insumo in orders: free sauce or charged addition, and what each serving takes
+          ...(isProductSupply
+            ? [
+                ["Venta en pedidos", Number(row[15]) > 0 ? `${fmt(Number(row[15]))} (adición)` : "Cortesía ($0)", C.mustard],
+                ["Porción por pedido", Number(row[16]) > 0 ? `${Number(row[16]).toLocaleString("es-CO")} ${unit}` : "Sin definir", Number(row[16]) > 0 ? t.text : C.red],
+              ]
+            : []),
         ].map(([label, value, color]) => (
           <div key={label} className="rounded-xl px-3 py-2.5" style={box}>
             <div className="text-[10px] font-semibold" style={{ color: t.muted }}>{label}</div>
