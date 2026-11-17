@@ -771,6 +771,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   // What is typed in the purchase's insumo search (null = not searching: it shows the chosen insumo)
   const [purchaseSupplySearch, setPurchaseSupplySearch] = useState<string | null>(null)
   const [purchaseItemQty, setPurchaseItemQty] = useState("1")
+  // Bought by the box/pack/sack: kind "" = in the insumo's own unit; per = how much of that unit one holds
+  const [purchaseItemPack, setPurchaseItemPack] = useState({ kind: "", per: "" })
+
   const [purchaseItemPrice, setPurchaseItemPrice] = useState("")
   const [purchaseFormError, setPurchaseFormError] = useState("")
   // "Enviar a pérdida" from a purchase line (edit mode)
@@ -2149,6 +2152,16 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       setProductionFormError("Agrega al menos un producto o producto de insumo.")
       return
     }
+    // An order the kitchen couldn't make isn't created: every supply must be in stock (with unit conversion)
+    if (sec === "produccion") {
+      const draft: (string | number)[] = []
+      draft[13] = JSON.stringify(productionItems)
+      const problem = productionStockProblem(draft)
+      if (problem) {
+        setProductionFormError(`No se puede guardar la orden: ${problem}`)
+        return
+      }
+    }
     if (sec === "pedidos" && pedidoOrderLines.length === 0) {
       setFormFieldErrors((current) => ({
         ...current,
@@ -3242,6 +3255,12 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           u[8] = "Confirmado"
           return u
         })
+      // Confirming sends it to the kitchen: not without the supplies to make it
+      const problem = created[0] ? productionStockProblem(created[0]) : ""
+      if (problem) {
+        notifyError(`No se puede confirmar el pedido ${orderId}: ${problem} El pedido sigue en «${String(order[7] || "Recibido")}».`)
+        return
+      }
       saveOrders(loadOrders().map((o) => (o.id === orderId ? { ...o, productionAuthorized: true, productionRecords: created } : o)))
       setRows((current) => ({
         ...current,
@@ -3603,6 +3622,57 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       setPncSaving(false)
     }
   }
+  // What a production order takes from the stock, per insumo in the insumo's own unit (L → ml, und → paq...)
+  const productionNeeds = (
+    sourceRow: (string | number)[],
+  ): { needs: Map<string, { quantity: number; unit: string }> } | { error: string } => {
+    const needs = new Map<string, { quantity: number; unit: string }>()
+    const add = (name: string, quantity: number, unit: string) =>
+      needs.set(name, { quantity: (needs.get(name)?.quantity ?? 0) + quantity, unit })
+    for (const item of getProductionOrderItems(sourceRow)) {
+      if (item.reuse) continue
+      if (item.onlySupplies) {
+        for (const part of item.onlySupplies) {
+          const supply = rows.insumos?.find((candidate) => candidate[0] === part.name)
+          const unit = String(supply?.[2] ?? "").trim()
+          const quantity = toBaseQuantity(Number(part.quantity), part.unit || unit, unit)
+          if (!supply || quantity === null) return { error: `revisa que «${part.name}» exista en inventario y su unidad.` }
+          add(part.name, quantity * item.quantity, unit)
+        }
+        continue
+      }
+      // A resale soda carries its own stock (its product): one sold = one out, once it has ever been bought
+      if (isStockedExtra(item.name)) {
+        if (wasBought(item.name)) add(item.name, item.quantity, "und")
+        continue
+      }
+      const product = rows.producto?.find((candidate) => candidate[0] === item.name)
+      // What the customer asked to leave out isn't used, so it isn't taken out of the stock
+      const leftOut = withoutInNote(item.note)
+      for (const ingredient of getProductRecipe(product).filter((i) => !leftOut.includes(i.name.trim().toLowerCase()))) {
+        const supply = rows.insumos?.find((candidate) => candidate[0] === ingredient.name)
+        const unit = String(supply?.[2] ?? "").trim()
+        // Recipe in its own unit (e.g. 2 und of egg, 500 ml of oil) → the insumo's unit (2/15 paq, 0.5 L)
+        const perUnit = supply && unit ? toBaseQuantity(ingredient.quantity, ingredient.unit, unit, packOf(supply)) : null
+        if (perUnit === null)
+          return { error: `revisa que «${ingredient.name}» exista en inventario y que la unidad de la ficha técnica se pueda pasar a la del insumo.` }
+        add(ingredient.name, perUnit * item.quantity, unit)
+      }
+    }
+    return { needs }
+  }
+  // "" when every supply is there; otherwise which one is short and by how much
+  const productionStockProblem = (sourceRow: (string | number)[]) => {
+    const result = productionNeeds(sourceRow)
+    if ("error" in result) return result.error
+    const round = (n: number) => Math.round(n * 1000) / 1000
+    for (const [name, requirement] of result.needs) {
+      const stock = stockOf(name)
+      if (!Number.isFinite(stock) || stock < requirement.quantity)
+        return `stock insuficiente de «${name}». Se necesitan ${round(requirement.quantity)} ${requirement.unit} y hay ${round(Number.isFinite(stock) ? stock : 0)} ${requirement.unit}.`
+    }
+    return ""
+  }
   const changeProductionStatus = async (
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
@@ -3616,59 +3686,16 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const rankOf = (status: string) => PRODUCTION_STATUSES.indexOf(status as (typeof PRODUCTION_STATUSES)[number])
     const consumeStock =
       nextStatus !== "Producto no conforme" && rankOf(nextStatus) >= rankOf("En cocina") && String(sourceRow[14]) !== "Sí"
-    const requiredSupplies = new Map<string, { quantity: number; unit: string }>()
+    // Checked again when it's confirmed: the kitchen can't take an order whose supplies aren't there
+    if (nextStatus === "Confirmado" || consumeStock) {
+      const problem = productionStockProblem(sourceRow)
+      if (problem) {
+        notifyError(`No se puede pasar a «${nextStatus}»: ${problem} La orden sigue en «${String(sourceRow[8] || "Recibido")}».`)
+        return false
+      }
+    }
+    const requiredSupplies = consumeStock ? (productionNeeds(sourceRow) as { needs: Map<string, { quantity: number; unit: string }> }).needs : new Map<string, { quantity: number; unit: string }>()
     if (consumeStock) {
-      for (const item of getProductionOrderItems(sourceRow)) {
-        if (item.reuse) continue
-        if (item.onlySupplies) {
-          for (const part of item.onlySupplies) {
-            const supply = rows.insumos?.find((candidate) => candidate[0] === part.name)
-            const unit = String(supply?.[2] ?? "").trim()
-            const quantity = toBaseQuantity(Number(part.quantity), part.unit || unit, unit)
-            if (!supply || quantity === null) {
-              notifyError(`No se puede iniciar la producción: revisa que «${part.name}» exista en inventario y su unidad.`)
-              return false
-            }
-            const current = requiredSupplies.get(part.name)
-            requiredSupplies.set(part.name, { quantity: (current?.quantity ?? 0) + quantity * item.quantity, unit })
-          }
-          continue
-        }
-        // A resale soda carries its own stock (its product): one sold = one out, once it has ever been bought
-        if (isStockedExtra(item.name)) {
-          if (wasBought(item.name)) {
-            const current = requiredSupplies.get(item.name)
-            requiredSupplies.set(item.name, { quantity: (current?.quantity ?? 0) + item.quantity, unit: "und" })
-          }
-          continue
-        }
-        const product = rows.producto?.find((candidate) => candidate[0] === item.name)
-        // What the customer asked to leave out isn't used, so it isn't taken out of the stock
-        const leftOut = withoutInNote(item.note)
-        for (const ingredient of getProductRecipe(product).filter((i) => !leftOut.includes(i.name.trim().toLowerCase()))) {
-          const supply = rows.insumos?.find((candidate) => candidate[0] === ingredient.name)
-          const unit = String(supply?.[2] ?? "").trim()
-          // Recipe in its own unit (e.g. 2 und of egg) → the insumo's unit (2/15 paq)
-          const perUnit = supply && unit ? toBaseQuantity(ingredient.quantity, ingredient.unit, unit, packOf(supply)) : null
-          if (perUnit === null) {
-            notifyError(`No se puede iniciar la producción: revisa que «${ingredient.name}» exista en inventario y que la unidad de la ficha técnica se pueda pasar a la del insumo.`)
-            return false
-          }
-          const current = requiredSupplies.get(ingredient.name)
-          requiredSupplies.set(ingredient.name, {
-            quantity: (current?.quantity ?? 0) + perUnit * item.quantity,
-            unit,
-          })
-        }
-      }
-      for (const [name, requirement] of requiredSupplies) {
-        const stock = stockOf(name)
-        if (!Number.isFinite(stock) || stock < requirement.quantity) {
-          const round = (n: number) => Math.round(n * 1000) / 1000
-          notifyError(`No se puede pasar a «En cocina»: stock insuficiente de «${name}». Se necesitan ${round(requirement.quantity)} ${requirement.unit} y hay ${round(Number.isFinite(stock) ? stock : 0)} ${requirement.unit}. La orden sigue en «${String(sourceRow[8] || "Recibido")}».`)
-          return false
-        }
-      }
       // The backend takes the supplies out of the stock (all or nothing, once per order) before the status changes
       if (requiredSupplies.size) {
         try {
@@ -3897,13 +3924,15 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => {
-        const [name, quantity, unitPrice] = line.split("|").map((part) => part.trim())
+        // 4th part (optional): how it came, e.g. «3 Caja × 24 paq»
+        const [name, quantity, unitPrice, pack] = line.split("|").map((part) => part.trim())
         const parsedQuantity = Number(quantity || 0)
         const parsedUnitPrice = Number(unitPrice || 0)
         return {
           name: name || "Producto",
           quantity: quantity || "0",
           unitPrice,
+          pack: pack || "",
           total: parsedQuantity * parsedUnitPrice,
         }
       })
@@ -4285,6 +4314,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     setPurchaseSupplySearch,
     purchaseItemQty,
     setPurchaseItemQty,
+    purchaseItemPack,
+    setPurchaseItemPack,
     purchaseItemPrice,
     setPurchaseItemPrice,
     purchaseFormError,

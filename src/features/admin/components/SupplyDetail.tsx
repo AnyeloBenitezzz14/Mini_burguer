@@ -94,8 +94,14 @@ export default function SupplyDetail(adminState: AdminPanelState, row: (string |
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
-          // "3 paq (90 und)" / "2 paq (200 g)": what the packages hold
-          ["Stock actual", `${stock.toLocaleString("es-CO")} ${unit}${unit === "paq" && pack ? ` (${(stock * pack.size).toLocaleString("es-CO")} ${pack.unit})` : ""}`, low ? C.red : t.text],
+          // Packages: closed ones plus the open one ("19 paq + 1 abierto con 15 und · 395 und en total")
+          ["Stock actual", (() => {
+            if (unit !== "paq" || !pack) return `${(Math.round(stock * 1000) / 1000).toLocaleString("es-CO")} ${unit}`
+            const total = Math.round(stock * pack.size * 1000) / 1000
+            const closed = Math.floor(total / pack.size + 1e-9)
+            const open = Math.round((total - closed * pack.size) * 1000) / 1000
+            return `${closed.toLocaleString("es-CO")} paq${open > 0 ? ` + 1 abierto con ${open.toLocaleString("es-CO")} ${pack.unit}` : ""} · ${total.toLocaleString("es-CO")} ${pack.unit} en total`
+          })(), low ? C.red : t.text],
           ["Stock mínimo", `${minimum.toLocaleString("es-CO")} ${unit}`, t.text],
           ["Costo unitario", Number(row[3]) ? `${fmt(Number(row[3]))} / ${unit}` : "Sin compras", C.mustard],
           ["Valor en stock", fmt(stock * (Number(row[3]) || 0)), t.text],

@@ -252,7 +252,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
     toRow: (c) =>
       withId(
         [c.proveedor, c.fecha, c.fecha_registro, c.subtotal, c.total, c.estado === "REGISTRADA" ? "Activo" : "Anulado",
-          c.detalles.map((d: DbRecord) => `${d.insumo} | ${d.cantidad} | ${d.costo_unitario}`).join("\n")],
+          c.detalles.map((d: DbRecord) => `${d.insumo} | ${d.cantidad} | ${d.costo_unitario}${d.empaque ? ` | ${d.empaque}` : ""}`).join("\n")],
         7,
         c.id_compra,
       ).concat(c.motivo_anulacion ?? ""),
@@ -273,7 +273,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
               ? `«${line.name}» no existe en Productos.`
               : `El insumo «${line.name}» no existe en la base de datos.`,
           )
-        return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice }
+        return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice, empaque: line.pack || null }
       })
       return {
         id_proveedor: await idByName("/proveedores", "nombre", "id_proveedor", row[0], "El proveedor"),

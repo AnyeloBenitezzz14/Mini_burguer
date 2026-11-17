@@ -14,7 +14,8 @@ export const STOCK_ORIGIN: Record<string, string> = {
   PERDIDA: "Pérdida",
   EDICION_PERDIDA: "Pérdida editada",
   DEVOLUCION_PERDIDA: "Devuelto a la compra",
-  PRODUCCION: "Producción",
+  PRODUCCION: "Producción (insumos usados)",
+  PRODUCCION_ENTRADA: "Producción (lo que se preparó)",
   AJUSTE: "Ajuste manual",
 }
 
@@ -195,7 +196,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
     statusIndex: 5,
     inactiveStatus: "Anulado",
     anulReasonIndex: 8,
-    hiddenCellIndexes: [2, 6],
+    hiddenCellIndexes: [2, 6, 8],
   },
   perdidas: {
     columns: ["Insumo", "Cantidad", "Motivo", "Responsable", "Fecha", "Estado"],
@@ -447,7 +448,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
     statusIndex: 8,
     inactiveStatus: "Anulada",
     anulReasonIndex: 14,
-    hiddenCellIndexes: [1, 4, 5, 6, 8, 9, 11, 12],
+    hiddenCellIndexes: [1, 4, 5, 6, 8, 9, 11, 12, 14],
   },
   pedidos: {
     columns: [

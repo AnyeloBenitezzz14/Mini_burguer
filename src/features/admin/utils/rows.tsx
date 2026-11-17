@@ -227,7 +227,7 @@ export const parsePurchaseLines = (value: string | number | undefined) =>
     .split(/\n|;/)
     .map((line) => line.split("|").map((part) => part.trim()))
     .filter(([name]) => name)
-    .map(([name, quantity, unitPrice]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0 }))
+    .map(([name, quantity, unitPrice, pack]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0, pack: pack || "" }))
 
 // Backend role names are uppercase (ADMINISTRADOR); the admin shows them as "Administrador"
 export const roleLabel = (name: string) => name.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())

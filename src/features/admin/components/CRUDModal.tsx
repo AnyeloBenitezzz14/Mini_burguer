@@ -106,6 +106,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     purchaseItemEdit,
     purchaseItemPrice,
     purchaseItemQty,
+    purchaseItemPack,
     purchaseItemSelect,
     purchaseLabel,
     purchaseLossMax,
@@ -161,6 +162,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     setPurchaseFormError,
     setPurchaseItemEdit,
     setPurchaseItemPrice,
+    setPurchaseItemPack,
     setPurchaseItemQty,
     setPurchaseItemSelect,
     setPurchaseNotice,
@@ -2619,34 +2621,45 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 const categories = supplierCategories(supplier)
                 const items = parsePurchaseItems(formData["6"])
                 const total = items.reduce((sum, item) => sum + item.total, 0)
-                const setItems = (next: { name: string; quantity: string; unitPrice?: string }[]) =>
+                const setItems = (next: { name: string; quantity: string; unitPrice?: string; pack?: string }[]) =>
                   setFormData((current) => ({
                     ...current,
-                    "6": next.map((i) => `${i.name} | ${i.quantity} | ${i.unitPrice ?? 0}`).join("\n"),
+                    "6": next.map((i) => `${i.name} | ${i.quantity} | ${i.unitPrice ?? 0}${i.pack ? ` | ${i.pack}` : ""}`).join("\n"),
                   }))
+                const PACK_KINDS = ["Caja", "Paquete", "Bulto"]
+                const pickedUnit = String(supplyInfo(purchaseItemSelect)?.[2] ?? "und")
                 const pickSupply = (name: string) => {
                   setPurchaseItemSelect(name)
                   setPurchaseItemPrice(name ? String(supplyInfo(name)?.[3] ?? "") : "")
                   setPurchaseFormError("")
                 }
                 const addItem = () => {
-                  const qty = toDecimal(purchaseItemQty)
-                  const price = Number(purchaseItemPrice)
+                  const count = toDecimal(purchaseItemQty)
+                  const packPrice = Number(purchaseItemPrice)
+                  const kind = purchaseItemPack.kind
+                  // By the box/pack/sack: what reaches the stock is boxes × what each holds, in the insumo's unit,
+                  // and the unit cost is the box price split over its content
+                  const per = kind ? toDecimal(purchaseItemPack.per) : 1
                   if (!purchaseItemSelect) return setPurchaseFormError("Elige el insumo que vas a agregar.")
-                  if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
-                  if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
-                  if (price > MAX_PRICE) return setPurchaseFormError(`El precio unitario puede ser máximo ${fmt(MAX_PRICE)}.`)
+                  if (!(count > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
+                  if (kind && !(per > 0)) return setPurchaseFormError(`Escribe cuántos ${pickedUnit} trae cada ${kind.toLowerCase()}.`)
+                  if (!(packPrice > 0)) return setPurchaseFormError(kind ? `Escribe el precio de cada ${kind.toLowerCase()}.` : "Escribe el precio unitario.")
+                  if (packPrice > MAX_PRICE) return setPurchaseFormError(`El precio puede ser máximo ${fmt(MAX_PRICE)}.`)
+                  const qty = Math.round(count * per * 1000) / 1000
+                  const price = Math.round((packPrice / per) * 100) / 100
+                  const pack = kind ? `${count.toLocaleString("es-CO")} ${kind}${count === 1 ? "" : "s"} × ${per.toLocaleString("es-CO")} ${pickedUnit} a ${fmt(packPrice)}` : ""
                   const existing = items.find(
-                    (i) => i.name === purchaseItemSelect && Number(i.unitPrice) === price,
+                    (i) => i.name === purchaseItemSelect && Number(i.unitPrice) === price && !i.pack && !pack,
                   )
                   setItems(
                     existing
                       ? items.map((i) => (i === existing ? { ...i, quantity: String(Number(i.quantity) + qty) } : i))
-                      : [...items, { name: purchaseItemSelect, quantity: String(qty), unitPrice: String(price) }],
+                      : [...items, { name: purchaseItemSelect, quantity: String(qty), unitPrice: String(price), pack }],
                   )
                   setPurchaseItemSelect("")
                   setPurchaseItemQty("1")
                   setPurchaseItemPrice("")
+                  setPurchaseItemPack({ kind: "", per: "" })
                   // A soda bought at or above its sale price would sell at a loss: say so (it still gets added)
                   const salePrice = Number(sodaProductRow(purchaseItemSelect)?.[2]) || 0
                   setPurchaseFormError(
@@ -2711,7 +2724,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             ? <>Insumos de {categories.join(", ")}: lo que vende «{supplier}». Al guardar, los que compres quedan en su lista.</>
                             : <>«{supplier}» aún no tiene compras: puedes elegir cualquier insumo. Al guardar, quedará vendiéndolo.</>}
                         </p>
-                        <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_96px_120px_auto]">
+                        <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_120px_96px_120px_auto]">
                           <label className="flex min-w-0 flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                             Insumo
                             {/* Search: type to filter the supplier's insumos, click one to pick it */}
@@ -2787,7 +2800,19 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             </div>
                           </label>
                           <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                            Cantidad
+                            Viene en
+                            <select
+                              value={purchaseItemPack.kind}
+                              onChange={(e) => setPurchaseItemPack({ kind: e.target.value, per: e.target.value ? purchaseItemPack.per : "" })}
+                              className="w-full cursor-pointer rounded-xl px-2 py-2.5 text-sm outline-none"
+                              style={controlSt}
+                            >
+                              <option value="">{purchaseItemSelect ? `${pickedUnit} suelto` : "Suelto"}</option>
+                              {PACK_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                            {purchaseItemPack.kind ? `${purchaseItemPack.kind}s` : "Cantidad"}
                             <input
                               type="text"
                               inputMode="decimal"
@@ -2798,7 +2823,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             />
                           </label>
                           <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                            Precio unitario
+                            {purchaseItemPack.kind ? `Precio por ${purchaseItemPack.kind.toLowerCase()}` : "Precio unitario"}
                             <input
                               type="number"
                               min="0"
@@ -2817,6 +2842,33 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           >
                             Agregar
                           </button>
+                          {purchaseItemPack.kind && (
+                            <label className="flex flex-wrap items-center gap-2 text-xs sm:col-span-5" style={{ color: t.text }}>
+                              Cada {purchaseItemPack.kind.toLowerCase()} trae
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={purchaseItemPack.per}
+                                onChange={(e) => setPurchaseItemPack({ ...purchaseItemPack, per: e.target.value })}
+                                placeholder="24"
+                                aria-label={`Contenido de cada ${purchaseItemPack.kind.toLowerCase()}`}
+                                className="w-20 rounded-lg px-2 py-1.5 text-sm outline-none"
+                                style={controlSt}
+                              />
+                              {pickedUnit}
+                              {(() => {
+                                const count = toDecimal(purchaseItemQty)
+                                const per = toDecimal(purchaseItemPack.per)
+                                const price = Number(purchaseItemPrice)
+                                return count > 0 && per > 0 ? (
+                                  <span style={{ color: t.muted }}>
+                                    → entran {(count * per).toLocaleString("es-CO")} {pickedUnit} al inventario
+                                    {price > 0 ? ` · ${fmt(Math.round((price / per) * 100) / 100)} por ${pickedUnit}` : ""}
+                                  </span>
+                                ) : null
+                              })()}
+                            </label>
+                          )}
                         </div>
                       </>
                     )}
@@ -2837,6 +2889,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               <div className="text-[11px]" style={{ color: t.muted }}>
                                 {Number(item.quantity).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")} × {fmt(Number(item.unitPrice || 0))}
                               </div>
+                              {item.pack && (
+                                <div className="text-[11px]" style={{ color: C.mustard }}>Vino en: {item.pack}</div>
+                              )}
                               {savedItems.length > 0 && lostSoFar(item.name) > 0 && (
                                 <div className="text-[11px] font-semibold" style={{ color: C.red }}>
                                   Perdido: {lostSoFar(item.name).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")}
@@ -2873,7 +2928,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                     if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
                                     if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
                                     if (price > MAX_PRICE) return setPurchaseFormError(`El precio unitario puede ser máximo ${fmt(MAX_PRICE)}.`)
-                                    setItems(items.map((i, n) => (n === index ? { ...i, quantity: String(qty), unitPrice: String(price) } : i)))
+                                    setItems(items.map((i, n) => (n === index ? { ...i, quantity: String(qty), unitPrice: String(price), pack: Number(i.quantity) === qty && Number(i.unitPrice) === price ? i.pack : "" } : i)))
                                     setPurchaseItemEdit(null)
                                     setPurchaseFormError("")
                                   }}
@@ -5034,6 +5089,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         >
                           <span className="min-w-0">
                             <span className="block break-words">{item.name}</span>
+                            {item.pack && (
+                              <span className="block text-[11px]" style={{ color: C.mustard }}>Vino en: {item.pack}</span>
+                            )}
                             <span className="block text-[11px] sm:hidden" style={{ color: t.muted }}>
                               {Number(item.quantity).toLocaleString("es-CO")} {unit}
                             </span>
