@@ -543,6 +543,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           }
           // Protected (administrador role, superadmin): the window explains why
           const locked = !!statusRow && (isStatusLocked(section, statusRow) || isPrincipalAdmin)
+          // Audit rule: an annulled purchase or sale is never reactivated (a new one is created instead)
+          if (!active && !locked && (section === "compras" || section === "ventas")) return null
           return active || locked ? (
             <button
               type="button"
@@ -577,7 +579,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         {cfg.statusIndex !== undefined ? (
           section === "producto" ? (
             canDo(section, "ELIMINAR") ? deleteButton : disabledAction("Eliminar", Ico.trash)
-          ) : section === "ventas" ? null : (
+          ) : section === "ventas" || section === "compras" ? null : (
             canDo(section, "ELIMINAR") &&
             !isPrincipalAdmin &&
             !noDelete &&

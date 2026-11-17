@@ -165,6 +165,8 @@ export type ModConfig = {
   autoId?: boolean
   statusIndex?: number
   inactiveStatus?: string
+  // Cell where the mandatory annulment reason is saved (purchases and sales)
+  anulReasonIndex?: number
   hiddenCellIndexes?: number[]
 }
 

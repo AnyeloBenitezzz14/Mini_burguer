@@ -255,7 +255,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
           c.detalles.map((d: DbRecord) => `${d.insumo} | ${d.cantidad} | ${d.costo_unitario}`).join("\n")],
         7,
         c.id_compra,
-      ),
+      ).concat(c.motivo_anulacion ?? ""),
     toBody: async (row) => {
       const lines = parsePurchaseLines(row[6])
       // A soda is bought as its product of «Bebidas» (its stock goes there), the rest as insumos
@@ -282,7 +282,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
         items,
       }
     },
-    setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", { estado: isActiveStatus(row[5]) ? "REGISTRADA" : "ANULADA" }),
+    setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", isActiveStatus(row[5]) ? { estado: "REGISTRADA" } : { estado: "ANULADA", motivo: text(row[8]) }),
     // producto: a soda's stock and cost live in its product; proveedores: what it bought joins the supplier's list
     reloads: ["insumos", "producto", "proveedores"],
   },

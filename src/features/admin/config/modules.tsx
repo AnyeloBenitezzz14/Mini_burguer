@@ -195,6 +195,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
     noDelete: true,
     statusIndex: 5,
     inactiveStatus: "Anulado",
+    anulReasonIndex: 8,
     hiddenCellIndexes: [2, 6],
   },
   perdidas: {
@@ -446,6 +447,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
     // [8] estado: «Anulada» when it's voided (saved with the sale, so it stays after reloading)
     statusIndex: 8,
     inactiveStatus: "Anulada",
+    anulReasonIndex: 14,
     hiddenCellIndexes: [1, 4, 5, 6, 8, 9, 11, 12],
   },
   pedidos: {

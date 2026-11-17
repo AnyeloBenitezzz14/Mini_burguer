@@ -862,6 +862,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     idx: number
     // Same dialog, used to confirm before reactivating a user
     reactivate?: boolean
+    // Purchases and sales: mandatory reason typed in the dialog
+    reason?: string
+    reasonError?: string
   } | null>(null)
   const [chartFilter, setChartFilter] = useState<DashPeriod>("semana")
   // Any day inside the chosen period
@@ -2990,9 +2993,11 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     sec: string,
     rowIndex: number,
     statusIndex: number,
+    // Extra cells saved together with the status (e.g. the annulment reason)
+    patch: Record<number, string> = {},
   ) => {
     const currentRows = rows[sec] || []
-    const currentRow = currentRows[rowIndex]
+    const currentRow = currentRows[rowIndex] && Object.assign([...currentRows[rowIndex]], patch)
     if (
       !currentRow ||
       isStatusLocked(sec, currentRow)
@@ -3029,7 +3034,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
 
     setRows((current) => {
       const updated = [...(current[sec] || [])]
-      const updatedRow = [...updated[rowIndex]]
+      const updatedRow = Object.assign([...updated[rowIndex]], patch)
       updatedRow[statusIndex] = nextValue
       updated[rowIndex] = updatedRow
 
@@ -3807,9 +3812,16 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     if (!getAnulAssessment(target.section, row, target.idx).allowed) return
 
     const statusIndex = MOD_CFG[target.section]?.statusIndex
+    const reasonIndex = MOD_CFG[target.section]?.anulReasonIndex
+    const reason = (target.reason ?? "").trim()
+    if (reasonIndex !== undefined && reason.length < 5) {
+      setAnulTarget({ ...target, reasonError: "Escribe el motivo de la anulación (mínimo 5 caracteres)." })
+      return
+    }
     if (statusIndex !== undefined) {
-      toggleStatus(target.section, target.idx, statusIndex)
-      setUndoAnul({ sec: target.section, idx: target.idx, statusIndex, name: String(row?.[0] ?? "") })
+      toggleStatus(target.section, target.idx, statusIndex, reasonIndex !== undefined ? { [reasonIndex]: reason } : {})
+      // Purchases and sales can't be reactivated, so there's no undo for them
+      if (reasonIndex === undefined) setUndoAnul({ sec: target.section, idx: target.idx, statusIndex, name: String(row?.[0] ?? "") })
     } else {
       doAnul(target.section, target.idx)
     }

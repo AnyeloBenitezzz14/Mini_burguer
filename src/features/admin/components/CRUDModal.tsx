@@ -983,6 +983,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             scrollbarWidth: "thin",
           }}
         >
+          {isView && (() => {
+            const reasonIndex = MOD_CFG[modal.section]?.anulReasonIndex
+            const reason = reasonIndex === undefined ? "" : String(row?.[reasonIndex] ?? "").trim()
+            return reason ? (
+              <div role="note" className="col-span-full rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}12`, border: `1px solid ${C.red}40`, color: t.text }}>
+                <span className="font-bold" style={{ color: C.red }}>Motivo de la anulación: </span>
+                {reason}
+              </div>
+            ) : null
+          })()}
           {isSales && isView && (
             <div className="print-only mb-3 border-b pb-2 text-center">
               <p className="text-base font-bold">El Parche Mini Burguer</p>
