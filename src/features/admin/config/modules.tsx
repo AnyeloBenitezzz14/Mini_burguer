@@ -14,7 +14,8 @@ export const STOCK_ORIGIN: Record<string, string> = {
   PERDIDA: "Pérdida",
   EDICION_PERDIDA: "Pérdida editada",
   DEVOLUCION_PERDIDA: "Devuelto a la compra",
-  PRODUCCION: "Producción",
+  PRODUCCION: "Producción (insumos usados)",
+  PRODUCCION_ENTRADA: "Producción (lo que se preparó)",
   AJUSTE: "Ajuste manual",
 }
 
@@ -41,8 +42,7 @@ export const PRODUCTION_STATUSES = [
   "Recibido",
   "Confirmado",
   "En cocina",
-  "En camino",
-  "Entregado",
+  "Finalizada",
   "Producto no conforme",
 ] as const
 
@@ -121,12 +121,10 @@ export const MOD_CFG: Record<string, ModConfig> = {
         key: "2",
         label: "Unidad de medida",
         type: "select",
-        options: ["kg", "g", "L", "ml", "und", "paq"],
+        // Always the smallest unit and whole numbers: 1.5 kg is 1500 g. Boxes and packs are bought in Compras
+        // («Viene en: Caja… trae N»), which turns them into this unit.
+        options: ["g", "ml", "und"],
       },
-      // Unit "paq": row[6] (old "Stock máximo") is how much one package holds and row[14] its unit
-      // (30 und of egg, 100 g of a sobre), so recipes can use what's inside
-      { key: "6", label: "Contenido de cada paquete", type: "number" },
-      { key: "14", label: "Medida del contenido", type: "select", options: ["und", "g", "ml"] },
       { key: "3", label: "Costo unitario", type: "number" },
       { key: "4", label: "Stock actual", type: "number" },
       { key: "5", label: "Stock mínimo", type: "number" },
@@ -135,11 +133,15 @@ export const MOD_CFG: Record<string, ModConfig> = {
       { key: "9", label: "Versión de la ficha", type: "text" },
       { key: "10", label: "Insumos principales", type: "textarea" },
       { key: "11", label: "Cómo se prepara", type: "textarea" },
+      // Producto de insumo offered in orders: 0 = cortesía (a free sauce), more = an addition that's charged;
+      // 16 = how much leaves its stock per serving, in its own unit
+      { key: "15", label: "Precio de venta", type: "number" },
+      { key: "16", label: "Porción por pedido", type: "number" },
     ],
     seed: [],
     // Deletable only while no other module has records of it (see getDeleteAssessment)
     statusIndex: 12,
-    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11, 14],
+    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11, 14, 15, 16],
   },
   proveedores: {
     columns: [
@@ -195,7 +197,8 @@ export const MOD_CFG: Record<string, ModConfig> = {
     noDelete: true,
     statusIndex: 5,
     inactiveStatus: "Anulado",
-    hiddenCellIndexes: [2, 6],
+    anulReasonIndex: 8,
+    hiddenCellIndexes: [2, 6, 8],
   },
   perdidas: {
     columns: ["Insumo", "Cantidad", "Motivo", "Responsable", "Fecha", "Estado"],
@@ -446,7 +449,8 @@ export const MOD_CFG: Record<string, ModConfig> = {
     // [8] estado: «Anulada» when it's voided (saved with the sale, so it stays after reloading)
     statusIndex: 8,
     inactiveStatus: "Anulada",
-    hiddenCellIndexes: [1, 4, 5, 6, 8, 9, 11, 12],
+    anulReasonIndex: 14,
+    hiddenCellIndexes: [1, 4, 5, 6, 8, 9, 11, 12, 14],
   },
   pedidos: {
     columns: [
@@ -615,14 +619,8 @@ export const SIDEBAR_MENU = [
       { key: "pedidos", label: "Pedidos" },
       { key: "ventas", label: "Ventas" },
       { key: "devoluciones", label: "Devoluciones" },
+      { key: "domicilios", label: "Domicilios" },
     ],
-    color: C.mustard,
-  },
-  {
-    key: "domicilios",
-    label: "Domicilios",
-    icon: Ico.mapPin,
-    children: [],
     color: C.mustard,
   },
 ]

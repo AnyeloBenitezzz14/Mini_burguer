@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { MOD_CFG, PRODUCTION_STATUSES, QUICK_FILTERS, TABLE_FILTERS } from "@/features/admin/config/modules"
-import { isNaturalSupplier, isReturnedLoss, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
+import { isNaturalSupplier, isProductionEditLocked, isReturnedLoss, isSupplyProductRow, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
 import { isSodaName, sodaImage } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { loadOrders } from "@/features/orders/services/orders.service"
@@ -335,6 +335,12 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
             {isSuperAdmin ? "Superadministrador" : isLocalClient ? "Cliente de local" : "Lo preparamos nosotros"}
           </span>
         )}
+        {section === "producto" && isSupplyProductRow(row) && (
+          // What was prepared in production and is in stock (the same stock as in Insumos)
+          <span className={chip} style={{ background: t.input, color: t.text }}>
+            Stock: {Number(row[12]) || 0}
+          </span>
+        )}
         {isLow && (
           <span className={chip} style={{ background: `${C.red}18`, color: C.red }}>
             ⚠ Stock bajo
@@ -428,6 +434,40 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
       </button>
     )
 
+    // A producto de insumo is managed in Insumos (ficha técnica, stock, status): here it is only seen
+    const fromSupply = section === "producto" && isSupplyProductRow(rows.producto?.[rowIndex])
+    const supplyOnly = (label: string, icon: ReactNode) => (
+      <button
+        type="button"
+        title={`${label}: se gestiona en el módulo Insumos`}
+        aria-label={`${label} no disponible: se gestiona en Insumos`}
+        disabled
+        className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded-lg opacity-40"
+        style={{ color: t.muted, background: t.input }}
+      >
+        {icon}
+      </button>
+    )
+    if (fromSupply)
+      return (
+        <div className="flex flex-shrink-0 flex-nowrap items-center justify-end gap-1.5">
+          {canDo(section, "VER") ? (
+            <button
+              type="button"
+              title="Ver detalle"
+              aria-label="Ver detalle"
+              onClick={() => openView(section, rowIndex)}
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+              style={{ color: C.amber, background: `${C.amber}15` }}
+            >
+              {Ico.eye}
+            </button>
+          ) : disabledAction("Ver detalle", Ico.eye)}
+          {supplyOnly("Editar", Ico.edit)}
+          {supplyOnly("Anular", Ico.ban)}
+          {supplyOnly("Eliminar", Ico.trash)}
+        </div>
+      )
     return (
       <div className="flex flex-shrink-0 flex-nowrap items-center justify-end gap-1.5">
         {canDo(section, "VER") ? (
@@ -442,15 +482,18 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
             {Ico.eye}
           </button>
         ) : disabledAction("Ver detalle", Ico.eye)}
-        {!isAnulled &&
+        {/* A sale comes from its order or is annulled; it isn't edited (no edit icon at all) */}
+        {section === "ventas" ? null : !isAnulled &&
         canDo(section, "EDITAR") &&
+        // Once its production order exists (from «Confirmado» on) the order can't change
+        !(section === "pedidos" && (rows.produccion || []).some((op) => String(op[15] ?? "") === String(orderRow?.[0] ?? ""))) &&
         !(section === "perdidas" && isReturnedLoss(rows.perdidas?.[rowIndex])) &&
         // An annulled purchase is history: not editable (its stock was already taken back)
         !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) &&
         // Once the kitchen has it, the order's products can't change
         !(section === "pedidos" && !["Por confirmar", "Pendiente", "Recibido"].includes(String(orderRow?.[7] ?? ""))) &&
-        // A production order is only editable while «Recibido»: from «Confirmado» on, the kitchen has it
-        !(section === "produccion" && !["", "Recibido"].includes(String(rows.produccion?.[rowIndex]?.[8] ?? ""))) ? (
+        // From a pedido: editable only while «Recibido»; made by hand: until it goes «En cocina»
+        !(section === "produccion" && isProductionEditLocked(rows.produccion?.[rowIndex])) ? (
           <button
             type="button"
             title="Editar"
@@ -500,6 +543,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           }
           // Protected (administrador role, superadmin): the window explains why
           const locked = !!statusRow && (isStatusLocked(section, statusRow) || isPrincipalAdmin)
+          // Audit rule: an annulled purchase or sale is never reactivated (a new one is created instead)
+          if (!active && !locked && (section === "compras" || section === "ventas")) return null
           return active || locked ? (
             <button
               type="button"
@@ -534,7 +579,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         {cfg.statusIndex !== undefined ? (
           section === "producto" ? (
             canDo(section, "ELIMINAR") ? deleteButton : disabledAction("Eliminar", Ico.trash)
-          ) : section === "ventas" ? null : (
+          ) : section === "ventas" || section === "compras" ? null : (
             canDo(section, "ELIMINAR") &&
             !isPrincipalAdmin &&
             !noDelete &&
@@ -882,8 +927,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                   section === "insumos" &&
                   Number(row[4]) <= Number(row[5])
                 const isSupplyProduct =
-                  section === "insumos" &&
-                  String(row[7]).toLowerCase() === "sí"
+                  (section === "insumos" && String(row[7]).toLowerCase() === "sí") ||
+                  (section === "producto" && isSupplyProductRow(row))
                 const isLocalClient =
                   section === "clientes" &&
                   String(row[6]).toLowerCase() === "sí"
@@ -991,8 +1036,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                 section === "insumos" &&
                 Number(row[4]) <= Number(row[5])
               const isSupplyProduct =
-                section === "insumos" &&
-                String(row[7]).toLowerCase() === "sí"
+                (section === "insumos" && String(row[7]).toLowerCase() === "sí") ||
+                (section === "producto" && isSupplyProductRow(row))
               const isLocalClient =
                 section === "clientes" &&
                 String(row[6]).toLowerCase() === "sí"

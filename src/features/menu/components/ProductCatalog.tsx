@@ -90,9 +90,17 @@ export default function ProductCatalog({
         role="tablist"
         aria-label="Categorías del menú"
       >
-        {MENU_CATS.filter((cat) => cat.id !== "salsas" && (cat.id === "todos" || catalogProducts.some((p) => p.cat === cat.id))).map((cat) => {
+        {MENU_CATS.filter((cat) => cat.id !== "salsas" && (cat.id === "todos" || catalogProducts.some((p) => p.cat === cat.id))).map((cat, _i, cats) => {
           const active = activeCat === cat.id
-          const photo = (cat.id === "todos" ? catalogProducts : catalogProducts.filter((p) => p.cat === cat.id)).find((p) => p.img)?.img
+          // «Todos» shows its grid icon; each category takes a photo no earlier tab already used
+          const used = new Set<string>()
+          let photo: string | undefined
+          for (const c of cats) {
+            if (c.id === "todos") continue
+            const pick = catalogProducts.find((p) => p.cat === c.id && p.img && !used.has(p.img))?.img
+            if (pick) used.add(pick)
+            if (c.id === cat.id) { photo = pick; break }
+          }
           return (
             <button
               key={cat.id}

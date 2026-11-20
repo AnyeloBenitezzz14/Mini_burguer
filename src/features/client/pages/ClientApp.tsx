@@ -1,3 +1,4 @@
+import { C } from "@/shared/styles/theme"
 import { useState } from "react"
 import CartAddedNotice, { useCartNotice } from "@/features/checkout/components/CartAddedNotice"
 import { addCartItem } from "@/features/checkout/utils/cart"
@@ -117,6 +118,15 @@ export default function ClientApp({
       />
 
       <main className="flex-1 max-w-7xl mx-auto w-full px-4 sm:px-6 py-6">
+        {/* Notice wherever the client is: the shop rejected a payment proof */}
+        {view !== "orders" && orders.some((o) => o.paymentStatus === "Rechazado") && (
+          <div role="alert" className="mx-auto mb-5 flex max-w-5xl flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3 text-sm" style={{ background: `${C.red}12`, color: C.red, border: `1px solid ${C.red}33` }}>
+            <strong>Comprobante rechazado, intenta mandar otro comprobante</strong>
+            <button type="button" onClick={() => setView("orders")} className="cursor-pointer rounded-full px-3 py-1.5 text-xs font-bold" style={{ background: C.red, color: "#fff" }}>
+              Ver mis pedidos
+            </button>
+          </div>
+        )}
         {view === "menu" && (
           // The same page as the guest menu (Pide ahora)
           <div className="max-w-5xl mx-auto py-2">

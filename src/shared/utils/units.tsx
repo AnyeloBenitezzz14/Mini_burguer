@@ -1,6 +1,7 @@
 // Suggested units for an insumo bought in `base` (the recipe can type any other, e.g. "cucharada")
+// Insumos in g, ml or und are used in that same unit, in whole numbers; kg, L and paq are older records
 export const compatibleUnits = (base: string) =>
-  base === "kg" || base === "g" ? ["g", "kg"] : base === "L" || base === "ml" ? ["ml", "L"] : base === "paq" ? ["paq", "und", "g", "kg", "ml", "L"] : [base || "und"]
+  base === "kg" ? ["g", "kg"] : base === "L" ? ["ml", "L"] : base === "paq" ? ["paq", "und", "g", "kg", "ml", "L"] : [base || "und"]
 
 export const UNIT_FACTOR: Record<string, { kind: string; factor: number }> = {
   g: { kind: "masa", factor: 1 },

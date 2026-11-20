@@ -36,8 +36,15 @@ export default function SupplyDetail(adminState: AdminPanelState, row: (string |
   })
   const recipeCost = recipe.reduce((sum, item) => sum + (item.cost ?? 0), 0)
   const unpriced = recipe.some((item) => item.cost === null)
-  const steps = String(row[11] ?? "")
-    .split("\n")
+  const rawSteps = String(row[11] ?? "")
+  // Stored either as text (one step per line) or as a JSON list of steps
+  const steps = (() => {
+    try {
+      const list = JSON.parse(rawSteps)
+      if (Array.isArray(list)) return list.map(String)
+    } catch { /* plain text */ }
+    return rawSteps.split("\n")
+  })()
     // "1. Lavar" -> "Lavar" (a quantity like "500 g de azúcar" stays)
     .map((step) => step.replace(/^\s*\d+\s*[.)-]\s*/, "").trim())
     .filter(Boolean)
@@ -87,12 +94,25 @@ export default function SupplyDetail(adminState: AdminPanelState, row: (string |
       </div>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
-          // "3 paq (90 und)" / "2 paq (200 g)": what the packages hold
-          ["Stock actual", `${stock.toLocaleString("es-CO")} ${unit}${unit === "paq" && pack ? ` (${(stock * pack.size).toLocaleString("es-CO")} ${pack.unit})` : ""}`, low ? C.red : t.text],
+          // Packages: closed ones plus the open one ("19 paq + 1 abierto con 15 und · 395 und en total")
+          ["Stock actual", (() => {
+            if (unit !== "paq" || !pack) return `${(Math.round(stock * 1000) / 1000).toLocaleString("es-CO")} ${unit}`
+            const total = Math.round(stock * pack.size * 1000) / 1000
+            const closed = Math.floor(total / pack.size + 1e-9)
+            const open = Math.round((total - closed * pack.size) * 1000) / 1000
+            return `${closed.toLocaleString("es-CO")} paq${open > 0 ? ` + 1 abierto con ${open.toLocaleString("es-CO")} ${pack.unit}` : ""} · ${total.toLocaleString("es-CO")} ${pack.unit} en total`
+          })(), low ? C.red : t.text],
           ["Stock mínimo", `${minimum.toLocaleString("es-CO")} ${unit}`, t.text],
           ["Costo unitario", Number(row[3]) ? `${fmt(Number(row[3]))} / ${unit}` : "Sin compras", C.mustard],
           ["Valor en stock", fmt(stock * (Number(row[3]) || 0)), t.text],
           ...(unit === "paq" ? [["Contenido por paquete", pack ? `${pack.size.toLocaleString("es-CO")} ${pack.unit}` : "Sin definir", t.text]] : []),
+          // Producto de insumo in orders: free sauce or charged addition, and what each serving takes
+          ...(isProductSupply
+            ? [
+                ["Venta en pedidos", Number(row[15]) > 0 ? `${fmt(Number(row[15]))} (adición)` : "Cortesía ($0)", C.mustard],
+                ["Porción por pedido", Number(row[16]) > 0 ? `${Number(row[16]).toLocaleString("es-CO")} ${unit}` : "Sin definir", Number(row[16]) > 0 ? t.text : C.red],
+              ]
+            : []),
         ].map(([label, value, color]) => (
           <div key={label} className="rounded-xl px-3 py-2.5" style={box}>
             <div className="text-[10px] font-semibold" style={{ color: t.muted }}>{label}</div>

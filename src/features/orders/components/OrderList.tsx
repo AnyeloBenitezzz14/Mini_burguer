@@ -49,6 +49,15 @@ export default function OrderList({
               border: `1px solid ${BORDER}`,
             }}
           >
+            {paymentStatus === "Rechazado" && (
+              <div role="alert" className="mb-4 rounded-xl px-4 py-3 text-sm" style={{ background: `${C.red}12`, color: C.red, border: `1px solid ${C.red}33` }}>
+                <strong className="block">Comprobante rechazado, intenta mandar otro comprobante</strong>
+                {o.paymentRejectionReason && <span className="mt-1 block">{o.paymentRejectionReason}</span>}
+                <button type="button" onClick={() => onSelect(o)} className="mt-2 cursor-pointer text-xs font-bold underline">
+                  Subir otro comprobante
+                </button>
+              </div>
+            )}
             <div className="mb-4 border-b pb-3" style={{ borderColor: BORDER }}>
               <OrderProgress status={o.status} dark={dark} />
             </div>

@@ -1,4 +1,4 @@
-import { PURCHASE_ENTITIES } from "@/features/admin/config/modules"
+import { MOD_CFG, PURCHASE_ENTITIES } from "@/features/admin/config/modules"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
 import type { AdminPanelState } from "@/features/admin/types"
@@ -30,6 +30,7 @@ export default function AnulModal(adminState: AdminPanelState): ReactNode {
     producto: { name: "producto", fem: false },
   }[anulTarget.section] || { name: "registro", fem: false }
   const thisOne = `${entity.fem ? "esta" : "este"} ${entity.name}`
+  const needsReason = !reactivate && canAnul && MOD_CFG[anulTarget.section]?.anulReasonIndex !== undefined
 
   return (
     <div
@@ -65,9 +66,33 @@ export default function AnulModal(adminState: AdminPanelState): ReactNode {
           {reactivate
             ? `Vas a reactivar ${thisOne} «${String(targetRow?.[0] ?? "")}». Podrá volver a iniciar sesión con sus permisos.`
             : canAnul
-            ? `Vas a anular ${thisOne} «${String(targetRow?.[0] ?? "")}». El cambio se verá en los módulos que ${entity.fem ? "la" : "lo"} usan, y puedes deshacerlo justo después.`
+            ? needsReason
+              ? `Vas a anular ${thisOne} «${String(targetRow?.[0] ?? "")}». La anulación no se puede revertir: si fue un error, registra ${entity.fem ? "una nueva" : "uno nuevo"}.`
+              : `Vas a anular ${thisOne} «${String(targetRow?.[0] ?? "")}». El cambio se verá en los módulos que ${entity.fem ? "la" : "lo"} usan, y puedes deshacerlo justo después.`
             : `No puedes anular ${thisOne}. ${assessment.reason}`}
         </p>
+        {needsReason && (
+          <div className="mb-5 text-left">
+            <label htmlFor="anul-reason" className="mb-1 block text-xs font-semibold" style={{ color: t.text }}>
+              Motivo de la anulación *
+            </label>
+            <textarea
+              id="anul-reason"
+              autoFocus
+              rows={3}
+              maxLength={300}
+              value={anulTarget.reason ?? ""}
+              onChange={(event) => setAnulTarget({ ...anulTarget, reason: event.target.value, reasonError: "" })}
+              placeholder="Ej.: el proveedor envió el pedido equivocado"
+              aria-invalid={!!anulTarget.reasonError}
+              className="w-full resize-none rounded-xl px-3 py-2 text-sm outline-none"
+              style={{ background: t.input, color: t.text, border: `1px solid ${anulTarget.reasonError ? C.red : t.border}` }}
+            />
+            {anulTarget.reasonError && (
+              <p role="alert" className="mt-1 text-xs" style={{ color: C.red }}>{anulTarget.reasonError}</p>
+            )}
+          </div>
+        )}
         <div className="flex gap-3">
           <button
             type="button"

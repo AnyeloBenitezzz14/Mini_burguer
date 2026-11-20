@@ -43,11 +43,10 @@ export default function RolesPermMatrix(adminState: AdminPanelState, {
   // Replaces the given modules' actions (the others stay as they are)
   const setModules = (next: Record<string, string[]>) =>
     setRolesPerms((rp) => ({ ...rp, [permissionKey]: { ...(rp[permissionKey] || {}), ...next } }))
-  // Any action needs "Ver"; without "Ver" the module has nothing
+  // Each permission is independent: checking or unchecking one never touches the others
   const withAction = (mod: string, action: string, on: boolean) => {
     const cur = perms[mod] || []
-    if (on) return [...new Set([...cur, action, "Ver"])]
-    return action === "Ver" ? [] : cur.filter((a) => a !== action)
+    return on ? [...new Set([...cur, action])] : cur.filter((a) => a !== action)
   }
   const toggle = (mod: string, action: string) =>
     canEdit && setModules({ [mod]: withAction(mod, action, !(perms[mod] || []).includes(action)) })
@@ -199,7 +198,7 @@ export default function RolesPermMatrix(adminState: AdminPanelState, {
       </div>
       {canEdit && (
         <p className="text-[11px]" style={{ color: t.muted }}>
-          «Todos» marca o quita esa acción en todos los módulos. Crear, Editar o Anular activan también Ver.
+          «Todos» marca o quita esa acción en todos los módulos. Cada casilla es independiente.
         </p>
       )}
     </div>

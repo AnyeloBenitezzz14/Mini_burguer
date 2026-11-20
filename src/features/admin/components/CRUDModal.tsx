@@ -1,7 +1,7 @@
 import { Fragment } from "react"
 import { MOD_CFG, NATURAL_SUPPLIER_KEYS, NATURAL_SUPPLIER_VIEW_KEYS, PAYMENT_NEXT, PURCHASE_ENTITIES, RETURNED_LOSS, STOCK_ORIGIN } from "@/features/admin/config/modules"
 import { DB_SYNC } from "@/features/admin/services/sync.service"
-import { derivePedidoPayment, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
+import { derivePedidoPayment, isActiveStatus, isSupplyProductRow, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
 import { ADDITION_PRODUCT, SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
@@ -32,6 +32,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     canDo,
     clientFormError,
     closeModal,
+    openView,
     requestCloseModal,
     discardAsk,
     setDiscardAsk,
@@ -105,6 +106,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     purchaseItemEdit,
     purchaseItemPrice,
     purchaseItemQty,
+    purchaseItemPack,
     purchaseItemSelect,
     purchaseLabel,
     purchaseLossMax,
@@ -160,6 +162,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     setPurchaseFormError,
     setPurchaseItemEdit,
     setPurchaseItemPrice,
+    setPurchaseItemPack,
+    setSupplyPriceDraft,
+    saveSupplySalePrice,
+    supplyPriceDraft,
     setPurchaseItemQty,
     setPurchaseItemSelect,
     setPurchaseNotice,
@@ -302,7 +308,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
       ...supplierSupplies(supplierName).filter(isStockedExtra),
     ])].sort((a, b) => a.localeCompare(b, "es"))
   }
-  const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void) => {
+  const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void, locked: string[] = []) => {
     const groups = new Map<string, string[]>()
     names.forEach((name) => {
       const category = currentCategory(String(supplyInfo(name)?.[1] ?? "").trim()) || (isSodaName(name) ? "Bebidas" : isStockedExtra(name) ? ADDITION_PRODUCT : "Sin categoría")
@@ -318,7 +324,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             </div>
             <div className="flex flex-wrap gap-1.5">
               {list.sort((a, b) => a.localeCompare(b)).map((name) =>
-                onRemove ? (
+                onRemove && locked.includes(name) ? (
+                  <span
+                    key={name}
+                    title="Ya tiene compras a este proveedor: no se puede quitar"
+                    className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                    style={{ background: `${C.mustard}18`, color: C.mustard }}
+                  >
+                    {name} <span aria-label="Con compras">🔒</span>
+                  </span>
+                ) : onRemove ? (
                   <button
                     key={name}
                     type="button"
@@ -568,7 +583,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     cfg.statusIndex !== undefined && row ? String(row[cfg.statusIndex] ?? "") : ""
   const dataFields = cfg.fields.filter((f) => f.type !== "image")
   const productCategory = normalizeName(currentCategory(String(isView ? row?.[1] ?? "" : formData["1"] ?? "")))
-  const hideProductTechnicalSheet = isProduct && productCategory === normalizeName(SODA_PRODUCT)
+  // An addition (Queso, Tocineta...) is only name, category and price: no photo, description nor ficha técnica
+  const isAdditionForm = isProduct && !isView && formData["1"] === ADDITION_PRODUCT
+  const isSupplyProductView = isProduct && isView && isSupplyProductRow(row ?? undefined)
+  const hideProductTechnicalSheet = isProduct && (productCategory === normalizeName(SODA_PRODUCT) || isAdditionForm || isSupplyProductView)
   const showSupplyTechnicalSheet =
     isSupply &&
     String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
@@ -593,7 +611,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             (!["6", "14"].includes(field.key) || String(isView ? row?.[2] : formData["2"]) === "paq") &&
             // The unit cost is set by each purchase (its unit price): only the detail shows it
             !(modal.mode !== "view" && field.key === "3") &&
-            (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
+            (!["8", "9", "10", "11", "15", "16"].includes(field.key) || showSupplyTechnicalSheet),
         )
     : isUser
       ? dataFields.filter(
@@ -606,7 +624,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
       : dataFields
   const productMainFields = isProduct
     ? dataFields.filter(
-        (field) => ["0", "1", "2", "3", "10", ...(formData["1"] === SODA_PRODUCT ? ["14"] : [])].includes(field.key),
+        (field) => ["0", "1", "2", ...(isAdditionForm ? [] : ["3"]), "10", ...(formData["1"] === SODA_PRODUCT ? ["14"] : [])].includes(field.key),
       )
     : dataFields
   // A drink (category «Bebidas») is a finished product: no ficha técnica, its own compact layout
@@ -857,7 +875,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
@@ -970,6 +988,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             scrollbarWidth: "thin",
           }}
         >
+          {isView && (() => {
+            const reasonIndex = MOD_CFG[modal.section]?.anulReasonIndex
+            const reason = reasonIndex === undefined ? "" : String(row?.[reasonIndex] ?? "").trim()
+            return reason ? (
+              <div role="note" className="col-span-full rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}12`, border: `1px solid ${C.red}40`, color: t.text }}>
+                <span className="font-bold" style={{ color: C.red }}>Motivo de la anulación: </span>
+                {reason}
+              </div>
+            ) : null
+          })()}
           {isSales && isView && (
             <div className="print-only mb-3 border-b pb-2 text-center">
               <p className="text-base font-bold">El Parche Mini Burguer</p>
@@ -1035,7 +1063,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             </div>
           )}
           {isProduct ? (
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <div className={`grid grid-cols-1 gap-6 ${isAdditionForm || isSupplyProductView ? "" : "lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"}`}>
               <div className="flex flex-col gap-3">
                 {isView && row && (
                   <div className="flex flex-col gap-4">
@@ -1064,9 +1092,81 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         {String(row[0] ?? "—")}
                       </h4>
                       <div className="text-xl font-semibold" style={{ color: C.mustard }}>
-                        {Number(row[2]) > 0 ? fmt(Number(row[2])) : "Sin precio"}
+                        {Number(row[2]) > 0 ? fmt(Number(row[2])) : isSupplyProductRow(row) ? "Cortesía ($0)" : "Sin precio"}
                       </div>
                     </div>
+                    {isSupplyProductRow(row) && (
+                      // Same record as in Insumos: its ficha técnica, stock and status are managed there
+                      <div className="rounded-xl px-4 py-3 text-xs" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35`, color: t.muted }}>
+                        <span className="font-bold" style={{ color: C.mustard }}>Producto de insumo.</span> Aquí solo se consulta: su ficha técnica, stock y estado se manejan en Insumos.
+                        {(() => {
+                          const supply = (rows.insumos || []).find((r) => String(r[0]) === String(row[0]))
+                          return supply ? (
+                            <span className="mt-1.5 block" style={{ color: t.text }}>
+                              Stock: <strong>{Number(supply[4]) || 0} {String(supply[2] ?? "")}</strong> · mínimo {Number(supply[5]) || 0} {String(supply[2] ?? "")}
+                              {Number(supply[4]) <= Number(supply[5]) && <strong style={{ color: C.red }}> · stock bajo</strong>}
+                            </span>
+                          ) : null
+                        })()}
+                        {canDo("insumos", "EDITAR") && (() => {
+                          // Its sale price, right here: 0 = cortesía (free sauce), more = an addition that's charged
+                          const name = String(row[0])
+                          const draft = supplyPriceDraft?.name === name ? supplyPriceDraft : null
+                          return (
+                            <span className="mt-2 flex flex-wrap items-center gap-2" style={{ color: t.text }}>
+                              Precio de venta:
+                              {draft ? (
+                                <>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    autoFocus
+                                    value={draft.value}
+                                    onChange={(e) => setSupplyPriceDraft({ name, value: e.target.value })}
+                                    onKeyDown={(e) => { if (e.key === "Enter") saveSupplySalePrice(name, draft.value) }}
+                                    aria-label="Precio de venta (0 = cortesía)"
+                                    className="w-28 rounded-lg px-2 py-1 text-xs outline-none"
+                                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                                  />
+                                  <button type="button" disabled={draft.saving} onClick={() => saveSupplySalePrice(name, draft.value)}
+                                    className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-bold disabled:opacity-60" style={{ background: C.mustard, color: "#fff" }}>
+                                    {draft.saving ? "Guardando…" : "Guardar"}
+                                  </button>
+                                  <button type="button" onClick={() => setSupplyPriceDraft(null)}
+                                    className="cursor-pointer rounded-lg px-2.5 py-1 text-xs" style={{ background: t.input, color: t.muted }}>
+                                    Cancelar
+                                  </button>
+                                  <span className="basis-full text-[11px]" style={{ color: draft.error ? C.red : t.muted }}>
+                                    {draft.error || "0 = cortesía: sale gratis en Salsas. Con precio sale en Adiciones y se cobra."}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <strong>{Number(row[2]) > 0 ? fmt(Number(row[2])) : "Cortesía ($0)"}</strong>
+                                  <button type="button" onClick={() => setSupplyPriceDraft({ name, value: String(Number(row[2]) || 0) })}
+                                    className="cursor-pointer font-bold underline" style={{ color: C.mustard }}>
+                                    Cambiar
+                                  </button>
+                                </>
+                              )}
+                            </span>
+                          )
+                        })()}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const idx = (rows.insumos || []).findIndex((r) => String(r[0]) === String(row[0]))
+                            closeModal()
+                            setSection("insumos")
+                            if (idx >= 0) setTimeout(() => openView("insumos", idx), 0)
+                          }}
+                          className="mt-2 block cursor-pointer font-bold underline"
+                          style={{ color: C.mustard }}
+                        >
+                          Abrir en Insumos →
+                        </button>
+                      </div>
+                    )}
                     <div className="rounded-xl px-4 py-3" style={{ background: t.cardAlt }}>
                       <div className="mb-1 text-[11px]" style={{ color: t.muted }}>Descripción</div>
                       <p className="text-sm leading-relaxed" style={{ color: String(row[3] ?? "").trim() ? t.text : t.muted }}>
@@ -1086,7 +1186,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     })()}
                   </div>
                 )}
-                {!isView && (
+                {!isView && !isAdditionForm && (
                   // Photo in the same place as in the detail; click (or drop) to change it
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-semibold" style={{ color: formFieldErrors.img ? C.red : t.muted }}>
@@ -1379,7 +1479,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   if (category === "salsas") return ["bolsita", "bolsitas"]
                   if (category === "adiciones") return ["porción", "porciones"]
                   if (category === "bebidas" || category === "gaseosas") return ["botella", "botellas"]
-                  if (category === "producto de insumo") {
+                  if (isSupplyProductRow(product) || category === "producto de insumo") {
                     const unit = String(supplyInfo(name)?.[2] ?? "und")
                     return [unit, unit]
                   }
@@ -2290,7 +2390,107 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               // Products, quantity and comment show in its products / summary columns below
               if (isView && isProduction && ["0", "1", "3", "4", "15"].includes(f.key)) return null
               // Insumo technical sheet (fields 8-11) rendered as one card at field "8"
-              if (isSupply && ["9", "10", "11"].includes(f.key)) return null
+              if (isSupply && ["9", "10", "11", "16"].includes(f.key)) return null
+              // Producto de insumo in orders: cortesía or charged, its portion, and what preparing it costs
+              if (isSupply && f.key === "15") {
+                if (!showSupplyTechnicalSheet || isView) return null
+                const base = String(formData["2"] || "und")
+                const raw = String(formData["15"] ?? "0")
+                const charged = raw !== "0" && raw !== ""
+                  ? true
+                  : raw === "" && formData["15"] !== undefined
+                const price = Number(raw) || 0
+                const portion = Number(formData["16"]) || 0
+                // Cost of 1 unit of what's prepared: each ingredient of the ficha at its last purchase price
+                const parts = parseMainSupplies(formData["10"]).map((part) => {
+                  const supply = supplyInfo(part.name)
+                  const inBase = supply
+                    ? convertQty(Number(part.quantity) || 0, part.unit || String(supply[2] ?? ""), String(supply[2] ?? ""), packOf(supply))
+                    : NaN
+                  return Number.isFinite(inBase) ? inBase * (Number(supply?.[3]) || 0) : NaN
+                })
+                const unitCost = parts.reduce((sum, cost) => sum + (Number.isFinite(cost) ? cost : 0), 0)
+                const unpriced = parts.some((cost) => !Number.isFinite(cost))
+                const portionCost = unitCost * portion
+                const setField = (key: string, value: string) => {
+                  setSupplyFormError("")
+                  updateAdminField(modal.section, key, value)
+                }
+                const pill = (on: boolean) => ({
+                  background: on ? C.mustard : t.input,
+                  color: on ? "#fff" : t.text,
+                  border: `1px solid ${on ? C.mustard : t.border}`,
+                })
+                return (
+                  <section key="supply-sale" className="rounded-xl p-4 sm:col-span-2" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <div className="text-sm font-semibold" style={{ color: t.text }}>Venta en pedidos</div>
+                    <p className="mt-0.5 text-xs" style={{ color: t.muted }}>
+                      Mientras tenga stock se ofrece al cliente. Cada vez que se sirve, su porción sale del inventario, también si es gratis.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Cómo se ofrece">
+                      <button type="button" role="radio" aria-checked={!charged} onClick={() => setField("15", "0")}
+                        className="cursor-pointer rounded-xl px-3 py-2 text-xs font-bold" style={pill(!charged)}>
+                        Cortesía ($0) · sale en Salsas
+                      </button>
+                      <button type="button" role="radio" aria-checked={charged} onClick={() => setField("15", charged ? raw : "")}
+                        className="cursor-pointer rounded-xl px-3 py-2 text-xs font-bold" style={pill(charged)}>
+                        Con precio · sale en Adiciones
+                      </button>
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                        Porción por pedido ({base})
+                        <input type="text" inputMode="decimal" value={String(formData["16"] ?? "")}
+                          onChange={(e) => setField("16", e.target.value.replace(",", "."))}
+                          placeholder={base === "und" ? "1" : "30"}
+                          className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                          style={{ background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }} />
+                      </label>
+                      {charged && (
+                        <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                          Precio de venta por porción *
+                          <input type="number" min="0" value={raw}
+                            onChange={(e) => setField("15", e.target.value)}
+                            placeholder="$"
+                            className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                            style={{ background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }} />
+                        </label>
+                      )}
+                    </div>
+                    <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
+                      <div className="rounded-lg px-3 py-2" style={{ background: t.input }}>
+                        <div style={{ color: t.muted }}>Costo de preparar 1 {base}</div>
+                        <div className="font-bold" style={{ color: t.text }}>{fmt(Math.round(unitCost))}</div>
+                      </div>
+                      <div className="rounded-lg px-3 py-2" style={{ background: t.input }}>
+                        <div style={{ color: t.muted }}>Costo por porción</div>
+                        <div className="font-bold" style={{ color: t.text }}>{portion > 0 ? fmt(Math.round(portionCost)) : "—"}</div>
+                      </div>
+                      <div className="rounded-lg px-3 py-2" style={{ background: t.input }}>
+                        <div style={{ color: t.muted }}>{charged ? "Ganancia por porción" : "Te cuesta regalarla"}</div>
+                        <div className="font-bold" style={{ color: charged ? (price - portionCost >= 0 ? "#2E7D60" : C.red) : C.mustard }}>
+                          {portion > 0 ? fmt(Math.round(charged ? price - portionCost : portionCost)) : "—"}
+                        </div>
+                      </div>
+                    </div>
+                    {charged && portion > 0 && price > 0 && price < portionCost && (
+                      <p role="alert" className="mt-2 text-xs font-semibold" style={{ color: C.red }}>
+                        Ojo: el precio es menor que lo que cuesta prepararla; se vendería a pérdida.
+                      </p>
+                    )}
+                    {unpriced && (
+                      <p className="mt-2 text-[11px]" style={{ color: t.muted }}>
+                        Algún insumo de la ficha no tiene costo o su unidad no se puede convertir: no se cuenta en el costo.
+                      </p>
+                    )}
+                    {!(portion > 0) && (
+                      <p className="mt-2 text-[11px]" style={{ color: t.muted }}>
+                        Sin porción no se descuenta del stock cuando se sirve en un pedido.
+                      </p>
+                    )}
+                  </section>
+                )
+              }
               if (isSupply && f.key === "8") {
                 if (!showSupplyTechnicalSheet) return null
                 const src = (key: string) => String((isView ? row?.[Number(key)] : formData[key]) ?? "")
@@ -2395,7 +2595,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                   onClick={() =>
                                     setMainSupplies(
                                       mainSupplies.map((m, i) =>
-                                        i === index ? { ...m, quantity: String(Math.max(0, (Number(m.quantity) || 0) - 1)) } : m,
+                                        i === index && (Number(m.quantity) || 0) - 1 > 0 ? { ...m, quantity: String((Number(m.quantity) || 0) - 1) } : m,
                                       ),
                                     )
                                   }
@@ -2406,9 +2606,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 </button>
                                 <input
                                   type="number"
-                                  min="0"
+                                  min="0.001"
                                   step="any"
                                   value={item.quantity}
+                                  onKeyDown={(event) => ["-", "+", "e", "E"].includes(event.key) && event.preventDefault()}
                                   onChange={(e) =>
                                     setMainSupplies(
                                       mainSupplies.map((m, i) => (i === index ? { ...m, quantity: e.target.value } : m)),
@@ -2483,6 +2684,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
                               }}
                             />
+                            {/* An insumo that doesn't exist yet: create it and come back with it added to the ficha */}
+                            <button
+                              type="button"
+                              onClick={() => openChildForm("insumos")}
+                              title="Crear un insumo nuevo y volver a esta ficha técnica"
+                              className="mt-2 flex cursor-pointer items-center gap-1 self-start rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+                              style={{ background: `${C.mustard}14`, color: C.mustard }}
+                            >
+                              {Ico.plus} Crear insumo nuevo
+                            </button>
                           </>
                         )}
                         {formFieldErrors["10"] && (
@@ -2521,40 +2732,83 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               }
               // Purchase form: subtotal/total are computed from the items below
               if (isPurchase && (f.key === "3" || f.key === "4")) return null
+              if (isPurchase && f.key === "6" && modal.mode === "edit") {
+                // Editing a purchase: its insumos, quantities and prices are fixed (only the date changes)
+                const items = parsePurchaseItems(formData["6"])
+                return (
+                  <section key="purchase-items" className="rounded-xl p-4 sm:col-span-2" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <div className="text-sm font-semibold" style={{ color: t.text }}>Insumos comprados</div>
+                    <p className="mt-1 text-xs" style={{ color: t.muted }}>No se pueden cambiar: al editar una compra solo cambia su fecha.</p>
+                    <div className="mt-3 divide-y" style={{ borderColor: t.border }}>
+                      {items.map((item) => (
+                        <div key={item.name} className="flex items-center justify-between gap-3 py-2 text-sm" style={{ borderColor: t.border }}>
+                          <span className="min-w-0 truncate" style={{ color: t.text }}>
+                            {item.name} <span style={{ color: t.muted }}>× {item.quantity} · {fmt(Number(item.unitPrice))} c/u</span>
+                          </span>
+                          <span className="flex-shrink-0 font-semibold" style={{ color: t.text }}>{fmt(item.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between border-t pt-2.5" style={{ borderColor: t.border }}>
+                      <span className="text-sm" style={{ color: t.muted }}>Total</span>
+                      <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(items.reduce((sum, item) => sum + item.total, 0))}</span>
+                    </div>
+                  </section>
+                )
+              }
               if (isPurchase && f.key === "6") {
                 const supplier = String(formData["0"] ?? "")
                 const allowed = purchaseSupplies(supplier)
+                // Empty search: the supplier's categories; typing: every active insumo (theirs first)
+                const searchPool = (q: string) =>
+                  q
+                    ? [...new Set([...allowed, ...(rows.insumos || []).filter((i) => isActiveStatus(i[12])).map((i) => String(i[0]))])]
+                        .filter((name) => normalizeName(name).includes(q))
+                    : allowed
                 const categories = supplierCategories(supplier)
                 const items = parsePurchaseItems(formData["6"])
                 const total = items.reduce((sum, item) => sum + item.total, 0)
-                const setItems = (next: { name: string; quantity: string; unitPrice?: string }[]) =>
+                const setItems = (next: { name: string; quantity: string; unitPrice?: string; pack?: string }[]) =>
                   setFormData((current) => ({
                     ...current,
-                    "6": next.map((i) => `${i.name} | ${i.quantity} | ${i.unitPrice ?? 0}`).join("\n"),
+                    "6": next.map((i) => `${i.name} | ${i.quantity} | ${i.unitPrice ?? 0}${i.pack ? ` | ${i.pack}` : ""}`).join("\n"),
                   }))
+                const PACK_KINDS = ["Caja", "Paquete", "Bulto"]
+                const pickedUnit = String(supplyInfo(purchaseItemSelect)?.[2] ?? "und")
                 const pickSupply = (name: string) => {
                   setPurchaseItemSelect(name)
                   setPurchaseItemPrice(name ? String(supplyInfo(name)?.[3] ?? "") : "")
                   setPurchaseFormError("")
                 }
                 const addItem = () => {
-                  const qty = toDecimal(purchaseItemQty)
-                  const price = Number(purchaseItemPrice)
+                  const count = toDecimal(purchaseItemQty)
+                  const packPrice = Number(purchaseItemPrice)
+                  const kind = purchaseItemPack.kind
+                  // By the box/pack/sack: what reaches the stock is boxes × what each holds, in the insumo's unit,
+                  // and the unit cost is the box price split over its content
+                  const per = kind ? toDecimal(purchaseItemPack.per) : 1
                   if (!purchaseItemSelect) return setPurchaseFormError("Elige el insumo que vas a agregar.")
-                  if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
-                  if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
-                  if (price > MAX_PRICE) return setPurchaseFormError(`El precio unitario puede ser máximo ${fmt(MAX_PRICE)}.`)
+                  if (!(count > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
+                  if (kind && !(per > 0)) return setPurchaseFormError(`Escribe cuántos ${pickedUnit} trae cada ${kind.toLowerCase()}.`)
+                  if (!(packPrice > 0)) return setPurchaseFormError(kind ? `Escribe el precio de cada ${kind.toLowerCase()}.` : "Escribe el precio unitario.")
+                  if (packPrice > MAX_PRICE) return setPurchaseFormError(`El precio puede ser máximo ${fmt(MAX_PRICE)}.`)
+                  const qty = Math.round(count * per * 1000) / 1000
+                  if (!Number.isInteger(qty))
+                    return setPurchaseFormError(`Lo que entra al inventario va en números enteros de ${pickedUnit}: ${qty.toLocaleString("es-CO")} no lo es.`)
+                  const price = Math.round((packPrice / per) * 100) / 100
+                  const pack = kind ? `${count.toLocaleString("es-CO")} ${kind}${count === 1 ? "" : "s"} × ${per.toLocaleString("es-CO")} ${pickedUnit} a ${fmt(packPrice)}` : ""
                   const existing = items.find(
-                    (i) => i.name === purchaseItemSelect && Number(i.unitPrice) === price,
+                    (i) => i.name === purchaseItemSelect && Number(i.unitPrice) === price && !i.pack && !pack,
                   )
                   setItems(
                     existing
                       ? items.map((i) => (i === existing ? { ...i, quantity: String(Number(i.quantity) + qty) } : i))
-                      : [...items, { name: purchaseItemSelect, quantity: String(qty), unitPrice: String(price) }],
+                      : [...items, { name: purchaseItemSelect, quantity: String(qty), unitPrice: String(price), pack }],
                   )
                   setPurchaseItemSelect("")
                   setPurchaseItemQty("1")
                   setPurchaseItemPrice("")
+                  setPurchaseItemPack({ kind: "", per: "" })
                   // A soda bought at or above its sale price would sell at a loss: say so (it still gets added)
                   const salePrice = Number(sodaProductRow(purchaseItemSelect)?.[2]) || 0
                   setPurchaseFormError(
@@ -2619,7 +2873,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             ? <>Insumos de {categories.join(", ")}: lo que vende «{supplier}». Al guardar, los que compres quedan en su lista.</>
                             : <>«{supplier}» aún no tiene compras: puedes elegir cualquier insumo. Al guardar, quedará vendiéndolo.</>}
                         </p>
-                        <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_96px_120px_auto]">
+                        <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_120px_96px_120px_auto]">
                           <label className="flex min-w-0 flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                             Insumo
                             {/* Search: type to filter the supplier's insumos, click one to pick it */}
@@ -2642,7 +2896,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                     if (e.key !== "Enter") return
                                     e.preventDefault()
                                     const q = normalizeName(purchaseSupplySearch ?? "")
-                                    const first = allowed.find((name) => normalizeName(name).includes(q))
+                                    const first = searchPool(q)[0]
                                     if (first) {
                                       pickSupply(first)
                                       setPurchaseSupplySearch(null)
@@ -2662,7 +2916,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 >
                                   {(() => {
                                     const q = normalizeName(purchaseSupplySearch)
-                                    const found = allowed.filter((name) => normalizeName(name).includes(q))
+                                    const found = searchPool(q)
                                     return found.length ? (
                                       found.map((name) => (
                                         <button
@@ -2686,7 +2940,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                       ))
                                     ) : (
                                       <p className="px-3 py-2 text-center text-xs" style={{ color: t.muted }}>
-                                        Ningún insumo de «{supplier}» coincide.
+                                        Ningún insumo coincide.
                                       </p>
                                     )
                                   })()}
@@ -2695,7 +2949,19 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             </div>
                           </label>
                           <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                            Cantidad
+                            Viene en
+                            <select
+                              value={purchaseItemPack.kind}
+                              onChange={(e) => setPurchaseItemPack({ kind: e.target.value, per: e.target.value ? purchaseItemPack.per : "" })}
+                              className="w-full cursor-pointer rounded-xl px-2 py-2.5 text-sm outline-none"
+                              style={controlSt}
+                            >
+                              <option value="">{purchaseItemSelect ? `${pickedUnit} suelto` : "Suelto"}</option>
+                              {PACK_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                            {purchaseItemPack.kind ? `${purchaseItemPack.kind}s` : "Cantidad"}
                             <input
                               type="text"
                               inputMode="decimal"
@@ -2706,7 +2972,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             />
                           </label>
                           <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                            Precio unitario
+                            {purchaseItemPack.kind ? `Precio por ${purchaseItemPack.kind.toLowerCase()}` : "Precio unitario"}
                             <input
                               type="number"
                               min="0"
@@ -2725,6 +2991,33 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           >
                             Agregar
                           </button>
+                          {purchaseItemPack.kind && (
+                            <label className="flex flex-wrap items-center gap-2 text-xs sm:col-span-5" style={{ color: t.text }}>
+                              Cada {purchaseItemPack.kind.toLowerCase()} trae
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={purchaseItemPack.per}
+                                onChange={(e) => setPurchaseItemPack({ ...purchaseItemPack, per: e.target.value })}
+                                placeholder="24"
+                                aria-label={`Contenido de cada ${purchaseItemPack.kind.toLowerCase()}`}
+                                className="w-20 rounded-lg px-2 py-1.5 text-sm outline-none"
+                                style={controlSt}
+                              />
+                              {pickedUnit}
+                              {(() => {
+                                const count = toDecimal(purchaseItemQty)
+                                const per = toDecimal(purchaseItemPack.per)
+                                const price = Number(purchaseItemPrice)
+                                return count > 0 && per > 0 ? (
+                                  <span style={{ color: t.muted }}>
+                                    → entran {(count * per).toLocaleString("es-CO")} {pickedUnit} al inventario
+                                    {price > 0 ? ` · ${fmt(Math.round((price / per) * 100) / 100)} por ${pickedUnit}` : ""}
+                                  </span>
+                                ) : null
+                              })()}
+                            </label>
+                          )}
                         </div>
                       </>
                     )}
@@ -2745,6 +3038,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               <div className="text-[11px]" style={{ color: t.muted }}>
                                 {Number(item.quantity).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")} × {fmt(Number(item.unitPrice || 0))}
                               </div>
+                              {item.pack && (
+                                <div className="text-[11px]" style={{ color: C.mustard }}>Vino en: {item.pack}</div>
+                              )}
                               {savedItems.length > 0 && lostSoFar(item.name) > 0 && (
                                 <div className="text-[11px] font-semibold" style={{ color: C.red }}>
                                   Perdido: {lostSoFar(item.name).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")}
@@ -2781,7 +3077,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                     if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
                                     if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
                                     if (price > MAX_PRICE) return setPurchaseFormError(`El precio unitario puede ser máximo ${fmt(MAX_PRICE)}.`)
-                                    setItems(items.map((i, n) => (n === index ? { ...i, quantity: String(qty), unitPrice: String(price) } : i)))
+                                    setItems(items.map((i, n) => (n === index ? { ...i, quantity: String(qty), unitPrice: String(price), pack: Number(i.quantity) === qty && Number(i.unitPrice) === price ? i.pack : "" } : i)))
                                     setPurchaseItemEdit(null)
                                     setPurchaseFormError("")
                                   }}
@@ -3236,10 +3532,20 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               // Supplier form: pick which insumos this supplier sells (search box that opens a list)
               if (isSupplier && !isView && f.key === "7") {
                 const selected = splitList(String(formData["7"] ?? ""))
+                // Insumos already bought from this supplier (purchases not annulled) can't be taken off its list
+                const supplierName = String((modal.mode === "edit" ? row?.[0] : formData["0"]) ?? "")
+                const bought = new Set(
+                  getSupplierPurchases(supplierName)
+                    .filter((purchase) => String(purchase[5]) !== "Anulado")
+                    .flatMap((purchase) => parsePurchaseLines(purchase[6]).map((line) => line.name)),
+                )
+                const locked = selected.filter((name) => bought.has(name))
                 const setSelected = (next: string[]) =>
-                  updateAdminField("proveedores", "7", [...new Set(next)].join(", "))
+                  updateAdminField("proveedores", "7", [...new Set([...locked, ...next])].join(", "))
                 const toggleSupply = (name: string) =>
-                  setSelected(selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name])
+                  bought.has(name) && selected.includes(name)
+                    ? undefined
+                    : setSelected(selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name])
                 // Active insumos, plus any already chosen (even if deactivated later), grouped by category
                 const query = normalizeName(supplierSupplySearch)
                 const groups = new Map<string, string[]>()
@@ -3380,6 +3686,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                       <input
                                         type="checkbox"
                                         checked={selected.includes(name)}
+                                        disabled={locked.includes(name)}
+                                        title={locked.includes(name) ? "Ya tiene compras a este proveedor: no se puede quitar" : undefined}
                                         onChange={() => toggleSupply(name)}
                                         style={{ accentColor: C.mustard }}
                                       />
@@ -3393,7 +3701,12 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         </div>
                       </>
                     )}
-                    {selected.length > 0 && renderSupplyGroups(selected, "pt-1 sm:grid-cols-2", toggleSupply)}
+                    {selected.length > 0 && renderSupplyGroups(selected, "pt-1 sm:grid-cols-2", toggleSupply, locked)}
+                    {locked.length > 0 && (
+                      <span className="text-[11px]" style={{ color: t.muted }}>
+                        🔒 Los insumos con candado ya tienen compras a este proveedor y no se pueden quitar.
+                      </span>
+                    )}
                     <span className="text-[11px]" style={{ color: t.muted }}>
                       Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
                     </span>
@@ -3486,6 +3799,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 const category = normalizeName(String(product?.[1] ?? ""))
                 return (
                   !!product &&
+                  !isSupplyProductRow(product) &&
                   !notAlone.includes(category) &&
                   Number(product[2]) > 0 &&
                   (pedidoProductCategory === "Todas" || String(product[1] ?? "") === pedidoProductCategory) &&
@@ -3652,7 +3966,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       {fieldLabel}
                       {!isView && (isRequiredField(f.key) || requiredFormField) && " *"}
                     </label>
-                    {isPurchase && !isView && f.key === "0" && (
+                    {isPurchase && modal.mode === "add" && f.key === "0" && (
                       <button
                         type="button"
                         onClick={() => openChildForm("proveedores")}
@@ -4293,6 +4607,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         </span>
                       </span>
                     </button>
+                  ) : isPurchase && f.key === "0" && modal.mode === "edit" ? (
+                    // Editing a purchase: only its date changes
+                    <div className="rounded-xl px-3 py-2.5 text-sm" style={{ background: t.cardAlt, color: t.text, border: `1px solid ${t.border}` }} title="El proveedor no se puede cambiar">
+                      {val || "—"}
+                    </div>
                   ) : isPurchase && f.key === "0" ? (
                     <div className="relative">
                       <input
@@ -4919,6 +5238,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         >
                           <span className="min-w-0">
                             <span className="block break-words">{item.name}</span>
+                            {item.pack && (
+                              <span className="block text-[11px]" style={{ color: C.mustard }}>Vino en: {item.pack}</span>
+                            )}
                             <span className="block text-[11px] sm:hidden" style={{ color: t.muted }}>
                               {Number(item.quantity).toLocaleString("es-CO")} {unit}
                             </span>
@@ -5112,6 +5434,33 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               {item.note ? (
                                 <span className="block text-[11px] font-semibold" style={{ color: C.red }}>Nota: {item.note}</span>
                               ) : null}
+                              {(() => {
+                                // The cook reads the ficha técnica here, without leaving the order
+                                const product = rows.producto?.find((p) => p[0] === item.name)
+                                const recipe = getProductRecipe(product)
+                                const steps = String(product?.[8] ?? "").trim()
+                                if (!product || (!recipe.length && !steps)) return null
+                                return (
+                                  <details className="mt-1">
+                                    <summary className="cursor-pointer text-[11px] font-semibold" style={{ color: C.mustard }}>
+                                      Ver ficha técnica
+                                    </summary>
+                                    <div className="mt-1.5 rounded-lg px-2.5 py-2 text-[11px]" style={{ background: t.cardAlt, color: t.text }}>
+                                      {recipe.length > 0 && (
+                                        <ul className="mb-1.5 list-disc pl-4">
+                                          {recipe.map((ingredient: { name: string; quantity: number; unit: string }) => (
+                                            <li key={ingredient.name}>
+                                              {ingredient.name}: {ingredient.quantity.toLocaleString("es-CO")} {ingredient.unit}
+                                              {item.quantity > 1 ? ` (× ${item.quantity} = ${(ingredient.quantity * item.quantity).toLocaleString("es-CO")} ${ingredient.unit})` : ""}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                      {steps && <p className="whitespace-pre-wrap break-words" style={{ color: t.muted }}>{steps}</p>}
+                                    </div>
+                                  </details>
+                                )
+                              })()}
                               {item.parentId ? (
                                 <span className="block text-[11px]" style={{ color: t.muted }}>
                                   Adición de {items.find((parent) => parent.id === item.parentId)?.name ?? "producto"}
@@ -5136,7 +5485,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 </div>
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="grid grid-cols-2 gap-2">
-                    {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Entregado" ? "#2E7D60" : t.text)}
+                    {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Finalizada" ? "#2E7D60" : t.text)}
                     {info(orderCode ? "Pedido" : "Prioridad", orderCode || `#${String(row[3] ?? "—")}`)}
                     {info("Creada", `${shortDate(row[4])} · ${shortTime(row[5])}`)}
                     {info("Actualizada", `${shortDate(row[6])} · ${shortTime(row[7])}`)}
@@ -5224,7 +5573,32 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       {info("Método de pago", String(row[4] ?? ""))}
                       {info("Producción", String(row[9] ?? ""))}
                     </div>
-                    <div className="rounded-2xl px-4 py-3 md:col-start-1 md:row-start-3 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
+                    {(() => {
+                      // Who receives it: may be someone other than the account that ordered
+                      const o = loadOrders().find((order) => order.id === String(row[0]))
+                      if (!o || !(o.nombre || o.telefono || o.direccion)) return null
+                      const other = !!o.nombre && o.nombre.trim().toLowerCase() !== String(row[1] ?? "").trim().toLowerCase()
+                      return (
+                        <div className="rounded-2xl px-4 py-3 md:col-span-2 md:row-start-3" style={{ border: `1px solid ${t.border}` }}>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {title("Recibe el pedido")}
+                            {other && (
+                              <span className="mb-2 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                                Otra persona · pidió {String(row[1] || "el cliente")}
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {info("Nombre", o.nombre || "")}
+                            {info("Teléfono", o.telefono || "")}
+                            {o.tipoEntrega === "domicilio"
+                              ? info("Dirección", [o.direccion, o.barrio].filter(Boolean).join(" · "))
+                              : info("Entrega", "Recoge en el local")}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                    <div className="rounded-2xl px-4 py-3 md:col-start-1 md:row-start-4 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
                       {title(`Productos (${groups.length})`)}
                       {groups.length ? (
                         <div className={`gap-x-6 ${groups.length > 4 ? "sm:columns-2" : ""}`}>
@@ -5325,7 +5699,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             {productionOrders.map((order) => (
                               <div key={String(order[0])} className="flex items-center justify-between gap-2 text-sm">
                                 <span style={{ color: t.text }}>{String(order[0])}</span>
-                                {badge(String(order[8] || "Recibido"), String(order[8]) === "Entregado", String(order[8]) === "Producto no conforme")}
+                                {badge(String(order[8] || "Recibido"), String(order[8]) === "Finalizada", String(order[8]) === "Producto no conforme")}
                               </div>
                             ))}
                           </div>
@@ -5406,10 +5780,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               )}
               {String(row?.[8]) === "Rechazado" && (
                 <p className="md:col-start-2 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
-                  Transferencia rechazada: {String(row?.[11] || "Sin motivo registrado.")}
+                  Comprobante rechazado: {String(row?.[11] || "Sin motivo registrado.")}
                 </p>
               )}
-              {isTransferPaymentMethod(String(row?.[4] ?? "")) &&
+              {(isTransferPaymentMethod(String(row?.[4] ?? "")) || paymentProofs[modal.idx!]) &&
               String(row?.[8]) === "Pendiente de verificación" ? (
                 <div className="md:col-start-2 flex flex-col gap-2">
                   <button
@@ -5422,7 +5796,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
                     style={{ background: `${C.red}12`, color: C.red }}
                   >
-                    Rechazar transferencia
+                    Rechazar comprobante
                   </button>
                   <button
                     type="button"
@@ -5431,7 +5805,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ background: C.mustard, color: "#fff" }}
                   >
-                    Aprobar transferencia y enviar a producción
+                    Aprobar comprobante y enviar a producción
                   </button>
                 </div>
               ) : String(row?.[9]) === "Autorizada" ? (
@@ -5596,11 +5970,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             <div className="sm:col-span-2">
               <RolesPermMatrix
                 roleName={formData["0"] || ""}
-                permissionKey={
-                  modal.mode === "edit" && row
-                    ? String(row[0] ?? "")
-                    : formData["0"] || ""
-                }
+                // A new role keeps its checks under a fixed draft key, so typing the name never loses them
+                permissionKey={modal.mode === "edit" && row ? String(row[0] ?? "") : "__nuevo_rol__"}
               />
             </div>
           )}
@@ -5653,7 +6024,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               {Ico.undo} Registrar devolución
             </button>
           )}
-          {isView && (isPurchaseModule || isProduct) && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
+          {isView && (isPurchaseModule || isProduct) && !isSupplyProductView && !isSales && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
             <button
               onClick={() => openEdit(modal.section, modal.idx!)}
               className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
@@ -5662,6 +6033,69 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               Editar
             </button>
           )}
+          {isView && isPurchase && row && statusValue !== "Anulado" && canDo("perdidas", "CREAR") && (() => {
+            // «Enviar a pérdida» from the purchase detail: pick which bought insumo was lost (up to what's left)
+            const lostSoFar = (name: string) =>
+              (rows.perdidas || [])
+                .filter((l) => !isReturnedLoss(l) && isLossOfPurchase(l, row) && String(l[0]) === name)
+                .reduce((sum, l) => sum + (parseFloat(String(l[1])) || 0), 0)
+            const items = [...new Set(parsePurchaseItems(row[6]).map((i) => i.name))].map((name) => ({
+              name,
+              left: parsePurchaseItems(row[6]).filter((i) => i.name === name).reduce((sum, i) => sum + Number(i.quantity || 0), 0) - lostSoFar(name),
+            }))
+            const open = (name: string, max: number) => {
+              const now = new Date()
+              setLossError("")
+              setLossDraft({
+                insumo: name,
+                unit: String(supplyInfo(name)?.[2] ?? "und"),
+                max,
+                qty: "",
+                motivo: "",
+                responsable: user?.name ?? "",
+                fecha: [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-"),
+                origin: purchaseLabel(row),
+                purchaseId: String(row[DB_SYNC.compras.idIndex] ?? ""),
+              })
+            }
+            const style = { background: `${C.red}12`, color: C.red, border: `1.5px solid ${C.red}40` }
+            const cls = "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
+            if (items.length === 1)
+              return (
+                <button type="button" disabled={!(items[0].left > 0)} onClick={() => open(items[0].name, items[0].left)} className={`${cls} disabled:cursor-not-allowed disabled:opacity-40`} style={style}>
+                  {Ico.alert} Enviar a pérdida
+                </button>
+              )
+            return (
+              // Several insumos: a small list opens above the button
+              <details className="relative flex-1">
+                <summary className={`${cls} list-none [&::-webkit-details-marker]:hidden`} style={style}>
+                  {Ico.alert} Enviar a pérdida
+                </summary>
+                <div className="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-60 overflow-y-auto rounded-xl py-1 shadow-lg" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                  <p className="px-3 py-1.5 text-[11px] font-semibold" style={{ color: t.muted }}>¿Qué insumo se perdió?</p>
+                  {items.map((item) => (
+                    <button
+                      key={item.name}
+                      type="button"
+                      disabled={!(item.left > 0)}
+                      onClick={(e) => {
+                        e.currentTarget.closest("details")?.removeAttribute("open")
+                        open(item.name, item.left)
+                      }}
+                      className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ color: t.text }}
+                    >
+                      <span className="min-w-0 truncate">{item.name}</span>
+                      <span className="flex-shrink-0 text-[11px]" style={{ color: t.muted }}>
+                        {item.left > 0 ? `quedan ${item.left.toLocaleString("es-CO")} ${String(supplyInfo(item.name)?.[2] ?? "")}` : "ya todo en pérdida"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </details>
+            )
+          })()}
           {modal.section === "perdidas" && modal.mode !== "add" && canDo("perdidas", "EDITAR") && String(row?.[5] ?? "").startsWith("Compra a ") && !isReturnedLoss(row ?? undefined) && !isLossPurchaseAnnulled(row ?? undefined) && (
             <button
               type="button"
@@ -6082,6 +6516,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             min="0.001"
                             step="any"
                             value={technicalIngredientQuantity}
+                            onKeyDown={(event) => ["-", "+", "e", "E"].includes(event.key) && event.preventDefault()}
                             onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
                             className="w-full rounded-lg px-3 py-2 text-sm outline-none"
                             style={controlSt}
@@ -6149,9 +6584,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                   min="0.001"
                                   step="any"
                                   value={ingredient.quantity}
+                                  onKeyDown={(event) => ["-", "+", "e", "E"].includes(event.key) && event.preventDefault()}
                                   onChange={(event) => updateIngredient(index, { quantity: Number(event.target.value) })}
                                   className="w-full rounded-lg px-2 py-1.5 text-sm outline-none"
-                                  style={controlSt}
+                                  style={{ ...controlSt, ...(ingredient.quantity > 0 ? {} : { border: `1.5px solid ${C.red}` }) }}
                                 />
                                 <select
                                   aria-label={`Unidad de ${ingredient.name}`}
@@ -6386,23 +6822,32 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           setLossError("")
           setLossDraft((current) => (current ? { ...current, ...patch } : current))
         }
+        // The loss can't be dated before its purchase
+        const purchaseDate = String(
+          (rows.compras || []).find((c) => String(c[DB_SYNC.compras.idIndex] ?? "") === lossDraft.purchaseId)?.[1] ?? "",
+        ).slice(0, 10)
         const confirmLoss = () => {
           const qty = toDecimal(lossDraft.qty)
           if (!(qty > 0)) return setLossError("Escribe cuánto se perdió.")
+          if (!Number.isInteger(qty)) return setLossError(`Va en números enteros de ${lossDraft.unit}.`)
           if (qty > lossDraft.max)
             return setLossError(
               `No puede ser más de lo comprado: máximo ${lossDraft.max.toLocaleString("es-CO")} ${lossDraft.unit}.`,
             )
           if (!lossDraft.motivo) return setLossError("Selecciona el motivo de la pérdida.")
-          if (!lossDraft.responsable.trim()) return setLossError("Selecciona quién es el responsable.")
+          // The person sending it to loss is whoever is using this account
+          const responsable = (user?.name ?? "").trim()
+          if (!responsable) return setLossError("No se pudo identificar tu usuario; vuelve a iniciar sesión.")
           if (!lossDraft.fecha) return setLossError("Selecciona la fecha.")
           if (lossDraft.fecha > getCurrentDateTimeParts().date)
             return setLossError("La fecha de la pérdida no puede ser posterior a hoy.")
+          if (purchaseDate && lossDraft.fecha < purchaseDate)
+            return setLossError("La fecha de la pérdida no puede ser anterior a la fecha de la compra.")
           const lossRow: Row = [
             lossDraft.insumo,
             `${qty} ${lossDraft.unit}`,
             lossDraft.motivo,
-            lossDraft.responsable.trim(),
+            responsable,
             lossDraft.fecha,
             lossDraft.origin,
             "", "", "", "", // estado, devolución, cantidad devuelta, id (the backend fills them)
@@ -6500,19 +6945,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
                   <label className={fieldLabel} style={{ color: t.muted }}>
                     Persona responsable
-                    <select
-                      value={lossDraft.responsable}
-                      onChange={(e) => updateLoss({ responsable: e.target.value })}
-                      className="min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                      style={{ ...controlSt, color: lossDraft.responsable ? t.text : t.muted }}
-                    >
-                      <option value="">Selecciona quién...</option>
-                      {staff.map((p) => (
-                        <option key={p.name} value={p.name}>
-                          {p.name}{p.rol && ` · ${p.rol}`}
-                        </option>
-                      ))}
-                    </select>
+                    {/* Always the person using this account: it can't be chosen */}
+                    <div className="min-w-0 truncate rounded-xl px-3 py-2.5 text-sm" style={{ ...controlSt, background: t.cardAlt }} title="Quien envía la pérdida es quien usa esta cuenta">
+                      {user?.name || "—"}
+                    </div>
                   </label>
                   <label className={fieldLabel} style={{ color: t.muted }}>
                     Fecha
@@ -6520,9 +6956,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       type="date"
                       value={lossDraft.fecha}
                       max={getCurrentDateTimeParts().date}
+                      min={purchaseDate || undefined}
                       onChange={(e) => {
                         const today = getCurrentDateTimeParts().date
-                        updateLoss({ fecha: e.target.value > today ? today : e.target.value })
+                        const v = e.target.value > today ? today : e.target.value
+                        updateLoss({ fecha: purchaseDate && v && v < purchaseDate ? purchaseDate : v })
                       }}
                       className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
                       style={controlSt}
