@@ -1468,9 +1468,13 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       if (purchase && trimmed < String(purchase[1]).slice(0, 10))
         return `La pérdida no puede ser anterior a la compra (${String(purchase[1]).slice(0, 10)}).`
     }
+    // Stock in g, ml or und: whole numbers only
+    if (sec === "insumos" && key === "5" && trimmed && !Number.isInteger(Number(trimmed.replace(",", "."))))
+      return "Va en números enteros (por ejemplo 1500 g, no 1,5 kg)."
     if (sec === "perdidas" && key === "1") {
       const qty = parseFloat(trimmed.replace(",", "."))
       if (!(qty > 0)) return "Escribe cuánto se perdió."
+      if (!Number.isInteger(qty)) return "Va en números enteros (g, ml o und)."
       const supply = (rows.insumos || []).find((r) => String(r[0]) === String(draft["0"] ?? ""))
       // an insumo, or a soda lost from its purchase (its stock is on its product)
       const stock = supply ? Number(supply[4] ?? 0) : stockOf(String(draft["0"] ?? ""))
@@ -2180,12 +2184,14 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             !supply ||
             !Number.isFinite(ingredient.quantity) ||
             ingredient.quantity <= 0 ||
+            // whole numbers in the insumo's unit (150 g, not 0.15 kg)
+            !Number.isInteger(ingredient.quantity) ||
             !ingredient.unit ||
             toBaseQuantity(1, ingredient.unit, String(supply[2] ?? ""), packOf(supply)) === null
           )
         })
         if (invalidIngredient) {
-          setSaveError(`Verifica la cantidad y unidad de «${invalidIngredient.name}» en la ficha técnica.`)
+          setSaveError(`Verifica la cantidad y unidad de «${invalidIngredient.name}» en la ficha técnica (números enteros, en g, ml o und).`)
           return
         }
       }
@@ -2200,6 +2206,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       const noAmount = String(formData["10"]).split(", ").find((part) => !(Number(part.match(/\(([^\s)]+)/)?.[1]) > 0))
       if (noAmount)
         return setSupplyFormError(`Ficha técnica: la cantidad de «${noAmount.replace(/\s*\(.*$/, "")}» debe ser mayor que cero.`)
+      const notWhole = String(formData["10"]).split(", ").find((part) => !Number.isInteger(Number(part.match(/\(([^\s)]+)/)?.[1])))
+      if (notWhole)
+        return setSupplyFormError(`Ficha técnica: la cantidad de «${notWhole.replace(/\s*\(.*$/, "")}» va en números enteros (g, ml o und).`)
       if (!String(formData["11"] ?? "").trim())
         return setSupplyFormError("Ficha técnica: escribe cómo se prepara.")
       // Venta en pedidos: "" = «Con precio» chosen but no price typed
@@ -2207,8 +2216,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       if (salePrice !== undefined && salePrice !== "0" && !(Number(salePrice) > 0))
         return setSupplyFormError("Venta en pedidos: escribe el precio de venta o elige «Cortesía».")
       const portion = String(formData["16"] ?? "").trim()
-      if (portion && !(Number(portion) > 0))
-        return setSupplyFormError("Venta en pedidos: la porción debe ser un número mayor que cero.")
+      if (portion && !(Number(portion) > 0 && Number.isInteger(Number(portion))))
+        return setSupplyFormError("Venta en pedidos: la porción va en números enteros mayores que cero (ej. 30 ml).")
     }
     if (sec === "compras") {
       if (!String(formData["0"] ?? "").trim()) {

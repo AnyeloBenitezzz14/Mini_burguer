@@ -2442,7 +2442,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         Porción por pedido ({base})
                         <input type="text" inputMode="decimal" value={String(formData["16"] ?? "")}
                           onChange={(e) => setField("16", e.target.value.replace(",", "."))}
-                          placeholder={base === "L" ? "0.03" : base === "kg" ? "0.05" : "1"}
+                          placeholder={base === "und" ? "1" : "30"}
                           className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                           style={{ background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }} />
                       </label>
@@ -2793,6 +2793,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   if (!(packPrice > 0)) return setPurchaseFormError(kind ? `Escribe el precio de cada ${kind.toLowerCase()}.` : "Escribe el precio unitario.")
                   if (packPrice > MAX_PRICE) return setPurchaseFormError(`El precio puede ser máximo ${fmt(MAX_PRICE)}.`)
                   const qty = Math.round(count * per * 1000) / 1000
+                  if (!Number.isInteger(qty))
+                    return setPurchaseFormError(`Lo que entra al inventario va en números enteros de ${pickedUnit}: ${qty.toLocaleString("es-CO")} no lo es.`)
                   const price = Math.round((packPrice / per) * 100) / 100
                   const pack = kind ? `${count.toLocaleString("es-CO")} ${kind}${count === 1 ? "" : "s"} × ${per.toLocaleString("es-CO")} ${pickedUnit} a ${fmt(packPrice)}` : ""
                   const existing = items.find(
@@ -6827,6 +6829,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
         const confirmLoss = () => {
           const qty = toDecimal(lossDraft.qty)
           if (!(qty > 0)) return setLossError("Escribe cuánto se perdió.")
+          if (!Number.isInteger(qty)) return setLossError(`Va en números enteros de ${lossDraft.unit}.`)
           if (qty > lossDraft.max)
             return setLossError(
               `No puede ser más de lo comprado: máximo ${lossDraft.max.toLocaleString("es-CO")} ${lossDraft.unit}.`,

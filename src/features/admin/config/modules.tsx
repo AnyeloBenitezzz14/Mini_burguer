@@ -121,12 +121,10 @@ export const MOD_CFG: Record<string, ModConfig> = {
         key: "2",
         label: "Unidad de medida",
         type: "select",
-        options: ["kg", "g", "L", "ml", "und", "paq"],
+        // Always the smallest unit and whole numbers: 1.5 kg is 1500 g. Boxes and packs are bought in Compras
+        // («Viene en: Caja… trae N»), which turns them into this unit.
+        options: ["g", "ml", "und"],
       },
-      // Unit "paq": row[6] (old "Stock máximo") is how much one package holds and row[14] its unit
-      // (30 und of egg, 100 g of a sobre), so recipes can use what's inside
-      { key: "6", label: "Contenido de cada paquete", type: "number" },
-      { key: "14", label: "Medida del contenido", type: "select", options: ["und", "g", "ml"] },
       { key: "3", label: "Costo unitario", type: "number" },
       { key: "4", label: "Stock actual", type: "number" },
       { key: "5", label: "Stock mínimo", type: "number" },
