@@ -2,6 +2,7 @@ import { useState } from "react"
 import { itemTotal } from "@/features/checkout/utils/cart"
 import { PRODUCTS, isSodaName, sodaPhoto } from "@/features/menu/data/products"
 import OrderItemPhoto from "@/features/orders/components/OrderItemPhoto"
+import PaymentAccounts from "@/features/checkout/components/PaymentAccounts"
 import VoucherInput from "@/features/orders/components/VoucherInput"
 import { ORDER_STEPS } from "@/features/orders/utils/orders"
 import { Ico } from "@/shared/components/icons"
@@ -242,6 +243,11 @@ export default function OrderDetailModal({
                   )}
                   {canAdd ? (
                     <div className="flex flex-col gap-2">
+                      {/* Where to send it, right where the proof is uploaded */}
+                      <details className="rounded-xl px-3 py-2" style={{ background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: `1px solid ${BORDER}` }} open={!sent.length}>
+                        <summary className="cursor-pointer text-xs font-bold" style={{ color: C.mustard }}>Datos para pagar ({fmt(owed)})</summary>
+                        <div className="mt-2"><PaymentAccounts compact amount={fmt(owed)} /></div>
+                      </details>
                       <VoucherInput
                         value={draft.image}
                         label={draft.image ? "Cambiar imagen" : sent.length ? "📎 Enviar otro comprobante" : undefined}

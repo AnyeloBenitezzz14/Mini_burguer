@@ -56,9 +56,11 @@ export default function ClientApp({
     qty: number,
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
+    note?: string,
   ) => {
     setCart((c) =>
       addCartItem(c, {
+        ...(note ? { note } : {}),
         id: Date.now(),
         productId: p.id,
         name: p.name,

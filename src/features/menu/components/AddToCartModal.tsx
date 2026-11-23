@@ -23,11 +23,13 @@ export default function AddToCartModal({
     qty: number,
     sauces: string[],
     additions: { name: string; qty: number; price: number }[],
+    // e.g. the chosen flavour of a Hit («Sabor: Mango»): it reaches the kitchen with the order
+    note?: string,
   ) => void
   onCheckout?: () => void
   dark: boolean
   // Editing a cart line: starts with its choices and the button says «Guardar cambios»
-  initial?: { qty: number; sauces?: string[]; additions?: { name: string; qty: number }[] }
+  initial?: { qty: number; sauces?: string[]; additions?: { name: string; qty: number }[]; note?: string }
 }) {
   const [product, setProduct] = useState(selectedProduct)
   useEffect(() => {
@@ -62,6 +64,10 @@ export default function AddToCartModal({
   const isMenuExtra = ["salsas", "adiciones", "bebidas"].includes(product.cat)
   // [, sabor, tamaño] when the product is a soda («Gaseosa Coca-Cola (1.5 L)»)
   const sodaParts = SODA_RE.exec(product.name)
+  // A litre of Hit comes in several flavours: the client picks one (it goes in the line's note)
+  const HIT_FLAVORS = ["Mora", "Mango", "Frutas Tropicales", "Naranja Piña"]
+  const isHit = /^hit\b/i.test(product.name.trim())
+  const [hitFlavor, setHitFlavor] = useState(() => /Sabor: (.+)/.exec(initial?.note ?? "")?.[1] ?? HIT_FLAVORS[0])
   // Cream card under the photo (the photo's curve blends into it)
   const CARD = dark ? "#1E1C18" : "#FBF6E9"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
@@ -142,7 +148,7 @@ export default function AddToCartModal({
         price: sodaPrice(flavor, size),
       })).filter((b) => b.qty > 0),
     )
-    onAdd(product, qty, selSauces, [...adds, ...beverages])
+    onAdd(product, qty, selSauces, [...adds, ...beverages], isHit ? `Sabor: ${hitFlavor}` : undefined)
     close()
   }
   // Closing takes back this page's history step; the «popstate» then calls onClose
@@ -182,7 +188,7 @@ export default function AddToCartModal({
   const SOFT = dark ? "rgba(244,238,220,0.04)" : "#fff"
   // Collapsible sections (like the delivery apps). Closed, each one says what was chosen
   // One open at a time: opening a section closes the others (it starts on the first one)
-  const [openSecs, setOpenSecs] = useState<Set<string>>(() => new Set([sodaParts ? "sec-size" : "sec-sauces"]))
+  const [openSecs, setOpenSecs] = useState<Set<string>>(() => new Set([sodaParts ? "sec-size" : isHit ? "sec-hit" : "sec-sauces"]))
   const toggleSec = (id: string) => setOpenSecs((cur) => (cur.has(id) ? new Set() : new Set([id])))
   const Section = useMemo(() => ({ id, title, hint, summary, count, icon, children }: { id: string; title: string; hint: string; summary?: string; count?: string; wide?: boolean; icon?: React.ReactNode; children: React.ReactNode }) => {
     const open = openSecs.has(id)
@@ -437,6 +443,29 @@ export default function AddToCartModal({
                 </Section>
               )
             })()}
+
+            {isHit && (
+              <Section id="sec-hit" wide title="Sabor" hint="Elige el sabor de tu Hit de litro." summary={hitFlavor}>
+                <div role="radiogroup" aria-label="Sabor del Hit" className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
+                  {HIT_FLAVORS.map((flavor) => {
+                    const on = flavor === hitFlavor
+                    return (
+                      <button
+                        key={flavor}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        onClick={() => setHitFlavor(flavor)}
+                        className="cursor-pointer rounded-2xl px-3 py-3 text-sm font-bold transition-colors"
+                        style={{ background: on ? C.mustard : SOFT, color: on ? "#fff" : TEXT, border: `1.5px solid ${on ? C.mustard : BORDER}` }}
+                      >
+                        {flavor}
+                      </button>
+                    )
+                  })}
+                </div>
+              </Section>
+            )}
 
             {!isMenuExtra && (
               <Section id="sec-sauces" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.7c3.2 3.6 5.5 6.9 5.5 10a5.5 5.5 0 0 1-11 0c0-3.1 2.3-6.4 5.5-10Z" /></svg>} title="Salsas" hint={`${SAUCES.length} opciones · elige hasta 4, son gratis`} summary={selSauces.length ? selSauces.join(", ") : undefined} count={`${selSauces.length}/4`}>

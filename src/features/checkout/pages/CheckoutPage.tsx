@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { BELLO_NEIGHBORHOODS, normalizeNeighborhood } from "@/data/barrios"
-import qrImg from "@/imports/image-4.png"
+import PaymentAccounts from "@/features/checkout/components/PaymentAccounts"
 import logoImg from "@/imports/logo.png"
 import PinCodeField from "@/features/auth/components/PinCodeField"
 import { apiLogin, requestRegistrationCode, saveRegisteredClient, toUser, verifyRegistrationCode } from "@/features/auth/services/auth.service"
@@ -1470,49 +1470,27 @@ export default function CheckoutPage({
                     </div>
                   )}
                   {needsVoucher && (
-                    <div
-                      className="mt-5 p-5 rounded-xl grid sm:grid-cols-[auto_1fr] gap-5 items-center"
-                      style={{ background: "rgba(30,30,30,0.03)", border: `1px solid ${LINE}` }}
-                    >
-                      <div className="flex flex-col items-center">
-                        <img
-                          src={qrImg}
-                          alt={`Código QR de ${delivForm.pago}`}
-                          className="rounded-xl object-contain p-2 bg-white"
-                          style={{ width: 160, height: 160, border: `1px solid ${LINE}` }}
-                        />
-                        <div className="text-xs mt-2" style={{ color: MUTED }}>
-                          {deposit ? "Abono (50%) a pagar ahora" : "Total a pagar"}
-                        </div>
-                        <div
-                          className="font-black text-xl"
-                          style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
-                        >
-                          {deliveryCostConfigured ? fmt(deposit ? depositAmount : orderTotal) : "Por confirmar"}
-                        </div>
-                        {deposit && deliveryCostConfigured && (
-                          <div className="text-[11px]" style={{ color: MUTED }}>Saldo al recibir: {fmt(orderTotal - depositAmount)}</div>
-                        )}
-                      </div>
+                    <div className="mt-5 flex flex-col gap-4 rounded-xl p-5" style={{ background: "rgba(30,30,30,0.03)", border: `1px solid ${LINE}` }}>
                       <div>
-                        <h3 className="font-semibold text-sm mb-1" style={{ color: C.dark }}>
+                        <h3 className="mb-1 text-sm font-semibold" style={{ color: C.dark }}>
                           Paga con {delivForm.pago} y sube el comprobante
                         </h3>
-                        <ol className="text-xs mb-4 space-y-1 list-decimal pl-4" style={{ color: MUTED }}>
-                          <li>Escanea el código QR desde tu app de {delivForm.pago}.</li>
-                          <li>{deposit ? `Paga el abono exacto (${fmt(depositAmount)}).` : "Paga el total exacto."}</li>
-                          <li>Sube la captura del comprobante aquí.</li>
+                        <ol className="list-decimal space-y-1 pl-4 text-xs" style={{ color: MUTED }}>
+                          <li>Escanea el QR o transfiere a la cuenta o a una de las llaves.</li>
+                          <li>{deposit ? `Paga el abono exacto (${fmt(depositAmount)}); el saldo (${fmt(orderTotal - depositAmount)}) al recibir.` : "Paga el total exacto."}</li>
+                          <li>Sube la captura del comprobante con su referencia.</li>
                         </ol>
-                        <VoucherInput
-                          value={voucher}
-                          onChange={(v) => {
-                            setVoucher(v)
-                            if (!voucherAmount && deliveryCostConfigured) setVoucherAmount(String(toPay))
-                          }}
-                          onRemove={() => setVoucher("")}
-                          reference={{ code: voucherRef, amount: voucherAmount, expected: deliveryCostConfigured ? toPay : undefined, onCode: setVoucherRef, onAmount: setVoucherAmount }}
-                        />
                       </div>
+                      <PaymentAccounts amount={deliveryCostConfigured ? `${fmt(toPay)}${deposit ? " (abono 50%)" : ""}` : "Por confirmar"} />
+                      <VoucherInput
+                        value={voucher}
+                        onChange={(v) => {
+                          setVoucher(v)
+                          if (!voucherAmount && deliveryCostConfigured) setVoucherAmount(String(toPay))
+                        }}
+                        onRemove={() => setVoucher("")}
+                        reference={{ code: voucherRef, amount: voucherAmount, expected: deliveryCostConfigured ? toPay : undefined, onCode: setVoucherRef, onAmount: setVoucherAmount }}
+                      />
                     </div>
                   )}
                 </section>
@@ -1985,9 +1963,10 @@ export default function CheckoutPage({
         <AddToCartModal
           product={addProduct}
           onClose={() => setAddProduct(null)}
-          onAdd={(product, qty, sauces, additions) => {
+          onAdd={(product, qty, sauces, additions, note) => {
             setCart((items) =>
               addCartItem(items, {
+                ...(note ? { note } : {}),
                 id: Date.now(),
                 productId: product.id,
                 name: product.name,
