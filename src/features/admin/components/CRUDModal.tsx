@@ -900,7 +900,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   : isProduct ? (isAdditionForm ? "36rem" : isDrinkForm ? "56rem" : "72rem")
                   : isPurchase ? "56rem"
                   : isProduction ? (productionItems.length > 4 ? "72rem" : "60rem")
-                  : isSupply ? (sheetBeside ? "72rem" : "44rem")
+                  : isSupply ? "72rem"
                   : isSupplier ? (isNaturalSupplier(formData["15"]) || !formData["15"] ? "44rem" : "72rem")
                   : "60rem",
                 maxHeight: "none",
@@ -1004,6 +1004,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       : sheetBeside
                         ? // the insumo's fields stay in the left half (one per row), the ficha takes the right half
                           "sm:grid-cols-2 lg:grid-cols-4 lg:[&>*:not([data-sheet])]:col-span-2 lg:[&>*:not([data-sheet])]:col-start-1"
+                        : isSupply && !isView
+                          ? // two halves: what it is (left) · inventory (right); preparation across the bottom
+                            "sm:grid-cols-2 lg:grid-flow-row-dense lg:grid-cols-4 lg:gap-x-6"
                         : (isProduction || isPedido || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
                   }`
                 : isProduct
@@ -3865,13 +3868,24 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 {/* Insumo form in three parts: what it is, how much there is, who makes or sells it */}
                 {isSupply && !isView && (f.key === "0" || f.key === (modal.mode === "add" ? "5" : "4") || f.key === "7") && (
                   <div
-                    className={`flex items-center gap-2 sm:col-span-full ${f.key === "0" ? "" : "mt-1 border-t pt-4"}`}
+                    className={`sm:col-span-full ${f.key === "0" ? "" : "mt-1 border-t pt-4"} ${
+                      sheetBeside ? "" : f.key === "0" ? "lg:col-span-2 lg:col-start-1" : f.key === "7" ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-3 lg:mt-0 lg:border-t-0 lg:pt-0"
+                    }`}
                     style={{ borderColor: t.border }}
                   >
-                    <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
-                      {f.key === "0" ? "Datos del insumo" : f.key === "7" ? "Preparación" : "Inventario"}
-                    </h4>
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        {f.key === "0" ? "Datos del insumo" : f.key === "7" ? "Preparación" : "Inventario"}
+                      </h4>
+                    </div>
+                    <p className="mt-0.5 pl-3 text-[11px]" style={{ color: t.muted }}>
+                      {f.key === "0"
+                        ? "Cómo se llama y en qué unidad se cuenta."
+                        : f.key === "7"
+                          ? "Solo si lo preparan ustedes, como una salsa de la casa."
+                          : "Desde qué cantidad te avisamos que queda poco."}
+                    </p>
                   </div>
                 )}
                 {isSales && !isView && (f.key === "1" || f.key === "0") && (
@@ -3934,7 +3948,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 )}
                 <div
                   className={`flex min-w-0 flex-col gap-1 ${
-                    isSupplier
+                    isSupply && !isView && !sheetBeside
+                      ? ({ "0": "sm:col-span-2 lg:col-start-1", "1": "lg:col-start-1", "2": "lg:col-start-2", "4": "lg:col-start-3", "5": modal.mode === "add" ? "lg:col-start-3" : "lg:col-start-4", "7": "sm:col-span-2 lg:col-span-4" } as Record<string, string>)[f.key] ?? ""
+                      : isSupplier
                     ? naturalSupplier
                       ? "lg:col-span-2" // one form, two fields per row
                       : Number(f.key) < 8 || f.key === "15"
@@ -4878,6 +4894,20 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     <FieldError msg={shownFieldError(f.key) || fieldValidationError} />
                   )}
                 </div>
+                {/* Next to the minimum: how this insumo's stock moves (fills the half and answers «¿dónde pongo el stock?») */}
+                {isSupply && !isView && !sheetBeside && f.key === "5" && (
+                  <div
+                    className={`rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 ${modal.mode === "add" ? "lg:col-span-1 lg:col-start-4 lg:row-span-2" : "lg:col-span-2 lg:col-start-3"}`}
+                    style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}30`, color: t.text }}
+                  >
+                    <div className="mb-1 font-bold" style={{ color: C.mustard }}>¿Cómo se mueve el stock?</div>
+                    <ul className="flex flex-col gap-0.5" style={{ color: t.muted }}>
+                      <li><strong style={{ color: t.text }}>Entra</strong> con cada compra.</li>
+                      <li><strong style={{ color: t.text }}>Sale</strong> con la producción y las pérdidas.</li>
+                      <li>Siempre en números enteros de {String(formData["2"] || "g, ml o und")}.</li>
+                    </ul>
+                  </div>
+                )}
                 </Fragment>
               )
               })}
