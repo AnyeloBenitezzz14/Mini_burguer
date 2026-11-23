@@ -4,9 +4,11 @@ import { C } from "@/shared/styles/theme"
 export default function VoucherInput({
   value,
   onChange,
+  label,
 }: {
   value?: string
   onChange: (v: string) => void
+  label?: string
 }) {
   return (
     <label
@@ -20,7 +22,7 @@ export default function VoucherInput({
           className="mx-auto max-h-48 rounded-xl mb-2 object-contain"
         />
       )}
-      {value ? "Cambiar comprobante" : "📎 Subir comprobante de pago"}
+      {label ?? (value ? "Cambiar comprobante" : "📎 Subir comprobante de pago")}
       <input
         type="file"
         accept="image/*"

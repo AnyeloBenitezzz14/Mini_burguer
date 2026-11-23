@@ -148,6 +148,18 @@ export default function OrderDetailModal({
                   <span className="font-semibold">{order.paymentStatus}</span>
                 </div>
               )}
+              {!!order.deposit && (
+                <div className="mt-2 border-t pt-2 text-sm" style={{ borderColor: BORDER }}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span style={{ color: MUTED }}>Abono (50%)</span>
+                    <span className="font-semibold">{fmt(order.deposit)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span style={{ color: MUTED }}>Saldo al recibir</span>
+                    <span className="font-semibold">{fmt(order.total - order.deposit)}</span>
+                  </div>
+                </div>
+              )}
             </section>
 
             {order.notas && (
@@ -166,9 +178,34 @@ export default function OrderDetailModal({
               <span className="text-sm font-bold">Total</span>
               <span className="text-xl font-black" style={{ color: C.mustard }}>{fmt(order.total)}</span>
             </div>
-            {order.pago !== "Efectivo" && (
-              <VoucherInput value={order.voucher} onChange={(v) => onVoucher(order.id, v)} />
-            )}
+            {(order.pago !== "Efectivo" || (order.vouchers?.length ?? 0) > 0) && (() => {
+              // Every proof sent stays (the deposit, the rest, a new one after a rejected one...); more can be added
+              const sent = order.vouchers?.length ? order.vouchers : order.voucher ? [order.voucher] : []
+              const canAdd = order.paymentStatus !== "Pagado" && !["Cancelado", "Entregado"].includes(order.status) && sent.length < 5
+              return (
+                <section className="rounded-xl px-3.5 py-3" style={{ background: cardBg }}>
+                  <h4 className="mb-2 text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>
+                    Comprobantes enviados ({sent.length})
+                  </h4>
+                  {sent.length > 0 && (
+                    <div className="mb-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                      {sent.map((src, index) => (
+                        <a key={index} href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg" style={{ border: `1px solid ${BORDER}` }}>
+                          <img src={src} alt={`Comprobante ${index + 1}`} className="h-20 w-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                  {canAdd ? (
+                    <VoucherInput label={sent.length ? "📎 Enviar otro comprobante" : undefined} onChange={(v) => onVoucher(order.id, v)} />
+                  ) : (
+                    <p className="text-[11px]" style={{ color: MUTED }}>
+                      {sent.length >= 5 ? "Ya enviaste 5 comprobantes." : "Este pedido ya no recibe comprobantes."}
+                    </p>
+                  )}
+                </section>
+              )
+            })()}
           </div>
         </div>
       </div>

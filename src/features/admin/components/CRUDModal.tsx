@@ -5687,6 +5687,22 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     className="max-h-48 w-full rounded-xl object-contain"
                     style={{ background: t.card, border: `1px solid ${t.border}` }}
                   />
+                  {(() => {
+                    // The client can send several (deposit, rest, a new one after a rejected one): the earlier ones too
+                    const all = loadOrders().find((order) => order.id === row?.[0])?.vouchers ?? []
+                    return all.length > 1 ? (
+                      <div className="mt-2">
+                        <div className="mb-1 text-[11px] font-semibold" style={{ color: t.muted }}>Todos los comprobantes ({all.length})</div>
+                        <div className="grid grid-cols-4 gap-1.5">
+                          {all.map((src, index) => (
+                            <a key={index} href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg" style={{ border: `1px solid ${t.border}` }}>
+                              <img src={src} alt={`Comprobante ${index + 1}`} className="h-14 w-full object-cover" />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null
+                  })()}
                 </div>
               )}
               {(() => {

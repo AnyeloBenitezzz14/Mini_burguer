@@ -95,6 +95,8 @@ export type Order = DeliveryInfo & {
   paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Abonado" | "Pagado" | "Rechazado"
   // Orders of $150.000 or more: the 50% paid in advance
   deposit?: number
+  // Every payment proof the client sent (the last one is `voucher`)
+  vouchers?: string[]
   paymentRejectionReason?: string
   productionAuthorized?: boolean
   productionRecords?: (string | number)[][]

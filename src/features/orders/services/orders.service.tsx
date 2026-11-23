@@ -39,6 +39,7 @@ export const orderFromDb = (p: DbRecord): Order => ({
   notas: p.observacion || "",
   pago: p.metodo_pago || "Efectivo",
   voucher: p.comprobante || undefined,
+  vouchers: Array.isArray(p.comprobantes) ? p.comprobantes : p.comprobante ? [p.comprobante] : [],
   items: p.items.map((it: DbRecord, i: number) => {
     const product = allMenuProducts().find((x) => x.name === it.producto)
     return {
