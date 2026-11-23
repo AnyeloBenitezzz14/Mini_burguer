@@ -232,7 +232,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     insumos: "Insumos",
     proveedores: "Proveedores",
   }
-  const asPage = !!PAGE_FORMS[modal.section] && modal.mode !== "view"
+  const choosingSupplierType = modal.section === "proveedores" && modal.mode === "add" && !formData["15"]
+  const asPage = !!PAGE_FORMS[modal.section] && modal.mode !== "view" && !choosingSupplierType
   if (asPage !== inline) return null
   const cfg = MOD_CFG[modal.section]
   if (!cfg) return null
@@ -607,6 +608,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
       ? NATURAL_SUPPLIER_VIEW_KEYS
       : NATURAL_SUPPLIER_KEYS
   const naturalSupplierForm = !!supplierFieldKeys
+  // A company supplier being written: six columns, company (left three) · contact (right three), three rows each
+  const companySupplierForm = isSupplier && !isView && !!formData["15"] && !naturalSupplierForm
   const formDataFields = supplierFieldKeys
     ? supplierFieldKeys.map((key) => dataFields.find((field) => field.key === key)!)
     : isProduction
@@ -933,9 +936,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   : isProduct ? (isAdditionForm ? "36rem" : isDrinkForm ? "56rem" : "72rem")
                   : isPurchase ? "56rem"
                   : isProduction ? (productionItems.length > 4 ? "72rem" : "60rem")
-                  : isSupply ? "72rem"
-                  : isSupplier ? (isNaturalSupplier(formData["15"]) || !formData["15"] ? "44rem" : "72rem")
+                  : isSupply || isSupplier ? "none"
                   : "60rem",
+                marginInline: "auto",
                 maxHeight: "none",
                 overflow: "visible",
               }
@@ -1033,7 +1036,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     // Supplier: 4 columns on large screens — supplier data spans the left two,
                     // contact person goes two fields per row on the right (keeps "Cargo" in view)
                     isSupplier
-                      ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4"
+                      ? `grid-cols-1 lg:grid-flow-row-dense ${companySupplierForm ? "lg:grid-cols-6 lg:gap-y-2" : "lg:grid-cols-4"}`
                       : sheetBeside
                         ? // the insumo's fields stay in the left half (one per row), the ficha takes the right half
                           "sm:grid-cols-2 lg:grid-cols-4 lg:[&>*:not([data-sheet])]:col-span-2 lg:[&>*:not([data-sheet])]:col-start-1"
@@ -3481,20 +3484,20 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   return (
                     <div
                       key="15"
-                      className="flex items-center gap-3 rounded-xl px-4 py-2.5 sm:col-span-2 lg:col-span-4"
+                      className={`flex items-center gap-3 rounded-xl px-3 py-1.5 sm:col-span-2 ${companySupplierForm ? "lg:col-span-6" : "lg:col-span-4"}`}
                       style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}
                     >
-                      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: C.mustard, color: "#fff" }}>
+                      <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: C.mustard, color: "#fff" }}>
                         {chosen.icon}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold" style={{ color: t.text }}>{chosen.value}</span>
-                        <span className="block text-[11px]" style={{ color: t.muted }}>{chosen.hint}</span>
+                      <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+                        <span className="text-sm font-semibold" style={{ color: t.text }}>{chosen.value}</span>
+                        <span className="text-[11px]" style={{ color: t.muted }}>{chosen.hint}</span>
                       </span>
                       <button
                         type="button"
                         onClick={() => updateAdminField("proveedores", "15", "")}
-                        className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold"
+                        className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold"
                         style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
                       >
                         <span className="rotate-90">{Ico.chevDown}</span> Cambiar tipo
@@ -3609,7 +3612,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 return (
                   <div
                     key="7"
-                    className={`mt-1 flex min-w-0 flex-col gap-1 border-t pt-4 sm:col-span-2 lg:col-span-4 ${naturalSupplierForm ? "" : "lg:row-start-7"}`}
+                    className={`mt-1 flex min-w-0 flex-col gap-1 border-t pt-4 sm:col-span-2 ${companySupplierForm ? "lg:mt-0 lg:pt-3" : ""} ${naturalSupplierForm ? "lg:col-span-4" : "lg:col-span-6 lg:row-start-6"}`}
                     style={{ borderColor: t.border }}
                   >
                     <div className="mb-1">
@@ -3978,11 +3981,11 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   <div
                     className={`pt-1 sm:col-span-2 ${
                       f.key === "8"
-                        ? naturalSupplier ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-3 lg:row-start-2"
-                        : f.key === "1" && !isView ? "lg:col-span-2 lg:col-start-1 lg:row-start-2" : "lg:col-span-2 lg:col-start-1"
+                        ? naturalSupplier ? "lg:col-span-4" : "lg:col-span-3 lg:col-start-4 lg:row-start-2"
+                        : f.key === "1" && !isView ? "lg:col-span-3 lg:col-start-1 lg:row-start-2" : "lg:col-span-2 lg:col-start-1"
                     }`}
                   >
-                    <div className="mb-2 h-px" style={{ background: t.border }} />
+                    {isView && <div className="mb-2 h-px" style={{ background: t.border }} />}
                     <div className="flex items-center gap-2">
                       <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
                       <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
@@ -4012,22 +4015,22 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       ? ({ "0": "sm:col-span-2 lg:col-start-1", "1": "lg:col-start-1", "2": "lg:col-start-2", "4": "lg:col-start-3", "5": modal.mode === "add" ? "lg:col-start-3" : "lg:col-start-4", "7": "sm:col-span-2 lg:col-span-4" } as Record<string, string>)[f.key] ?? ""
                       : isSupplier
                     ? naturalSupplier
-                      ? f.key === "5" ? "lg:col-span-4" : "lg:col-span-2" // two fields per row, the address on its own
-                      : // company (left) · contact person (right), four rows each
+                      ? f.key === "5" ? "lg:col-span-2" : "" // four fields per row, the address takes two
+                      : // company (left) · contact person (right), three rows each
                         ({
                           "0": "lg:col-span-2 lg:col-start-1 lg:row-start-3",
-                          "1": "lg:col-start-1 lg:row-start-4",
-                          "3": "lg:col-start-2 lg:row-start-4",
-                          "2": "lg:col-span-2 lg:col-start-1 lg:row-start-5",
-                          "5": "lg:col-span-2 lg:col-start-1 lg:row-start-6",
-                          "8": "lg:col-start-3 lg:row-start-3",
-                          "9": "lg:col-start-4 lg:row-start-3",
-                          "10": "lg:col-start-3 lg:row-start-4",
-                          "11": "lg:col-start-4 lg:row-start-4",
-                          "12": "lg:col-start-3 lg:row-start-5",
-                          "13": "lg:col-start-4 lg:row-start-5",
-                          "14": "lg:col-span-2 lg:col-start-3 lg:row-start-6",
-                        } as Record<string, string>)[f.key] ?? "lg:col-span-2 lg:col-start-1"
+                          "1": "lg:col-start-3 lg:row-start-3",
+                          "2": "lg:col-span-2 lg:col-start-1 lg:row-start-4",
+                          "3": "lg:col-start-3 lg:row-start-4",
+                          "5": "lg:col-span-3 lg:col-start-1 lg:row-start-5",
+                          "8": "lg:col-start-4 lg:row-start-3",
+                          "9": "lg:col-start-5 lg:row-start-3",
+                          "14": "lg:col-start-6 lg:row-start-3",
+                          "10": "lg:col-start-4 lg:row-start-4",
+                          "11": "lg:col-start-5 lg:row-start-4",
+                          "12": "lg:col-start-6 lg:row-start-4",
+                          "13": "lg:col-span-3 lg:col-start-4 lg:row-start-5",
+                        } as Record<string, string>)[f.key] ?? "lg:col-span-3 lg:col-start-1"
                       : isPedido && !isView
                         // Right column: recibe · teléfono, tipo · método, then the comment; the products fill the left column
                         ? ({ "0": "lg:order-1", "12": "lg:order-2", "2": "lg:order-3", "3": "lg:order-4", "11": "sm:col-span-2 lg:order-7", "1": "lg:min-h-0 lg:flex-1" } as Record<string, string>)[f.key] ?? "sm:col-span-2 lg:order-5"
@@ -6302,7 +6305,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               {Ico.undo} Devolver a compra
             </button>
           )}
-          {!isView && !(isPnc && modal.mode === "add" && !pncManual) && (
+          {!isView && !(isPnc && modal.mode === "add" && !pncManual) && !choosingSupplierType && (
             <button
               onClick={() =>
                 // New purchase: summary + confirmation first (if it's incomplete, saveModal shows what's missing)
