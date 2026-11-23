@@ -21,6 +21,7 @@ export default function ClientApp({
   setCart,
   orders,
   onVoucher,
+  onRemoveVoucher,
   initialView = "menu",
   onNav,
 }: {
@@ -33,7 +34,8 @@ export default function ClientApp({
   cart: CartItem[]
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
   orders: Order[]
-  onVoucher: (id: string, voucher: string) => void
+  onVoucher: (id: string, voucher: string, referencia: string, valor: number) => Promise<string>
+  onRemoveVoucher: (id: string, index: number) => Promise<string>
   initialView?: "menu" | "cart" | "orders"
 }) {
   const [cartNotice, showCartNotice] = useCartNotice()
@@ -172,6 +174,7 @@ export default function ClientApp({
           dark={dark}
           onClose={() => setSelectedId(null)}
           onVoucher={onVoucher}
+          onRemoveVoucher={onRemoveVoucher}
         />
       )}
       {addProduct && (

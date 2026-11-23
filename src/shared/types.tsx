@@ -53,6 +53,9 @@ export type DeliveryInfo = {
   notas: string
   pago: string
   voucher?: string
+  // The bank's reference and the amount sent, checked by the backend's validator
+  voucherRef?: string
+  voucherAmount?: number
 }
 
 export type DeliveryNeighborhood = {
@@ -95,8 +98,9 @@ export type Order = DeliveryInfo & {
   paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Abonado" | "Pagado" | "Rechazado"
   // Orders of $150.000 or more: the 50% paid in advance
   deposit?: number
-  // Every payment proof the client sent (the last one is `voucher`)
+  // Every payment proof the client sent (the last one is `voucher`), with what the validator checked
   vouchers?: string[]
+  proofs?: { image: string; reference?: string; amount?: number; uploadedAt?: string }[]
   paymentRejectionReason?: string
   productionAuthorized?: boolean
   productionRecords?: (string | number)[][]

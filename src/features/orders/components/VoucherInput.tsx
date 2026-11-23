@@ -1,37 +1,97 @@
 import { readVoucher } from "@/features/orders/services/orders.service"
 import { C } from "@/shared/styles/theme"
 
+// Payment proof picker. With `onRemove`, a chosen image can be taken back (a wrong screenshot, say).
+// With `reference`, also asks for the bank's reference and the amount sent (what the validator checks).
 export default function VoucherInput({
   value,
   onChange,
+  onRemove,
   label,
+  reference,
 }: {
   value?: string
   onChange: (v: string) => void
+  onRemove?: () => void
   label?: string
+  reference?: {
+    code: string
+    amount: string
+    expected?: number
+    onCode: (v: string) => void
+    onAmount: (v: string) => void
+  }
 }) {
+  const fmtCOP = (n: number) => `$${Math.round(n).toLocaleString("es-CO")}`
+  const short = !!reference?.expected && Number(reference.amount) > 0 && Number(reference.amount) < reference.expected
   return (
-    <label
-      className="block cursor-pointer rounded-2xl p-3 text-center text-xs font-semibold"
-      style={{ border: `1.5px dashed ${C.mustard}`, color: C.mustard }}
-    >
-      {value && (
-        <img
-          src={value}
-          alt="Comprobante de pago"
-          className="mx-auto max-h-48 rounded-xl mb-2 object-contain"
-        />
+    <div className="flex flex-col gap-2">
+      <div className="relative">
+        <label
+          className="block cursor-pointer rounded-2xl p-3 text-center text-xs font-semibold"
+          style={{ border: `1.5px dashed ${C.mustard}`, color: C.mustard }}
+        >
+          {value && <img src={value} alt="Comprobante de pago" className="mx-auto mb-2 max-h-48 rounded-xl object-contain" />}
+          {label ?? (value ? "Cambiar comprobante" : "📎 Subir comprobante de pago")}
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={async (e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ""
+              if (f) onChange(await readVoucher(f))
+            }}
+          />
+        </label>
+        {value && onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            aria-label="Quitar este comprobante"
+            title="Quitar este comprobante"
+            className="absolute right-2 top-2 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-sm font-bold shadow"
+            style={{ background: "#fff", color: C.red, border: `1px solid ${C.red}55` }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      {reference && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: "rgba(30,30,30,0.6)" }}>
+            Referencia o número de aprobación *
+            <input
+              type="text"
+              value={reference.code}
+              onChange={(e) => reference.onCode(e.target.value.slice(0, 40))}
+              placeholder="Ej.: M1234567"
+              className="rounded-xl px-3 py-2 text-sm outline-none"
+              style={{ background: "#fff", border: "1.5px solid rgba(30,30,30,0.15)" }}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: "rgba(30,30,30,0.6)" }}>
+            Valor que transferiste *
+            <input
+              type="number"
+              min="0"
+              inputMode="numeric"
+              value={reference.amount}
+              onChange={(e) => reference.onAmount(e.target.value)}
+              placeholder={reference.expected ? String(reference.expected) : "$"}
+              className="rounded-xl px-3 py-2 text-sm outline-none"
+              style={{ background: "#fff", border: `1.5px solid ${short ? C.red : "rgba(30,30,30,0.15)"}` }}
+            />
+          </label>
+          {reference.expected ? (
+            <span className="text-[11px] sm:col-span-2" style={{ color: short ? C.red : "rgba(30,30,30,0.55)" }}>
+              {short
+                ? `No alcanza: debes transferir ${fmtCOP(reference.expected)}.`
+                : `Debes transferir ${fmtCOP(reference.expected)}. Revisamos que la referencia y la imagen no se hayan usado en otro pedido.`}
+            </span>
+          ) : null}
+        </div>
       )}
-      {label ?? (value ? "Cambiar comprobante" : "📎 Subir comprobante de pago")}
-      <input
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={async (e) => {
-          const f = e.target.files?.[0]
-          if (f) onChange(await readVoucher(f))
-        }}
-      />
-    </label>
+    </div>
   )
 }

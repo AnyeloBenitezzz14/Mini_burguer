@@ -323,6 +323,9 @@ export default function CheckoutPage({
     setSaveAddress(!hasSavedAddress)
   }, [user])
   const [voucher, setVoucher] = useState("")
+  // What the validator checks: the bank's reference and the amount sent
+  const [voucherRef, setVoucherRef] = useState("")
+  const [voucherAmount, setVoucherAmount] = useState("")
   const [ordered, setOrdered] = useState(false)
   const [placedTotal, setPlacedTotal] = useState(0)
   // Everybody (guest, client, admin, employee) starts by reviewing the cart
@@ -358,6 +361,8 @@ export default function CheckoutPage({
             : undefined,
           costoDomicilio: isDelivery ? displayedDeliveryCost : 0,
           voucher: needsVoucher ? voucher : undefined,
+          voucherRef: needsVoucher ? voucherRef.trim() : undefined,
+          voucherAmount: needsVoucher ? Number(voucherAmount) || undefined : undefined,
         },
         isDelivery && (saveAddress || !(user.addresses?.length)),
       )
@@ -399,7 +404,9 @@ export default function CheckoutPage({
   // $150.000 or more: 50% in advance by transfer (cash isn't accepted), the rest when it arrives
   const deposit = orderTotal >= APPROVAL_MIN
   const depositAmount = depositOf(orderTotal)
-  const payReady = (!needsVoucher || !!voucher) && !(deposit && !needsVoucher)
+  const toPay = deposit ? depositAmount : orderTotal
+  const voucherComplete = !!voucher && voucherRef.trim().length >= 3 && Number(voucherAmount) >= toPay
+  const payReady = (!needsVoucher || voucherComplete) && !(deposit && !needsVoucher)
   const neighborhoodOutOfRange =
     isDelivery &&
     !neighborhoodsLoading &&
@@ -1496,7 +1503,15 @@ export default function CheckoutPage({
                           <li>{deposit ? `Paga el abono exacto (${fmt(depositAmount)}).` : "Paga el total exacto."}</li>
                           <li>Sube la captura del comprobante aquí.</li>
                         </ol>
-                        <VoucherInput value={voucher} onChange={setVoucher} />
+                        <VoucherInput
+                          value={voucher}
+                          onChange={(v) => {
+                            setVoucher(v)
+                            if (!voucherAmount && deliveryCostConfigured) setVoucherAmount(String(toPay))
+                          }}
+                          onRemove={() => setVoucher("")}
+                          reference={{ code: voucherRef, amount: voucherAmount, expected: deliveryCostConfigured ? toPay : undefined, onCode: setVoucherRef, onAmount: setVoucherAmount }}
+                        />
                       </div>
                     </div>
                   )}

@@ -9,6 +9,7 @@ import FieldError from "@/shared/components/FieldError"
 import UserHistory from "@/features/admin/components/UserHistory"
 import SuggestInput from "@/features/admin/components/SuggestInput"
 import { Ico } from "@/shared/components/icons"
+import ZoomableImage from "@/shared/components/ZoomableImage"
 import { FIRST_DAY, MAX_PRICE } from "@/shared/constants"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { AddressParts, AdminOrderLine, FieldType, ProductionItem, Row, TechnicalIngredient } from "@/shared/types"
@@ -1043,7 +1044,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               <label className="text-xs font-semibold" style={{ color: t.muted }}>Comprobante de pago</label>
               {isView ? (
                 paymentProofDraft ? (
-                  <img src={paymentProofDraft} alt="Comprobante de pago" className="max-h-64 w-full rounded-xl object-contain" style={{ background: t.input }} />
+                  <ZoomableImage src={paymentProofDraft} alt="Comprobante de pago" className="max-h-64 w-full rounded-xl object-contain" />
                 ) : (
                   <div className="rounded-xl px-4 py-6 text-center text-xs" style={{ background: t.input, color: t.muted }}>El cliente todavía no ha subido un comprobante.</div>
                 )
@@ -5703,27 +5704,58 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
                     Comprobante de transferencia
                   </h4>
-                  <img
+                  {/* Click it to see it big (another click closes it) */}
+                  <ZoomableImage
                     src={proofOf(modal.idx!) || paymentProofDraft}
                     alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
                     className="max-h-48 w-full rounded-xl object-contain"
-                    style={{ background: t.card, border: `1px solid ${t.border}` }}
                   />
                   {(() => {
-                    // The client can send several (deposit, rest, a new one after a rejected one): the earlier ones too
-                    const all = loadOrders().find((order) => order.id === row?.[0])?.vouchers ?? []
-                    return all.length > 1 ? (
-                      <div className="mt-2">
-                        <div className="mb-1 text-[11px] font-semibold" style={{ color: t.muted }}>Todos los comprobantes ({all.length})</div>
-                        <div className="grid grid-cols-4 gap-1.5">
-                          {all.map((src, index) => (
-                            <a key={index} href={src} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-lg" style={{ border: `1px solid ${t.border}` }}>
-                              <img src={src} alt={`Comprobante ${index + 1}`} className="h-14 w-full object-cover" />
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null
+                    // Validator: what the system already checked when the client sent it, and what's left for you
+                    const shopOrder = loadOrders().find((order) => order.id === row?.[0])
+                    const proofs = shopOrder?.proofs ?? []
+                    const last = proofs[proofs.length - 1]
+                    const total = Number(row?.[6]) || shopOrder?.total || 0
+                    const deposit = shopOrder?.deposit
+                    const owed = deposit ? (String(row?.[8]) === "Abonado" ? total - deposit : deposit) : total
+                    const check = (ok: boolean | null, text: string) => (
+                      <li className="flex items-start gap-1.5">
+                        <span className="mt-px font-bold" style={{ color: ok === null ? t.muted : ok ? "#2E7D60" : C.red }}>{ok === null ? "•" : ok ? "✓" : "✗"}</span>
+                        <span style={{ color: t.text }}>{text}</span>
+                      </li>
+                    )
+                    return (
+                      <>
+                        {last && (
+                          <div className="mt-2 rounded-xl px-3 py-2.5 text-xs" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Validador de la transferencia</div>
+                            {last.reference || last.amount ? (
+                              <ul className="flex flex-col gap-1">
+                                {check(true, `Referencia ${last.reference ?? "—"}: no se ha usado en otro pedido`)}
+                                {check(true, "La imagen no se repite en otro pedido")}
+                                {check((last.amount ?? 0) >= owed, `Valor transferido ${fmt(last.amount ?? 0)} · debe ${fmt(owed)}${deposit ? (String(row?.[8]) === "Abonado" ? " (saldo)" : " (abono 50%)") : ""}`)}
+                                {check(null, "Confírmalo en la app del banco (referencia y valor) antes de aprobar")}
+                              </ul>
+                            ) : (
+                              <p style={{ color: t.muted }}>Comprobante enviado antes del validador: sin referencia ni valor. Revísalo en la app del banco.</p>
+                            )}
+                          </div>
+                        )}
+                        {proofs.length > 1 && (
+                          <div className="mt-2">
+                            <div className="mb-1 text-[11px] font-semibold" style={{ color: t.muted }}>Todos los comprobantes ({proofs.length}) · toca uno para verlo grande</div>
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {proofs.map((proof, index) => (
+                                <div key={index} className="overflow-hidden rounded-lg" style={{ border: `1px solid ${t.border}` }}>
+                                  <ZoomableImage src={proof.image} alt={`Comprobante ${index + 1}${proof.reference ? ` · ref. ${proof.reference}` : ""}`} className="h-14 w-full object-cover" />
+                                  {proof.amount ? <div className="truncate px-1 text-[10px]" style={{ color: t.muted }}>{fmt(proof.amount)}</div> : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )
                   })()}
                 </div>
               )}
@@ -5973,7 +6005,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 {proof && (
                   <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
                     {title("Comprobante de pago")}
-                    <img src={proof} alt="Comprobante de pago" className="max-h-44 w-full rounded-lg object-contain" style={{ background: t.card }} />
+                    <ZoomableImage src={proof} alt="Comprobante de pago" className="max-h-44 w-full rounded-lg object-contain" />
                   </div>
                 )}
               </div>
