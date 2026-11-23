@@ -3791,96 +3791,77 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       }
     }
     const requiredSupplies = consumeStock ? (productionNeeds(sourceRow) as { needs: Map<string, { quantity: number; unit: string }> }).needs : new Map<string, { quantity: number; unit: string }>()
-    if (consumeStock) {
-      // The backend takes the supplies out of the stock (all or nothing, once per order) before the status changes
-      if (requiredSupplies.size) {
-        try {
-          await api("/consumos-produccion", "POST", {
-            numero_orden: String(sourceRow[0]),
-            insumos: [...requiredSupplies].map(([insumo, r]) => ({ insumo, cantidad: r.quantity })),
-          })
-        } catch (err) {
-          notifyError(`No se pudo iniciar la producción: ${(err as Error).message}`)
-          loadModule("insumos")
-          return false
-        }
-      }
-    }
-    // A producto de insumo (e.g. a house sauce) that's ready: what was prepared goes into its stock, once per order
+    // A producto de insumo (e.g. a house sauce) that's ready: what was prepared goes into its stock, once per order.
     // Only an order made to prepare it (not a pedido serving it) adds to its stock
     const finishing = nextStatus === "Finalizada" && String(sourceRow[8]) !== "Finalizada" && !isPedidoProduction(sourceRow)
+    const prepared = new Map<string, number>()
     if (finishing) {
-      const prepared = new Map<string, number>()
       for (const item of getProductionOrderItems(sourceRow)) {
         const supply = rows.insumos?.find((candidate) => candidate[0] === item.name && String(candidate[7]).toLowerCase() === "sí")
         if (supply && item.quantity > 0) prepared.set(item.name, (prepared.get(item.name) ?? 0) + item.quantity)
       }
-      if (prepared.size) {
-        try {
-          await api("/consumos-produccion/entrada", "POST", {
-            numero_orden: String(sourceRow[0]),
-            productos: [...prepared].map(([insumo, cantidad]) => ({ insumo, cantidad })),
-          })
-          loadModule("insumos")
-        } catch (err) {
-          notifyError(`No se pudo sumar lo preparado al stock: ${(err as Error).message}`)
-          return false
-        }
-      }
     }
+
+    // The order as it will be saved: status, its time, history, departure number and «supplies taken» mark
+    const currentDateTime = getCurrentDateTimeParts()
+    const now = new Date()
+    const realTime = `${now.getHours() % 12 || 12}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")} ${now.getHours() >= 12 ? "PM" : "AM"}`
+    const updatedRow = [...sourceRow]
+    updatedRow[5] = realTime
+    updatedRow[7] = realTime
+    updatedRow[8] = nextStatus
+    let history: { status: string; date: string; time: string }[] = []
+    try {
+      const storedHistory = JSON.parse(String(sourceRow[12] ?? "[]"))
+      if (Array.isArray(storedHistory)) history = storedHistory
+    } catch {
+      history = []
+    }
+    history.push({ status: nextStatus, date: currentDateTime.date, time: realTime })
+    updatedRow[12] = JSON.stringify(history)
+    updatedRow[11] = nextStatus !== "Recibido" || String(sourceRow[11]).toLowerCase() === "sí" ? "Sí" : "No"
+    if (consumeStock) updatedRow[14] = "Sí"
+    if (nextStatus === "Finalizada") {
+      if (String(sourceRow[8]) !== "Finalizada") {
+        updatedRow[9] = `${currentDateTime.date} ${realTime}`
+        updatedRow[10] = Math.max(0, ...(rows.produccion || []).map((row) => Number(row[10]) || 0)) + 1
+      }
+    } else {
+      updatedRow[9] = ""
+      updatedRow[10] = 0
+    }
+
+    // Into the kitchen or finished: the server saves the status, takes the supplies out and adds what was
+    // prepared in ONE transaction (all or nothing), and refuses a status that goes back
+    const viaServer = nextStatus !== "Producto no conforme" && rankOf(nextStatus) >= rankOf("En cocina")
+    if (viaServer) {
+      const idIndex = PANEL_SYNC.produccion.idIndex
+      const id = sourceRow[idIndex]
+      if (!id) {
+        notifyError(`La orden ${String(sourceRow[0])} todavía se está guardando. Intenta de nuevo en unos segundos.`)
+        return false
+      }
+      try {
+        await api(`/ordenes-produccion/${id}/avanzar`, "POST", {
+          datos_panel: updatedRow,
+          insumos: [...requiredSupplies].map(([insumo, r]) => ({ insumo, cantidad: r.quantity })),
+          productos: [...prepared].map(([insumo, cantidad]) => ({ insumo, cantidad })),
+        })
+      } catch (err) {
+        notifyError(`No se pudo pasar la orden a «${nextStatus}»: ${(err as Error).message} La orden sigue en «${String(sourceRow[8] || "Recibido")}».`)
+        loadModule("insumos")
+        return false
+      }
+      // Already saved: the sync must not send it again
+      panelSaved.current.produccion?.set(id, JSON.stringify(updatedRow))
+      if (requiredSupplies.size || prepared.size) loadModule("insumos")
+    }
+
     setRows((current) => {
       const productionRows = [...(current.produccion || [])]
       const currentRow = productionRows[rowIndex]
-      if (!currentRow) return current
+      if (!currentRow || String(currentRow[0]) !== String(sourceRow[0])) return current
       if (consumeStock && String(currentRow[14]) === "Sí") return current
-
-      const currentDateTime = getCurrentDateTimeParts()
-      const now = new Date()
-      const formatRealTime = (date: Date) => {
-        const hours = date.getHours()
-        const minutes = date.getMinutes()
-        const seconds = date.getSeconds()
-        const period = hours >= 12 ? "PM" : "AM"
-        const hours12 = hours % 12 || 12
-        return `${hours12}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")} ${period}`
-      }
-      const realTime = formatRealTime(now)
-      const updatedRow = [...currentRow]
-      updatedRow[5] = realTime
-      updatedRow[7] = realTime
-      updatedRow[8] = nextStatus
-      let history: { status: string; date: string; time: string }[] = []
-      try {
-        const storedHistory = JSON.parse(String(currentRow[12] ?? "[]"))
-        if (Array.isArray(storedHistory)) history = storedHistory
-      } catch {
-        history = []
-      }
-      history.push({
-        status: nextStatus,
-        date: currentDateTime.date,
-        time: realTime,
-      })
-      updatedRow[12] = JSON.stringify(history)
-      updatedRow[11] =
-        nextStatus !== "Recibido" || String(currentRow[11]).toLowerCase() === "sí"
-          ? "Sí"
-          : "No"
-      if (consumeStock) updatedRow[14] = "Sí"
-
-      if (nextStatus === "Finalizada") {
-        if (String(currentRow[8]) !== "Finalizada") {
-          updatedRow[9] = `${currentDateTime.date} ${realTime}`
-          const lastDeparture = Math.max(
-            0,
-            ...productionRows.map((row) => Number(row[10]) || 0),
-          )
-          updatedRow[10] = lastDeparture + 1
-        }
-      } else {
-        updatedRow[9] = ""
-        updatedRow[10] = 0
-      }
       productionRows[rowIndex] = updatedRow
       const supplies = consumeStock
         ? (current.insumos || []).map((supply) => {
@@ -3893,8 +3874,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         : current.insumos
 
       if (nextStatus === "Producto no conforme") {
-        const newPriority =
-          Math.max(0, ...productionRows.map((row) => Number(row[3]) || 0)) + 1
+        const newPriority = Math.max(0, ...productionRows.map((row) => Number(row[3]) || 0)) + 1
         const newOrderCode = getNextProductionCode(productionRows)
         const restartedOrder: (string | number)[] = [
           newOrderCode,
@@ -3909,9 +3889,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           "",
           0,
           "Sí",
-          JSON.stringify([
-            { status: "Confirmado", date: currentDateTime.date, time: realTime },
-          ]),
+          JSON.stringify([{ status: "Confirmado", date: currentDateTime.date, time: realTime }]),
           updatedRow[13],
           "No",
           String(updatedRow[15] ?? ""),
