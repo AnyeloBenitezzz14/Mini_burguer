@@ -150,7 +150,7 @@ export default function ClientApp({
           </div>
         )}
         {view === "orders" && (
-          <div className="max-w-2xl mx-auto">
+          <div className="max-w-5xl mx-auto">
             <h2
               className="font-black text-2xl mb-5"
               style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}

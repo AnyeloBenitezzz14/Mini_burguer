@@ -875,7 +875,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-[min(96vw,1500px)]") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
@@ -4251,7 +4251,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           </div>
                         </div>
                         {filteredOrderProducts.length ? (
-                          <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
+                          <div className="grid max-h-80 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-7">
                             {filteredOrderProducts.map((product) => {
                               const productIndex = (rows.producto || []).findIndex((item) => item[0] === product)
                               const productRow = rows.producto?.[productIndex]
@@ -5971,6 +5971,30 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             {saveError} Lo que escribiste sigue aquí: corrige y vuelve a guardar.
           </p>
         )}
+        {isPedido && !isView && (() => {
+          // Always in sight while picking products: how many and how much so far (and the 50% deposit if it applies)
+          const units = pedidoOrderLines.filter((line) => !line.parentId).reduce((sum, line) => sum + line.quantity, 0)
+          const total = pedidoOrderLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)
+          const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""), total)
+          return (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-2.5"
+              style={{ borderTop: `1px solid ${t.border}`, background: `${C.mustard}10` }}
+            >
+              <span className="text-sm" style={{ color: t.muted }}>
+                {units ? `${units} ${units === 1 ? "producto" : "productos"} en el pedido` : "Aún no hay productos"}
+                {payment.modalidad === "Abono 50%" && (
+                  <span className="ml-2 font-semibold" style={{ color: C.mustard }}>· abono 50%: {fmt(Math.ceil(total / 2))}</span>
+                )}
+              </span>
+              <span className="text-lg font-bold tabular-nums" style={{ color: t.text }}>
+                Total <span style={{ color: C.mustard }}>{fmt(total)}</span>
+              </span>
+            </div>
+          )
+        })()}
         <div
           className={`px-5 flex gap-3 ${isUser || isRoles ? "py-3" : "py-4"}`}
           style={{ borderTop: `1px solid ${t.border}` }}
