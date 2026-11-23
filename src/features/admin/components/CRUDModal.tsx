@@ -289,7 +289,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
   // Sections whose first field is a name/main choice that reads better full width
   const WIDE_FIRST_FIELD = ["cat-insumos", "proveedores", "compras", "perdidas", "cat-producto", "clientes", "pedidos"]
   const isWideField = (f: FieldType) =>
-    (f.key === "0" && (WIDE_FIRST_FIELD.includes(modal.section) || !isSupplier)) ||
+    // A purchase's supplier shares its row with the date (shorter fields, less scrolling)
+    (f.key === "0" && !isPurchase && (WIDE_FIRST_FIELD.includes(modal.section) || !isSupplier)) ||
     f.type === "textarea" ||
     (isSales && f.key === "8") ||
     f.type === "checkbox" ||
@@ -890,8 +891,22 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
           background: t.card,
           border: `1px solid ${t.border}`,
           maxHeight: isSidePanel ? "100vh" : isPurchaseModule || isProduct || isRoles || isUser ? "94vh" : "88vh",
-          // As a page: full width of the module, grows with its content (the page scrolls)
-          ...(inline ? { maxWidth: "none", maxHeight: "none", overflow: "visible" } : {}),
+          // As a page: as wide as its content needs (fields that span the whole screen are hard to read), lined up
+          // with the module's title; it grows with its content and the page scrolls, the save bar stays at the bottom
+          ...(inline
+            ? {
+                maxWidth:
+                  isPedido ? "none"
+                  : isProduct ? (isAdditionForm ? "36rem" : isDrinkForm ? "56rem" : "72rem")
+                  : isPurchase ? "56rem"
+                  : isProduction ? (productionItems.length > 4 ? "72rem" : "60rem")
+                  : isSupply ? (sheetBeside ? "72rem" : "44rem")
+                  : isSupplier ? (isNaturalSupplier(formData["15"]) || !formData["15"] ? "44rem" : "72rem")
+                  : "60rem",
+                maxHeight: "none",
+                overflow: "visible",
+              }
+            : {}),
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -3930,7 +3945,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           ? "lg:col-start-3" // tipo doc, nombre, teléfono
                           : "lg:col-start-4" // nº doc, apellido, correo
                       : isPedido && !isView
-                        ? f.key === "0" ? "sm:col-span-2" : f.key === "1" || f.key === "11" ? "sm:col-span-3" : ""
+                        // Recibe, tipo and payment method in one row on a wide screen (less to scroll before the products)
+                        ? f.key === "0" ? "sm:col-span-2 lg:col-span-1" : f.key === "1" || f.key === "11" ? "sm:col-span-3" : ""
                       : isSales && (f.key === "1" || f.key === "8")
                         ? "sm:col-span-2"
                       : isPurchaseModule && isWideField(f) && !(isProduction && !isView)
