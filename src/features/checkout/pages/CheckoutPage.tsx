@@ -13,7 +13,7 @@ import { addCartItem, cartTotal, itemTotal } from "@/features/checkout/utils/car
 import AddToCartModal from "@/features/menu/components/AddToCartModal"
 import ProductCatalog from "@/features/menu/components/ProductCatalog"
 import VoucherInput from "@/features/orders/components/VoucherInput"
-import { APPROVAL_MIN } from "@/features/orders/utils/orders"
+import { APPROVAL_MIN, depositOf } from "@/features/orders/utils/orders"
 import AddressLines from "@/shared/components/AddressLines"
 import DeliveryAddressSummary from "@/shared/components/DeliveryAddressSummary"
 import FieldError from "@/shared/components/FieldError"
@@ -339,7 +339,6 @@ export default function CheckoutPage({
   const [showOutOfRangeDialog, setShowOutOfRangeDialog] = useState(false)
   const placeOrder = async () => {
     setDeliveryTried(true)
-    if (subtotal + (displayedDeliveryCost ?? 0) >= APPROVAL_MIN) return
     if (placing || !user || !delivFilled || !deliveryCostConfigured || !payReady || cart.length === 0) return
     setOrderError("")
     setPlacing(true)
@@ -387,7 +386,6 @@ export default function CheckoutPage({
   }
   // Nequi / Bancolombia must attach the payment receipt before continuing
   const needsVoucher = delivForm.pago !== "Efectivo"
-  const payReady = !needsVoucher || !!voucher
   const displayedDeliveryCost =
     !isDelivery
       ? null
@@ -398,6 +396,10 @@ export default function CheckoutPage({
     deliveryEstimate.status === "ready"
   )
   const orderTotal = subtotal + (displayedDeliveryCost ?? 0)
+  // $150.000 or more: 50% in advance by transfer (cash isn't accepted), the rest when it arrives
+  const deposit = orderTotal >= APPROVAL_MIN
+  const depositAmount = depositOf(orderTotal)
+  const payReady = (!needsVoucher || !!voucher) && !(deposit && !needsVoucher)
   const neighborhoodOutOfRange =
     isDelivery &&
     !neighborhoodsLoading &&
@@ -531,31 +533,30 @@ export default function CheckoutPage({
     { id: "Nequi", desc: "Transferencia con código QR" },
     { id: "Bancolombia", desc: "Transferencia con código QR" },
   ]
-  const overLimit = orderTotal >= APPROVAL_MIN
   const cta = !user
     ? showAuth
       ? null
       : {
           label: "Hacer pedido",
           onClick: () => setShowAuth(true),
-          disabled: !hasActiveItems || overLimit,
+          disabled: !hasActiveItems,
         }
     : checkoutStep === 1
       ? {
           label: "Hacer pedido",
           onClick: () => setCheckoutStep(2),
-          disabled: !hasActiveItems || overLimit,
+          disabled: !hasActiveItems,
         }
     : checkoutStep === 2
       ? {
           label: "Confirma tus datos",
           onClick: continueToReview,
-          disabled: cart.length === 0 || overLimit,
+          disabled: cart.length === 0,
         }
       : {
           label: placing ? "Enviando pedido..." : "Confirmar pedido",
           onClick: placeOrder,
-          disabled: placing || !hasActiveItems || !canOrder || !payReady || overLimit,
+          disabled: placing || !hasActiveItems || !canOrder || !payReady,
         }
 
   if (ordered)
@@ -614,7 +615,7 @@ export default function CheckoutPage({
                 {delivForm.pago !== "Efectivo"
                   ? "Recibimos tu comprobante. El pedido queda pendiente de verificación; cuando se apruebe, se enviará a producción."
                   : placedTotal >= APPROVAL_MIN
-                    ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
+                    ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche (abono del 50%)."
                     : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
                 Puedes seguir su estado en &quot;Mis pedidos&quot;.
               </p>
@@ -1423,14 +1424,16 @@ export default function CheckoutPage({
                   <div className="grid sm:grid-cols-3 gap-3">
                     {PAY_OPTS.map((m) => {
                       const sel = delivForm.pago === m.id
+                      const off = deposit && m.id === "Efectivo"
                       return (
                         <button
                           key={m.id}
+                          disabled={off}
                           onClick={() => setDelivForm((f) => ({ ...f, pago: m.id }))}
-                          className="text-left p-4 rounded-xl cursor-pointer"
+                          className="text-left p-4 rounded-xl cursor-pointer disabled:cursor-not-allowed disabled:opacity-45"
                           style={{
-                            border: `1.5px solid ${sel ? C.mustard : LINE}`,
-                            background: sel ? `${C.mustard}0D` : "#fff",
+                            border: `1.5px solid ${sel && !off ? C.mustard : LINE}`,
+                            background: sel && !off ? `${C.mustard}0D` : "#fff",
                           }}
                         >
                           <div className="flex items-center justify-between mb-1">
@@ -1446,12 +1449,19 @@ export default function CheckoutPage({
                             />
                           </div>
                           <div className="text-xs" style={{ color: MUTED }}>
-                            {m.desc}
+                            {off ? "No disponible: este pedido se abona por transferencia" : m.desc}
                           </div>
                         </button>
                       )
                     })}
                   </div>
+                  {deposit && deliveryCostConfigured && (
+                    <div role="note" className="mt-4 rounded-xl p-3 text-sm" style={{ background: `${C.mustard}12`, border: `1.5px solid ${C.mustard}55`, color: C.dark }}>
+                      <strong className="block">Pedido de {fmt(APPROVAL_MIN)} o más: abona el 50%</strong>
+                      Paga ahora {fmt(depositAmount)} por Nequi o Bancolombia y sube el comprobante. El saldo de {fmt(orderTotal - depositAmount)} lo pagas al recibir tu pedido.
+                      {delivForm.pago === "Efectivo" && <span className="mt-1 block font-semibold" style={{ color: C.red }}>Elige Nequi o Bancolombia para continuar.</span>}
+                    </div>
+                  )}
                   {needsVoucher && (
                     <div
                       className="mt-5 p-5 rounded-xl grid sm:grid-cols-[auto_1fr] gap-5 items-center"
@@ -1465,14 +1475,17 @@ export default function CheckoutPage({
                           style={{ width: 160, height: 160, border: `1px solid ${LINE}` }}
                         />
                         <div className="text-xs mt-2" style={{ color: MUTED }}>
-                          Total a pagar
+                          {deposit ? "Abono (50%) a pagar ahora" : "Total a pagar"}
                         </div>
                         <div
                           className="font-black text-xl"
                           style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
                         >
-                          {deliveryCostConfigured ? fmt(orderTotal) : "Por confirmar"}
+                          {deliveryCostConfigured ? fmt(deposit ? depositAmount : orderTotal) : "Por confirmar"}
                         </div>
+                        {deposit && deliveryCostConfigured && (
+                          <div className="text-[11px]" style={{ color: MUTED }}>Saldo al recibir: {fmt(orderTotal - depositAmount)}</div>
+                        )}
                       </div>
                       <div>
                         <h3 className="font-semibold text-sm mb-1" style={{ color: C.dark }}>
@@ -1480,7 +1493,7 @@ export default function CheckoutPage({
                         </h3>
                         <ol className="text-xs mb-4 space-y-1 list-decimal pl-4" style={{ color: MUTED }}>
                           <li>Escanea el código QR desde tu app de {delivForm.pago}.</li>
-                          <li>Paga el total exacto.</li>
+                          <li>{deposit ? `Paga el abono exacto (${fmt(depositAmount)}).` : "Paga el total exacto."}</li>
                           <li>Sube la captura del comprobante aquí.</li>
                         </ol>
                         <VoucherInput value={voucher} onChange={setVoucher} />
@@ -1816,10 +1829,10 @@ export default function CheckoutPage({
               </span>
             </div>
             <FieldError msg={orderError} />
-            {overLimit && (
-              <div role="alert" className="mt-4 rounded-xl p-3 text-sm" style={{ background: `${C.red}10`, border: `1.5px solid ${C.red}`, color: C.red }}>
-                <strong className="block">No se puede realizar la compra</strong>
-                Tu pedido ({fmt(orderTotal)}) excede el precio permitido: debe ser menor a {fmt(APPROVAL_MIN)}. Quita productos o adiciones para continuar.
+            {deposit && deliveryCostConfigured && (
+              <div role="note" className="mt-4 rounded-xl p-3 text-sm" style={{ background: `${C.mustard}12`, border: `1.5px solid ${C.mustard}55`, color: C.dark }}>
+                <strong className="block">Abono del 50%: {fmt(depositAmount)}</strong>
+                Por ser de {fmt(APPROVAL_MIN)} o más, se paga la mitad por transferencia al pedir y el saldo ({fmt(orderTotal - depositAmount)}) al recibir.
               </div>
             )}
             {cta ? (

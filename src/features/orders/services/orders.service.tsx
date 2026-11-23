@@ -56,6 +56,7 @@ export const orderFromDb = (p: DbRecord): Order => ({
   total: p.total,
   status: p.estado,
   paymentStatus: p.estado_pago,
+  deposit: Number(p.abono) || undefined,
   paymentRejectionReason: p.motivo_rechazo_pago || undefined,
   productionAuthorized: p.produccion_autorizada,
   productionRecords: p.registros_produccion,

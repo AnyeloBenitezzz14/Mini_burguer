@@ -484,7 +484,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
         key: "4",
         label: "Modalidad de pago",
         type: "select",
-        options: ["Anticipado", "Contraentrega"],
+        options: ["Anticipado", "Contraentrega", "Abono 50%"],
       },
       { key: "5", label: "Total (COP)", type: "number" },
       {
@@ -494,6 +494,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
         options: [
           "Pendiente",
           "Pendiente de verificación",
+          "Abonado",
           "Pagado",
           "Rechazado",
         ],
@@ -564,8 +565,12 @@ export const STALE_ORDER_DAYS = 2
 export const PAYMENT_NEXT: Record<string, string> = {
   Pendiente: "Pagado",
   "Pendiente de verificación": "Pagado",
+  Abonado: "Pagado",
   Rechazado: "Pendiente de verificación",
 }
+// With a 50% deposit the payment goes Pendiente / por verificar → Abonado (the 50%) → Pagado (the rest, on delivery)
+export const nextPaymentStatus = (current: string, modality: string) =>
+  modality === "Abono 50%" && ["Pendiente", "Pendiente de verificación"].includes(current) ? "Abonado" : PAYMENT_NEXT[current]
 
 export const SIDEBAR_MENU = [
   {

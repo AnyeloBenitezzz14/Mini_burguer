@@ -92,7 +92,9 @@ export type Order = DeliveryInfo & {
   total: number
   status: string
   estimacion?: DeliveryEstimate
-  paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Pagado" | "Rechazado"
+  paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Abonado" | "Pagado" | "Rechazado"
+  // Orders of $150.000 or more: the 50% paid in advance
+  deposit?: number
   paymentRejectionReason?: string
   productionAuthorized?: boolean
   productionRecords?: (string | number)[][]

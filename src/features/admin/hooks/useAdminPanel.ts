@@ -1,6 +1,6 @@
 import { withoutInNote } from "@/features/checkout/utils/cart"
 import { useCallback, useEffect, useRef, useState } from "react"
-import { MOD_CFG, PAYMENT_NEXT, PRODUCTION_STATUSES, QUICK_FILTERS, SECTION_MODULE, SIDEBAR_MENU, STALE_ORDER_DAYS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
+import { MOD_CFG, PAYMENT_NEXT, nextPaymentStatus, PRODUCTION_STATUSES, QUICK_FILTERS, SECTION_MODULE, SIDEBAR_MENU, STALE_ORDER_DAYS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
 import { DB_SYNC, PANEL_SYNC, saveRowToDb } from "@/features/admin/services/sync.service"
 import { getDashPeriod } from "@/features/admin/utils/dashboard"
 import { buildProductionRows, clientOrderToPanelRow, isPedidoProduction, isProductionEditLocked, isSupplyProductRow, derivePedidoPayment, fixShiftedSale, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isSuperAdminRow, nextAutoSaleCode, parseMainSupplies, parsePurchaseLines, permsFromDb, permsToDb, productionLabel, roleLabel, saleTypeOf, supplierRequiredKeys, supplyAsProduct, syncIdIndex, text, withId, withPanelId } from "@/features/admin/utils/rows"
@@ -2371,7 +2371,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       newRow[5] = total
       newRow[6] = "Recibido"
       // Modality follows the payment method; payment status too when creating (editing moves it forward)
-      const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""))
+      const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""), Number(total) || 0)
       newRow[4] = payment.modalidad
       newRow[7] = modal.mode === "edit" && formData["7"] ? formData["7"] : payment.estadoPago
       // A new order waits in «Recibido» (still editable); its production order is created on «Confirmado»
@@ -3145,13 +3145,16 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     // Any order with an uploaded proof is checked like a transfer
     const transferPayment = isTransferPaymentMethod(String(order?.[4] ?? "")) || !!proof
     const payOnDelivery = String(order?.[5]) === "Contraentrega"
+    // $150.000 or more: the approved proof is the 50% deposit; the rest is collected on delivery
+    const deposit = String(order?.[5]) === "Abono 50%"
+    const approvedPayment = deposit ? "Abonado" : "Pagado"
     if (
       !order ||
       ["Autorizada", "Enviada a producción"].includes(String(order[9])) ||
       (transferPayment &&
-        !["Pendiente de verificación", "Pagado"].includes(paymentStatus)) ||
+        !["Pendiente de verificación", "Abonado", "Pagado"].includes(paymentStatus)) ||
       (transferPayment && paymentStatus === "Pendiente de verificación" && !proof) ||
-      (!transferPayment && !payOnDelivery && paymentStatus !== "Pagado")
+      (!transferPayment && !payOnDelivery && !["Abonado", "Pagado"].includes(paymentStatus))
     ) return
 
     const requestedItems = getAdminOrderLines(order)
@@ -3174,7 +3177,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           ? {
               ...item,
               status: "Confirmado",
-              ...(transferPayment ? { paymentStatus: "Pagado" as const } : {}),
+              ...(transferPayment && paymentStatus !== "Pagado" ? { paymentStatus: approvedPayment as "Abonado" | "Pagado" } : {}),
               productionAuthorized: true,
               productionRecords,
             }
@@ -3183,7 +3186,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     )
     // Approving isn't selling: the sale is created by the server only when the order is paid (a transfer is,
     // right here). Then the sales list is reloaded so it shows up
-    pushOrder(String(order[0])).then(() => { if (transferPayment) loadPanel("ventas") })
+    pushOrder(String(order[0])).then(() => { if (transferPayment && !deposit) loadPanel("ventas") })
 
     setRows((current) => {
       const currentOrder = current.pedidos?.[orderIndex]
@@ -3192,7 +3195,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       }
       const orderRows = [...(current.pedidos || [])]
       const updatedOrder = [...currentOrder]
-      updatedOrder[8] = transferPayment ? "Pagado" : updatedOrder[8]
+      updatedOrder[8] = transferPayment && updatedOrder[8] !== "Pagado" ? approvedPayment : updatedOrder[8]
       updatedOrder[9] = "Autorizada"
       if (
         transferPayment ||
@@ -3224,7 +3227,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   // Choosing the current status again still catches up production that fell behind
   const setOrderPayment = (orderIndex: number, status: string) => {
     const order = rows.pedidos?.[orderIndex]
-    if (!order || PAYMENT_NEXT[String(order[8] || "Pendiente")] !== status) return
+    if (!order || nextPaymentStatus(String(order[8] || "Pendiente"), String(order[5] ?? "")) !== status) return
     const orderId = String(order[0])
     // Shop orders also keep it on the order the client sees. Their sale is created by the server when the
     // payment is saved (one per order); then the sales list is reloaded to show it
@@ -3340,7 +3343,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       }),
     }))
     // Cash on delivery / on pickup: handing it over means it was paid (this also records its sale)
-    if (status === "Entregado" && String(order[5]) === "Contraentrega" && PAYMENT_NEXT[String(order[8] || "Pendiente")] === "Pagado")
+    // Delivered: cash on delivery, or the rest after a 50% deposit, was collected at the door
+    if (status === "Entregado" && ["Contraentrega", "Abono 50%"].includes(String(order[5])) && nextPaymentStatus(String(order[8] || "Pendiente"), String(order[5])) === "Pagado")
       setOrderPayment(orderIndex, "Pagado")
   }
   const rejectTransferPayment = () => {

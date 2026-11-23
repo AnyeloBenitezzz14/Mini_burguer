@@ -1,6 +1,6 @@
 import { COUNTER_CLIENT_DOC, DOC_SHORT, PERMISSION_MODULES, PERM_ACTION, PERM_MODULE, RETURNED_LOSS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
 import { DB_SYNC, PANEL_SYNC } from "@/features/admin/services/sync.service"
-import { APPROVAL_MIN, isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { APPROVAL_MIN, DEPOSIT_MODALITY, isTransferPaymentMethod, needsDeposit } from "@/features/orders/utils/orders"
 import type { AdminOrderLine, Order, RolePerms, Row } from "@/shared/types"
 import { splitNames } from "@/shared/utils/format"
 
@@ -40,7 +40,10 @@ export const isProductionEditLocked = (row?: (string | number)[]) => {
 // Pedido payment rules: the method decides the modality and whether it's paid,
 // so the admin doesn't pick them by hand. Cash in the shop is paid at the counter; cash for a delivery
 // or a pickup is paid on handover (it turns "Pagado" by itself when the order is "Entregado")
-export function derivePedidoPayment(method: string, hasProof: boolean, orderType = "") {
+export function derivePedidoPayment(method: string, hasProof: boolean, orderType = "", total = 0) {
+  // $150.000 or more (not paid at the counter): 50% in advance, the rest on delivery
+  if (needsDeposit(total, orderType))
+    return { modalidad: DEPOSIT_MODALITY, estadoPago: method === "Transferencia" && hasProof ? "Abonado" : "Pendiente" }
   if (method === "Transferencia")
     return { modalidad: "Anticipado", estadoPago: hasProof ? "Pagado" : "Pendiente" }
   if (method === "Efectivo" && orderType === "Local") return { modalidad: "Anticipado", estadoPago: "Pagado" }
@@ -100,7 +103,7 @@ export function clientOrderToPanelRow(order: Order, products: (string | number)[
     lines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${lines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
     "Domicilio",
     order.pago === "Efectivo" ? "Efectivo" : "Transferencia",
-    order.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
+    needsDeposit(order.total) ? DEPOSIT_MODALITY : order.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
     order.total,
     order.status,
     paymentStatus,

@@ -1,5 +1,5 @@
 import { Fragment } from "react"
-import { MOD_CFG, NATURAL_SUPPLIER_KEYS, NATURAL_SUPPLIER_VIEW_KEYS, PAYMENT_NEXT, PURCHASE_ENTITIES, RETURNED_LOSS, STOCK_ORIGIN } from "@/features/admin/config/modules"
+import { MOD_CFG, NATURAL_SUPPLIER_KEYS, NATURAL_SUPPLIER_VIEW_KEYS, nextPaymentStatus, PURCHASE_ENTITIES, RETURNED_LOSS, STOCK_ORIGIN } from "@/features/admin/config/modules"
 import { DB_SYNC } from "@/features/admin/services/sync.service"
 import { derivePedidoPayment, isActiveStatus, isSupplyProductRow, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
 import { ADDITION_PRODUCT, SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
@@ -2324,7 +2324,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               if (isPedido && !isView && f.key === "7" && modal.mode === "edit") {
                 // Pendiente / Pendiente de verificación → Pagado: the current one and the next, never back
                 const current = String(formData["7"] || "Pendiente")
-                const next = PAYMENT_NEXT[current]
+                const next = nextPaymentStatus(current, String(formData["4"] ?? ""))
                 const paid = current === "Pagado"
                 return (
                   <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
@@ -2361,7 +2361,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               // New order: modality and payment status aren't shown; they're set from the type and method on save
               if (isPedido && !isView && (f.key === "4" || (modal.mode === "add" && f.key === "7"))) return null
               if (isPedido && !isView && (f.key === "4" || f.key === "7")) {
-                const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""))
+                const orderTotal = pedidoOrderLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)
+                const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""), orderTotal)
                 const value = f.key === "4" ? payment.modalidad : payment.estadoPago
                 return (
                   <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
@@ -2381,7 +2382,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     </div>
                     {f.key === "7" && (
                       <span className="text-[11px]" style={{ color: t.muted }}>
-                        Automático: efectivo en el local = pagado; transferencia con comprobante = pagado; efectivo a domicilio o para recoger = contraentrega, y queda pagado al marcarlo «Entregado».
+                        {payment.modalidad === "Abono 50%"
+                          ? `Pedido de $150.000 o más: se abona el 50% (${fmt(Math.ceil(orderTotal / 2))}) por adelantado y el saldo (${fmt(orderTotal - Math.ceil(orderTotal / 2))}) al entregar. Con transferencia y comprobante queda «Abonado».`
+                          : "Automático: efectivo en el local = pagado; transferencia con comprobante = pagado; efectivo a domicilio o para recoger = contraentrega, y queda pagado al marcarlo «Entregado»."}
                       </span>
                     )}
                   </div>
@@ -5688,7 +5691,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               )}
               {(() => {
                 const current = String(row?.[8] || "Pendiente")
-                const next = PAYMENT_NEXT[current]
+                const next = nextPaymentStatus(current, String(row?.[5] ?? ""))
                 return (
                   <label className="md:col-start-2 flex flex-col gap-1.5 text-xs font-semibold" style={{ color: t.text }}>
                     Estado de pago
