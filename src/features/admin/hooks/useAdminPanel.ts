@@ -572,6 +572,19 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           const row = withPanelId(sec === "ventas" ? fixShiftedSale(r.datos_panel) : r.datos_panel, spec.idIndex, r.id)
           // Older production orders ended in «En camino»/«Entregado»: production now ends in «Finalizada»
           if (sec === "produccion" && ["En camino", "Entregado"].includes(String(row[8]))) row[8] = "Finalizada"
+          // Returns saved before the total and the status existed: every cell in place (else the table shifts)
+          if (sec === "devoluciones") {
+            if (row[8] === undefined || row[8] === "") {
+              try {
+                row[8] = (JSON.parse(String(row[6] || "[]")) as { quantity: number; unitPrice: number }[])
+                  .reduce((sum, item) => sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0), 0)
+              } catch {
+                row[8] = 0
+              }
+            }
+            row[9] = row[9] || "Activa"
+            row[10] = row[10] ?? ""
+          }
           return row
         })
         setRows((current) => {

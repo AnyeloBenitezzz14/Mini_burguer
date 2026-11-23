@@ -278,6 +278,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     if (section === "insumos" && row && rowCellIndex === 3) return Number(cell) > 0 ? fmt(Number(cell)) : "Sin compras"
     if (section === "insumos" && row && rowCellIndex === 4) return `${Number(cell) || 0} ${String(row[2] ?? "")}`.trim()
     if (section === "pedidos" && rowCellIndex === 6) return Number.isFinite(Number(cell)) && cell !== "" ? fmt(Number(cell)) : "—"
+    if (section === "devoluciones" && rowCellIndex === 8) return Number(cell) > 0 ? fmt(Number(cell)) : "—"
     if (section !== "ventas") return cell
     if (rowCellIndex === 3) return formatSalesDate(cell)
     if (rowCellIndex === 7) {

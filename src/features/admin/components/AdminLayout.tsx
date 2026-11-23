@@ -382,7 +382,8 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
           {/* Keyed by section so each module fades in when it is opened */}
           <div key={section} className={section === "dashboard" ? "admin-section-enter" : undefined}>
             {section === "dashboard" && Dashboard()}
-            {section !== "dashboard" && <GenericTable />}
+            {/* A new / edited pedido is a page in its module (back arrow returns to the list) */}
+            {section !== "dashboard" && (CRUDModal(true) ?? <GenericTable />)}
           </div>
         </main>
       </div>

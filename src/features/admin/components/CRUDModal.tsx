@@ -22,7 +22,8 @@ import type { ReactNode } from "react"
 // Called as a plain function ({CRUDModal()}), not <CRUDModal />: a component
 // declared inside AdminPanel is a new type on every render, which remounted the
 // form on each keystroke and dropped input focus. Keep hooks out of here.
-export default function CRUDModal(adminState: AdminPanelState): ReactNode {
+// inline: the order form (new / edit pedido) is a page inside the module, not a floating window
+export default function CRUDModal(adminState: AdminPanelState, inline = false): ReactNode {
   const {
     ORDER_TO_PRODUCTION,
     PNC_UNITS,
@@ -220,6 +221,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     validateManagedForm,
   } = adminState
   if (!modal.mode) return null
+  // A pedido's form opens as a page in its module (AdminLayout shows it where the table goes); the rest float
+  const asPage = modal.section === "pedidos" && modal.mode !== "view"
+  if (asPage !== inline) return null
   const cfg = MOD_CFG[modal.section]
   if (!cfg) return null
   const isView = modal.mode === "view"
@@ -836,8 +840,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
 
   return (
     <div
-      className={`fixed inset-0 z-[70] flex ${isSidePanel ? "justify-end" : "items-center justify-center px-4 py-3"} ${isUser ? "lg:left-[72px]" : ""}`}
-      style={{ background: isSidePanel ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.65)" }}
+      className={inline ? "min-w-0" : `fixed inset-0 z-[70] flex ${isSidePanel ? "justify-end" : "items-center justify-center px-4 py-3"} ${isUser ? "lg:left-[72px]" : ""}`}
+      style={inline ? undefined : { background: isSidePanel ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.65)" }}
       // Forms and details only close with their own buttons (X, Volver, Cancelar), never with a stray click outside
     >
       {discardAsk && (
@@ -875,11 +879,13 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-[min(96vw,1500px)]") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
           maxHeight: isSidePanel ? "100vh" : isPurchaseModule || isProduct || isRoles || isUser ? "94vh" : "88vh",
+          // As a page: full width of the module, grows with its content (the page scrolls)
+          ...(inline ? { maxWidth: "none", maxHeight: "none", overflow: "visible" } : {}),
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -893,14 +899,15 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             <button
               type="button"
               onClick={requestCloseModal}
-              aria-label="Volver"
-              title="Volver"
-              className="flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-xl"
+              aria-label={inline ? "Volver a Pedidos" : "Volver"}
+              title={inline ? "Volver a Pedidos" : "Volver"}
+              className={`flex h-8 flex-shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-xl ${inline ? "px-3 text-xs font-semibold" : "w-8"}`}
               style={{ background: t.input, color: t.muted }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
+              {inline && "Pedidos"}
             </button>
           )}
           <h3 className="font-semibold text-base" style={{ color: t.text }}>
@@ -962,7 +969,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           </div>
         </div>
         <div
-          className={`${isSales && isView ? "print-receipt " : ""}min-w-0 overflow-x-hidden ${isRoles || isUser || isSidePanel ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
+          className={`${isSales && isView ? "print-receipt " : ""}min-w-0 ${inline ? "" : "overflow-x-hidden"} ${inline ? "" : isRoles || isUser || isSidePanel ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
             isUser
               ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
               : isRoles && !isView
@@ -5971,6 +5978,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             {saveError} Lo que escribiste sigue aquí: corrige y vuelve a guardar.
           </p>
         )}
+        <div className={inline ? "sticky bottom-0 z-10 rounded-b-2xl" : "contents"} style={inline ? { background: t.card } : undefined}>
         {isPedido && !isView && (() => {
           // Always in sight while picking products: how many and how much so far (and the 50% deposit if it applies)
           const units = pedidoOrderLines.filter((line) => !line.parentId).reduce((sum, line) => sum + line.quantity, 0)
@@ -6132,6 +6140,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               {saving ? "Guardando…" : "Guardar"}
             </button>
           )}
+        </div>
         </div>
       </div>
       {lossReturnReason !== null && modal.section === "perdidas" && row && (
