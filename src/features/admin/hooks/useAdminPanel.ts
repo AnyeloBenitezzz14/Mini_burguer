@@ -695,6 +695,13 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         clientOrders.flatMap((o, i) => (o.voucher ? [[i, o.voucher]] : [])),
       ),
   )
+  // An order's payment proof: a shop order brings its own (latest one sent, found by its code: rows move and
+  // orders keep arriving after the panel opened); an order made in the panel keeps the one attached in its form
+  const proofOf = (orderIndex: number) => {
+    const code = String(rows.pedidos?.[orderIndex]?.[0] ?? "")
+    const shop = code ? loadOrders().find((order) => order.id === code) : undefined
+    return shop?.voucher || paymentProofs[orderIndex] || ""
+  }
   const [paymentProofDraft, setPaymentProofDraft] = useState("")
   const [search, setSearch] = useState<Record<string, string>>({})
   const [tableFilter, setTableFilter] = useState<Record<string, string>>({})
@@ -1815,7 +1822,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     setTouchedFields({})
     setPedidoProductoSelect("")
     setPedidoProductSearch("")
-    setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
+    setPaymentProofDraft(sec === "pedidos" ? proofOf(idx) : "")
     // Only a real photo: the bundled bottle of a soda is just shown, never saved as its photo
     setImgPreview(sec === "producto" ? prodImgs[idx] || "" : "")
     setModal({ mode: "edit", section: sec, idx })
@@ -1831,7 +1838,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         .catch((err) => setStockMoves((cur) => (cur?.id === insumoId ? { ...cur, error: `No se pudo cargar el historial: ${(err as Error).message}` } : cur)))
     }
     setImgPreview(sec === "producto" ? prodImgs[idx] || sodaImage(rows.producto?.[idx]?.[0]) || "" : "")
-    setPaymentProofDraft(sec === "pedidos" ? paymentProofs[idx] || "" : "")
+    setPaymentProofDraft(sec === "pedidos" ? proofOf(idx) : "")
     if (sec === "producto") {
       setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
       setTechnicalSteps(getPreparationSteps(rows.producto?.[idx]?.[8]))
@@ -3153,7 +3160,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   }
   const approveOrderForProduction = (orderIndex: number) => {
     const order = rows.pedidos?.[orderIndex]
-    const proof = paymentProofs[orderIndex]
+    const proof = proofOf(orderIndex)
     const paymentStatus = String(order?.[8] ?? "")
     // Any order with an uploaded proof is checked like a transfer
     const transferPayment = isTransferPaymentMethod(String(order?.[4] ?? "")) || !!proof
@@ -3370,7 +3377,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       return
     }
     if (
-      !(isTransferPaymentMethod(String(order[4] ?? "")) || paymentProofs[orderIndex]) ||
+      !(isTransferPaymentMethod(String(order[4] ?? "")) || proofOf(orderIndex)) ||
       String(order[8]) !== "Pendiente de verificación"
     ) {
       setPaymentRejectionError("Este comprobante ya no está pendiente de revisión.")
@@ -4302,6 +4309,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     failedCreates,
     paymentProofs,
     setPaymentProofs,
+    proofOf,
     paymentProofDraft,
     setPaymentProofDraft,
     search,

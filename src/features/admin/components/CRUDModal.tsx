@@ -81,7 +81,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     parseProductionHistory,
     parsePurchaseItems,
     paymentProofDraft,
-    paymentProofs,
+    proofOf,
     pedidoAdditionsFor,
     pedidoOrderLines,
     pedidoProductCategory,
@@ -5683,13 +5683,13 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   </>
                 )
               })()}
-              {(paymentProofs[modal.idx!] || paymentProofDraft) && (
+              {(proofOf(modal.idx!) || paymentProofDraft) && (
                 <div className="rounded-2xl px-4 py-3 md:col-start-2 self-start" style={{ border: `1px solid ${t.border}` }}>
                   <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
                     Comprobante de transferencia
                   </h4>
                   <img
-                    src={paymentProofs[modal.idx!] || paymentProofDraft}
+                    src={proofOf(modal.idx!) || paymentProofDraft}
                     alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
                     className="max-h-48 w-full rounded-xl object-contain"
                     style={{ background: t.card, border: `1px solid ${t.border}` }}
@@ -5773,7 +5773,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   Comprobante rechazado: {String(row?.[11] || "Sin motivo registrado.")}
                 </p>
               )}
-              {(isTransferPaymentMethod(String(row?.[4] ?? "")) || paymentProofs[modal.idx!]) &&
+              {(isTransferPaymentMethod(String(row?.[4] ?? "")) || proofOf(modal.idx!)) &&
               String(row?.[8]) === "Pendiente de verificación" ? (
                 <div className="md:col-start-2 flex flex-col gap-2">
                   <button
@@ -5790,7 +5790,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   </button>
                   <button
                     type="button"
-                    disabled={!paymentProofs[modal.idx!]}
+                    disabled={!proofOf(modal.idx!)}
                     onClick={() => approveOrderForProduction(modal.idx!)}
                     className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ background: C.mustard, color: "#fff" }}
@@ -5811,7 +5811,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   type="button"
                   disabled={
                     (String(row?.[5]) !== "Contraentrega" &&
-                      (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) ||
+                      (String(row?.[8]) !== "Pagado" || !proofOf(modal.idx!))) ||
                     ["Autorizada", "Enviada a producción"].includes(String(row?.[9]))
                   }
                   onClick={() => approveOrderForProduction(modal.idx!)}
@@ -5840,7 +5840,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
             const dateText = Number.isNaN(date.getTime())
               ? String(row[3] ?? "—")
               : date.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
-            const proof = saleOrderIndex >= 0 ? paymentProofs[saleOrderIndex] : ""
+            const proof = saleOrderIndex >= 0 ? proofOf(saleOrderIndex) : ""
             return (
               <div className="grid min-w-0 gap-3 sm:col-span-2 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
                 <div className="flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3 md:col-span-2" style={{ background: t.cardAlt }}>
