@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef } from "react"
 import { MOD_CFG, PRODUCTION_STATUSES, QUICK_FILTERS, TABLE_FILTERS } from "@/features/admin/config/modules"
 import { isNaturalSupplier, isProductionEditLocked, isReturnedLoss, isSupplyProductRow, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
 import { isSodaName, sodaImage } from "@/features/menu/data/products"
@@ -16,6 +16,7 @@ import type { ReactNode } from "react"
 export default function GenericTable(adminState: AdminPanelState): ReactNode {
   const {
     PAGE_SIZE,
+    shrinkPage,
     ProductionStatusSelect,
     anulled,
     canDo,
@@ -73,6 +74,11 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
       searchInputRef.current.setSelectionRange(currentValue.length, currentValue.length)
     }
   }, [search[section], pg[section]])
+  // A full page that makes the screen scroll shows one row less (down to 3), before it is painted
+  useLayoutEffect(() => {
+    const main = document.querySelector("main")
+    if (main && main.scrollHeight > main.clientHeight + 1 && PAGE_SIZE > 3 && pageRows.length === PAGE_SIZE) shrinkPage(PAGE_SIZE)
+  })
   const noDelete = !!cfg.noDelete
   const noExp = !!cfg.noExport
   const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))

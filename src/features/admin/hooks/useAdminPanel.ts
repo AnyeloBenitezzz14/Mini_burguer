@@ -4044,7 +4044,16 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       return []
     }
   }
-  const PAGE_SIZE = 7
+  // Rows per page: 7, one less at a time while a module's list doesn't fit the screen (no scroll); a resize starts over
+  const [pageSizes, setPageSizes] = useState<Record<string, number>>({})
+  const PAGE_SIZE = pageSizes[section] ?? 7
+  // From the size that was measured, so a repeated check (StrictMode) doesn't take two rows off
+  const shrinkPage = (from: number) => setPageSizes((sizes) => ({ ...sizes, [section]: Math.min(sizes[section] ?? 7, from - 1) }))
+  useEffect(() => {
+    const reset = () => setPageSizes({})
+    window.addEventListener("resize", reset)
+    return () => window.removeEventListener("resize", reset)
+  }, [])
   // Dashboard data, from the backend rows of the chosen period
   const period = getDashPeriod(chartFilter, chartAnchor)
   const dateOf = (v: string | number | undefined) => {
@@ -4570,6 +4579,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     withStockChange,
     parseProductionHistory,
     PAGE_SIZE,
+    shrinkPage,
     period,
     dateOf,
     within,

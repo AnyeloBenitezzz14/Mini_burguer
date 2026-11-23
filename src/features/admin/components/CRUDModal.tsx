@@ -845,6 +845,39 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     setSupplyFormError("")
   }
 
+  // Proof only matters for transfers (cash / pay at the store = contraentrega): in the order's right column
+  const pedidoProof = isPedido && !isView && formData["3"] === "Transferencia" ? (
+    <div className={"flex min-w-0 flex-col gap-2 sm:col-span-2 lg:order-5"}>
+      <label className="text-xs font-semibold" style={{ color: t.muted }}>Comprobante de pago</label>
+      {isView ? (
+        paymentProofDraft ? (
+          <ZoomableImage src={paymentProofDraft} alt="Comprobante de pago" className="max-h-64 w-full rounded-xl object-contain" />
+        ) : (
+          <div className="rounded-xl px-4 py-6 text-center text-xs" style={{ background: t.input, color: t.muted }}>El cliente todavía no ha subido un comprobante.</div>
+        )
+      ) : (
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border-2 border-dashed p-3" style={{ borderColor: t.inputB }}>
+          {paymentProofDraft && <img src={paymentProofDraft} alt="Vista previa" className="max-h-24 w-full rounded-lg object-contain" />}
+          <button type="button" onClick={() => document.getElementById("payment-proof-input")?.click()} className="cursor-pointer text-xs font-semibold" style={{ color: C.mustard }}>Seleccionar imagen o PDF del comprobante</button>
+          <input id="payment-proof-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (!file) return
+            if (file.type === "application/pdf") {
+              setPaymentProofDraft(URL.createObjectURL(file))
+            } else {
+              const reader = new FileReader()
+              reader.onload = (loadEvent) => {
+                if (loadEvent.target?.result) setPaymentProofDraft(String(loadEvent.target.result))
+              }
+              reader.readAsDataURL(file)
+            }
+          }} />
+          <input type="url" placeholder="O pega una URL del comprobante" value={paymentProofDraft.startsWith("data:") ? "" : paymentProofDraft} onChange={(event) => setPaymentProofDraft(event.target.value)} className="min-w-0 flex-1 rounded-lg px-3 py-2 text-xs" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
+        </div>
+      )}
+    </div>
+  ) : null
+
   return (
     <div
       className={inline ? "min-w-0" : `fixed inset-0 z-[70] flex ${isSidePanel ? "justify-end" : "items-center justify-center px-4 py-3"} ${isUser ? "lg:left-[72px]" : ""}`}
@@ -1007,7 +1040,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         : isSupply && !isView
                           ? // two halves: what it is (left) · inventory (right); preparation across the bottom
                             "sm:grid-cols-2 lg:grid-flow-row-dense lg:grid-cols-4 lg:gap-x-6"
-                        : (isProduction || isPedido || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
+                        : isPedido && !isView ? "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-x-6"
+                        : (isProduction || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
                   }`
                 : isProduct
                   ? "flex min-h-0 flex-1 flex-col gap-3"
@@ -1057,39 +1091,6 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 >
                   {statusValue}
                 </span>
-              )}
-            </div>
-          )}
-          {/* Proof only matters for transfers (cash / pay at the store = contraentrega) */}
-          {isPedido && !isView && formData["3"] === "Transferencia" && (
-            // Last in the form (order-last): client and products come first
-            <div className={`order-last flex min-w-0 flex-col gap-2 ${isPedido && !isView ? "sm:col-span-3" : "sm:col-span-2"}`}>
-              <label className="text-xs font-semibold" style={{ color: t.muted }}>Comprobante de pago</label>
-              {isView ? (
-                paymentProofDraft ? (
-                  <ZoomableImage src={paymentProofDraft} alt="Comprobante de pago" className="max-h-64 w-full rounded-xl object-contain" />
-                ) : (
-                  <div className="rounded-xl px-4 py-6 text-center text-xs" style={{ background: t.input, color: t.muted }}>El cliente todavía no ha subido un comprobante.</div>
-                )
-              ) : (
-                <div className="min-w-0 rounded-xl border-2 border-dashed p-4 text-center" style={{ borderColor: t.inputB }}>
-                  {paymentProofDraft && <img src={paymentProofDraft} alt="Vista previa" className="mb-3 max-h-40 w-full rounded-lg object-contain" />}
-                  <button type="button" onClick={() => document.getElementById("payment-proof-input")?.click()} className="cursor-pointer text-xs font-semibold" style={{ color: C.mustard }}>Seleccionar imagen o PDF del comprobante</button>
-                  <input id="payment-proof-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    if (!file) return
-                    if (file.type === "application/pdf") {
-                      setPaymentProofDraft(URL.createObjectURL(file))
-                    } else {
-                      const reader = new FileReader()
-                      reader.onload = (loadEvent) => {
-                        if (loadEvent.target?.result) setPaymentProofDraft(String(loadEvent.target.result))
-                      }
-                      reader.readAsDataURL(file)
-                    }
-                  }} />
-                  <input type="url" placeholder="O pega una URL del comprobante" value={paymentProofDraft.startsWith("data:") ? "" : paymentProofDraft} onChange={(event) => setPaymentProofDraft(event.target.value)} className="mt-3 w-full min-w-0 rounded-lg px-3 py-2 text-xs" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
-                </div>
               )}
             </div>
           )}
@@ -1249,7 +1250,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             <img
                               src={shown}
                               alt=""
-                              className={`w-full rounded-2xl ${isDrinkForm ? "h-60 object-contain" : "h-44 object-cover"}`}
+                              className={`w-full rounded-2xl ${isDrinkForm ? "h-60 object-contain" : "h-[6.5rem] object-cover"}`}
                               style={isDrinkForm ? { background: "#fff" } : undefined}
                             />
                             <span
@@ -1263,7 +1264,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       })()}
                       {!imgPreview && !(isDrinkForm && sodaImage(`Gaseosa ${String(formData["0"] ?? "").trim().replace(/^gaseosa\s+/i, "")} (${String(formData.sodaSize ?? "").trim()})`)) && (
                         <div
-                          className="flex h-36 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-xs"
+                          className="flex h-[6.5rem] w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-xs"
                           style={{ borderColor: formFieldErrors.img ? C.red : t.inputB, color: t.muted }}
                         >
                           <span className="flex items-center gap-1.5">{Ico.upload} Arrastra o selecciona una imagen</span>
@@ -1437,22 +1438,22 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           Este producto no tiene ficha técnica.
                         </p>
                       ) : (
-                        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-xl px-6 py-8 text-center" style={{ background: t.cardAlt }}>
-                          <span className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl px-6 py-4 text-center" style={{ background: t.cardAlt }}>
+                          <span className="flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: `${C.mustard}18`, color: C.mustard }}>
                             {Ico.chef}
                           </span>
                           <div>
                             <p className="text-sm font-semibold" style={{ color: t.text }}>Aún no tiene ficha técnica</p>
                             <p className="mt-1 text-xs" style={{ color: t.muted }}>Es opcional, pero con ella el sistema sabe:</p>
                           </div>
-                          <ul className="flex w-full max-w-sm flex-col gap-2 text-left text-xs" style={{ color: t.text }}>
+                          <ul className="flex w-full max-w-sm flex-col gap-1.5 text-left text-xs" style={{ color: t.text }}>
                             {[
                               "Qué insumos lleva y cuánto de cada uno",
                               "Cuánto cuesta hacer una unidad, frente a su precio",
                               "Qué descontar del inventario en cada orden de producción",
                               "Los pasos para prepararlo siempre igual",
                             ].map((item) => (
-                              <li key={item} className="flex items-start gap-2 rounded-lg px-3 py-2" style={{ background: t.card }}>
+                              <li key={item} className="flex items-start gap-2 rounded-lg px-3 py-1.5" style={{ background: t.card }}>
                                 <span className="mt-px font-bold" style={{ color: C.mustard }}>✓</span>
                                 {item}
                               </li>
@@ -2346,7 +2347,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               )}
               {formReturn && formReturn.child === modal.section && modal.mode === "add" && (
                 <div
-                  className="rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 lg:col-span-4"
+                  className={`rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 ${isPedido ? "lg:col-span-2" : "lg:col-span-4"}`}
                   style={{ background: `${C.mustard}12`, color: t.text, border: `1px solid ${C.mustard}35` }}
                 >
                   {formReturn.section === "proveedores" ? (
@@ -2362,7 +2363,19 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   )}
                 </div>
               )}
-              {formDataFields.map((f) => {
+              {((renderField: (f: FieldType) => ReactNode) =>
+                isPedido && !isView ? (
+                  <>
+                    {/* An order: products on the left; client, payment and notes on the right (fits without scrolling) */}
+                    <div className="flex min-w-0 flex-col gap-3">{formDataFields.filter((f) => f.key === "1").map(renderField)}</div>
+                    <div className="order-first grid min-w-0 content-start gap-3 sm:grid-cols-2 lg:order-none">
+                      {formDataFields.filter((f) => f.key !== "1").map(renderField)}
+                      {pedidoProof}
+                    </div>
+                  </>
+                ) : (
+                  formDataFields.map(renderField)
+                ))((f) => {
               if (isPnc && modal.mode === "add" && !pncManual) return null
               if (isPnc && !isView && f.key === "4") return null
               // Insumo and supplier details have their own layout (supplyDetail, supplierDetail)
@@ -2421,7 +2434,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""), orderTotal)
                 const value = f.key === "4" ? payment.modalidad : payment.estadoPago
                 return (
-                  <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
+                  <div key={f.key} className="flex min-w-0 flex-col gap-1.5 sm:col-span-2 lg:order-5">
                     <span className="text-xs font-semibold" style={{ color: t.muted }}>
                       {f.label}
                     </span>
@@ -3936,7 +3949,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 )}
                 {isPedido && !isView && ["0", "1", "11"].includes(f.key) && (
                   <div
-                    className={`flex items-center gap-2 sm:col-span-3 ${f.key === "0" ? "" : "mt-1 border-t pt-4"}`}
+                    className={`flex items-center gap-2 ${f.key === "0" ? "sm:col-span-2" : f.key === "1" ? "" : "mt-1 border-t pt-4 sm:col-span-2 lg:order-6"}`}
                     style={{ borderColor: t.border }}
                   >
                     <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
@@ -4016,8 +4029,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           "14": "lg:col-span-2 lg:col-start-3 lg:row-start-6",
                         } as Record<string, string>)[f.key] ?? "lg:col-span-2 lg:col-start-1"
                       : isPedido && !isView
-                        // Recibe, tipo and payment method in one row on a wide screen; the comment shares its row with the phone
-                        ? f.key === "0" ? "sm:col-span-2 lg:col-span-1" : f.key === "1" ? "sm:col-span-3" : f.key === "11" ? "sm:col-span-2" : ""
+                        // Right column: recibe · teléfono, tipo · método, then the comment; the products fill the left column
+                        ? ({ "0": "lg:order-1", "12": "lg:order-2", "2": "lg:order-3", "3": "lg:order-4", "11": "sm:col-span-2 lg:order-7", "1": "lg:min-h-0 lg:flex-1" } as Record<string, string>)[f.key] ?? "sm:col-span-2 lg:order-5"
                       : isSales && (f.key === "1" || f.key === "8")
                         ? "sm:col-span-2"
                       : isProduction && !isView && f.key === "15"
@@ -4027,7 +4040,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         : ""
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className={`flex items-center justify-between gap-2 ${isPedido && !isView && f.key === "1" ? "hidden" : ""}`}>
                     <label
                       className="text-xs font-semibold"
                       style={{ color: !isView && shownFieldError(f.key) ? C.red : t.muted }}
@@ -4321,8 +4334,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       </button>
                     </div>
                   ) : isPedido && f.key === "1" && !isView ? (
-                    <div className="flex flex-col gap-3">
-                      <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <div className="flex flex-col gap-3 lg:min-h-[max(19rem,calc(100dvh-24rem))] lg:flex-1">
+                      <div className="flex flex-col rounded-xl p-3 lg:min-h-[15rem] lg:flex-1" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                         {/* Category and a search that narrow the cards; a click on a card adds 1 to the order */}
                         <div className="mb-3 grid max-w-xl gap-2 sm:grid-cols-[150px_minmax(0,1fr)]">
                           <select
@@ -4353,7 +4366,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           </div>
                         </div>
                         {filteredOrderProducts.length ? (
-                          <div className="grid max-h-80 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 2xl:grid-cols-7">
+                          <div className="grid max-h-80 grid-cols-2 content-start gap-2 overflow-y-auto pr-1 sm:grid-cols-3 md:grid-cols-4 lg:max-h-none lg:min-h-0 lg:flex-[1_1_0px] lg:auto-rows-max lg:grid-cols-4 2xl:grid-cols-5">
                             {filteredOrderProducts.map((product) => {
                               const productIndex = (rows.producto || []).findIndex((item) => item[0] === product)
                               const productRow = rows.producto?.[productIndex]
@@ -6142,7 +6155,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
             {saveError} Lo que escribiste sigue aquí: corrige y vuelve a guardar.
           </p>
         )}
-        <div className={inline ? "sticky bottom-0 z-10 rounded-b-2xl" : "contents"} style={inline ? { background: t.card } : undefined}>
+        <div className={inline ? `sticky bottom-0 z-10 rounded-b-2xl ${isPedido && !isView ? "lg:flex" : ""}` : "contents"} style={inline ? { background: t.card } : undefined}>
         {isPedido && !isView && (() => {
           // Always in sight while picking products: how many and how much so far (and the 50% deposit if it applies)
           const units = pedidoOrderLines.filter((line) => !line.parentId).reduce((sum, line) => sum + line.quantity, 0)
@@ -6152,7 +6165,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
             <div
               role="status"
               aria-live="polite"
-              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-2.5"
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-2.5 lg:flex-1"
               style={{ borderTop: `1px solid ${t.border}`, background: `${C.mustard}10` }}
             >
               <span className="text-sm" style={{ color: t.muted }}>
@@ -6168,7 +6181,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
           )
         })()}
         <div
-          className={`px-5 flex gap-3 ${isUser || isRoles ? "py-3" : "py-4"}`}
+          className={`px-5 flex gap-3 ${isUser || isRoles ? "py-3" : "py-4"} ${isPedido && !isView ? "lg:w-[28rem] lg:flex-none" : ""}`}
           style={{ borderTop: `1px solid ${t.border}` }}
         >
           <button
