@@ -646,7 +646,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
   const isDrinkView = isProduct && isView && row?.[1] === SODA_PRODUCT
   // The product form fields (name, category, price, description): left column, or right for a drink
   const renderProductFields = () => (
-    <div className={isView ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
+    <div className={isView ? "hidden" : `grid gap-3 sm:grid-cols-2 ${isAdditionForm || isDrinkForm ? "lg:grid-flow-row-dense lg:grid-cols-3" : ""}`}>
     {productMainFields.map((f) => {
       if (isView) return null
       const val = isView
@@ -670,7 +670,14 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               .sort((a, b) => a.localeCompare(b))
           : f.options
       return (
-        <div key={f.key} className={`flex min-w-0 flex-col gap-1.5 ${f.key === "0" || f.key === "3" ? "sm:col-span-2" : ""}`}>
+        <div
+          key={f.key}
+          className={`flex min-w-0 flex-col gap-1.5 ${
+            f.key === "0" || f.key === "3"
+              ? isAdditionForm ? "sm:col-span-2 lg:col-span-1" : isDrinkForm ? "sm:col-span-2 lg:col-span-3" : "sm:col-span-2"
+              : ""
+          }`}
+        >
           <label
             className="text-xs font-semibold"
             style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
@@ -795,6 +802,20 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         </div>
       )
     })}
+    {isAdditionForm && (
+      <div
+        className="flex items-start gap-3 rounded-xl px-4 py-3 text-xs sm:col-span-2 lg:col-span-3"
+        style={{ background: `${C.mustard}0d`, border: `1px solid ${C.mustard}30`, color: t.muted }}
+      >
+        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+          {Ico.plus}
+        </span>
+        <span>
+          <strong className="block text-sm" style={{ color: t.text }}>Una adición se suma a un plato y se cobra aparte</strong>
+          Aparece al armar un pedido (Queso, Tocineta…). No lleva foto, descripción ni ficha técnica: solo su nombre y su precio.
+        </span>
+      </div>
+    )}
     </div>
   )
   const productTechFields = isProduct
@@ -931,14 +952,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
           // with the module's title; it grows with its content and the page scrolls, the save bar stays at the bottom
           ...(inline
             ? {
-                maxWidth:
-                  isPedido ? "none"
-                  : isProduct ? (isAdditionForm ? "36rem" : isDrinkForm ? "56rem" : "72rem")
-                  : isPurchase ? "56rem"
-                  : isProduction ? (productionItems.length > 4 ? "72rem" : "60rem")
-                  : isSupply || isSupplier ? "none"
-                  : "60rem",
-                marginInline: "auto",
+                // Every page form uses the module's whole width; each lays its fields out to fill it
+                maxWidth: "none",
                 maxHeight: "none",
                 overflow: "visible",
               }
@@ -1044,6 +1059,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           ? // two halves: what it is (left) · inventory (right); preparation across the bottom
                             "sm:grid-cols-2 lg:grid-flow-row-dense lg:grid-cols-4 lg:gap-x-6"
                         : isPedido && !isView ? "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-x-6"
+                        : isPurchase && !isView ? "sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:grid-rows-[auto_auto_1fr] lg:gap-x-6"
+                        : isProduction && !isView ? "sm:grid-cols-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:gap-x-6"
                         : (isProduction || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
                   }`
                 : isProduct
@@ -1267,7 +1284,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       })()}
                       {!imgPreview && !(isDrinkForm && sodaImage(`Gaseosa ${String(formData["0"] ?? "").trim().replace(/^gaseosa\s+/i, "")} (${String(formData.sodaSize ?? "").trim()})`)) && (
                         <div
-                          className="flex h-[6.5rem] w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-xs"
+                          className={`flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-xs ${isDrinkForm ? "h-44" : "h-[6.5rem]"}`}
                           style={{ borderColor: formFieldErrors.img ? C.red : t.inputB, color: t.muted }}
                         >
                           <span className="flex items-center gap-1.5">{Ico.upload} Arrastra o selecciona una imagen</span>
@@ -1620,7 +1637,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 }
                 const controlSt = { background: t.input, border: `1px solid ${t.inputB}`, color: t.text }
                 return (
-                  <section className="flex flex-col gap-3 sm:col-span-3">
+                  <section className="flex flex-col gap-3 sm:col-span-3 lg:col-span-1 lg:col-start-1 lg:row-span-2 lg:row-start-1">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
@@ -1916,7 +1933,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         ))}
                       </div>
                     ) : (
-                      <p className="rounded-xl px-3 py-3 text-center text-xs" style={{ border: `1.5px dashed ${t.inputB}`, color: t.muted }}>
+                      <p className="flex flex-col items-center justify-center gap-2 rounded-xl px-3 py-3 text-center text-xs lg:flex-1" style={{ border: `1.5px dashed ${t.inputB}`, color: t.muted }}>
+                        <span className="hidden h-10 w-10 items-center justify-center rounded-xl lg:flex" style={{ background: `${C.mustard}14`, color: C.mustard }}>{Ico.chef}</span>
                         Aquí aparecen los productos que agregues.
                       </p>
                     )}
@@ -2927,11 +2945,14 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 return (
                   <section
                     key="purchase-items"
-                    className="rounded-xl p-4 sm:col-span-2"
+                    className="flex flex-col rounded-xl p-4 sm:col-span-2 lg:col-span-1 lg:col-start-2 lg:row-span-3 lg:row-start-1"
                     style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}
                   >
-                    <div className="text-sm font-semibold" style={{ color: t.text }}>
-                      Insumos comprados
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        Insumos comprados
+                      </h4>
                     </div>
                     {!supplier ? (
                       <p className="mt-1 text-xs" style={{ color: t.muted }}>
@@ -3096,9 +3117,10 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         </div>
                       </>
                     )}
-                    <div className="mt-3 flex flex-col">
+                    <div className="mt-3 flex flex-col lg:flex-1">
                       {items.length === 0 ? (
-                        <div className="rounded-lg px-3 py-3 text-center text-xs" style={{ background: t.input, color: t.muted }}>
+                        <div className="flex flex-col items-center justify-center gap-2 rounded-lg px-3 py-3 text-center text-xs lg:flex-1" style={{ border: `1.5px dashed ${t.inputB}`, color: t.muted }}>
+                          <span className="hidden h-10 w-10 items-center justify-center rounded-xl lg:flex" style={{ background: `${C.mustard}14`, color: C.mustard }}>{Ico.shopping}</span>
                           Aún no has agregado insumos.
                         </div>
                       ) : (
@@ -3218,7 +3240,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         ))
                       )}
                     </div>
-                    <div className="mt-3 flex justify-end border-t pt-3 text-sm" style={{ borderColor: t.border, color: t.text }}>
+                    {/* On a wide screen the total is in the summary on the left */}
+                    <div className="mt-3 flex justify-end border-t pt-3 text-sm lg:hidden" style={{ borderColor: t.border, color: t.text }}>
                       <span>
                         Total: <strong style={{ color: C.mustard }}>{fmt(total)}</strong>
                       </span>
@@ -4037,7 +4060,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       : isSales && (f.key === "1" || f.key === "8")
                         ? "sm:col-span-2"
                       : isProduction && !isView && f.key === "15"
-                        ? "sm:col-span-3"
+                        ? "sm:col-span-3 lg:col-span-1 lg:col-start-2 lg:row-start-1"
+                      : isPurchase && !isView && (f.key === "0" || f.key === "1")
+                        ? f.key === "0" ? "lg:col-start-1 lg:row-start-1" : "lg:col-start-1 lg:row-start-2"
                       : isPurchaseModule && isWideField(f) && !(isProduction && !isView)
                         ? "sm:col-span-2"
                         : ""
@@ -4984,6 +5009,72 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 </Fragment>
               )
               })}
+              {isPurchase && !isView && (() => {
+                const items = parsePurchaseItems(formData["6"])
+                const total = items.reduce((sum, item) => sum + item.total, 0)
+                const line = (label: string, value: string) => (
+                  <div className="flex items-baseline justify-between gap-3 text-xs">
+                    <span style={{ color: t.muted }}>{label}</span>
+                    <span className="min-w-0 truncate text-right font-semibold" style={{ color: t.text }}>{value}</span>
+                  </div>
+                )
+                return (
+                  <aside
+                    className="flex flex-col gap-2.5 rounded-xl p-4 sm:col-span-2 lg:col-span-1 lg:col-start-1 lg:row-start-3"
+                    style={{ background: `${C.mustard}0d`, border: `1px solid ${C.mustard}30` }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        Resumen de la compra
+                      </h4>
+                    </div>
+                    {line("Proveedor", String(formData["0"] || "Sin elegir"))}
+                    {line("Fecha", formData["1"] ? formatDateLabel(String(formData["1"])) : "—")}
+                    {line("Insumos", `${items.length} ${items.length === 1 ? "insumo" : "insumos"}`)}
+                    <div className="flex items-baseline justify-between border-t pt-2.5" style={{ borderColor: `${C.mustard}30` }}>
+                      <span className="text-sm font-semibold" style={{ color: t.text }}>Total</span>
+                      <span className="text-xl font-bold tabular-nums" style={{ color: C.mustard }}>{fmt(total)}</span>
+                    </div>
+                    <p className="mt-auto text-[11px] leading-relaxed" style={{ color: t.muted }}>
+                      Al guardar, el stock de cada insumo sube y su costo queda con el precio de esta compra.
+                    </p>
+                  </aside>
+                )
+              })()}
+              {isProduction && !isView && (
+                <aside
+                  className="flex flex-col gap-3 rounded-xl p-4 sm:col-span-3 lg:col-span-1 lg:col-start-2 lg:row-start-2"
+                  style={{ background: `${C.mustard}0d`, border: `1px solid ${C.mustard}30` }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                      Cómo avanza la orden
+                    </h4>
+                  </div>
+                  <ol className="flex flex-col gap-2 text-xs">
+                    {[
+                      ["Recibido · Confirmado", "Todavía puedes editar los productos."],
+                      ["En cocina", "Se descuentan los insumos de cada ficha técnica. Si falta stock, no deja avanzar."],
+                      ["Finalizada", "Lo preparado entra al inventario."],
+                    ].map(([state, what], index) => (
+                      <li key={state} className="flex gap-2.5 rounded-lg px-3 py-2" style={{ background: t.card }}>
+                        <span
+                          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                          style={{ background: C.mustard, color: "#fff" }}
+                        >
+                          {index + 1}
+                        </span>
+                        <span>
+                          <span className="block font-semibold" style={{ color: t.text }}>{state}</span>
+                          <span style={{ color: t.muted }}>{what}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </aside>
+              )}
             </>
           )}
           {isClient && !isView && clientFormError && (
