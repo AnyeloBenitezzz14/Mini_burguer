@@ -478,10 +478,12 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
       )}
       {CRUDModal()}
       {ProductionPncModal()}
-      <QuickClientModal />
-      <AnulModal />
-      <PaymentRejectionModal />
-      <DelModal />
+      {/* Called, not mounted as <X />: these views are recreated on every render, and as components React would
+          remount them on each keystroke (the text box would lose what you're typing) */}
+      {QuickClientModal()}
+      {AnulModal()}
+      {PaymentRejectionModal()}
+      {DelModal()}
       {showAdminProfile && user && (
         <AdminProfilePage
           user={user}

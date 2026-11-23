@@ -5522,7 +5522,10 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 const groups = orderDetails
                   .filter((line) => !line.parentId)
                   .map((line) => [line, ...orderDetails.filter((child) => child.parentId === line.id)])
-                const total = orderDetails.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0) || Number(row[6]) || 0
+                // The order's total includes its delivery; the products alone are the subtotal
+                const productsTotal = orderDetails.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
+                const total = Math.max(Number(row[6]) || 0, productsTotal)
+                const delivery = productsTotal > 0 ? Math.max(0, total - productsTotal) : 0
                 const comment = String(row[12] ?? "").trim()
                 // Who changed what and when (store orders; the backend keeps it in historial_estados_pedido)
                 const history = loadOrders().find((order) => order.id === String(row[0]))?.history ?? []
@@ -5632,6 +5635,18 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         </div>
                       ) : (
                         <p className="text-sm" style={{ color: t.muted }}>No hay detalle de productos disponible.</p>
+                      )}
+                      {delivery > 0 && (
+                        <div className="mt-2 space-y-0.5 border-t pt-2 text-sm" style={{ borderColor: t.border }}>
+                          <div className="flex justify-between gap-3" style={{ color: t.muted }}>
+                            <span>Productos</span>
+                            <span>{fmt(productsTotal)}</span>
+                          </div>
+                          <div className="flex justify-between gap-3" style={{ color: t.muted }}>
+                            <span>Domicilio</span>
+                            <span>{fmt(delivery)}</span>
+                          </div>
+                        </div>
                       )}
                       <div className="mt-2 flex items-center justify-between border-t pt-2.5" style={{ borderColor: t.border }}>
                         <span className="text-sm" style={{ color: t.muted }}>Total</span>
@@ -5748,13 +5763,22 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     className="w-full rounded-lg px-3 py-2 text-sm"
                     style={{ background: t.card, color: t.text, border: `1px solid ${t.border}` }}
                   >
-                    {[...new Set([String(row?.[7] ?? ""), "Por confirmar", ...ORDER_STEPS, "Cancelado"])]
-                      .filter(Boolean)
-                      .map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
+                    {(() => {
+                      // Every status is listed; the ones already passed show in grey and can't be chosen (it only
+                      // moves forward). Entregado and Cancelado are final.
+                      const flow = ["Por confirmar", ...ORDER_STEPS]
+                      const current = String(row?.[7] ?? "")
+                      const at = flow.indexOf(current)
+                      const final = ["Entregado", "Cancelado"].includes(current)
+                      return [...new Set([current, ...flow, "Cancelado"])].filter(Boolean).map((status) => {
+                        const passed = status !== current && (final || (status !== "Cancelado" && flow.indexOf(status) < at))
+                        return (
+                          <option key={status} value={status} disabled={passed} style={passed ? { color: "#9a958c" } : undefined}>
+                            {status}
+                          </option>
+                        )
+                      })
+                    })()}
                   </select>
                 </label>
               )}
