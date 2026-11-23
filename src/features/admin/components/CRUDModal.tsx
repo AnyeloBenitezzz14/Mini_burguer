@@ -4,7 +4,7 @@ import { DB_SYNC } from "@/features/admin/services/sync.service"
 import { derivePedidoPayment, isActiveStatus, isSupplyProductRow, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
 import { ADDITION_PRODUCT, SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
-import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { ORDER_STEPS, isTransferPaymentMethod, panelPaymentLabel } from "@/features/orders/utils/orders"
 import FieldError from "@/shared/components/FieldError"
 import UserHistory from "@/features/admin/components/UserHistory"
 import SuggestInput from "@/features/admin/components/SuggestInput"
@@ -14,7 +14,7 @@ import { FIRST_DAY, MAX_PRICE } from "@/shared/constants"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { AddressParts, AdminOrderLine, FieldType, ProductionItem, Row, TechnicalIngredient } from "@/shared/types"
 import { ADDRESS_VIAS, HOUSING, composeAddress } from "@/shared/utils/address"
-import { fmt, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
+import { fmt, formatDateLabel, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
 import { convertQty, convertibleUnits, packOf } from "@/shared/utils/units"
 import { normalizeDocumentInput, normalizePhoneInput } from "@/shared/utils/validation"
 import type { AdminPanelState } from "@/features/admin/types"
@@ -222,8 +222,17 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     validateManagedForm,
   } = adminState
   if (!modal.mode) return null
-  // A pedido's form opens as a page in its module (AdminLayout shows it where the table goes); the rest float
-  const asPage = modal.section === "pedidos" && modal.mode !== "view"
+  // Big forms (new / edit) open as a page in their module (AdminLayout shows it where the table goes), with
+  // «← Módulo» to go back and the save bar fixed at the bottom; details and small forms stay floating
+  const PAGE_FORMS: Record<string, string> = {
+    pedidos: "Pedidos",
+    producto: "Productos",
+    compras: "Compras",
+    produccion: "Órdenes de producción",
+    insumos: "Insumos",
+    proveedores: "Proveedores",
+  }
+  const asPage = !!PAGE_FORMS[modal.section] && modal.mode !== "view"
   if (asPage !== inline) return null
   const cfg = MOD_CFG[modal.section]
   if (!cfg) return null
@@ -572,12 +581,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
   }
   const formatViewValue = (f: FieldType, raw: string) => {
     if (!raw || raw === "—") return "—"
-    if (f.type === "date") {
-      const d = new Date(`${raw}T00:00:00`)
-      return Number.isNaN(d.getTime())
-        ? raw
-        : d.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
-    }
+    // Same date format as the tables: "20 nov 2026"
+    if (f.type === "date") return formatDateLabel(raw)
     if (f.type === "number" && /costo|subtotal|total/i.test(f.label)) return fmt(Number(raw))
     if (isSupply && f.key === "6") return `${Number(raw).toLocaleString("es-CO")} ${String(row?.[14] || "und")} por paquete`
     if (isSupply && ["4", "5"].includes(f.key))
@@ -900,15 +905,15 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
             <button
               type="button"
               onClick={requestCloseModal}
-              aria-label={inline ? "Volver a Pedidos" : "Volver"}
-              title={inline ? "Volver a Pedidos" : "Volver"}
+              aria-label={inline ? `Volver a ${PAGE_FORMS[modal.section]}` : "Volver"}
+              title={inline ? `Volver a ${PAGE_FORMS[modal.section]}` : "Volver"}
               className={`flex h-8 flex-shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-xl ${inline ? "px-3 text-xs font-semibold" : "w-8"}`}
               style={{ background: t.input, color: t.muted }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
-              {inline && "Pedidos"}
+              {inline && PAGE_FORMS[modal.section]}
             </button>
           )}
           <h3 className="font-semibold text-base" style={{ color: t.text }}>
@@ -3285,7 +3290,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   <div key="5" className="flex min-w-0 flex-col gap-1.5">
                     <span className="text-xs font-semibold" style={{ color: t.muted }}>Fecha de la devolución</span>
                     <div className="rounded-xl px-3.5 py-2.5 text-sm font-semibold" style={{ background: t.cardAlt, border: `1px dashed ${t.inputB}`, color: t.text }}>
-                      {Number.isNaN(shown.getTime()) ? date : shown.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })}
+                      {Number.isNaN(shown.getTime()) ? date : shown.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" }).replace(".", "")}
                     </div>
                     {!isView && <span className="text-[11px]" style={{ color: t.muted }}>Es la fecha de hoy y no se cambia.</span>}
                   </div>
@@ -5542,7 +5547,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {badge(String(row[7] || "Recibido"), ["Entregado"].includes(String(row[7])), String(row[7]) === "Cancelado")}
-                        {badge(`Pago: ${String(row[8] || "Pendiente")}`, String(row[8]) === "Pagado", String(row[8]) === "Rechazado")}
+                        {badge(`Pago: ${panelPaymentLabel(String(row[8] || "Pendiente"))}`, String(row[8]) === "Pagado", String(row[8]) === "Rechazado")}
                       </div>
                     </div>
                     {/* Modality isn't shown: it follows the type and payment method by itself */}
@@ -5895,7 +5900,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
             const date = new Date(`${String(row[3] ?? "").slice(0, 10)}T00:00:00`)
             const dateText = Number.isNaN(date.getTime())
               ? String(row[3] ?? "—")
-              : date.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
+              : formatDateLabel(String(row[3]).slice(0, 10))
             const proof = saleOrderIndex >= 0 ? proofOf(saleOrderIndex) : ""
             return (
               <div className="grid min-w-0 gap-3 sm:col-span-2 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
-import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { ORDER_STEPS, clientPaymentLabel, clientStatusLabel, isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { Order } from "@/shared/types"
 import { fmt, formatDuration } from "@/shared/utils/format"
@@ -99,7 +99,7 @@ export default function OrderList({
                   className="rounded-full px-3 py-1.5 text-sm font-semibold"
                   style={{ background: badge?.bg, color: badge?.color }}
                 >
-                  {o.status}
+                  {clientStatusLabel(o.status)}
                 </span>
                 {paymentStatus !== "Pendiente" && (
                   <span
@@ -113,7 +113,7 @@ export default function OrderList({
                             : C.mustard,
                     }}
                   >
-                    Pago: {paymentStatus}
+                    {clientPaymentLabel(paymentStatus)}
                   </span>
                 )}
               </div>
@@ -233,13 +233,13 @@ function OrderProgress({ status, dark }: { status: string; dark: boolean }) {
     return (
       <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: badge?.color || MUTED }}>
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: badge?.color || MUTED }} />
-        Estado del pedido: {status}
+        Estado del pedido: {clientStatusLabel(status)}
       </div>
     )
   }
 
   return (
-    <ol aria-label={`Seguimiento del pedido: ${status}`} className="flex w-full items-start">
+    <ol aria-label={`Seguimiento del pedido: ${clientStatusLabel(status)}`} className="flex w-full items-start">
       {steps.map((step, index) => {
         const complete = index <= currentStep
         const active = index === currentStep
@@ -254,7 +254,7 @@ function OrderProgress({ status, dark }: { status: string; dark: boolean }) {
                 className="mt-1.5 max-w-full text-center text-[10px] leading-tight"
                 style={{ color: active ? C.mustard : MUTED, fontWeight: active ? 700 : 500 }}
               >
-                {step}
+                {clientStatusLabel(step)}
               </span>
             </div>
             {index < steps.length - 1 && (

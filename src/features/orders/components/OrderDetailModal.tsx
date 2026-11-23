@@ -4,7 +4,8 @@ import { PRODUCTS, isSodaName, sodaPhoto } from "@/features/menu/data/products"
 import OrderItemPhoto from "@/features/orders/components/OrderItemPhoto"
 import PaymentAccounts from "@/features/checkout/components/PaymentAccounts"
 import VoucherInput from "@/features/orders/components/VoucherInput"
-import { ORDER_STEPS } from "@/features/orders/utils/orders"
+import { appConfirm } from "@/shared/components/AppDialog"
+import { ORDER_STEPS, clientPaymentLabel, clientStatusLabel } from "@/features/orders/utils/orders"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
 import type { Order } from "@/shared/types"
@@ -56,7 +57,7 @@ export default function OrderDetailModal({
             </div>
             <div className="flex items-center gap-2">
               <span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
-                {order.status}
+                {clientStatusLabel(order.status)}
               </span>
               <button onClick={onClose} className="cursor-pointer" style={{ color: MUTED }} aria-label="Cerrar">
                 {Ico.x}
@@ -155,7 +156,7 @@ export default function OrderDetailModal({
               {order.paymentStatus && (
                 <div className="mt-2 flex items-center justify-between gap-3 border-t pt-2 text-sm" style={{ borderColor: BORDER }}>
                   <span style={{ color: MUTED }}>Estado</span>
-                  <span className="font-semibold">{order.paymentStatus}</span>
+                  <span className="font-semibold">{clientPaymentLabel(order.paymentStatus)}</span>
                 </div>
               )}
               {!!order.deposit && (
@@ -206,7 +207,7 @@ export default function OrderDetailModal({
                 if (!error) setDraft({ image: "", code: "", amount: "" })
               }
               const remove = async (index: number) => {
-                if (!window.confirm("¿Quitar este comprobante?")) return
+                if (!(await appConfirm("El comprobante se quitará de tu pedido. Si te equivocaste de imagen, puedes subir la correcta.", { title: "¿Quitar este comprobante?", confirmText: "Quitar", danger: true }))) return
                 setProofError(await onRemoveVoucher(order.id, index))
               }
               return (

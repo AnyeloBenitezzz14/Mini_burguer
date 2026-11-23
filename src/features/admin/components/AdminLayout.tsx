@@ -38,6 +38,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
     orderSound,
     toggleOrderSound,
     openView,
+    modal,
     rows,
     section,
     sectionLabel,
@@ -383,7 +384,8 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
           <div key={section} className={section === "dashboard" ? "admin-section-enter" : undefined}>
             {section === "dashboard" && Dashboard()}
             {/* A new / edited pedido is a page in its module (back arrow returns to the list) */}
-            {section !== "dashboard" && (CRUDModal(true) ?? <GenericTable />)}
+            {/* Only in its own module: going to another one shows that module's table, and coming back the draft is still there */}
+            {section !== "dashboard" && ((modal.section === section && CRUDModal(true)) || <GenericTable />)}
           </div>
         </main>
       </div>

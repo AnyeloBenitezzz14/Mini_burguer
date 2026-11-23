@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from "react"
+import { appAlert } from "@/shared/components/AppDialog"
 const AdminPanel = lazy(() => import("@/features/admin/pages/AdminPanel"))
 const ChooseOwnPasswordPage = lazy(() => import("@/features/auth/pages/ChooseOwnPasswordPage"))
 const ForgotPage = lazy(() => import("@/features/auth/pages/ForgotPage"))
@@ -130,7 +131,7 @@ function AppRoutes() {
     saveUserLocally(u)
     // Name, document, phone and addresses live in the backend (the photo stays in this browser)
     if (getToken())
-      persistUserProfile(u).catch((err) => window.alert(`No se pudieron guardar tus datos: ${(err as Error).message}`))
+      persistUserProfile(u).catch((err) => appAlert(`No se pudieron guardar tus datos: ${(err as Error).message}`, "No se guardó"))
   }
   const login = (u: User, next: Page = "app") => {
     const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
@@ -179,7 +180,7 @@ function AppRoutes() {
       timer = window.setTimeout(() => {
         logout()
         setPage("login")
-        window.alert("Tu sesión se cerró por inactividad. Inicia sesión de nuevo.")
+        appAlert("Tu sesión se cerró por inactividad. Inicia sesión de nuevo.", "Sesión cerrada")
       }, 30 * 60 * 1000)
     }
     const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"]

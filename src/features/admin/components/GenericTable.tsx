@@ -4,12 +4,12 @@ import { isNaturalSupplier, isProductionEditLocked, isReturnedLoss, isSupplyProd
 import { isSodaName, sodaImage } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { loadOrders } from "@/features/orders/services/orders.service"
-import { isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { isTransferPaymentMethod, panelPaymentLabel } from "@/features/orders/utils/orders"
 import { Ico } from "@/shared/components/icons"
 import PurchaseProjection from "@/features/admin/components/PurchaseProjection"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { Row } from "@/shared/types"
-import { fmt, normalizeName } from "@/shared/utils/format"
+import { fmt, formatDateLabel, normalizeName } from "@/shared/utils/format"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
 
@@ -220,18 +220,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
   const formatSalesDate = (value: string | number) => {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value))
     if (!match) return "—"
-    const [, year, month, day] = match
-    const date = new Date(Number(year), Number(month) - 1, Number(day))
-    if (
-      date.getFullYear() !== Number(year) ||
-      date.getMonth() !== Number(month) - 1 ||
-      date.getDate() !== Number(day)
-    ) return "—"
-    return date.toLocaleDateString("es-CO", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    })
+    return formatDateLabel(String(value))
   }
 
   const formatDisplayCell = (
@@ -239,6 +228,10 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     rowCellIndex: number,
     row?: Row,
   ): string | number => {
+    // Every date in the panel reads the same: "20 nov 2026"
+    if (typeof cell === "string" && /^\d{4}-\d{2}-\d{2}(?:[ T]\d|$)/.test(cell.trim())) return formatDateLabel(cell)
+    // Payment status, shorter in the table ("Por verificar")
+    if (section === "pedidos" && rowCellIndex === 8 && typeof cell === "string") return panelPaymentLabel(cell)
     if (section === "proveedores" && rowCellIndex === 1 && row && isNaturalSupplier(row[15])) {
       return supplierDocument(row)
     }
