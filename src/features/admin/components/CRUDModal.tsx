@@ -1432,9 +1432,34 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       )}
                     </div>
                     {!recipe.length && !steps.length ? (
-                      <p className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.cardAlt, color: t.muted }}>
-                        {isView ? "Este producto no tiene ficha técnica." : "Opcional: agrega los insumos que lleva, sus cantidades y cómo se prepara."}
-                      </p>
+                      isView ? (
+                        <p className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.cardAlt, color: t.muted }}>
+                          Este producto no tiene ficha técnica.
+                        </p>
+                      ) : (
+                        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-xl px-6 py-8 text-center" style={{ background: t.cardAlt }}>
+                          <span className="flex h-12 w-12 items-center justify-center rounded-2xl" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                            {Ico.chef}
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold" style={{ color: t.text }}>Aún no tiene ficha técnica</p>
+                            <p className="mt-1 text-xs" style={{ color: t.muted }}>Es opcional, pero con ella el sistema sabe:</p>
+                          </div>
+                          <ul className="flex w-full max-w-sm flex-col gap-2 text-left text-xs" style={{ color: t.text }}>
+                            {[
+                              "Qué insumos lleva y cuánto de cada uno",
+                              "Cuánto cuesta hacer una unidad, frente a su precio",
+                              "Qué descontar del inventario en cada orden de producción",
+                              "Los pasos para prepararlo siempre igual",
+                            ].map((item) => (
+                              <li key={item} className="flex items-start gap-2 rounded-lg px-3 py-2" style={{ background: t.card }}>
+                                <span className="mt-px font-bold" style={{ color: C.mustard }}>✓</span>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )
                     ) : (
                       <>
                         <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
@@ -3571,11 +3596,24 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 return (
                   <div
                     key="7"
-                    className={`flex min-w-0 flex-col gap-1 sm:col-span-2 ${naturalSupplierForm ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-1"}`}
+                    className={`mt-1 flex min-w-0 flex-col gap-1 border-t pt-4 sm:col-span-2 lg:col-span-4 ${naturalSupplierForm ? "" : "lg:row-start-7"}`}
+                    style={{ borderColor: t.border }}
                   >
-                    <label htmlFor="supplier-supplies" className="text-xs font-semibold" style={{ color: fieldValidationError ? C.red : t.muted }}>
-                      Insumos que vende{requiredFormField && " *"}
-                    </label>
+                    <div className="mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                        <label
+                          htmlFor="supplier-supplies"
+                          className="text-xs font-bold uppercase tracking-wider"
+                          style={{ color: fieldValidationError ? C.red : t.text, fontFamily: "League Spartan, sans-serif" }}
+                        >
+                          Insumos que vende{requiredFormField && " *"}
+                        </label>
+                      </div>
+                      <p className="mt-0.5 pl-3 text-[11px]" style={{ color: t.muted }}>
+                        Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
+                      </p>
+                    </div>
                     <div className="flex items-center gap-2">
                       <div
                         className="search-control flex min-w-0 flex-1 cursor-text items-center gap-2 rounded-full px-3 py-2"
@@ -3705,9 +3743,6 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         🔒 Los insumos con candado ya tienen compras a este proveedor y no se pueden quitar.
                       </span>
                     )}
-                    <span className="text-[11px]" style={{ color: t.muted }}>
-                      Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
-                    </span>
                     {fieldValidationError && (
                       <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
                         {fieldValidationError}
@@ -3930,20 +3965,32 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   <div
                     className={`pt-1 sm:col-span-2 ${
                       f.key === "8"
-                        ? naturalSupplier ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-3"
-                        : "lg:col-span-2 lg:col-start-1"
+                        ? naturalSupplier ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-3 lg:row-start-2"
+                        : f.key === "1" && !isView ? "lg:col-span-2 lg:col-start-1 lg:row-start-2" : "lg:col-span-2 lg:col-start-1"
                     }`}
                   >
-                    <div className="mb-1 h-px" style={{ background: t.border }} />
-                    <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
-                      {f.key === "15"
-                        ? "Datos del proveedor"
-                        : f.key === "1"
-                          ? "Datos de la empresa"
+                    <div className="mb-2 h-px" style={{ background: t.border }} />
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        {f.key === "15"
+                          ? "Datos del proveedor"
+                          : f.key === "1"
+                            ? "Datos de la empresa"
+                            : naturalSupplier
+                              ? "Datos de la persona"
+                              : "Persona de contacto"}
+                      </h4>
+                    </div>
+                    {!isView && f.key !== "15" && (
+                      <p className="mt-0.5 pl-3 text-[11px]" style={{ color: t.muted }}>
+                        {f.key === "1"
+                          ? "Como aparece en tus compras y cómo contactar a la empresa."
                           : naturalSupplier
-                            ? "Datos de la persona"
-                            : "Persona de contacto"}
-                    </h4>
+                            ? "Sus datos para las compras y para contactarla."
+                            : "Con quién hablas para hacer los pedidos."}
+                      </p>
+                    )}
                   </div>
                 )}
                 <div
@@ -3952,19 +3999,29 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       ? ({ "0": "sm:col-span-2 lg:col-start-1", "1": "lg:col-start-1", "2": "lg:col-start-2", "4": "lg:col-start-3", "5": modal.mode === "add" ? "lg:col-start-3" : "lg:col-start-4", "7": "sm:col-span-2 lg:col-span-4" } as Record<string, string>)[f.key] ?? ""
                       : isSupplier
                     ? naturalSupplier
-                      ? "lg:col-span-2" // one form, two fields per row
-                      : Number(f.key) < 8 || f.key === "15"
-                      ? "lg:col-span-2 lg:col-start-1"
-                      : f.key === "14"
-                        ? "lg:col-span-2 lg:col-start-3" // Cargo
-                        : Number(f.key) % 2 === 0
-                          ? "lg:col-start-3" // tipo doc, nombre, teléfono
-                          : "lg:col-start-4" // nº doc, apellido, correo
+                      ? f.key === "5" ? "lg:col-span-4" : "lg:col-span-2" // two fields per row, the address on its own
+                      : // company (left) · contact person (right), four rows each
+                        ({
+                          "0": "lg:col-span-2 lg:col-start-1 lg:row-start-3",
+                          "1": "lg:col-start-1 lg:row-start-4",
+                          "3": "lg:col-start-2 lg:row-start-4",
+                          "2": "lg:col-span-2 lg:col-start-1 lg:row-start-5",
+                          "5": "lg:col-span-2 lg:col-start-1 lg:row-start-6",
+                          "8": "lg:col-start-3 lg:row-start-3",
+                          "9": "lg:col-start-4 lg:row-start-3",
+                          "10": "lg:col-start-3 lg:row-start-4",
+                          "11": "lg:col-start-4 lg:row-start-4",
+                          "12": "lg:col-start-3 lg:row-start-5",
+                          "13": "lg:col-start-4 lg:row-start-5",
+                          "14": "lg:col-span-2 lg:col-start-3 lg:row-start-6",
+                        } as Record<string, string>)[f.key] ?? "lg:col-span-2 lg:col-start-1"
                       : isPedido && !isView
-                        // Recibe, tipo and payment method in one row on a wide screen (less to scroll before the products)
-                        ? f.key === "0" ? "sm:col-span-2 lg:col-span-1" : f.key === "1" || f.key === "11" ? "sm:col-span-3" : ""
+                        // Recibe, tipo and payment method in one row on a wide screen; the comment shares its row with the phone
+                        ? f.key === "0" ? "sm:col-span-2 lg:col-span-1" : f.key === "1" ? "sm:col-span-3" : f.key === "11" ? "sm:col-span-2" : ""
                       : isSales && (f.key === "1" || f.key === "8")
                         ? "sm:col-span-2"
+                      : isProduction && !isView && f.key === "15"
+                        ? "sm:col-span-3"
                       : isPurchaseModule && isWideField(f) && !(isProduction && !isView)
                         ? "sm:col-span-2"
                         : ""
