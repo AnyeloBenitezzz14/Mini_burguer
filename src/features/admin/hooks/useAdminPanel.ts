@@ -1342,6 +1342,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   // Why a sale can't have a return yet ("" = it can): its order must have finished production
   const saleReturnBlock = (sale: Row | undefined) => {
     if (!sale) return "Elige una venta de la lista."
+    if (!isStatusActive(sale[8] || "Activa") && String(sale[8] ?? "").toLowerCase().startsWith("anulad")) return "Esta venta está anulada."
+    // A sale is returned once, in full (an annulled return frees it again)
+    const returned = (rows.devoluciones || []).find((d) => String(d[1]) === String(sale[0]) && isStatusActive(d[9] || "Activa"))
+    if (returned) return `Esta venta ya tiene la devolución ${String(returned[0])}.`
     const orderCode = String(sale[9] ?? "").trim()
     if (!orderCode || orderCode === "Sin pedido") return ""
     const orders = (rows.produccion || []).filter(
@@ -1450,11 +1454,12 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     if (sec === "devoluciones" && key === "1") {
       const block = saleReturnBlock((rows.ventas || []).find((v) => String(v[0]) === trimmed))
       if (block) return block
-      try {
-        if (!JSON.parse(draft["6"] || "[]").length) return "Marca los productos que se devuelven."
-      } catch {
-        return "Marca los productos que se devuelven."
-      }
+    }
+    // Its date is the day it's registered, and never before the sale
+    if (sec === "devoluciones" && key === "5") {
+      const sale = (rows.ventas || []).find((v) => String(v[0]) === String(draft["1"] ?? "").trim())
+      const saleDate = String(sale?.[3] ?? "").slice(0, 10)
+      if (saleDate && trimmed < saleDate) return `La devolución no puede ser anterior a la venta (${saleDate}).`
     }
     if (sec === "produccion" && key === "3" && trimmed > getCurrentDateTimeParts().date) {
       return "La fecha de creación no puede ser posterior a hoy."
@@ -1699,6 +1704,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const cfg = MOD_CFG[sec]
     if (!cfg) return
     const row = rows[sec][idx]
+    if (sec === "devoluciones") {
+      notifyError("Las devoluciones no se editan. Si hay un error, anúlala y registra una nueva.")
+      return
+    }
     if (sec === "produccion" && isProductionEditLocked(row)) {
       notifyError(`La orden ${String(row?.[0] ?? "")} está en «${String(row?.[8] || "Recibido")}»: ya no se puede editar.`)
       return
@@ -2326,7 +2335,14 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
           : `DEV-${String(Math.max(0, ...(rows.devoluciones || []).map((d) => Number(/^DEV-(\d+)$/.exec(String(d[0] ?? ""))?.[1] ?? 0))) + 1).padStart(4, "0")}`
       newRow[2] = String(sale?.[2] ?? previousRow?.[2] ?? "")
       newRow[3] = String(formData["3"] ?? "").trim()
-      newRow[6] = String(formData["6"] || "[]")
+      // Everything sold comes back: every product and addition, and the total paid (delivery included)
+      newRow[5] = previousRow?.[5] ?? getCurrentDateTimeParts().date
+      newRow[6] = JSON.stringify(
+        getSaleOrderLines(sale ?? null).map((line) => ({ id: line.id, product: line.product, quantity: line.quantity, unitPrice: line.unitPrice, ...(line.parentId ? { parentId: line.parentId } : {}) })),
+      )
+      newRow[8] = Number(sale?.[7] ?? sale?.[6]) || 0
+      newRow[9] = String(previousRow?.[9] || "Activa")
+      newRow[10] = String(previousRow?.[10] ?? "")
     }
 
     if (sec === "ventas") {
@@ -2656,9 +2672,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     // A Reposición makes the returned products again: a new production order (linked to the return's code)
     if (sec === "devoluciones" && modal.mode === "add" && newRow[4] === "Reposición") {
       const saleLines = getSaleOrderLines((rows.ventas || []).find((v) => String(v[0]) === String(newRow[1])) ?? null)
-      let returned: { id: string; product: string; quantity: number }[] = []
+      let returned: { id: string; product: string; quantity: number; parentId?: string }[] = []
       try {
-        returned = JSON.parse(String(newRow[6] || "[]"))
+        // the main products; each one brings its additions below
+        returned = (JSON.parse(String(newRow[6] || "[]")) as typeof returned).filter((item) => !item.parentId)
       } catch {
         returned = []
       }

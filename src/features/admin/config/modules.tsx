@@ -511,13 +511,14 @@ export const MOD_CFG: Record<string, ModConfig> = {
     hiddenCellIndexes: [2, 3, 4, 5, 10, 11, 12],
   },
   devoluciones: {
-    columns: ["Código", "Cliente", "Motivo", "Fecha"],
-    // [0 código (automático), 1 venta asociada, 2 cliente (de la venta), 3 comentario, 4 motivo, 5 fecha]
+    columns: ["Código", "Cliente", "Tipo", "Fecha", "Total devuelto", "Estado"],
+    // [0 código (automático), 1 venta asociada, 2 cliente (de la venta), 3 comentario, 4 tipo, 5 fecha (la del día, fija),
+    //  6 productos devueltos (JSON), 7 id, 8 total devuelto (todo lo vendido, con domicilio), 9 estado, 10 motivo de anulación]
     fields: [
       { key: "1", label: "Venta asociada", type: "text" },
       {
         key: "4",
-        label: "Motivo de devolución",
+        label: "Tipo de devolución",
         type: "select",
         options: ["Reembolso", "Reposición"],
       },
@@ -527,9 +528,12 @@ export const MOD_CFG: Record<string, ModConfig> = {
     ],
     seed: [],
     noDelete: true,
-    noExport: true,
+    // Not edited: annulled (with a reason) and never reactivated
+    statusIndex: 9,
+    inactiveStatus: "Anulada",
+    anulReasonIndex: 10,
     // 6 = returned products (JSON), shown in the detail
-    hiddenCellIndexes: [1, 3, 6],
+    hiddenCellIndexes: [1, 3, 6, 10],
   },
 }
 

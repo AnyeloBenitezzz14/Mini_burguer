@@ -483,7 +483,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           </button>
         ) : disabledAction("Ver detalle", Ico.eye)}
         {/* A sale comes from its order or is annulled; it isn't edited (no edit icon at all) */}
-        {section === "ventas" ? null : !isAnulled &&
+        {section === "ventas" || section === "devoluciones" ? null : !isAnulled &&
         canDo(section, "EDITAR") &&
         // Once its production order exists (from «Confirmado» on) the order can't change
         !(section === "pedidos" && (rows.produccion || []).some((op) => String(op[15] ?? "") === String(orderRow?.[0] ?? ""))) &&
@@ -544,7 +544,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           // Protected (administrador role, superadmin): the window explains why
           const locked = !!statusRow && (isStatusLocked(section, statusRow) || isPrincipalAdmin)
           // Audit rule: an annulled purchase or sale is never reactivated (a new one is created instead)
-          if (!active && !locked && (section === "compras" || section === "ventas")) return null
+          if (!active && !locked && ["compras", "ventas", "devoluciones"].includes(section)) return null
           return active || locked ? (
             <button
               type="button"
@@ -579,7 +579,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         {cfg.statusIndex !== undefined ? (
           section === "producto" ? (
             canDo(section, "ELIMINAR") ? deleteButton : disabledAction("Eliminar", Ico.trash)
-          ) : section === "ventas" || section === "compras" ? null : (
+          ) : ["ventas", "compras", "devoluciones"].includes(section) ? null : (
             canDo(section, "ELIMINAR") &&
             !isPrincipalAdmin &&
             !noDelete &&

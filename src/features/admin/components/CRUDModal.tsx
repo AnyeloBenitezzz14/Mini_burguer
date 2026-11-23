@@ -3266,6 +3266,20 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   </div>
                 )
               }
+              // A return's date is the day it's registered: shown, not chosen
+              if (isReturns && f.key === "5") {
+                const date = String((isView ? row?.[5] : formData["5"]) || getCurrentDateTimeParts().date).slice(0, 10)
+                const shown = new Date(`${date}T00:00:00`)
+                return (
+                  <div key="5" className="flex min-w-0 flex-col gap-1.5">
+                    <span className="text-xs font-semibold" style={{ color: t.muted }}>Fecha de la devolución</span>
+                    <div className="rounded-xl px-3.5 py-2.5 text-sm font-semibold" style={{ background: t.cardAlt, border: `1px dashed ${t.inputB}`, color: t.text }}>
+                      {Number.isNaN(shown.getTime()) ? date : shown.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })}
+                    </div>
+                    {!isView && <span className="text-[11px]" style={{ color: t.muted }}>Es la fecha de hoy y no se cambia.</span>}
+                  </div>
+                )
+              }
               if (isReturns && f.key === "1") {
                 const saleCode = String((isView ? row?.[1] : formData["1"]) ?? "")
                 const sale = (rows.ventas || []).find((v) => String(v[0]) === saleCode)
@@ -3335,92 +3349,42 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         </div>
                         {(() => {
                           const allLines = getSaleOrderLines(sale ?? null)
-                          let chosen: { id: string; product: string; quantity: number; unitPrice: number }[] = []
+                          let chosen: { id: string; product: string; quantity: number; unitPrice: number; parentId?: string }[] = []
                           try {
                             chosen = JSON.parse(String((isView ? row?.[6] : formData["6"]) || "[]"))
                           } catch {
                             chosen = []
                           }
-                          const setChosen = (next: typeof chosen) => {
-                            setFormData((current) => ({ ...current, "6": JSON.stringify(next) }))
-                            setFormFieldErrors((current) => ({ ...current, "1": "" }))
-                          }
-                          const refund = chosen.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
-                          if (isView)
-                            return (
-                              <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.red}08`, border: `1px solid ${C.red}25` }}>
-                                <div className="mb-1 text-[11px] font-semibold" style={{ color: C.red }}>Productos devueltos</div>
-                                {chosen.length ? (
-                                  <>
-                                    {chosen.map((item) => (
-                                      <div key={item.id} className="flex justify-between gap-3 text-sm" style={{ color: t.text }}>
-                                        <span className="min-w-0 break-words">{item.product} ×{item.quantity}</span>
-                                        <span className="flex-shrink-0">{fmt(item.quantity * item.unitPrice)}</span>
-                                      </div>
-                                    ))}
-                                    <div className="mt-1 flex justify-between border-t pt-1 text-sm font-semibold" style={{ borderColor: `${C.red}25`, color: C.red }}>
-                                      <span>Valor devuelto</span>
-                                      <span>{fmt(refund)}</span>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <span className="text-xs" style={{ color: t.muted }}>No se registraron productos (devolución anterior a este cambio).</span>
-                                )}
-                              </div>
-                            )
-                          if (!allLines.length) return <p className="text-xs" style={{ color: t.muted }}>Esta venta no tiene el detalle de sus productos.</p>
+                          // Everything sold comes back: all its products and additions, plus the delivery (the sale's total)
+                          const lines = isView ? chosen : allLines
+                          const productsTotal = lines.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
+                          const saleTotal = isView ? Number(row?.[8]) || productsTotal : Number(sale[7] ?? sale[6]) || productsTotal
+                          const delivery = Math.max(0, saleTotal - productsTotal)
+                          if (!isView && !allLines.length) return <p className="text-xs" style={{ color: t.muted }}>Esta venta no tiene el detalle de sus productos.</p>
                           return (
-                            <div className="rounded-xl px-3 py-2.5" style={{ background: t.cardAlt }}>
-                              <div className="mb-1.5 text-[11px] font-semibold" style={{ color: t.muted }}>¿Qué productos se devuelven?</div>
-                              <div className={`gap-x-5 ${allLines.length > 5 ? "sm:columns-2" : ""}`}>
-                                {allLines.map((line) => {
-                                  const picked = chosen.find((item) => item.id === line.id)
-                                  return (
-                                    <div key={line.id} className={`mb-1 flex break-inside-avoid items-center gap-2 text-sm ${line.parentId ? "pl-5" : ""}`}>
-                                      <input
-                                        type="checkbox"
-                                        aria-label={`Devolver ${line.product}`}
-                                        checked={!!picked}
-                                        onChange={() =>
-                                          setChosen(
-                                            picked
-                                              ? chosen.filter((item) => item.id !== line.id)
-                                              : [...chosen, { id: line.id, product: line.product, quantity: line.quantity, unitPrice: line.unitPrice }],
-                                          )
-                                        }
-                                        style={{ accentColor: C.red }}
-                                      />
-                                      <span className="min-w-0 flex-1 break-words" style={{ color: line.parentId ? t.muted : t.text }}>
-                                        {line.parentId ? "+ " : ""}{line.product}
-                                      </span>
-                                      {picked ? (
-                                        <input
-                                          type="number"
-                                          min="1"
-                                          max={line.quantity}
-                                          aria-label={`Cantidad de ${line.product} que se devuelve`}
-                                          value={picked.quantity}
-                                          onChange={(event) =>
-                                            setChosen(
-                                              chosen.map((item) =>
-                                                item.id === line.id
-                                                  ? { ...item, quantity: Math.min(line.quantity, Math.max(1, Math.floor(Number(event.target.value)) || 1)) }
-                                                  : item,
-                                              ),
-                                            )
-                                          }
-                                          className="w-14 rounded-lg px-2 py-1 text-sm outline-none"
-                                          style={{ background: t.card, border: `1px solid ${t.inputB}`, color: t.text }}
-                                        />
-                                      ) : null}
-                                      <span className="w-14 flex-shrink-0 text-right text-xs" style={{ color: t.muted }}>de {line.quantity}</span>
-                                    </div>
-                                  )
-                                })}
+                            <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.red}08`, border: `1px solid ${C.red}25` }}>
+                              <div className="mb-1 text-[11px] font-semibold" style={{ color: C.red }}>
+                                {isView ? "Se devolvió todo lo vendido" : "Se devuelve todo lo vendido"}
                               </div>
-                              <div className="mt-1.5 flex justify-between border-t pt-1.5 text-sm" style={{ borderColor: t.border }}>
-                                <span style={{ color: t.muted }}>Valor a devolver o reembolsar</span>
-                                <span className="font-semibold" style={{ color: chosen.length ? C.red : t.muted }}>{fmt(refund)}</span>
+                              {lines.length ? (
+                                lines.map((item) => (
+                                  <div key={item.id} className={`flex justify-between gap-3 text-sm ${"parentId" in item && item.parentId ? "pl-4" : ""}`} style={{ color: t.text }}>
+                                    <span className="min-w-0 break-words">{"parentId" in item && item.parentId ? "+ " : ""}{item.product} ×{item.quantity}</span>
+                                    <span className="flex-shrink-0">{fmt(item.quantity * item.unitPrice)}</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <span className="text-xs" style={{ color: t.muted }}>No se registraron productos (devolución anterior a este cambio).</span>
+                              )}
+                              {delivery > 0 && (
+                                <div className="flex justify-between gap-3 text-sm" style={{ color: t.text }}>
+                                  <span>Domicilio</span>
+                                  <span>{fmt(delivery)}</span>
+                                </div>
+                              )}
+                              <div className="mt-1 flex justify-between border-t pt-1 text-sm font-semibold" style={{ borderColor: `${C.red}25`, color: C.red }}>
+                                <span>{isView ? "Total devuelto" : "Total a devolver"}</span>
+                                <span>{fmt(saleTotal)}</span>
                               </div>
                             </div>
                           )
@@ -6024,7 +5988,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               {Ico.undo} Registrar devolución
             </button>
           )}
-          {isView && (isPurchaseModule || isProduct) && !isSupplyProductView && !isSales && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
+          {isView && (isPurchaseModule || isProduct) && !isSupplyProductView && !isSales && !isReturns && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
             <button
               onClick={() => openEdit(modal.section, modal.idx!)}
               className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
