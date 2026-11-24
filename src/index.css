@@ -95,6 +95,50 @@ body {
   line-height: 1.4;
 }
 
+/* Admin: buttons, menu and fields in the reading face; the condensed brand face stays for headings */
+.admin-panel button:not([style*="League Spartan"]),
+.admin-panel nav,
+.admin-panel select,
+.admin-panel input,
+.admin-panel textarea {
+  font-family: 'DM Sans', sans-serif !important;
+}
+
+/* Admin search: follows the theme (light and dark), same height and radius as the controls beside it */
+.admin-panel .search-control {
+  min-height: 38px;
+  background: var(--admin-input) !important;
+  border: 1px solid var(--admin-input-b) !important;
+  border-radius: 0.75rem !important;
+}
+
+.admin-panel .search-control:focus-within {
+  border-color: #8F6C12 !important;
+  box-shadow: 0 0 0 3px rgba(143,108,18,0.16);
+}
+
+.admin-panel .search-control input {
+  color: var(--admin-text) !important;
+}
+
+.admin-panel .search-control input::placeholder {
+  color: var(--admin-muted) !important;
+}
+
+/* Row actions: quiet icons; each shows its colour (and a soft fill) on hover or keyboard focus */
+.admin-row-actions button {
+  background: transparent !important;
+}
+
+.admin-row-actions button:not(:disabled):not(:hover):not(:focus-visible) {
+  color: var(--admin-muted) !important;
+}
+
+.admin-row-actions button:not(:disabled):hover,
+.admin-row-actions button:focus-visible {
+  background: color-mix(in srgb, currentColor 14%, transparent) !important;
+}
+
 .admin-nav-item,
 .admin-subnav-item {
   min-height: 42px;
@@ -131,8 +175,7 @@ body {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  min-height: 150px;
-  padding: 24px 28px;
+  padding: 18px 24px;
   border: 1px solid rgba(182,140,28,0.2);
   border-radius: 24px;
   background:

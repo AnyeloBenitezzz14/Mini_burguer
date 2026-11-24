@@ -197,7 +197,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     isPrincipalAdmin = false,
   ) => {
     const badge = badgeSt(cell)
-    const color = isLow ? C.red : primary ? t.text : t.muted
+    const color = isLow && primary ? C.red : primary ? t.text : t.muted
     if (badge) {
       return (
         <span
@@ -236,6 +236,12 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
   ): string | number => {
     // Every date in the panel reads the same: "20 nov 2026"
     if (typeof cell === "string" && /^\d{4}-\d{2}-\d{2}(?:[ T]\d|$)/.test(cell.trim())) return formatDateLabel(cell)
+    // Every time reads the same, 24 h: "9:17:02 AM" and "09:17" both show "09:17"
+    const time = typeof cell === "string" ? cell.trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])\.?\s*m\.?$/i) : null
+    if (time) {
+      const hours = (Number(time[1]) % 12) + (time[3].toLowerCase() === "p" ? 12 : 0)
+      return `${String(hours).padStart(2, "0")}:${time[2]}`
+    }
     // Payment status, shorter in the table ("Por verificar")
     if (section === "pedidos" && rowCellIndex === 8 && typeof cell === "string") return panelPaymentLabel(cell)
     if (section === "proveedores" && rowCellIndex === 1 && row && isNaturalSupplier(row[15])) {
@@ -450,7 +456,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     )
     if (fromSupply)
       return (
-        <div className="flex flex-shrink-0 flex-nowrap items-center justify-end gap-1.5">
+        <div className="admin-row-actions flex flex-shrink-0 flex-nowrap items-center justify-end gap-1">
           {canDo(section, "VER") ? (
             <button
               type="button"
@@ -469,7 +475,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         </div>
       )
     return (
-      <div className="flex flex-shrink-0 flex-nowrap items-center justify-end gap-1.5">
+      <div className="admin-row-actions flex flex-shrink-0 flex-nowrap items-center justify-end gap-1">
         {canDo(section, "VER") ? (
           <button
             type="button"
@@ -670,7 +676,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               setP(0)
             }}
             aria-label="Filtrar la lista"
-            className="cursor-pointer rounded-xl px-3 py-2 text-xs outline-none"
+            className="h-[38px] cursor-pointer rounded-xl px-3 text-xs outline-none"
             style={{
               background: filterValue ? `${C.mustard}18` : t.input,
               border: `1px solid ${filterValue ? C.mustard : t.inputB}`,
@@ -757,11 +763,11 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           <button
             type="button"
             onClick={exportRows}
-            className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs cursor-pointer"
+            className="flex h-[38px] items-center gap-1.5 rounded-xl px-3 text-xs font-medium cursor-pointer"
             style={{
-              background: t.input,
+              background: t.card,
               border: `1px solid ${t.inputB}`,
-              color: t.muted,
+              color: t.text,
             }}
           >
             {Ico.download} Exportar
@@ -771,7 +777,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           <button
             type="button"
             onClick={() => openAdd(section)}
-            className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold cursor-pointer hover:opacity-90"
+            className="flex h-[38px] items-center gap-1.5 rounded-xl px-4 text-xs font-semibold cursor-pointer hover:opacity-90"
             style={{ background: C.mustard, color: "#fff" }}
           >
             {Ico.plus} Nuevo
@@ -849,14 +855,14 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         style={{ background: t.card, border: `1px solid ${t.border}` }}
       >
         <div className="hidden min-[1180px]:block">
-          <table className="w-full table-fixed text-xs">
+          <table className="w-full table-auto text-xs tabular-nums">
             <colgroup>
               {isProducto && <col style={{ width: "60px" }} />}
               {Array.from({ length: columnCount }, (_, index) => (
                 <col key={index} />
               ))}
               {/* Ver, Editar, (Anular), Eliminar: 32 px per button so they fit in one row */}
-              <col style={{ width: cfg.statusIndex !== undefined && section !== "produccion" ? "152px" : "116px" }} />
+              <col style={{ width: cfg.statusIndex !== undefined && section !== "produccion" ? "140px" : "108px" }} />
             </colgroup>
             <thead>
               <tr
@@ -949,16 +955,17 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                           ? `1px solid ${t.border}`
                           : "none",
                       opacity: isAnulled ? 0.45 : 1,
-                      background: isLow ? "rgba(165,65,49,0.18)" : "transparent",
+                      background: isLow ? "rgba(165,65,49,0.06)" : "transparent",
+                      boxShadow: isLow ? `inset 3px 0 0 ${C.red}` : undefined,
                     }}
                     onMouseEnter={(event) =>
                       (event.currentTarget.style.background = isLow
-                        ? "rgba(165,65,49,0.28)"
+                        ? "rgba(165,65,49,0.12)"
                         : t.hover)
                     }
                     onMouseLeave={(event) =>
                       (event.currentTarget.style.background = isLow
-                        ? "rgba(165,65,49,0.18)"
+                        ? "rgba(165,65,49,0.06)"
                         : "transparent")
                     }
                   >
@@ -1054,7 +1061,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                         ? `1px solid ${t.border}`
                         : "none",
                     opacity: isAnulled ? 0.45 : 1,
-                    background: isLow ? "rgba(165,65,49,0.18)" : "transparent",
+                    background: isLow ? "rgba(165,65,49,0.06)" : "transparent",
+                    boxShadow: isLow ? `inset 3px 0 0 ${C.red}` : undefined,
                   }}
                 >
                   <div className="flex min-w-0 items-start gap-2">
@@ -1121,15 +1129,15 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
           style={{ borderTop: `1px solid ${t.border}` }}
         >
-          <span className="text-xs" style={{ color: t.subtle }}>
-            {filtered.length} registros · Pág {cur + 1}/{totalPages}
+          <span className="text-xs" style={{ color: t.muted }}>
+            {filtered.length} {filtered.length === 1 ? "registro" : "registros"} · Página {cur + 1} de {totalPages}
           </span>
           <div className="flex flex-wrap justify-end gap-1">
             <button
               type="button"
               disabled={cur === 0}
               onClick={() => setP(cur - 1)}
-              className="pagination-control h-7 w-7 rounded text-xs cursor-pointer disabled:opacity-30"
+              className="pagination-control h-8 w-8 rounded-lg text-xs cursor-pointer disabled:cursor-default disabled:opacity-30"
               style={{ background: t.input, color: t.muted }}
             >
               ←
@@ -1139,7 +1147,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                 key={index}
                 type="button"
                 onClick={() => setP(index)}
-                className="pagination-control h-7 w-7 rounded text-xs font-semibold cursor-pointer"
+                className="pagination-control h-8 w-8 rounded-lg text-xs font-semibold cursor-pointer"
                 aria-current={index === cur ? "page" : undefined}
                 style={{
                   background: index === cur ? C.mustard : "transparent",
@@ -1153,7 +1161,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               type="button"
               disabled={cur >= totalPages - 1}
               onClick={() => setP(cur + 1)}
-              className="pagination-control h-7 w-7 rounded text-xs cursor-pointer disabled:opacity-30"
+              className="pagination-control h-8 w-8 rounded-lg text-xs cursor-pointer disabled:cursor-default disabled:opacity-30"
               style={{ background: t.input, color: t.muted }}
             >
               →
