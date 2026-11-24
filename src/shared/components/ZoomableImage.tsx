@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { createPortal } from "react-dom"
 
 // Picture (a product photo, the payment QR): a click or Enter shows it big and complete; another click or Escape puts it back
 // zoomClassName: how the big one looks (default: its own size, up to the screen)
@@ -27,7 +28,8 @@ export default function ZoomableImage({ src, alt, className, zoomClassName = "ma
         title="Toca para ver más grande"
         className={`${className ?? ""} cursor-zoom-in`}
       />
-      {zoomed && (
+      {/* On <body>: inside a panel with a transform (the admin's side detail) a fixed layer would stay inside the panel */}
+      {zoomed && createPortal(
         <div
           className="fixed inset-0 z-[90] flex cursor-zoom-out flex-col items-center justify-center gap-3 p-4"
           style={{ background: "rgba(0,0,0,0.85)" }}
@@ -37,7 +39,8 @@ export default function ZoomableImage({ src, alt, className, zoomClassName = "ma
         >
           <img src={src} alt={alt} className={zoomClassName} />
           <span className="text-xs text-white/70">Toca para volver</span>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   )

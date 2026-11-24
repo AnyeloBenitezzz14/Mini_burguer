@@ -10,6 +10,8 @@ import UserHistory from "@/features/admin/components/UserHistory"
 import SuggestInput from "@/features/admin/components/SuggestInput"
 import { Ico } from "@/shared/components/icons"
 import ZoomableImage from "@/shared/components/ZoomableImage"
+// A payment proof, zoomed: as big as the screen allows, so its reference and amount can be read
+const PROOF_ZOOM = "h-[90vh] w-[94vw] object-contain"
 import { FIRST_DAY, MAX_PRICE } from "@/shared/constants"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { AddressParts, AdminOrderLine, FieldType, ProductionItem, Row, TechnicalIngredient } from "@/shared/types"
@@ -885,7 +887,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         )
       ) : (
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border-2 border-dashed px-3 py-2" style={{ borderColor: t.inputB }}>
-          {paymentProofDraft && <ZoomableImage src={paymentProofDraft} alt="Comprobante de pago" className="h-12 w-16 flex-shrink-0 rounded-lg object-cover" />}
+          {paymentProofDraft && <ZoomableImage src={paymentProofDraft} alt="Comprobante de pago" className="h-16 w-20 flex-shrink-0 rounded-lg object-cover" zoomClassName={PROOF_ZOOM} />}
           <button type="button" onClick={() => document.getElementById("payment-proof-input")?.click()} className="cursor-pointer text-xs font-semibold" style={{ color: C.mustard }}>{paymentProofDraft ? "Cambiar comprobante" : "Subir comprobante de pago (imagen o PDF)"}</button>
           <input id="payment-proof-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" onChange={(event) => {
             const file = event.target.files?.[0]
@@ -5947,7 +5949,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   <ZoomableImage
                     src={proofOf(modal.idx!) || paymentProofDraft}
                     alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
-                    className="max-h-48 w-full rounded-xl object-contain"
+                    className="max-h-80 w-full rounded-xl object-contain"
+                    zoomClassName={PROOF_ZOOM}
                   />
                   {(() => {
                     // Validator: what the system already checked when the client sent it, and what's left for you
@@ -5986,7 +5989,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             <div className="grid grid-cols-4 gap-1.5">
                               {proofs.map((proof, index) => (
                                 <div key={index} className="overflow-hidden rounded-lg" style={{ border: `1px solid ${t.border}` }}>
-                                  <ZoomableImage src={proof.image} alt={`Comprobante ${index + 1}${proof.reference ? ` · ref. ${proof.reference}` : ""}`} className="h-14 w-full object-cover" />
+                                  <ZoomableImage src={proof.image} alt={`Comprobante ${index + 1}${proof.reference ? ` · ref. ${proof.reference}` : ""}`} className="h-20 w-full object-cover" zoomClassName={PROOF_ZOOM} />
                                   {proof.amount ? <div className="truncate px-1 text-[10px]" style={{ color: t.muted }}>{fmt(proof.amount)}</div> : null}
                                 </div>
                               ))}
@@ -6244,7 +6247,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 {proof && (
                   <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
                     {title("Comprobante de pago")}
-                    <ZoomableImage src={proof} alt="Comprobante de pago" className="max-h-44 w-full rounded-lg object-contain" />
+                    <ZoomableImage src={proof} alt="Comprobante de pago" className="max-h-72 w-full rounded-lg object-contain" zoomClassName={PROOF_ZOOM} />
                   </div>
                 )}
               </div>
