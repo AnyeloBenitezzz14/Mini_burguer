@@ -1494,6 +1494,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         return `La pérdida no puede ser anterior a la compra (${String(purchase[1]).slice(0, 10)}).`
     }
     // Stock in g, ml or und: whole numbers only
+    if (sec === "insumos" && key === "6" && trimmed && !(Number(trimmed.replace(",", ".")) > 0 && Number.isInteger(Number(trimmed.replace(",", ".")))))
+      return "Va en números enteros mayores que cero (por ejemplo 12 und o 250 g). Déjalo vacío si no viene en paquete."
     if (sec === "insumos" && key === "5" && trimmed && !Number.isInteger(Number(trimmed.replace(",", "."))))
       return "Va en números enteros (por ejemplo 1500 g, no 1,5 kg)."
     if (sec === "perdidas" && key === "1") {

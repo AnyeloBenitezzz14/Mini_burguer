@@ -128,6 +128,8 @@ export const MOD_CFG: Record<string, ModConfig> = {
       { key: "3", label: "Costo unitario", type: "number" },
       { key: "4", label: "Stock actual", type: "number" },
       { key: "5", label: "Stock mínimo", type: "number" },
+      // How much one package brings, in the insumo's unit: Compras fills «Viene en: Paquete, trae N» with it
+      { key: "6", label: "Cada paquete trae", type: "number" },
       { key: "7", label: "Producto de insumo", type: "checkbox" },
       { key: "8", label: "Nombre de la ficha técnica", type: "text" },
       { key: "9", label: "Versión de la ficha", type: "text" },

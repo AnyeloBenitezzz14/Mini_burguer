@@ -220,8 +220,9 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       // Only on create: afterwards purchases, losses and production own cost and stock
       ...(row[13] ? {} : { costo: Number(row[3]) || 0, stock: 0 }),
       minimo: Number(row[5]) || 0,
-      unidades_paquete: text(row[2]) === "paq" && Number(row[6]) > 0 ? Number(row[6]) : null,
-      contenido_unidad: text(row[2]) === "paq" ? text(row[14]) || "und" : null,
+      // Its package, in its own unit (empty = it isn't bought by package)
+      unidades_paquete: Number(row[6]) > 0 ? Number(row[6]) : null,
+      contenido_unidad: Number(row[6]) > 0 ? text(row[2]) || "und" : null,
       tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
       estado: estadoOf(row[12]),
       // Producto de insumo: its sale price (0 = cortesía) and the portion each serving takes from the stock

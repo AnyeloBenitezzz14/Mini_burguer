@@ -628,8 +628,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
           (field) =>
             // "Stock actual" isn't entered when creating: it starts at 0
             !(modal.mode === "add" && field.key === "4") &&
-            // How many come in a package: only for the unit «paq»
-            (!["6", "14"].includes(field.key) || String(isView ? row?.[2] : formData["2"]) === "paq") &&
+            // How much its package brings (any unit); «14» (the package's unit) is always the insumo's own
+            field.key !== "14" &&
             // The unit cost is set by each purchase (its unit price): only the detail shows it
             !(modal.mode !== "view" && field.key === "3") &&
             (!["8", "9", "10", "11", "15", "16"].includes(field.key) || showSupplyTechnicalSheet),
@@ -2518,6 +2518,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               if (isView && isProduction && ["0", "1", "3", "4", "15"].includes(f.key)) return null
               // Insumo technical sheet (fields 8-11) rendered as one card at field "8"
               if (isSupply && ["9", "10", "11", "16"].includes(f.key)) return null
+              if (isSupply && f.key === "6" && sheetBeside) return null
               // Producto de insumo in orders: cortesía or charged, its portion, and what preparing it costs
               if (isSupply && f.key === "15") {
                 if (!showSupplyTechnicalSheet || isView) return null
@@ -2914,10 +2915,24 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   }))
                 const PACK_KINDS = ["Caja", "Paquete", "Bulto"]
                 const pickedUnit = String(supplyInfo(purchaseItemSelect)?.[2] ?? "und")
+                const unitCostOf = (name: string) => Number(supplyInfo(name)?.[3]) || 0
+                // Price of one unit or of one package of `per`, from the insumo's last cost ("" when it has none)
+                const priceFor = (name: string, kind: string, per: string) =>
+                  unitCostOf(name) ? String(Math.round(unitCostOf(name) * (kind ? toDecimal(per) || 1 : 1))) : ""
                 const pickSupply = (name: string) => {
                   setPurchaseItemSelect(name)
-                  setPurchaseItemPrice(name ? String(supplyInfo(name)?.[3] ?? "") : "")
+                  // Bought in its package (pan x 12): «Paquete, trae 12» and the package's price, ready to change
+                  const pack = name ? packOf(supplyInfo(name)) : undefined
+                  const next = pack ? { kind: "Paquete", per: String(pack.size) } : { kind: "", per: "" }
+                  setPurchaseItemPack(next)
+                  setPurchaseItemPrice(name ? priceFor(name, next.kind, next.per) : "")
                   setPurchaseFormError("")
+                }
+                // Loose ↔ package: the content comes from the insumo, and the price follows unless it was typed by hand
+                const changePack = (next: { kind: string; per: string }) => {
+                  if (purchaseItemSelect && (!purchaseItemPrice || purchaseItemPrice === priceFor(purchaseItemSelect, purchaseItemPack.kind, purchaseItemPack.per)))
+                    setPurchaseItemPrice(priceFor(purchaseItemSelect, next.kind, next.per))
+                  setPurchaseItemPack(next)
                 }
                 const addItem = () => {
                   const count = toDecimal(purchaseItemQty)
@@ -3094,7 +3109,12 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             Viene en
                             <select
                               value={purchaseItemPack.kind}
-                              onChange={(e) => setPurchaseItemPack({ kind: e.target.value, per: e.target.value ? purchaseItemPack.per : "" })}
+                              onChange={(e) =>
+                                changePack({
+                                  kind: e.target.value,
+                                  per: e.target.value ? purchaseItemPack.per || String(packOf(supplyInfo(purchaseItemSelect))?.size ?? "") : "",
+                                })
+                              }
                               className="w-full cursor-pointer rounded-xl px-2 py-2.5 text-sm outline-none"
                               style={controlSt}
                             >
@@ -3140,7 +3160,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                 type="text"
                                 inputMode="decimal"
                                 value={purchaseItemPack.per}
-                                onChange={(e) => setPurchaseItemPack({ ...purchaseItemPack, per: e.target.value })}
+                                onChange={(e) => changePack({ ...purchaseItemPack, per: e.target.value })}
                                 placeholder="24"
                                 aria-label={`Contenido de cada ${purchaseItemPack.kind.toLowerCase()}`}
                                 className="w-20 rounded-lg px-2 py-1.5 text-sm outline-none"
@@ -3822,6 +3842,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   ? "Nombre completo"
                   : isSupply && f.key === "7"
                       ? "¿Lo preparan ustedes?"
+                      : isSupply && f.key === "6" && !isView
+                        ? `Cada paquete trae (${String(formData["2"] || "und")}) · opcional`
                       : f.label
               const fieldRowIndex = Number(f.key) + rowOffset
               const val = isView
@@ -4057,7 +4079,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     isSupply && !isView && sheetBeside
                       ? f.key === "7" || (modal.mode === "edit" && (f.key === "4" || f.key === "5")) ? "" : "sm:col-span-2"
                       : isSupply && !isView && !sheetBeside
-                      ? ({ "0": "sm:col-span-2 lg:col-start-1", "1": "lg:col-start-1", "2": "lg:col-start-2", "4": "lg:col-start-3", "5": modal.mode === "add" ? "lg:col-start-3" : "lg:col-start-4", "7": "sm:col-span-2 lg:col-span-4" } as Record<string, string>)[f.key] ?? ""
+                      ? ({ "0": "sm:col-span-2 lg:col-start-1", "1": "lg:col-start-1", "2": "lg:col-start-2", "4": "lg:col-start-3", "5": modal.mode === "add" ? "lg:col-start-3" : "lg:col-start-4", "6": "lg:col-start-3", "7": "sm:col-span-2 lg:col-span-4" } as Record<string, string>)[f.key] ?? ""
                       : isSupplier
                     ? naturalSupplier
                       ? f.key === "5" ? "lg:col-span-2" : "" // four fields per row, the address takes two
@@ -5019,7 +5041,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 {/* Next to the minimum: how this insumo's stock moves (fills the half and answers «¿dónde pongo el stock?») */}
                 {isSupply && !isView && !sheetBeside && f.key === "5" && (
                   <div
-                    className={`rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 ${modal.mode === "add" ? "lg:col-span-1 lg:col-start-4 lg:row-span-2" : "lg:col-span-2 lg:col-start-3"}`}
+                    className={`rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 ${modal.mode === "add" ? "lg:col-span-1 lg:col-start-4 lg:row-span-2" : "lg:col-span-1 lg:col-start-4"}`}
                     style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}30`, color: t.text }}
                   >
                     <div className="mb-1 font-bold" style={{ color: C.mustard }}>¿Cómo se mueve el stock?</div>

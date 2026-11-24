@@ -105,7 +105,7 @@ export default function SupplyDetail(adminState: AdminPanelState, row: (string |
           ["Stock mínimo", `${minimum.toLocaleString("es-CO")} ${unit}`, t.text],
           ["Costo unitario", Number(row[3]) ? `${fmt(Number(row[3]))} / ${unit}` : "Sin compras", C.mustard],
           ["Valor en stock", fmt(stock * (Number(row[3]) || 0)), t.text],
-          ...(unit === "paq" ? [["Contenido por paquete", pack ? `${pack.size.toLocaleString("es-CO")} ${pack.unit}` : "Sin definir", t.text]] : []),
+          ...(unit === "paq" || pack ? [["Viene en paquete de", pack ? `${pack.size.toLocaleString("es-CO")} ${pack.unit}` : "Sin definir", t.text]] : []),
           // Producto de insumo in orders: free sauce or charged addition, and what each serving takes
           ...(isProductSupply
             ? [
