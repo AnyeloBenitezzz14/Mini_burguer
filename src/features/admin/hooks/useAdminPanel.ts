@@ -1494,8 +1494,6 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         return `La pérdida no puede ser anterior a la compra (${String(purchase[1]).slice(0, 10)}).`
     }
     // Stock in g, ml or und: whole numbers only
-    if (sec === "insumos" && key === "6" && trimmed && !(Number(trimmed.replace(",", ".")) > 0 && Number.isInteger(Number(trimmed.replace(",", ".")))))
-      return "Va en números enteros mayores que cero (por ejemplo 12 und o 250 g). Déjalo vacío si no viene en paquete."
     if (sec === "insumos" && key === "5" && trimmed && !Number.isInteger(Number(trimmed.replace(",", "."))))
       return "Va en números enteros (por ejemplo 1500 g, no 1,5 kg)."
     if (sec === "perdidas" && key === "1") {
@@ -1772,6 +1770,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       setLossPickerQuery("")
     }
     if (sec === "insumos") {
+      nextForm["17"] = String(row[17] ?? "") || (Number(row[6]) > 0 ? "Paquete" : "")
       setSupplyFormError("")
       setSupplierPickerOpen(false)
       setSupplierPickerQuery("")
@@ -1898,10 +1897,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       if (dup) e["0"] = `Ya existe el insumo «${String(dup[0])}».`
       if (!v("1")) e["1"] = "Selecciona la categoría."
       if (!v("2")) e["2"] = "Selecciona la unidad de medida."
-      if (v("2") === "paq" && !(Number.isInteger(n("6")) && n("6") > 0 && n("6") <= 100000))
-        e["6"] = "Escribe cuánto trae cada paquete: por ejemplo 30 (huevos) o 100 (g de un sobre)."
-      if (v("2") === "paq" && !["und", "g", "ml"].includes(v("14")))
-        e["14"] = "Elige si el paquete trae unidades, gramos o mililitros."
+      // Bought in a package / box / sack: how much of its unit each one brings (a box of salt with 25 sobres = 25 und)
+      if (v("17") && v("7").toLowerCase() !== "sí" && !(Number.isInteger(n("6")) && n("6") > 0 && n("6") <= 100000))
+        e["6"] = `Escribe cuántos ${v("2") || "und"} trae cada ${v("17").toLowerCase()}.`
       // Changing kg → g would turn 5 kg into "5 g": the unit is fixed once there is stock or purchases
       const before = modal.mode === "edit" && modal.idx !== null ? rows.insumos?.[modal.idx] : undefined
       if (
@@ -2332,8 +2330,11 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       newRow[0] = String(newRow[0] ?? "").trim()
       // New insumos start with no stock (the field isn't shown when creating)
       newRow[4] = modal.mode === "add" ? 0 : Number(newRow[4] || 0)
-      // How much one package holds (unit "paq"); other units keep it empty
-      newRow[6] = String(newRow[2]) === "paq" ? Number(formData["6"]) || "" : ""
+      // What it's bought in and how much of its unit each one brings (a house-made insumo isn't bought)
+      const packed = String(newRow[7]).toLowerCase() !== "sí" && Number(formData["6"]) > 0
+      newRow[6] = packed ? Number(formData["6"]) : ""
+      newRow[14] = packed ? String(newRow[2] || "und") : ""
+      newRow[17] = packed ? String(formData["17"] || "Paquete") : ""
       if (String(newRow[7]).toLowerCase() === "sí") {
         newRow[8] = String(newRow[8] ?? "").trim() || `Ficha técnica - ${String(newRow[0]).trim()}`
         newRow[9] = String(newRow[9] ?? "").trim() || "v1.0"

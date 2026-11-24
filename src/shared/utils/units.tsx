@@ -28,10 +28,10 @@ export const toBaseQuantity = (quantity: number, unit: string, base: string, pac
   return from && to && from.kind === to.kind ? (quantity * from.factor) / to.factor : null
 }
 
-export type Pack = { size: number; unit: string }
-// An insumo row's package: [6] how much one package holds, [14] its unit (und, g or ml)
+export type Pack = { size: number; unit: string; kind: string }
+// An insumo row's package: [6] how much one holds, [14] its unit (und, g or ml), [17] what it is (Paquete, Caja, Bulto)
 export const packOf = (row?: (string | number)[]): Pack | undefined =>
-  row && Number(row[6]) > 0 ? { size: Number(row[6]), unit: String(row[14] || "und") } : undefined
+  row && Number(row[6]) > 0 ? { size: Number(row[6]), unit: String(row[14] || "und"), kind: String(row[17] || "Paquete") } : undefined
 
 // Units a product recipe can use for an insumo stocked in `base` (only ones that convert: g ↔ kg, ml ↔ L)
 // A package is used by what it holds (1 und of a 12-pack of bread, 1 tajada of a 20-pack of cheese): that unit first

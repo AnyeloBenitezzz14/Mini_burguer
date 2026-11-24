@@ -212,7 +212,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
           i.ficha?.insumos_principales || "", i.ficha?.preparacion || "", i.estado === "ACTIVO" ? "Activo" : "Inactivo"],
         13,
         i.id_insumo_producto,
-      ).concat(i.contenido_unidad || "und", Number(i.precio) || 0, Number(i.porcion) || ""),
+      ).concat(i.contenido_unidad || "und", Number(i.precio) || 0, Number(i.porcion) || "", i.empaque || (Number(i.unidades_paquete) > 0 ? "Paquete" : "")),
     toBody: async (row) => ({
       nombre: text(row[0]),
       id_categoria: await categoryIdByName("/categorias-insumos", row[1]),
@@ -223,6 +223,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       // Its package, in its own unit (empty = it isn't bought by package)
       unidades_paquete: Number(row[6]) > 0 ? Number(row[6]) : null,
       contenido_unidad: Number(row[6]) > 0 ? text(row[2]) || "und" : null,
+      empaque: Number(row[6]) > 0 ? text(row[17]) || "Paquete" : null,
       tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
       estado: estadoOf(row[12]),
       // Producto de insumo: its sale price (0 = cortesía) and the portion each serving takes from the stock

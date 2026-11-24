@@ -2923,7 +2923,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   setPurchaseItemSelect(name)
                   // Bought in its package (pan x 12): «Paquete, trae 12» and the package's price, ready to change
                   const pack = name ? packOf(supplyInfo(name)) : undefined
-                  const next = pack ? { kind: "Paquete", per: String(pack.size) } : { kind: "", per: "" }
+                  const next = pack ? { kind: pack.kind, per: String(pack.size) } : { kind: "", per: "" }
                   setPurchaseItemPack(next)
                   setPurchaseItemPrice(name ? priceFor(name, next.kind, next.per) : "")
                   setPurchaseFormError("")
@@ -3843,7 +3843,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   : isSupply && f.key === "7"
                       ? "¿Lo preparan ustedes?"
                       : isSupply && f.key === "6" && !isView
-                        ? `Cada paquete trae (${String(formData["2"] || "und")}) · opcional`
+                        ? "Viene en · opcional"
                       : f.label
               const fieldRowIndex = Number(f.key) + rowOffset
               const val = isView
@@ -4140,6 +4140,41 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     >
                       <span>{f.key === "3" ? formatViewValue(f, val) : val || "—"}</span>
                       <span className="text-[10px]" style={{ color: t.muted }}>No editable</span>
+                    </div>
+                  ) : isSupply && !isView && f.key === "6" ? (
+                    // Loose, or a package / box / sack that brings N of its unit (a box of salt with 25 sobres = 25 und)
+                    <div className="flex min-w-0 items-center gap-2">
+                      <select
+                        value={String(formData["17"] ?? "")}
+                        onChange={(e) => {
+                          const kind = e.target.value
+                          // One update: loose also forgets how much the package brought
+                          setFormData((current) => ({ ...current, "17": kind, "6": kind ? current["6"] ?? "" : "" }))
+                        }}
+                        aria-label="En qué se compra"
+                        className="min-w-0 flex-1 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                        style={{ background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }}
+                      >
+                        <option value="">Suelto</option>
+                        {["Paquete", "Caja", "Bulto"].map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+                      </select>
+                      {formData["17"] && (
+                        <label className="flex flex-shrink-0 items-center gap-1.5 text-xs" style={{ color: t.muted }}>
+                          trae
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={String(formData["6"] ?? "")}
+                            onChange={(e) => updateAdminField(modal.section, "6", e.target.value.replace(/\D/g, ""))}
+                            placeholder="25"
+                            aria-label={`Cuánto trae cada ${String(formData["17"]).toLowerCase()}`}
+                            aria-invalid={!!shownFieldError("6")}
+                            className="w-16 rounded-xl px-2 py-2.5 text-center text-sm outline-none"
+                            style={{ background: t.input, border: `1.5px solid ${shownFieldError("6") ? C.red : t.inputB}`, color: t.text }}
+                          />
+                          {String(formData["2"] || "und")}
+                        </label>
+                      )}
                     </div>
                   ) : isSupply && !isView && modal.mode === "edit" && (f.key === "3" || f.key === "4") ? (
                     <div
