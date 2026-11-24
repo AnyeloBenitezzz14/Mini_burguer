@@ -95,15 +95,6 @@ body {
   line-height: 1.4;
 }
 
-/* Admin: buttons, menu and fields in the reading face; the condensed brand face stays for headings */
-.admin-panel button:not([style*="League Spartan"]),
-.admin-panel nav,
-.admin-panel select,
-.admin-panel input,
-.admin-panel textarea {
-  font-family: 'DM Sans', sans-serif !important;
-}
-
 /* Admin search: follows the theme (light and dark), same height and radius as the controls beside it */
 .admin-panel .search-control {
   min-height: 38px;
@@ -149,21 +140,20 @@ body {
 .admin-nav-item:focus-visible,
 .admin-subnav-item:hover,
 .admin-subnav-item:focus-visible {
-  background: #fff !important;
-  box-shadow: 0 4px 14px rgba(54,57,63,0.1);
+  background: rgba(242,229,192,0.08) !important;
   transform: translateX(2px);
 }
 
 .admin-nav-item:hover > span:first-child,
 .admin-nav-item:focus-visible > span:first-child {
-  color: var(--admin-gold) !important;
+  color: #D29A42 !important;
 }
 
 .admin-nav-item:hover > span:nth-child(2),
 .admin-nav-item:focus-visible > span:nth-child(2),
 .admin-subnav-item:hover span,
 .admin-subnav-item:focus-visible span {
-  color: #36393F !important;
+  color: #F2E5C0 !important;
 }
 
 .admin-subnav-item {
