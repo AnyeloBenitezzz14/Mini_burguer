@@ -60,16 +60,19 @@ export function emailError(email: string) {
   return ""
 }
 
+// What a password needs (the live checklist and the error read the same rules)
+export const PASSWORD_RULES: [string, (pass: string) => boolean][] = [
+  ["mínimo 8 caracteres", (pass) => pass.length >= 8],
+  ["una mayúscula", (pass) => /[A-Z]/.test(pass)],
+  ["una minúscula", (pass) => /[a-z]/.test(pass)],
+  ["un número", (pass) => /\d/.test(pass)],
+]
+
 export function passwordErrors(pass: string, pass2: string): FieldErrors {
   const e: FieldErrors = {}
   if (!pass) e.pass = "Crea una contraseña."
   else {
-    const missing = [
-      pass.length < 8 && "mínimo 8 caracteres",
-      !/[A-Z]/.test(pass) && "una mayúscula",
-      !/[a-z]/.test(pass) && "una minúscula",
-      !/\d/.test(pass) && "un número",
-    ].filter(Boolean)
+    const missing = PASSWORD_RULES.filter(([, ok]) => !ok(pass)).map(([rule]) => rule)
     if (missing.length) e.pass = `La contraseña necesita ${missing.join(", ")}.`
   }
   if (!pass2) e.pass2 = "Confirma tu contraseña."

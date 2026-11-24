@@ -4,6 +4,7 @@ import logoImg from "@/imports/logo.png"
 import AccessBackButton from "@/features/auth/components/AccessBackButton"
 import AuthPhotoBackground from "@/features/auth/components/AuthPhotoBackground"
 import { apiLogin } from "@/features/auth/services/auth.service"
+import useLiveErrors from "@/features/auth/utils/useLiveErrors"
 import { validateLogin } from "@/features/auth/utils/validation"
 import FieldError from "@/shared/components/FieldError"
 import InputField from "@/shared/components/InputField"
@@ -27,12 +28,10 @@ export default function LoginPage({
 
   const [email, setEmail] = useState("")
   const [pass, setPass] = useState("")
-  // Errors show after the first submit and update live while typing
-  const [tried, setTried] = useState(false)
   const [serverErr, setServerErr] = useState("")
   const [busy, setBusy] = useState(false)
   // Password and account status are checked by the backend
-  const errors = tried ? validateLogin(email, pass) : {}
+  const { errors, touch, setTried } = useLiveErrors(validateLogin(email, pass))
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setTried(true)
@@ -117,6 +116,7 @@ export default function LoginPage({
               placeholder="tu@correo.com"
               value={email}
               onChange={setEmail}
+              onBlur={touch("email")}
               required
               error={errors.email}
             />
@@ -126,6 +126,7 @@ export default function LoginPage({
               placeholder="••••••••"
               value={pass}
               onChange={setPass}
+              onBlur={touch("pass")}
               required
               error={errors.pass}
             />

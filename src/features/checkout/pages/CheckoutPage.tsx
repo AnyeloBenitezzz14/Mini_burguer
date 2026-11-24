@@ -4,6 +4,8 @@ import PaymentAccounts from "@/features/checkout/components/PaymentAccounts"
 import logoImg from "@/imports/logo.png"
 import PinCodeField from "@/features/auth/components/PinCodeField"
 import { apiLogin, requestRegistrationCode, saveRegisteredClient, toUser, verifyRegistrationCode } from "@/features/auth/services/auth.service"
+import PasswordChecklist from "@/features/auth/components/PasswordChecklist"
+import useLiveErrors from "@/features/auth/utils/useLiveErrors"
 import { validateLogin, validateRegister } from "@/features/auth/utils/validation"
 import CartAddedNotice, { useCartNotice } from "@/features/checkout/components/CartAddedNotice"
 import CartSummary from "@/features/checkout/components/CartSummary"
@@ -51,6 +53,7 @@ export default function CheckoutPage({
   const [loginForm, setLoginForm] = useState({ email: "", pass: "" })
   const [regForm, setRegForm] = useState({
     name: "",
+    lastname: "",
     docType: "",
     docNum: "",
     email: "",
@@ -453,14 +456,11 @@ export default function CheckoutPage({
   )
   const canOrder = user && delivFilled && deliveryCostConfigured
 
-  // Errors show after the first submit of each form and update while typing
-  const [loginTried, setLoginTried] = useState(false)
-  const [regTried, setRegTried] = useState(false)
   const [serverErr, setServerErr] = useState("")
   const [busy, setBusy] = useState(false)
   // Password, account existence and status are checked by the backend
-  const loginErrors = loginTried ? validateLogin(loginForm.email, loginForm.pass) : {}
-  const regErrors = regTried ? validateRegister(regForm) : {}
+  const { errors: loginErrors, touch: touchLogin, setTried: setLoginTried } = useLiveErrors(validateLogin(loginForm.email, loginForm.pass))
+  const { errors: regErrors, touch: touchReg, setTried: setRegTried } = useLiveErrors(validateRegister(regForm))
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoginTried(true)
@@ -482,7 +482,7 @@ export default function CheckoutPage({
     setServerErr("")
     if (busy || Object.keys(validateRegister(regForm)).length) return
     const u: User = {
-      name: regForm.name.trim(),
+      name: `${regForm.name.trim()} ${regForm.lastname.trim()}`.trim(),
       email: regForm.email.trim().toLowerCase(),
       role: "user",
       docType: regForm.docType,
@@ -509,7 +509,7 @@ export default function CheckoutPage({
     }
     if (busy) return
     const u: User = {
-      name: regForm.name.trim(),
+      name: `${regForm.name.trim()} ${regForm.lastname.trim()}`.trim(),
       email: regForm.email.trim().toLowerCase(),
       role: "user",
       docType: regForm.docType,
@@ -862,6 +862,7 @@ export default function CheckoutPage({
                         setLoginForm((f) => ({ ...f, email: v }))
                       }
                       required
+                      onBlur={touchLogin("email")}
                       error={loginErrors.email}
                     />
                     <InputField
@@ -871,6 +872,7 @@ export default function CheckoutPage({
                       value={loginForm.pass}
                       onChange={(v) => setLoginForm((f) => ({ ...f, pass: v }))}
                       required
+                      onBlur={touchLogin("pass")}
                       error={loginErrors.pass}
                     />
                     <FieldError msg={serverErr} />
@@ -941,7 +943,9 @@ export default function CheckoutPage({
                             docType,
                             docNum: normalizeAccountDocumentInput(current.docNum, docType),
                           }))
+                          touchReg("docType")()
                         }}
+                        onBlur={touchReg("docType")}
                         aria-invalid={!!regErrors.docType}
                         className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none"
                         style={{
@@ -970,6 +974,7 @@ export default function CheckoutPage({
                         docNum: normalizeAccountDocumentInput(v, current.docType),
                       }))}
                       required
+                      onBlur={touchReg("docNum")}
                       error={regErrors.docNum}
                     />
                     </div>
@@ -979,7 +984,17 @@ export default function CheckoutPage({
                       value={regForm.name}
                       onChange={(v) => setRegForm((f) => ({ ...f, name: v }))}
                       required
+                      onBlur={touchReg("name")}
                       error={regErrors.name}
+                    />
+                    <InputField
+                      label="Apellido *"
+                      placeholder="Tu apellido"
+                      value={regForm.lastname}
+                      onChange={(v) => setRegForm((f) => ({ ...f, lastname: v }))}
+                      required
+                      onBlur={touchReg("lastname")}
+                      error={regErrors.lastname}
                     />
                     <InputField
                       label="Teléfono"
@@ -987,6 +1002,7 @@ export default function CheckoutPage({
                       placeholder="3XX XXX XXXX"
                       value={regForm.phone}
                       onChange={(v) => setRegForm((f) => ({ ...f, phone: digitsOnly(v).slice(0, 10) }))}
+                      onBlur={touchReg("phone")}
                       error={regErrors.phone}
                     />
                     <InputField
@@ -996,6 +1012,7 @@ export default function CheckoutPage({
                       value={regForm.email}
                       onChange={(v) => setRegForm((f) => ({ ...f, email: v }))}
                       required
+                      onBlur={touchReg("email")}
                       error={regErrors.email}
                     />
                     <InputField
@@ -1005,13 +1022,12 @@ export default function CheckoutPage({
                       value={regForm.pass}
                       onChange={(v) => setRegForm((f) => ({ ...f, pass: v }))}
                       required
-                      error={regErrors.pass}
+                      onBlur={touchReg("pass")}
+                      error={regForm.pass ? undefined : regErrors.pass}
                     />
-                    {!regErrors.pass && (
-                      <p className="text-[11px] -mt-1" style={{ color: "rgba(30,30,30,0.45)" }}>
-                        Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
-                      </p>
-                    )}
+                    <div className="-mt-1">
+                      <PasswordChecklist pass={regForm.pass} pass2={regForm.pass2} strict={!!regErrors.pass} />
+                    </div>
                     <InputField
                       label="Confirmar *"
                       type="password"
@@ -1019,6 +1035,7 @@ export default function CheckoutPage({
                       value={regForm.pass2}
                       onChange={(v) => setRegForm((f) => ({ ...f, pass2: v }))}
                       required
+                      onBlur={touchReg("pass2")}
                       error={regErrors.pass2}
                     />
                     <FieldError msg={serverErr} />
