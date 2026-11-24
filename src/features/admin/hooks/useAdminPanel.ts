@@ -16,7 +16,7 @@ import type { AdminNotification, AdminOrderLine, AdminSection, DashPeriod, DbRec
 import { parseAddress } from "@/shared/utils/address"
 import { fmt, normalizeDocument, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
 import { loadLS, saveLS } from "@/shared/utils/storage"
-import { convertQty, packOf, toBaseQuantity } from "@/shared/utils/units"
+import { convertQty, packOf, qtyLabel, toBaseQuantity } from "@/shared/utils/units"
 import { DOC_RULES, EMAIL_PATTERN, EMAIL_RE, NAME_RE, digitsOnly, getPasswordError, normalizeAccountDocumentInput, normalizeDocumentInput, validateDocumentNumber, validatePhoneNumber } from "@/shared/utils/validation"
 
 export // Damaged products of one record: the whole product (quantity) or only some of its insumos (parts)
@@ -337,7 +337,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
             id: 5000 + i,
             type: Number(r[4]) <= 0 ? ("danger" as const) : ("warn" as const),
             title: `${Number(r[4]) <= 0 ? "Sin stock" : "Stock bajo"}${String(r[7]).toLowerCase() === "sí" ? " · producto de insumo" : ""}`,
-            message: `${String(r[0])} tiene ${Number(r[4]) || 0} ${String(r[2] ?? "")}; el mínimo es ${Number(r[5]) || 0} ${String(r[2] ?? "")}.`,
+            message: `${String(r[0])} tiene ${qtyLabel(Number(r[4]) || 0, String(r[2] ?? ""), packOf(r))}; el mínimo es ${qtyLabel(Number(r[5]) || 0, String(r[2] ?? ""), packOf(r))}.`,
             module: "Insumos",
             time: "Ahora",
             target: "insumos" as const,

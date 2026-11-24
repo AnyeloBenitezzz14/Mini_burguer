@@ -144,7 +144,8 @@ export const MOD_CFG: Record<string, ModConfig> = {
     seed: [],
     // Deletable only while no other module has records of it (see getDeleteAssessment)
     statusIndex: 12,
-    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11, 14, 15, 16],
+    // 17: what it comes in (Paquete, Caja, Bulto): shown inside «Unidad», never as its own column
+    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17],
   },
   proveedores: {
     columns: [

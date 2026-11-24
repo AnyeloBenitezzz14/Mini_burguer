@@ -17,7 +17,7 @@ import { C, badgeSt } from "@/shared/styles/theme"
 import type { AddressParts, AdminOrderLine, FieldType, ProductionItem, Row, TechnicalIngredient } from "@/shared/types"
 import { ADDRESS_VIAS, HOUSING, composeAddress } from "@/shared/utils/address"
 import { fmt, formatDateLabel, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
-import { convertQty, convertibleUnits, packOf } from "@/shared/utils/units"
+import { convertQty, convertibleUnits, packOf, qtyLabel } from "@/shared/utils/units"
 import { normalizeDocumentInput, normalizePhoneInput } from "@/shared/utils/validation"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
@@ -2883,7 +2883,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       {items.map((item) => (
                         <div key={item.name} className="flex items-center justify-between gap-3 py-2 text-sm" style={{ borderColor: t.border }}>
                           <span className="min-w-0 truncate" style={{ color: t.text }}>
-                            {item.name} <span style={{ color: t.muted }}>× {item.quantity} · {fmt(Number(item.unitPrice))} c/u</span>
+                            {item.name} <span style={{ color: t.muted }}>× {qtyLabel(Number(item.quantity), String(supplyInfo(item.name)?.[2] ?? "und"), packOf(supplyInfo(item.name)))} · {fmt(Number(item.unitPrice))} c/u</span>
                           </span>
                           <span className="flex-shrink-0 font-semibold" style={{ color: t.text }}>{fmt(item.total)}</span>
                         </div>
@@ -2963,6 +2963,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   setPurchaseItemQty("1")
                   setPurchaseItemPrice("")
                   setPurchaseItemPack({ kind: "", per: "" })
+                  // Ready for the next one without the mouse
+                  window.setTimeout(() => document.getElementById("purchase-supply-search")?.focus(), 0)
                   // A soda bought at or above its sale price would sell at a loss: say so (it still gets added)
                   const salePrice = Number(sodaProductRow(purchaseItemSelect)?.[2]) || 0
                   setPurchaseFormError(
@@ -2972,6 +2974,18 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   )
                 }
                 const controlSt = { background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }
+                const addOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+                  if (e.key !== "Enter") return
+                  e.preventDefault()
+                  addItem()
+                }
+                // The last purchase to this supplier: one click brings its insumos, quantities and prices back
+                const lastPurchase = supplier
+                  ? (rows.compras || [])
+                      .filter((c) => String(c[0]) === supplier && isActiveStatus(c[5]))
+                      .sort((a, b) => String(b[1]).localeCompare(String(a[1])))[0]
+                  : undefined
+                const lastLines = lastPurchase ? parsePurchaseLines(lastPurchase[6]).filter((line) => supplyInfo(line.name)) : []
                 // "Enviar a pérdida": only for items already saved in this purchase (edit mode)
                 const savedItems = modal.mode === "edit" ? parsePurchaseItems(row?.[6]) : []
                 const lossOrigin = row ? purchaseLabel(row) : ""
@@ -3057,8 +3071,10 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                     if (first) {
                                       pickSupply(first)
                                       setPurchaseSupplySearch(null)
+                                      window.setTimeout(() => document.getElementById("purchase-item-qty")?.focus(), 0)
                                     }
                                   }}
+                                  id="purchase-supply-search"
                                   placeholder="Busca un insumo..."
                                   aria-label="Buscar insumo"
                                   className="w-full min-w-0 bg-transparent py-2.5 text-sm outline-none"
@@ -3125,10 +3141,12 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                             {purchaseItemPack.kind ? `${purchaseItemPack.kind}s` : "Cantidad"}
                             <input
+                              id="purchase-item-qty"
                               type="text"
                               inputMode="decimal"
                               value={purchaseItemQty}
                               onChange={(e) => setPurchaseItemQty(e.target.value)}
+                              onKeyDown={addOnEnter}
                               className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                               style={controlSt}
                             />
@@ -3140,6 +3158,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                               min="0"
                               value={purchaseItemPrice}
                               onChange={(e) => setPurchaseItemPrice(e.target.value)}
+                              onKeyDown={addOnEnter}
                               placeholder="$"
                               className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                               style={controlSt}
@@ -3161,6 +3180,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                 inputMode="decimal"
                                 value={purchaseItemPack.per}
                                 onChange={(e) => changePack({ ...purchaseItemPack, per: e.target.value })}
+                                onKeyDown={addOnEnter}
                                 placeholder="24"
                                 aria-label={`Contenido de cada ${purchaseItemPack.kind.toLowerCase()}`}
                                 className="w-20 rounded-lg px-2 py-1.5 text-sm outline-none"
@@ -3188,6 +3208,20 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         <div className="flex flex-col items-center justify-center gap-2 rounded-lg px-3 py-3 text-center text-xs lg:flex-1" style={{ border: `1.5px dashed ${t.inputB}`, color: t.muted }}>
                           <span className="hidden h-10 w-10 items-center justify-center rounded-xl lg:flex" style={{ background: `${C.mustard}14`, color: C.mustard }}>{Ico.shopping}</span>
                           Aún no has agregado insumos.
+                          {lastLines.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setItems(lastLines.map((line) => ({ name: line.name, quantity: String(line.quantity), unitPrice: String(line.unitPrice), pack: line.pack })))
+                                setPurchaseFormError("")
+                              }}
+                              className="mt-1 flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold"
+                              style={{ background: `${C.mustard}18`, color: C.mustard, border: `1px solid ${C.mustard}40` }}
+                            >
+                              {Ico.undo} Repetir la última compra ({lastLines.length} {lastLines.length === 1 ? "insumo" : "insumos"}, {formatDateLabel(String(lastPurchase?.[1] ?? ""))})
+                            </button>
+                          )}
+                          {lastLines.length > 0 && <span className="text-[11px]">Luego cambias cantidades o precios si algo varió.</span>}
                         </div>
                       ) : (
                         items.map((item, index) => (
@@ -3199,7 +3233,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             <div className="min-w-0 flex-1">
                               <div className="truncate font-semibold" style={{ color: t.text }}>{item.name}</div>
                               <div className="text-[11px]" style={{ color: t.muted }}>
-                                {Number(item.quantity).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")} × {fmt(Number(item.unitPrice || 0))}
+                                {qtyLabel(Number(item.quantity), String(supplyInfo(item.name)?.[2] ?? "und"), packOf(supplyInfo(item.name)))} × {fmt(Number(item.unitPrice || 0))} c/u
                               </div>
                               {item.pack && (
                                 <div className="text-[11px]" style={{ color: C.mustard }}>Vino en: {item.pack}</div>

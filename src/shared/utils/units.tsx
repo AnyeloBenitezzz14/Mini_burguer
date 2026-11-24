@@ -33,6 +33,22 @@ export type Pack = { size: number; unit: string; kind: string }
 export const packOf = (row?: (string | number)[]): Pack | undefined =>
   row && Number(row[6]) > 0 ? { size: Number(row[6]), unit: String(row[14] || "und"), kind: String(row[17] || "Paquete") } : undefined
 
+const PACK_WORD: Record<string, [string, string]> = { Paquete: ["paq.", "paq."], Caja: ["caja", "cajas"], Bulto: ["bulto", "bultos"] }
+// "65" und of a 20-pack → "3 paq. + 5 und"; "" without a package or with less than one
+export const packBreakdown = (qty: number, unit: string, pack?: Pack) => {
+  if (!pack || pack.unit !== unit || !(qty >= pack.size)) return ""
+  const closed = Math.floor(qty / pack.size + 1e-9)
+  const rest = Math.round((qty - closed * pack.size) * 1000) / 1000
+  const [one, many] = PACK_WORD[pack.kind] ?? PACK_WORD.Paquete
+  return `${closed.toLocaleString("es-CO")} ${closed === 1 ? one : many}${rest > 0 ? ` + ${rest.toLocaleString("es-CO")} ${unit}` : ""}`
+}
+// A quantity never goes bare: "65 und", or packed "3 paq. + 5 und (65 und)"
+export const qtyLabel = (qty: number, unit: string, pack?: Pack) => {
+  const base = `${(Math.round(qty * 1000) / 1000).toLocaleString("es-CO")} ${unit || "und"}`
+  const packs = packBreakdown(qty, unit, pack)
+  return packs ? `${packs} (${base})` : base
+}
+
 // Units a product recipe can use for an insumo stocked in `base` (only ones that convert: g ↔ kg, ml ↔ L)
 // A package is used by what it holds (1 und of a 12-pack of bread, 1 tajada of a 20-pack of cheese): that unit first
 export const convertibleUnits = (base: string, pack?: Pack) => {

@@ -10,6 +10,7 @@ import PurchaseProjection from "@/features/admin/components/PurchaseProjection"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { Row } from "@/shared/types"
 import { fmt, formatDateLabel, normalizeName } from "@/shared/utils/format"
+import { packOf, qtyLabel } from "@/shared/utils/units"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
 
@@ -280,8 +281,13 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     }
     // A package shows what it holds: "paq · 100 g"
     if (section === "insumos" && row && rowCellIndex === 2 && cell === "paq" && Number(row[6]) > 0) return `paq · ${Number(row[6]).toLocaleString("es-CO")} ${String(row[14] || "und")}`
+    // Its unit and how it comes: "und · paq. de 20", "g · caja de 250"
+    if (section === "insumos" && row && rowCellIndex === 2 && packOf(row)) {
+      const pack = packOf(row)!
+      return `${cell} · ${pack.kind === "Paquete" ? "paq." : pack.kind.toLowerCase()} de ${pack.size.toLocaleString("es-CO")}`
+    }
     if (section === "insumos" && row && rowCellIndex === 3) return Number(cell) > 0 ? fmt(Number(cell)) : "Sin compras"
-    if (section === "insumos" && row && rowCellIndex === 4) return `${Number(cell) || 0} ${String(row[2] ?? "")}`.trim()
+    if (section === "insumos" && row && rowCellIndex === 4) return qtyLabel(Number(cell) || 0, String(row[2] ?? ""), packOf(row))
     if (section === "pedidos" && rowCellIndex === 6) return Number.isFinite(Number(cell)) && cell !== "" ? fmt(Number(cell)) : "—"
     if (section === "devoluciones" && rowCellIndex === 8) return Number(cell) > 0 ? fmt(Number(cell)) : "—"
     if (section !== "ventas") return cell
