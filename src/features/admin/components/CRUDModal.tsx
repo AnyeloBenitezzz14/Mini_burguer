@@ -610,6 +610,11 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
   const naturalSupplierForm = !!supplierFieldKeys
   // A company supplier being written: six columns, company (left three) · contact (right three), three rows each
   const companySupplierForm = isSupplier && !isView && !!formData["15"] && !naturalSupplierForm
+  const SUPPLIER_TYPES = [
+    { value: "Persona jurídica", icon: Ico.shopping, hint: "Empresa con NIT y una persona de contacto" },
+    { value: "Persona natural", icon: Ico.user, hint: "Una persona que vende con su documento de identidad" },
+  ]
+  const chosenSupplierType = isSupplier && !isView ? SUPPLIER_TYPES.find((type) => type.value === formData["15"]) : undefined
   const formDataFields = supplierFieldKeys
     ? supplierFieldKeys.map((key) => dataFields.find((field) => field.key === key)!)
     : isProduction
@@ -872,7 +877,6 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
   // Proof only matters for transfers (cash / pay at the store = contraentrega): in the order's right column
   const pedidoProof = isPedido && !isView && formData["3"] === "Transferencia" ? (
     <div className={"flex min-w-0 flex-col gap-2 sm:col-span-2 lg:order-5"}>
-      <label className="text-xs font-semibold" style={{ color: t.muted }}>Comprobante de pago</label>
       {isView ? (
         paymentProofDraft ? (
           <ZoomableImage src={paymentProofDraft} alt="Comprobante de pago" className="max-h-64 w-full rounded-xl object-contain" />
@@ -880,9 +884,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
           <div className="rounded-xl px-4 py-6 text-center text-xs" style={{ background: t.input, color: t.muted }}>El cliente todavía no ha subido un comprobante.</div>
         )
       ) : (
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border-2 border-dashed p-3" style={{ borderColor: t.inputB }}>
-          {paymentProofDraft && <img src={paymentProofDraft} alt="Vista previa" className="max-h-24 w-full rounded-lg object-contain" />}
-          <button type="button" onClick={() => document.getElementById("payment-proof-input")?.click()} className="cursor-pointer text-xs font-semibold" style={{ color: C.mustard }}>Seleccionar imagen o PDF del comprobante</button>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border-2 border-dashed px-3 py-2" style={{ borderColor: t.inputB }}>
+          {paymentProofDraft && <ZoomableImage src={paymentProofDraft} alt="Comprobante de pago" className="h-12 w-16 flex-shrink-0 rounded-lg object-cover" />}
+          <button type="button" onClick={() => document.getElementById("payment-proof-input")?.click()} className="cursor-pointer text-xs font-semibold" style={{ color: C.mustard }}>{paymentProofDraft ? "Cambiar comprobante" : "Subir comprobante de pago (imagen o PDF)"}</button>
           <input id="payment-proof-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" onChange={(event) => {
             const file = event.target.files?.[0]
             if (!file) return
@@ -995,6 +999,26 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   ? "Editar registro"
                   : "Ver detalle"}
           </h3>
+          {chosenSupplierType && (
+            <span
+              className="ml-1 flex min-w-0 items-center gap-2 rounded-xl p-0.5"
+              style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}
+            >
+              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: C.mustard, color: "#fff" }}>
+                {chosenSupplierType.icon}
+              </span>
+              <span className="whitespace-nowrap text-xs font-semibold" style={{ color: t.text }}>{chosenSupplierType.value}</span>
+              <span className="hidden truncate text-[11px] lg:inline" style={{ color: t.muted }}>{chosenSupplierType.hint}</span>
+              <button
+                type="button"
+                onClick={() => updateAdminField("proveedores", "15", "")}
+                className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+                style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
+              >
+                <span className="rotate-90">{Ico.chevDown}</span> Cambiar tipo
+              </button>
+            </span>
+          )}
           </div>
           <div className="flex items-center gap-1.5">
           {isSidePanel && sidePosition >= 0 && (
@@ -1053,8 +1077,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     isSupplier
                       ? `grid-cols-1 lg:grid-flow-row-dense ${companySupplierForm ? "lg:grid-cols-6 lg:gap-y-2" : "lg:grid-cols-4"}`
                       : sheetBeside
-                        ? // the insumo's fields stay in the left half (one per row), the ficha takes the right half
-                          "sm:grid-cols-2 lg:grid-cols-4 lg:[&>*:not([data-sheet])]:col-span-2 lg:[&>*:not([data-sheet])]:col-start-1"
+                        ? // three columns: data and stock · preparation and sale · the ficha
+                          "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.45fr)] lg:gap-x-6"
                         : isSupply && !isView
                           ? // two halves: what it is (left) · inventory (right); preparation across the bottom
                             "sm:grid-cols-2 lg:grid-flow-row-dense lg:grid-cols-4 lg:gap-x-6"
@@ -2368,7 +2392,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               )}
               {formReturn && formReturn.child === modal.section && modal.mode === "add" && (
                 <div
-                  className={`rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 ${isPedido ? "lg:col-span-2" : "lg:col-span-4"}`}
+                  className="col-span-full rounded-xl px-3.5 py-3 text-xs leading-relaxed"
                   style={{ background: `${C.mustard}12`, color: t.text, border: `1px solid ${C.mustard}35` }}
                 >
                   {formReturn.section === "proveedores" ? (
@@ -2389,10 +2413,18 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   <>
                     {/* An order: products on the left; client, payment and notes on the right (fits without scrolling) */}
                     <div className="flex min-w-0 flex-col gap-3">{formDataFields.filter((f) => f.key === "1").map(renderField)}</div>
-                    <div className="order-first grid min-w-0 content-start gap-3 sm:grid-cols-2 lg:order-none">
+                    <div className="order-first grid min-w-0 content-start gap-x-3 gap-y-2.5 sm:grid-cols-2 lg:order-none">
                       {formDataFields.filter((f) => f.key !== "1").map(renderField)}
                       {pedidoProof}
                     </div>
+                  </>
+                ) : sheetBeside ? (
+                  <>
+                    <div className="grid min-w-0 content-start gap-x-4 gap-y-3 sm:grid-cols-2">
+                      {formDataFields.filter((f) => !["7", "8", "15"].includes(f.key)).map(renderField)}
+                    </div>
+                    <div className="grid min-w-0 content-start gap-3">{formDataFields.filter((f) => f.key === "7" || f.key === "15").map(renderField)}</div>
+                    <div className="min-w-0">{formDataFields.filter((f) => f.key === "8").map(renderField)}</div>
                   </>
                 ) : (
                   formDataFields.map(renderField)
@@ -2417,8 +2449,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 const next = nextPaymentStatus(current, String(formData["4"] ?? ""))
                 const paid = current === "Pagado"
                 return (
-                  <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
-                    <span className="text-xs font-semibold" style={{ color: t.muted }}>{f.label}</span>
+                  <div key={f.key} className="grid min-w-0 gap-x-3 gap-y-1.5 sm:col-span-2 sm:grid-cols-2 sm:items-center lg:order-5">
+                    <span className="text-xs font-semibold sm:col-span-2" style={{ color: t.muted }}>{f.label}</span>
                     <div className="relative">
                       <span
                         className="pointer-events-none absolute left-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
@@ -2515,28 +2547,28 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   border: `1px solid ${on ? C.mustard : t.border}`,
                 })
                 return (
-                  <section key="supply-sale" className="rounded-xl p-4 sm:col-span-2" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                  <section key="supply-sale" className="col-span-full rounded-xl p-3.5" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                     <div className="text-sm font-semibold" style={{ color: t.text }}>Venta en pedidos</div>
                     <p className="mt-0.5 text-xs" style={{ color: t.muted }}>
-                      Mientras tenga stock se ofrece al cliente. Cada vez que se sirve, su porción sale del inventario, también si es gratis.
+                      Se ofrece mientras haya stock; cada porción servida sale del inventario, aunque sea gratis.
                     </p>
-                    <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Cómo se ofrece">
+                    <div className="mt-2.5 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Cómo se ofrece">
                       <button type="button" role="radio" aria-checked={!charged} onClick={() => setField("15", "0")}
-                        className="cursor-pointer rounded-xl px-3 py-2 text-xs font-bold" style={pill(!charged)}>
+                        className="cursor-pointer rounded-xl px-3 py-2 text-left text-xs font-bold leading-tight" style={pill(!charged)}>
                         Cortesía ($0) · sale en Salsas
                       </button>
                       <button type="button" role="radio" aria-checked={charged} onClick={() => setField("15", charged ? raw : "")}
-                        className="cursor-pointer rounded-xl px-3 py-2 text-xs font-bold" style={pill(charged)}>
+                        className="cursor-pointer rounded-xl px-3 py-2 text-left text-xs font-bold leading-tight" style={pill(charged)}>
                         Con precio · sale en Adiciones
                       </button>
                     </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                    <div className={`mt-2.5 grid gap-3 ${charged ? "sm:grid-cols-2" : ""}`}>
+                      <label className={`flex gap-1 text-[11px] font-semibold ${charged ? "flex-col" : "items-center justify-between gap-3"}`} style={{ color: t.muted }}>
                         Porción por pedido ({base})
                         <input type="text" inputMode="decimal" value={String(formData["16"] ?? "")}
                           onChange={(e) => setField("16", e.target.value.replace(",", "."))}
                           placeholder={base === "und" ? "1" : "30"}
-                          className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                          className={`rounded-xl px-3 py-2.5 text-sm outline-none ${charged ? "w-full" : "w-28"}`}
                           style={{ background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }} />
                       </label>
                       {charged && (
@@ -2550,16 +2582,16 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         </label>
                       )}
                     </div>
-                    <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
-                      <div className="rounded-lg px-3 py-2" style={{ background: t.input }}>
+                    <div className="mt-2.5 grid gap-1.5 text-xs">
+                      <div className="flex items-baseline justify-between gap-2 rounded-lg px-3 py-1.5" style={{ background: t.input }}>
                         <div style={{ color: t.muted }}>Costo de preparar 1 {base}</div>
                         <div className="font-bold" style={{ color: t.text }}>{fmt(Math.round(unitCost))}</div>
                       </div>
-                      <div className="rounded-lg px-3 py-2" style={{ background: t.input }}>
+                      <div className={`flex items-baseline justify-between gap-2 rounded-lg px-3 py-1.5 ${charged ? "" : "hidden"}`} style={{ background: t.input }}>
                         <div style={{ color: t.muted }}>Costo por porción</div>
                         <div className="font-bold" style={{ color: t.text }}>{portion > 0 ? fmt(Math.round(portionCost)) : "—"}</div>
                       </div>
-                      <div className="rounded-lg px-3 py-2" style={{ background: t.input }}>
+                      <div className="flex items-baseline justify-between gap-2 rounded-lg px-3 py-1.5" style={{ background: t.input }}>
                         <div style={{ color: t.muted }}>{charged ? "Ganancia por porción" : "Te cuesta regalarla"}</div>
                         <div className="font-bold" style={{ color: charged ? (price - portionCost >= 0 ? "#2E7D60" : C.red) : C.mustard }}>
                           {portion > 0 ? fmt(Math.round(charged ? price - portionCost : portionCost)) : "—"}
@@ -2612,8 +2644,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 return (
                   <section
                     key="ficha-tecnica"
-                    data-sheet
-                    className={`rounded-xl p-4 sm:col-span-2 ${sheetBeside ? "lg:col-start-3 lg:row-start-1 lg:row-end-[span_14] lg:self-start" : ""}`}
+                    className="rounded-xl p-3.5 sm:col-span-2"
                     style={{ background: `${C.mustard}0D`, border: `1.5px solid ${C.mustard}55` }}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2621,7 +2652,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>
                           Ficha técnica · Producto de insumo
                         </div>
-                        <div className="text-sm font-semibold break-words" style={{ color: t.text }}>
+                        <div className={`text-sm font-semibold break-words ${isView ? "" : "hidden"}`} style={{ color: t.text }}>
                           {src("8").trim() || `Ficha técnica - ${supplyName}`}
                         </div>
                       </div>
@@ -2637,11 +2668,11 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         Esta ficha se crea junto con el insumo y también aparecerá en el módulo Productos.
                       </p>
                     )}
-                    <div className="mt-4 grid gap-3">
+                    <div className={`${isView ? "mt-4" : "mt-2"} grid grid-cols-[minmax(0,1fr)] gap-3`}>
                       {!isView && (
                         <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
-                          Nombre de la ficha
                           <input
+                            aria-label="Nombre de la ficha"
                             value={formData["8"] ?? ""}
                             onChange={(e) => setSheet("8", e.target.value)}
                             placeholder={`Ficha técnica - ${supplyName}`}
@@ -2651,7 +2682,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         </label>
                       )}
                       <div className="flex flex-col gap-1.5">
-                        <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                        <span className={`text-xs font-semibold ${!isView && mainSupplies.length ? "hidden" : ""}`} style={{ color: t.muted }}>
                           Insumos principales{!isView && " *"}
                         </span>
                         {mainSupplies.length === 0 ? (
@@ -2671,9 +2702,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             ))}
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-2">
+                          <div className="flex flex-col gap-2 lg:max-h-[9.5rem] lg:overflow-y-auto lg:pr-1" style={{ scrollbarWidth: "thin" }}>
                             <div className="flex items-center gap-2 px-1 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
-                              <span className="flex-1">Insumo</span>
+                              <span className="flex-1">Insumos principales *</span>
                               <span className="w-[16rem] text-center">Cuánto usas y en qué unidad</span>
                               <span className="w-7" />
                             </div>
@@ -2763,6 +2794,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         {!isView && (
                           <>
                             {/* Search box: typing filters the insumos; picking one adds it to the ficha */}
+                            <div className="flex items-center gap-2">
+                            <div className="min-w-0 flex-1">
                             <SuggestInput
                               t={t}
                               clearOnPick
@@ -2777,16 +2810,18 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                 border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
                               }}
                             />
+                            </div>
                             {/* An insumo that doesn't exist yet: create it and come back with it added to the ficha */}
                             <button
                               type="button"
                               onClick={() => openChildForm("insumos")}
                               title="Crear un insumo nuevo y volver a esta ficha técnica"
-                              className="mt-2 flex cursor-pointer items-center gap-1 self-start rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+                              className="flex flex-shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-xl px-3 py-2.5 text-xs font-semibold"
                               style={{ background: `${C.mustard}14`, color: C.mustard }}
                             >
-                              {Ico.plus} Crear insumo nuevo
+                              {Ico.plus} Crear insumo
                             </button>
+                            </div>
                           </>
                         )}
                         {formFieldErrors["10"] && (
@@ -2829,9 +2864,18 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 // Editing a purchase: its insumos, quantities and prices are fixed (only the date changes)
                 const items = parsePurchaseItems(formData["6"])
                 return (
-                  <section key="purchase-items" className="rounded-xl p-4 sm:col-span-2" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                    <div className="text-sm font-semibold" style={{ color: t.text }}>Insumos comprados</div>
-                    <p className="mt-1 text-xs" style={{ color: t.muted }}>No se pueden cambiar: al editar una compra solo cambia su fecha.</p>
+                  <section
+                    key="purchase-items"
+                    className="flex flex-col rounded-xl p-4 sm:col-span-2 lg:col-span-1 lg:col-start-2 lg:row-span-3 lg:row-start-1"
+                    style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        Insumos comprados
+                      </h4>
+                    </div>
+                    <p className="mt-0.5 pl-3 text-[11px]" style={{ color: t.muted }}>No se pueden cambiar: al editar una compra solo cambia su fecha.</p>
                     <div className="mt-3 divide-y" style={{ borderColor: t.border }}>
                       {items.map((item) => (
                         <div key={item.name} className="flex items-center justify-between gap-3 py-2 text-sm" style={{ borderColor: t.border }}>
@@ -2842,7 +2886,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         </div>
                       ))}
                     </div>
-                    <div className="mt-2 flex items-center justify-between border-t pt-2.5" style={{ borderColor: t.border }}>
+                    <div className="mt-2 flex items-center justify-between border-t pt-2.5 lg:hidden" style={{ borderColor: t.border }}>
                       <span className="text-sm" style={{ color: t.muted }}>Total</span>
                       <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(items.reduce((sum, item) => sum + item.total, 0))}</span>
                     </div>
@@ -3497,37 +3541,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 )
               }
               if (isSupplier && !isView && f.key === "15") {
-                const types = [
-                  { value: "Persona jurídica", icon: Ico.shopping, hint: "Empresa con NIT y una persona de contacto" },
-                  { value: "Persona natural", icon: Ico.user, hint: "Una persona que vende con su documento de identidad" },
-                ]
-                // Type chosen: only its form shows, with a way back to the two options
-                const chosen = types.find((type) => type.value === formData["15"])
-                if (chosen) {
-                  return (
-                    <div
-                      key="15"
-                      className={`flex items-center gap-3 rounded-xl px-3 py-1.5 sm:col-span-2 ${companySupplierForm ? "lg:col-span-6" : "lg:col-span-4"}`}
-                      style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}
-                    >
-                      <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: C.mustard, color: "#fff" }}>
-                        {chosen.icon}
-                      </span>
-                      <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
-                        <span className="text-sm font-semibold" style={{ color: t.text }}>{chosen.value}</span>
-                        <span className="text-[11px]" style={{ color: t.muted }}>{chosen.hint}</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => updateAdminField("proveedores", "15", "")}
-                        className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold"
-                        style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
-                      >
-                        <span className="rotate-90">{Ico.chevDown}</span> Cambiar tipo
-                      </button>
-                    </div>
-                  )
-                }
+                const types = SUPPLIER_TYPES
+                // Type chosen: it shows in the page header (with «Cambiar tipo»), only its form below
+                if (chosenSupplierType) return null
                 return (
                   <div key="15" className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-4">
                     {!formData["15"] && (
@@ -3635,10 +3651,11 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 return (
                   <div
                     key="7"
-                    className={`mt-1 flex min-w-0 flex-col gap-1 border-t pt-4 sm:col-span-2 ${companySupplierForm ? "lg:mt-0 lg:pt-3" : ""} ${naturalSupplierForm ? "lg:col-span-4" : "lg:col-span-6 lg:row-start-6"}`}
+                    className={`mt-1 flex min-w-0 flex-col gap-1 border-t pt-4 sm:col-span-2 ${companySupplierForm ? "lg:mt-0 lg:pt-2" : ""} ${naturalSupplierForm ? "lg:col-span-4" : "lg:col-span-6 lg:row-start-5"}`}
                     style={{ borderColor: t.border }}
                   >
-                    <div className="mb-1">
+                    <div className="flex flex-col gap-1 lg:flex-row lg:items-center lg:gap-6">
+                    <div className="mb-1 lg:mb-0 lg:w-[30rem] lg:flex-none">
                       <div className="flex items-center gap-2">
                         <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
                         <label
@@ -3652,8 +3669,13 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       <p className="mt-0.5 pl-3 text-[11px]" style={{ color: t.muted }}>
                         Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
                       </p>
+                      {locked.length > 0 && (
+                        <p className="pl-3 text-[11px]" style={{ color: t.muted }}>
+                          🔒 Con candado: ya tienen compras y no se pueden quitar.
+                        </p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex min-w-0 items-center gap-2 lg:flex-1">
                       <div
                         className="search-control flex min-w-0 flex-1 cursor-text items-center gap-2 rounded-full px-3 py-2"
                         style={{ background: t.input, border: `1.5px solid ${fieldValidationError ? C.red : menu ? C.mustard : t.inputB}` }}
@@ -3703,6 +3725,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       >
                         {Ico.plus} Crear insumo
                       </button>
+                    </div>
                     </div>
                     {menu && (
                       <>
@@ -3776,12 +3799,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         </div>
                       </>
                     )}
-                    {selected.length > 0 && renderSupplyGroups(selected, "pt-1 sm:grid-cols-2", toggleSupply, locked)}
-                    {locked.length > 0 && (
-                      <span className="text-[11px]" style={{ color: t.muted }}>
-                        🔒 Los insumos con candado ya tienen compras a este proveedor y no se pueden quitar.
-                      </span>
-                    )}
+                    {selected.length > 0 && renderSupplyGroups(selected, "sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(16rem,1fr))]", toggleSupply, locked)}
                     {fieldValidationError && (
                       <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
                         {fieldValidationError}
@@ -3942,7 +3960,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 {/* Insumo form in three parts: what it is, how much there is, who makes or sells it */}
                 {isSupply && !isView && (f.key === "0" || f.key === (modal.mode === "add" ? "5" : "4") || f.key === "7") && (
                   <div
-                    className={`sm:col-span-full ${f.key === "0" ? "" : "mt-1 border-t pt-4"} ${
+                    className={`sm:col-span-full ${f.key === "0" || (sheetBeside && f.key === "7") ? "" : "mt-1 border-t pt-4"} ${
                       sheetBeside ? "" : f.key === "0" ? "lg:col-span-2 lg:col-start-1" : f.key === "7" ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-3 lg:mt-0 lg:border-t-0 lg:pt-0"
                     }`}
                     style={{ borderColor: t.border }}
@@ -3957,7 +3975,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       {f.key === "0"
                         ? "Cómo se llama y en qué unidad se cuenta."
                         : f.key === "7"
-                          ? "Solo si lo preparan ustedes, como una salsa de la casa."
+                          ? sheetBeside ? "Solo si lo preparan ustedes." : "Solo si lo preparan ustedes, como una salsa de la casa."
                           : "Desde qué cantidad te avisamos que queda poco."}
                     </p>
                   </div>
@@ -3973,14 +3991,14 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     </h4>
                   </div>
                 )}
-                {isPedido && !isView && ["0", "1", "11"].includes(f.key) && (
+                {isPedido && !isView && ["0", "1"].includes(f.key) && (
                   <div
-                    className={`flex items-center gap-2 ${f.key === "0" ? "sm:col-span-2" : f.key === "1" ? "" : "mt-1 border-t pt-4 sm:col-span-2 lg:order-6"}`}
+                    className={`flex items-center gap-2 ${f.key === "0" ? "sm:col-span-2" : ""}`}
                     style={{ borderColor: t.border }}
                   >
                     <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
                     <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
-                      {f.key === "0" ? "Cliente y pago" : f.key === "1" ? "Productos del pedido" : "Especificaciones"}
+                      {f.key === "0" ? "Cliente y pago" : "Productos del pedido"}
                     </h4>
                   </div>
                 )}
@@ -4004,8 +4022,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   <div
                     className={`pt-1 sm:col-span-2 ${
                       f.key === "8"
-                        ? naturalSupplier ? "lg:col-span-4" : "lg:col-span-3 lg:col-start-4 lg:row-start-2"
-                        : f.key === "1" && !isView ? "lg:col-span-3 lg:col-start-1 lg:row-start-2" : "lg:col-span-2 lg:col-start-1"
+                        ? naturalSupplier ? "lg:col-span-4" : "lg:col-span-3 lg:col-start-4 lg:row-start-1"
+                        : f.key === "1" && !isView ? "lg:col-span-3 lg:col-start-1 lg:row-start-1" : "lg:col-span-2 lg:col-start-1"
                     }`}
                   >
                     {isView && <div className="mb-2 h-px" style={{ background: t.border }} />}
@@ -4034,25 +4052,27 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 )}
                 <div
                   className={`flex min-w-0 flex-col gap-1 ${
-                    isSupply && !isView && !sheetBeside
+                    isSupply && !isView && sheetBeside
+                      ? f.key === "7" || (modal.mode === "edit" && (f.key === "4" || f.key === "5")) ? "" : "sm:col-span-2"
+                      : isSupply && !isView && !sheetBeside
                       ? ({ "0": "sm:col-span-2 lg:col-start-1", "1": "lg:col-start-1", "2": "lg:col-start-2", "4": "lg:col-start-3", "5": modal.mode === "add" ? "lg:col-start-3" : "lg:col-start-4", "7": "sm:col-span-2 lg:col-span-4" } as Record<string, string>)[f.key] ?? ""
                       : isSupplier
                     ? naturalSupplier
                       ? f.key === "5" ? "lg:col-span-2" : "" // four fields per row, the address takes two
                       : // company (left) · contact person (right), three rows each
                         ({
-                          "0": "lg:col-span-2 lg:col-start-1 lg:row-start-3",
-                          "1": "lg:col-start-3 lg:row-start-3",
-                          "2": "lg:col-span-2 lg:col-start-1 lg:row-start-4",
-                          "3": "lg:col-start-3 lg:row-start-4",
-                          "5": "lg:col-span-3 lg:col-start-1 lg:row-start-5",
-                          "8": "lg:col-start-4 lg:row-start-3",
-                          "9": "lg:col-start-5 lg:row-start-3",
-                          "14": "lg:col-start-6 lg:row-start-3",
-                          "10": "lg:col-start-4 lg:row-start-4",
-                          "11": "lg:col-start-5 lg:row-start-4",
-                          "12": "lg:col-start-6 lg:row-start-4",
-                          "13": "lg:col-span-3 lg:col-start-4 lg:row-start-5",
+                          "0": "lg:col-span-2 lg:col-start-1 lg:row-start-2",
+                          "1": "lg:col-start-3 lg:row-start-2",
+                          "2": "lg:col-span-2 lg:col-start-1 lg:row-start-3",
+                          "3": "lg:col-start-3 lg:row-start-3",
+                          "5": "lg:col-span-3 lg:col-start-1 lg:row-start-4",
+                          "8": "lg:col-start-4 lg:row-start-2",
+                          "9": "lg:col-start-5 lg:row-start-2",
+                          "14": "lg:col-start-6 lg:row-start-2",
+                          "10": "lg:col-start-4 lg:row-start-3",
+                          "11": "lg:col-start-5 lg:row-start-3",
+                          "12": "lg:col-start-6 lg:row-start-3",
+                          "13": "lg:col-span-3 lg:col-start-4 lg:row-start-4",
                         } as Record<string, string>)[f.key] ?? "lg:col-span-3 lg:col-start-1"
                       : isPedido && !isView
                         // Right column: recibe · teléfono, tipo · método, then the comment; the products fill the left column
@@ -4068,7 +4088,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         : ""
                   }`}
                 >
-                  <div className={`flex items-center justify-between gap-2 ${isPedido && !isView && f.key === "1" ? "hidden" : ""}`}>
+                  <div className={`flex items-center justify-between gap-2 ${(isPedido && !isView && f.key === "1") || (isSupply && sheetBeside && f.key === "7") ? "hidden" : ""}`}>
                     <label
                       className="text-xs font-semibold"
                       style={{ color: !isView && shownFieldError(f.key) ? C.red : t.muted }}
@@ -4108,7 +4128,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           ? Number(val) ? fmt(Number(val)) : "Sin compras"
                           : `${Number(val || 0).toLocaleString("es-CO")} ${String(formData["2"] || "und")}`}
                       </span>
-                      <span className="text-[10px]" style={{ color: t.muted }}>
+                      <span className={`text-[10px] ${sheetBeside ? "hidden" : ""}`} style={{ color: t.muted }}>
                         {f.key === "3" ? "Se toma de la última compra" : "Suma con compras"}
                       </span>
                     </div>
@@ -4362,8 +4382,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       </button>
                     </div>
                   ) : isPedido && f.key === "1" && !isView ? (
-                    <div className="flex flex-col gap-3 lg:min-h-[max(19rem,calc(100dvh-24rem))] lg:flex-1">
-                      <div className="flex flex-col rounded-xl p-3 lg:min-h-[15rem] lg:flex-1" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <div className="flex flex-col gap-3 lg:h-[max(19rem,calc(100dvh-24rem))] lg:flex-auto">
+                      <div className={`flex flex-col rounded-xl p-3 lg:flex-1 ${pedidoOrderLines.length ? "lg:min-h-[9rem]" : "lg:min-h-[15rem]"}`} style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                         {/* Category and a search that narrow the cards; a click on a card adds 1 to the order */}
                         <div className="mb-3 grid max-w-xl gap-2 sm:grid-cols-[150px_minmax(0,1fr)]">
                           <select
@@ -4457,7 +4477,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           Agrega al menos un producto al pedido.
                         </div>
                       ) : (
-                        <div className="rounded-xl px-3" style={{ background: t.input }}>
+                        <div className="rounded-xl px-3 lg:max-h-[55%] lg:flex-none lg:overflow-y-auto" style={{ background: t.input, scrollbarWidth: "thin" }}>
                           {(() => {
                             const additionProducts = (rows.producto || []).filter(
                               (product) =>
@@ -4713,7 +4733,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         <span className="mt-0.5 block text-xs leading-snug" style={{ color: t.muted }}>
                           {isClient
                             ? "Permite registrar el cliente sin correo ni dirección."
-                            : "Por ejemplo, una salsa de la casa. Se abrirá la ficha técnica y aparecerá en Productos como producto de insumo."}
+                            : sheetBeside
+                              ? "Su receta va en la ficha técnica."
+                              : "Por ejemplo, una salsa de la casa. Se abrirá la ficha técnica y aparecerá en Productos como producto de insumo."}
                         </span>
                       </span>
                     </button>
@@ -5037,7 +5059,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       <span className="text-xl font-bold tabular-nums" style={{ color: C.mustard }}>{fmt(total)}</span>
                     </div>
                     <p className="mt-auto text-[11px] leading-relaxed" style={{ color: t.muted }}>
-                      Al guardar, el stock de cada insumo sube y su costo queda con el precio de esta compra.
+                      {modal.mode === "edit"
+                        ? "Al guardar solo cambia la fecha: el stock y el costo de los insumos quedan igual."
+                        : "Al guardar, el stock de cada insumo sube y su costo queda con el precio de esta compra."}
                     </p>
                   </aside>
                 )
