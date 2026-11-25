@@ -28,40 +28,27 @@ import type { CartItem, DeliveryEstimate, DeliveryInfo, DeliveryNeighborhood, Pr
 import { EMPTY_CHECKOUT_ADDRESS_PARTS, SHOP_LOCATION, STREET_TYPES, addressPartsFromAddress, composeDeliveryAddress, composeStreetAddress, distanceKm, isKnownBelloNeighborhood } from "@/shared/utils/address"
 import type { CheckoutAddressParts } from "@/shared/utils/address"
 import { fmt, formatDuration } from "@/shared/utils/format"
-import { loadLS, saveLS } from "@/shared/utils/storage"
+import { appAlert } from "@/shared/components/AppDialog"
 import { DOC_TYPES, digitsOnly, normalizeAccountDocumentInput, validatePhoneNumber } from "@/shared/utils/validation"
 
-type AddressLabel = "Casa" | "Trabajo" | "Otra"
-type CheckoutAddressDraft = { parts: CheckoutAddressParts; neighborhoodQuery: string | null; label?: AddressLabel; customLabel?: string }
-const addressLabels: AddressLabel[] = ["Casa", "Trabajo", "Otra"]
-const addressLabelKey = (address: string) => address.trim().toLowerCase()
-
-function PaymentMethodIcon({ method }: { method: string }) {
-  return (
-    <span
-      className="flex size-10 shrink-0 items-center justify-center rounded-xl"
-      style={method === "Bancolombia" || method === "Nequi"
-        ? { color: "#292625", background: "#F5F5F5" }
-        : { color: "#B48208", background: "#FAF1D7" }}
-      aria-hidden="true"
-    >
-      {method === "Bancolombia" ? (
-        <svg viewBox="0 0 32 32" width="25" height="25" fill="currentColor">
-          <path d="M7.1 6.6c5-1.6 11.4-3 16-3.5.7-.1 1.3.3 1.5 1l1.1 3.2c.3.8-.1 1.3-.8 1.4-5.7 1-11.2 2.3-16.4 4-.7.2-1.2 0-1.4-.7L6 8.5c-.2-.8.2-1.6 1.1-1.9ZM3 17.4c7.3-3.1 15.3-5.3 24.4-6.8.8-.1 1.5.2 1.7 1l1 3.4c.2.7-.1 1.2-.9 1.4-8.7 1.5-16.9 4-24.4 7.2-.7.3-1.3 0-1.5-.7L2.2 19c-.2-.7.1-1.3.8-1.6Zm8.8 7c5.1-1.9 10.5-3.4 15.8-4.6.8-.2 1.3.1 1.5.9l1 3.4c.2.7-.2 1.2-.8 1.4-5.7 1.2-10.4 2.6-15.5 4.7-.8.3-1.4 0-1.6-.8L11 26c-.2-.7.1-1.3.8-1.6Z" />
-        </svg>
-      ) : method === "Nequi" ? (
-        <svg viewBox="0 0 32 32" width="25" height="25">
-          <rect x="2" y="5" width="5.5" height="5" rx="1" fill="#DA0081" />
-          <path d="M11 5h5.4a1 1 0 0 1 .85.48l7.35 12.1V6a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v21a1 1 0 0 1-1 1h-5.2a1 1 0 0 1-.85-.48L15 15.2V27a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" fill="#240820" />
-        </svg>
-      ) : (
-        <svg viewBox="0 0 32 32" width="25" height="25" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-          <circle cx="16" cy="16" r="13" />
-          <path d="M20 11.5c-.6-1.4-2-2.3-4-2.3-2.3 0-4 1.3-4 3.1 0 4.4 8 2.4 8 6.8 0 1.8-1.7 3.1-4 3.1-2 0-3.5-.9-4.1-2.4M16 7.5v16.2" />
-        </svg>
-      )}
-    </span>
-  )
+// ── Checkout Page (split: cart+form | auth) ────────────────────────────────────
+// What was typed in the checkout, kept in this tab so a reload doesn't lose it (cleared once the order is placed)
+const DRAFT_KEY = "checkout-draft"
+type CheckoutDraft = {
+  step?: 1 | 2 | 3
+  delivForm?: { nombre: string; telefono: string; direccion: string; notas: string; pago: string }
+  deliveryMethod?: DeliveryInfo["tipoEntrega"]
+  addressParts?: CheckoutAddressParts
+  deliverToOtherPerson?: boolean
+  voucher?: string
+  voucherAmount?: string
+}
+const readDraft = (): CheckoutDraft => {
+  try {
+    return JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "{}")
+  } catch {
+    return {}
+  }
 }
 
 export default function CheckoutPage({
@@ -72,6 +59,7 @@ export default function CheckoutPage({
   onBack,
   onPlaceOrder,
   onComplete,
+  onForgot,
 }: {
   cart: CartItem[]
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
@@ -80,6 +68,7 @@ export default function CheckoutPage({
   onBack: () => void
   onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<number | void>
   onComplete: () => void
+  onForgot: () => void
 }) {
   const [cartNotice, showCartNotice] = useCartNotice()
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
@@ -96,30 +85,22 @@ export default function CheckoutPage({
   })
   const [registrationPending, setRegistrationPending] = useState(false)
   const [registrationCode, setRegistrationCode] = useState("")
-  const [delivForm, setDelivForm] = useState({
+  const [draft] = useState(readDraft)
+  const [delivForm, setDelivForm] = useState(() => draft.delivForm ?? {
     nombre: "",
     telefono: "",
     direccion: "",
     notas: "",
     pago: "Efectivo",
   })
-  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryInfo["tipoEntrega"]>("domicilio")
+  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryInfo["tipoEntrega"]>(draft.deliveryMethod ?? "domicilio")
   const isDelivery = deliveryMethod === "domicilio"
   const deliveryMethodLabel =
     deliveryMethod === "recoger"
         ? "Recoger pedido"
         : "Pedir a domicilio"
   // The backend still receives one formatted address string.
-  const [addressParts, setAddressParts] = useState<CheckoutAddressParts>(EMPTY_CHECKOUT_ADDRESS_PARTS)
-  const addressDraftKey = user?.email ? `checkout-address-draft:${user.email.trim().toLowerCase()}` : ""
-  const addressLabelsKey = user?.email ? `checkout-address-labels:${user.email.trim().toLowerCase()}` : ""
-  const [addressLabel, setAddressLabel] = useState<AddressLabel>("Otra")
-  const [customAddressLabel, setCustomAddressLabel] = useState("")
-  const [addressDraft, setAddressDraft] = useState<{ key: string; value: CheckoutAddressDraft | null } | null>(null)
-  const editedAddressKey = useRef("")
-  const initializedAddressKey = useRef("")
-  const previousAddress = addressDraft?.key === addressDraftKey ? addressDraft.value : null
-  const savedAddressLabels = addressLabelsKey ? loadLS<Record<string, string>>(addressLabelsKey, {}) : {}
+  const [addressParts, setAddressParts] = useState<CheckoutAddressParts>(draft.addressParts ?? EMPTY_CHECKOUT_ADDRESS_PARTS)
   const [addressRetry, setAddressRetry] = useState(0)
   const fallbackNeighborhoods: DeliveryNeighborhood[] = BELLO_NEIGHBORHOODS.map((nombre) => ({
     id_barrio: null,
@@ -334,7 +315,7 @@ export default function CheckoutPage({
     const interval = window.setInterval(() => setEstimateRefresh((value) => value + 1), 30_000)
     return () => window.clearInterval(interval)
   }, [user?.email])
-  const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(false)
+  const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(!!draft.deliverToOtherPerson)
   const [saveAddress, setSaveAddress] = useState(
     () => !(user?.addresses?.length),
   )
@@ -362,52 +343,32 @@ export default function CheckoutPage({
       nombre: f.nombre || user.name,
       telefono: f.telefono || user.phone || "",
     }))
-    if (!addressDraftKey || initializedAddressKey.current === addressDraftKey) return
-    initializedAddressKey.current = addressDraftKey
-    editedAddressKey.current = ""
-    setAddressDraft({ key: addressDraftKey, value: loadLS<CheckoutAddressDraft | null>(addressDraftKey, null) })
-    setNeighborhoodQuery(null)
-    setAddressLabel("Otra")
-    setCustomAddressLabel("")
+    // After a reload the address the client was typing stays (not the saved one)
+    if (draft.addressParts) return
     const savedAddress = user.addresses?.[0] || ""
     const savedParts = savedAddress ? addressPartsFromAddress(savedAddress) : EMPTY_CHECKOUT_ADDRESS_PARTS
     setAddressParts(savedParts)
     setEditingAddress(!hasSavedAddress)
     setSaveAddress(!hasSavedAddress)
-  }, [user, addressDraftKey])
-
-  useEffect(() => {
-    const direccion = composeDeliveryAddress(addressParts)
-    setDelivForm((form) => form.direccion === direccion ? form : { ...form, direccion })
-  }, [addressParts])
-
-  useEffect(() => {
-    if (!addressDraftKey || editedAddressKey.current !== addressDraftKey) return
-    const hasContent = Object.values(addressParts).some((part) => part.trim()) || neighborhoodQuery?.trim()
-    const draft = hasContent ? { parts: addressParts, neighborhoodQuery, label: addressLabel, customLabel: customAddressLabel } : null
-    saveLS(addressDraftKey, draft)
-    setAddressDraft({ key: addressDraftKey, value: draft })
-  }, [addressDraftKey, addressParts, neighborhoodQuery, addressLabel, customAddressLabel])
-
-  const chooseAddress = (parts: CheckoutAddressParts, editing: boolean, query: string | null = null, label = "Otra") => {
-    editedAddressKey.current = ""
-    setAddressParts(parts)
-    setNeighborhoodQuery(query)
-    const standardLabel = addressLabels.find((option) => option === label)
-    setAddressLabel(standardLabel ?? "Otra")
-    setCustomAddressLabel(standardLabel ? "" : label)
-    setEditingAddress(editing)
-    setSaveAddress(!user?.addresses?.length)
-    setDeliveryTried(false)
-  }
-  const [voucher, setVoucher] = useState("")
-  // What the validator checks: the bank's reference and the amount sent
-  const [voucherRef, setVoucherRef] = useState("")
-  const [voucherAmount, setVoucherAmount] = useState("")
+  }, [user])
+  const [voucher, setVoucher] = useState(draft.voucher ?? "")
+  // What the validator checks: the amount sent
+  const [voucherAmount, setVoucherAmount] = useState(draft.voucherAmount ?? "")
   const [ordered, setOrdered] = useState(false)
   const [placedTotal, setPlacedTotal] = useState(0)
   // Everybody (guest, client, admin, employee) starts by reviewing the cart
-  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(1)
+  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(user && draft.step ? draft.step : 1)
+  useEffect(() => {
+    try {
+      if (ordered) sessionStorage.removeItem(DRAFT_KEY)
+      else
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+          step: checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount,
+        } satisfies CheckoutDraft))
+    } catch {
+      // Storage full or blocked: the checkout still works, it just won't survive a reload
+    }
+  }, [ordered, checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount])
   // Guests see only their cart until they press "Hacer pedido"
   const [showAuth, setShowAuth] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -418,9 +379,35 @@ export default function CheckoutPage({
   const [orderError, setOrderError] = useState("")
   const [placing, setPlacing] = useState(false)
   const [showOutOfRangeDialog, setShowOutOfRangeDialog] = useState(false)
+  // Everything still missing to place the order, each with why (shown together in one alert)
+  const missingForOrder = () => {
+    const r: string[] = []
+    if (!delivForm.nombre.trim()) r.push("Escribe el nombre de quien recibe el pedido.")
+    const phoneError = validatePhoneNumber(delivForm.telefono)
+    if (phoneError) r.push(`Teléfono: ${phoneError}`)
+    if (isDelivery) {
+      if (!delivForm.direccion.trim() || !addressPartsValid) r.push("Completa la dirección de entrega (tipo de vía, número y placa) para saber a dónde llevarlo.")
+      if (!selectedNeighborhood && !geocodedInsideBello) r.push("Elige tu barrio: con él calculamos el costo y el tiempo del domicilio.")
+      else if (deliveryEstimate.status === "error") r.push("No pudimos calcular el costo del domicilio: toca «Reintentar» en el resumen del pedido.")
+      else if (neighborhoodsLoading || !deliveryCostConfigured) r.push("Aún estamos calculando el costo del domicilio. Espera unos segundos y vuelve a intentarlo.")
+    }
+    if (deposit && !needsVoucher)
+      r.push(`Tu pedido es de ${fmt(orderTotal)}: desde ${fmt(APPROVAL_MIN)} se paga el 50% por adelantado con transferencia. Elige Nequi o Bancolombia.`)
+    if (needsVoucher) {
+      if (!voucher) r.push(`Sube la captura del comprobante de tu pago por ${delivForm.pago}: sin él no podemos confirmar el pago.`)
+      if (!(Number(voucherAmount) > 0)) r.push("Escribe el valor que transferiste.")
+      else if (deliveryCostConfigured && Number(voucherAmount) < toPay) r.push(`El valor transferido no alcanza: debes transferir ${fmt(toPay)}.`)
+    }
+    return r
+  }
+  const alertMissing = (r: string[]) =>
+    appAlert(r.map((line) => `• ${line}`).join("\n"), r.length === 1 ? "Te falta algo para hacer el pedido" : `Te faltan ${r.length} cosas para hacer el pedido`)
   const placeOrder = async () => {
     setDeliveryTried(true)
-    if (placing || !user || !delivFilled || !deliveryCostConfigured || !payReady || cart.length === 0) return
+    if (placing || !user || cart.length === 0) return
+    const missing = missingForOrder()
+    if (missing.length) return alertMissing(missing)
+    if (!delivFilled || !deliveryCostConfigured || !payReady) return
     setOrderError("")
     setPlacing(true)
     try {
@@ -439,7 +426,6 @@ export default function CheckoutPage({
             : undefined,
           costoDomicilio: isDelivery ? displayedDeliveryCost : 0,
           voucher: needsVoucher ? voucher : undefined,
-          voucherRef: needsVoucher ? voucherRef.trim() : undefined,
           voucherAmount: needsVoucher ? Number(voucherAmount) || undefined : undefined,
         },
         isDelivery && (saveAddress || !(user.addresses?.length)),
@@ -463,19 +449,20 @@ export default function CheckoutPage({
       setOrdered(true)
     } catch (err) {
       setOrderError((err as Error).message)
+      appAlert((err as Error).message, "No pudimos hacer tu pedido")
     } finally {
       setPlacing(false)
     }
   }
   const continueToReview = () => {
     setDeliveryTried(true)
-    if (!customerInfoFilled || !payReady) return
-    if (isDelivery && neighborhoodsLoading) return
     if (neighborhoodOutOfRange) {
       setShowOutOfRangeDialog(true)
       return
     }
-    if (!delivFilled || !deliveryCostConfigured) return
+    const missing = missingForOrder()
+    if (missing.length) return alertMissing(missing)
+    if (!delivFilled || !deliveryCostConfigured || !payReady) return
     setCheckoutStep(3)
   }
   // Nequi / Bancolombia must attach the payment receipt before continuing
@@ -494,7 +481,7 @@ export default function CheckoutPage({
   const deposit = orderTotal >= APPROVAL_MIN
   const depositAmount = depositOf(orderTotal)
   const toPay = deposit ? depositAmount : orderTotal
-  const voucherComplete = !!voucher && voucherRef.trim().length >= 3 && Number(voucherAmount) >= toPay
+  const voucherComplete = !!voucher && Number(voucherAmount) >= toPay
   const payReady = (!needsVoucher || voucherComplete) && !(deposit && !needsVoucher)
   const neighborhoodOutOfRange =
     isDelivery &&
@@ -649,7 +636,8 @@ export default function CheckoutPage({
       : {
           label: placing ? "Enviando pedido..." : "Confirmar pedido",
           onClick: placeOrder,
-          disabled: placing || !hasActiveItems || !canOrder || !payReady,
+          // Not disabled when something is missing: pressing it says what and why
+          disabled: placing || !hasActiveItems,
         }
 
   if (ordered)
@@ -961,6 +949,14 @@ export default function CheckoutPage({
                       onBlur={touchLogin("pass")}
                       error={loginErrors.pass}
                     />
+                    <button
+                      type="button"
+                      onClick={onForgot}
+                      className="cursor-pointer self-end text-xs"
+                      style={{ color: C.mustard }}
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
                     <FieldError msg={serverErr} />
                     <button
                       type="submit"
@@ -1659,7 +1655,7 @@ export default function CheckoutPage({
                         <ol className="list-decimal space-y-1 pl-4 text-xs" style={{ color: MUTED }}>
                           <li>Escanea el QR o transfiere a la cuenta o a una de las llaves.</li>
                           <li>{deposit ? `Paga el abono exacto (${fmt(depositAmount)}); el saldo (${fmt(orderTotal - depositAmount)}) al recibir.` : "Paga el total exacto."}</li>
-                          <li>Sube la captura del comprobante con su referencia.</li>
+                          <li>Sube la captura del comprobante y escribe el valor que transferiste.</li>
                         </ol>
                       </div>
                       <PaymentAccounts amount={deliveryCostConfigured ? `${fmt(toPay)}${deposit ? " (abono 50%)" : ""}` : "Por confirmar"} />
@@ -1670,7 +1666,7 @@ export default function CheckoutPage({
                           if (!voucherAmount && deliveryCostConfigured) setVoucherAmount(String(toPay))
                         }}
                         onRemove={() => setVoucher("")}
-                        reference={{ code: voucherRef, amount: voucherAmount, expected: deliveryCostConfigured ? toPay : undefined, onCode: setVoucherRef, onAmount: setVoucherAmount }}
+                        reference={{ amount: voucherAmount, expected: deliveryCostConfigured ? toPay : undefined, onAmount: setVoucherAmount }}
                       />
                     </div>
                   )}

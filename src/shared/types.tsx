@@ -54,7 +54,6 @@ export type DeliveryInfo = {
   pago: string
   voucher?: string
   // The bank's reference and the amount sent, checked by the backend's validator
-  voucherRef?: string
   voucherAmount?: number
 }
 
@@ -106,6 +105,8 @@ export type Order = DeliveryInfo & {
   productionRecords?: (string | number)[][]
   // Status and payment changes, oldest first (usuario: who in the staff did it; not sent to clients)
   history?: { estado: string; fecha: string; usuario?: string }[]
+  // The client asked to return it (up to 24 h after ordering); the staff registers it in Devoluciones
+  returnRequest?: { reason: string; requestedAt: string }
 }
 
 export type ModalMode = "add" | "edit" | "view" | null
