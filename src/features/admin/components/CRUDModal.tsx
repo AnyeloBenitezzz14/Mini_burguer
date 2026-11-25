@@ -5874,6 +5874,18 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         {badge(`Pago: ${panelPaymentLabel(String(row[8] || "Pendiente"))}`, String(row[8]) === "Pagado", String(row[8]) === "Rechazado")}
                       </div>
                     </div>
+                    {(() => {
+                      const request = loadOrders().find((order) => order.id === String(row[0]))?.returnRequest
+                      return request ? (
+                        <div className="rounded-2xl px-4 py-3 text-sm md:col-span-2" style={{ background: `${C.red}0D`, border: `1px solid ${C.red}33` }}>
+                          <div className="font-semibold" style={{ color: C.red }}>
+                            El cliente pidió la devolución · {new Date(request.requestedAt).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}
+                          </div>
+                          <div className="mt-0.5" style={{ color: t.text }}>«{request.reason}»</div>
+                          <div className="mt-1 text-xs" style={{ color: t.muted }}>Regístrala en Ventas › Devoluciones con la venta de este pedido.</div>
+                        </div>
+                      ) : null
+                    })()}
                     {/* Modality isn't shown: it follows the type and payment method by itself */}
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:col-span-2">
                       {info("Tipo de pedido", String(row[3] ?? ""))}

@@ -1,4 +1,5 @@
 import { ADDITIONS, PRODUCTS, PRODUCT_CAT_LABEL } from "@/features/menu/data/products"
+import { loadOrders } from "@/features/orders/services/orders.service"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
 import type { ModConfig, Row } from "@/shared/types"
@@ -551,6 +552,8 @@ export const QUICK_FILTERS: Record<string, { label: string; test: (row: Row) => 
     { label: "Sin pagar", test: (row) => String(row[8]) !== "Pagado" && String(row[7]) !== "Cancelado" },
     { label: "Entregados", test: (row) => String(row[7]) === "Entregado" },
     { label: "Cancelados", test: (row) => String(row[7]) === "Cancelado" },
+    // shortcut: reads the stored orders for each row; fine for hundreds of orders, cache the ids if it grows
+    { label: "Devolución pedida", test: (row) => loadOrders().some((o) => o.id === String(row[0]) && !!o.returnRequest) },
   ],
   ventas: [
     { label: "Vigentes", test: (row) => String(row[8]) !== "Anulada" },

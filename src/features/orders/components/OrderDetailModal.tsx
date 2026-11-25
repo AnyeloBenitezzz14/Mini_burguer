@@ -17,13 +17,19 @@ export default function OrderDetailModal({
   onClose,
   onVoucher,
   onRemoveVoucher,
+  onReturn,
 }: {
   order: Order
   dark: boolean
   onClose: () => void
   onVoucher: (id: string, voucher: string, referencia: string, valor: number) => Promise<string>
   onRemoveVoucher: (id: string, index: number) => Promise<string>
+  onReturn: (id: string, motivo: string) => Promise<string>
 }) {
+  // Return: asked within 24 h of ordering, once it was delivered
+  const [returnReason, setReturnReason] = useState<string | null>(null)
+  const [returnError, setReturnError] = useState("")
+  const returnDeadline = order.createdAt ? new Date(order.createdAt).getTime() + 24 * 60 * 60 * 1000 : 0
   // A new proof: its image, the bank's reference and the amount; sent with «Enviar comprobante»
   const [draft, setDraft] = useState({ image: "", code: "", amount: "" })
   const [proofError, setProofError] = useState("")
@@ -290,6 +296,89 @@ export default function OrderDetailModal({
                 </section>
               )
             })()}
+            {(order.returnRequest || order.status === "Entregado") && (
+              <section className="rounded-2xl p-4" style={{ background: cardBg, border: `1px solid ${BORDER}` }}>
+                <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: C.mustard }}>
+                  Devolución
+                </h4>
+                {order.returnRequest ? (
+                  <p className="text-sm">
+                    La pediste el {new Date(order.returnRequest.requestedAt).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}
+                    <span className="mt-1 block text-xs" style={{ color: MUTED }}>«{order.returnRequest.reason}» · Te escribiremos para resolverla.</span>
+                  </p>
+                ) : Date.now() > returnDeadline ? (
+                  <p className="text-xs" style={{ color: MUTED }}>
+                    El plazo para pedir la devolución (24 horas después de hacer el pedido) ya pasó.
+                  </p>
+                ) : returnReason === null ? (
+                  <>
+                    <p className="mb-2 text-xs" style={{ color: MUTED }}>
+                      ¿Algo salió mal? Puedes pedirla hasta el {new Date(returnDeadline).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setReturnReason("")}
+                      className="w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold"
+                      style={{ background: `${C.mustard}18`, color: C.mustard, border: `1px solid ${C.mustard}40` }}
+                    >
+                      Pedir devolución
+                    </button>
+                  </>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: MUTED }}>
+                      ¿Qué pasó con tu pedido?
+                      <textarea
+                        value={returnReason}
+                        onChange={(e) => {
+                          setReturnReason(e.target.value.slice(0, 300))
+                          setReturnError("")
+                        }}
+                        rows={3}
+                        placeholder="Por ejemplo: la hamburguesa llegó fría o faltó un producto."
+                        aria-invalid={!!returnError}
+                        className="resize-none rounded-xl px-3 py-2 text-sm font-normal outline-none"
+                        style={{ background: dark ? "rgba(255,255,255,0.05)" : "#fff", border: `1.5px solid ${returnError ? C.red : BORDER}`, color: TEXT }}
+                      />
+                    </label>
+                    {returnError && (
+                      <p role="alert" className="rounded-lg px-2.5 py-1.5 text-xs font-semibold" style={{ background: `${C.red}12`, color: C.red }}>
+                        {returnError}
+                      </p>
+                    )}
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReturnReason(null)
+                          setReturnError("")
+                        }}
+                        className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-semibold"
+                        style={{ border: `1px solid ${BORDER}`, color: TEXT }}
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={async () => {
+                          if (returnReason.trim().length < 10) return setReturnError("Cuéntanos qué pasó (mínimo 10 caracteres).")
+                          setBusy(true)
+                          const error = await onReturn(order.id, returnReason.trim())
+                          setBusy(false)
+                          setReturnError(error)
+                          if (!error) setReturnReason(null)
+                        }}
+                        className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:opacity-60"
+                        style={{ background: C.mustard, color: "#fff" }}
+                      >
+                        {busy ? "Enviando…" : "Enviar solicitud"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </section>
+            )}
           </div>
         </div>
       </div>

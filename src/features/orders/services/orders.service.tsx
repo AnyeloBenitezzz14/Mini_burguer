@@ -70,6 +70,7 @@ export const orderFromDb = (p: DbRecord): Order => ({
   productionAuthorized: p.produccion_autorizada,
   productionRecords: p.registros_produccion,
   history: p.historial,
+  returnRequest: p.devolucion ? { reason: String(p.devolucion.motivo ?? ""), requestedAt: String(p.devolucion.solicitada_en ?? "") } : undefined,
 })
 
 // Staff get every order; clients only their own

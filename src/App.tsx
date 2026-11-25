@@ -211,6 +211,13 @@ function AppRoutes() {
         return ""
       })
       .catch((err) => (err as Error).message)
+  const requestReturn = (id: string, motivo: string) =>
+    api<DbRecord>(`/pedidos/${orderDbId(id)}/devolucion`, "POST", { motivo })
+      .then((p) => {
+        updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o)))
+        return ""
+      })
+      .catch((err) => (err as Error).message)
   const goCheckout = () => {
     setPage("checkout")
   }
@@ -359,6 +366,7 @@ function AppRoutes() {
         orders={orders}
         onVoucher={setVoucher}
         onRemoveVoucher={removeVoucher}
+        onReturn={requestReturn}
         initialView={clientView}
       />
     )

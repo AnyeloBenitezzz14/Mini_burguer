@@ -4206,7 +4206,20 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const tab = QUICK_FILTERS[sec]?.find((f) => f.label === label)
     return tab ? (rows[sec] || []).filter(tab.test).length : 0
   }
+  // Returns the client asked for that nobody has registered yet (a devolución of that order's sale)
+  const registeredReturnOrders = new Set(
+    (rows.devoluciones || [])
+      .filter((d) => String(d[9]) !== "Anulada")
+      .map((d) => String((rows.ventas || []).find((v) => String(v[0]) === String(d[1]))?.[8] ?? "")),
+  )
   const PENDING = [
+    {
+      sec: "pedidos",
+      quick: "Devolución pedida",
+      count: loadOrders().filter((o) => o.returnRequest && !registeredReturnOrders.has(o.id)).length,
+      one: "devolución pedida por un cliente",
+      many: "devoluciones pedidas por clientes",
+    },
     { sec: "pedidos", quick: "Por confirmar", count: quickCount("pedidos", "Por confirmar"), one: "pedido por confirmar", many: "pedidos por confirmar" },
     { sec: "pedidos", quick: "Pago por verificar", count: quickCount("pedidos", "Pago por verificar"), one: "transferencia por verificar", many: "transferencias por verificar" },
     {
