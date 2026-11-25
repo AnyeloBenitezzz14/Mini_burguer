@@ -229,16 +229,10 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     return initialRows
   })
   const clientOrdersSnapshot = JSON.stringify(clientOrders)
-  // A store order arrives: a short chime (it can be muted), a notice with «Ver» and a count next to Pedidos
+  // A store order arrives: a short chime, a notice with «Ver» and a count next to Pedidos
   // until that module is opened. The orders already there when the panel opened don't count as new.
   const [newOrders, setNewOrders] = useState<string[]>([])
   const [newOrderToast, setNewOrderToast] = useState<Order | null>(null)
-  const [orderSound, setOrderSound] = useState(() => loadLS("adminOrderSound", true))
-  const toggleOrderSound = () =>
-    setOrderSound((on) => {
-      saveLS("adminOrderSound", !on)
-      return !on
-    })
   const seenOrderIds = useRef<Set<string> | null>(null)
   useEffect(() => {
     if (!seenOrderIds.current) {
@@ -250,7 +244,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     fresh.forEach((order) => seenOrderIds.current!.add(order.id))
     if (section !== "pedidos") setNewOrders((current) => [...new Set([...fresh.map((order) => order.id), ...current])])
     setNewOrderToast(fresh[0])
-    if (orderSound) playOrderChime()
+    playOrderChime()
   }, [clientOrdersSnapshot])
   useEffect(() => {
     if (section === "pedidos") setNewOrders([])
@@ -4334,8 +4328,6 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     newOrders,
     newOrderToast,
     setNewOrderToast,
-    orderSound,
-    toggleOrderSound,
     tableOrder,
     viewStep,
     pg,

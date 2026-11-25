@@ -1240,3 +1240,13 @@ select {
   .print-receipt .print-only { display: block; grid-column: 1 / -1; }
   .print-receipt button { display: none !important; }
 }
+
+/* Admin header: quiet icon buttons that only show a background on hover */
+.admin-header-icon {
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.admin-header-icon:hover,
+.admin-header-icon:focus-visible {
+  background-color: var(--admin-hover);
+  color: var(--admin-text) !important;
+}

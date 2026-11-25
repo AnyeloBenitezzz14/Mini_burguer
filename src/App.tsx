@@ -162,11 +162,11 @@ function AppRoutes() {
     setClientView("menu")
     setPage(next)
   }
+  // The tab's last page (or /licencias when that's the address), read once before any effect saves the current one
+  const [lastPage] = useState(() => (window.location.pathname === LICENSES_PATH ? "licenses" : sessionStorage.getItem("page") || "app") as Page)
   // Checks the saved token with the backend: refreshes the account, or signs out if the session expired
   useEffect(() => {
     if (!getToken()) return
-    // The page this load opened (the last one of the tab, or /licencias)
-    const lastPage = page
     api<Omit<AuthData, "token">>("/auth/me")
       .then((data) => login(toUser({ ...data, token: getToken() } as AuthData), lastPage))
       // No connection: stay in the account; a rejected token (expired, deleted user) signs out

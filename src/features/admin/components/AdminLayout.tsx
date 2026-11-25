@@ -35,8 +35,6 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
     saveToast,
     newOrderToast,
     setNewOrderToast,
-    orderSound,
-    toggleOrderSound,
     openView,
     modal,
     rows,
@@ -130,22 +128,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
               {sectionLabel}
             </h1>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            {/* Chime when a store order arrives */}
-            <button
-              type="button"
-              onClick={toggleOrderSound}
-              aria-pressed={orderSound}
-              aria-label={orderSound ? "Silenciar el sonido de pedidos nuevos" : "Activar el sonido de pedidos nuevos"}
-              title={orderSound ? "Sonido de pedidos nuevos: activado" : "Sonido de pedidos nuevos: silenciado"}
-              className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl"
-              style={{ background: t.input, color: orderSound ? C.mustard : t.muted }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M11 5 6 9H3v6h3l5 4V5Z" />
-                {orderSound ? <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13" /> : <path d="m16 9 5 6m0-6-5 6" />}
-              </svg>
-            </button>
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
             {/* Admin notifications */}
             <div className="relative" ref={notificationsRef}>
               <button
@@ -158,9 +141,9 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
                   setNotificationsOpen((open) => !open)
                   setProfileOpen(false)
                 }}
-                className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl"
+                className="admin-header-icon relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl"
                 style={{
-                  background: notificationsOpen ? t.inputB : t.input,
+                  background: notificationsOpen ? `${C.mustard}1A` : undefined,
                   color: notificationsOpen ? C.mustard : t.muted,
                 }}
               >
@@ -168,14 +151,11 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
                 {unreadNotifications > 0 && (
                   <span
                     key={unreadNotifications}
-                    className="admin-badge-pop absolute -right-0.5 -top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-0.5 font-bold"
-                    style={{
-                      background: C.red,
-                      color: "#fff",
-                      fontSize: "0.5rem",
-                    }}
+                    className="admin-badge-pop absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold leading-none tabular-nums"
+                    // The ring in the header's colour separates it from the bell
+                    style={{ background: C.red, color: "#fff", boxShadow: `0 0 0 2px ${t.hdrBg}` }}
                   >
-                    {unreadNotifications}
+                    {unreadNotifications > 99 ? "99+" : unreadNotifications}
                   </span>
                 )}
               </button>
@@ -317,23 +297,21 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
               }
               aria-label={dark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
               title={dark ? "Modo claro" : "Modo oscuro"}
-              className="w-8 h-8 flex items-center justify-center rounded-xl cursor-pointer"
-              style={{
-                background: t.input,
-                border: `1px solid ${t.inputB}`,
-                color: t.muted,
-              }}
+              className="admin-header-icon flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl"
+              style={{ color: t.muted }}
             >
               <span key={dark ? "sun" : "moon"} className="admin-theme-spin flex">
                 {dark ? Ico.sun : Ico.moon}
               </span>
             </button>
+            <span aria-hidden="true" className="mx-1 hidden h-6 w-px sm:block" style={{ background: t.border }} />
             <button
               onClick={onSwitchToClient}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
-              style={{ background: C.mustard, color: "#fff" }}
+              title="Abrir la tienda como la ven los clientes"
+              className="hidden h-9 items-center gap-2 rounded-xl px-3.5 text-sm font-semibold cursor-pointer sm:flex"
+              style={{ background: `${C.mustard}14`, color: dark ? C.amber : C.mustard, border: `1px solid ${C.mustard}${dark ? "55" : "33"}` }}
             >
-              {Ico.globe} {user ? "App" : "Sitio"}
+              {Ico.globe} Ver tienda
             </button>
             <div className="relative" ref={dropRef}>
               <button
@@ -341,14 +319,32 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
                   setProfileOpen((open) => !open)
                   setNotificationsOpen(false)
                 }}
-                className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm cursor-pointer"
-                style={{ background: C.mustard, color: "#fff" }}
+                aria-label="Mi cuenta"
+                aria-expanded={profileOpen}
+                className="admin-header-icon flex h-9 cursor-pointer items-center gap-2 rounded-xl py-1 pl-1 pr-1 md:pr-2.5"
+                style={{ background: profileOpen ? `${C.mustard}1A` : undefined }}
               >
-                {user?.name?.charAt(0) ?? "A"}
+                <span
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                  style={{ background: C.mustard, color: "#fff" }}
+                >
+                  {(user?.name?.charAt(0) ?? "A").toUpperCase()}
+                </span>
+                <span className="hidden min-w-0 max-w-[160px] text-left leading-tight md:block">
+                  <span className="block truncate text-[13px] font-semibold" style={{ color: t.text }}>
+                    {user?.name?.split(" ")[0] ?? "Administrador"}
+                  </span>
+                  <span className="block truncate text-[11px] font-medium" style={{ color: t.muted }}>
+                    {user?.email ?? ""}
+                  </span>
+                </span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="hidden transition-transform md:block" style={{ color: t.muted, transform: profileOpen ? "rotate(180deg)" : "none" }}>
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
               </button>
               {profileOpen && (
                 <div
-                  className="admin-pop absolute right-0 top-10 w-48 rounded-xl overflow-hidden z-50"
+                  className="admin-pop absolute right-0 top-11 w-52 rounded-xl overflow-hidden z-50"
                   style={{
                     background: t.card,
                     boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
