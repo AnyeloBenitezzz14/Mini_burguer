@@ -11,6 +11,12 @@
 }
 
 :root {
+  --brand-gold: #D4AF37;
+  --brand-gold-gradient: linear-gradient(145deg, var(--brand-gold) 0%, #E8CF78 40%, #BE9630 100%);
+  --brand-gold-ink: #2D1C06;
+  --brand-cream-gradient:
+    radial-gradient(ellipse at 88% 5%, rgb(242 194 48 / 22%), transparent 34%),
+    linear-gradient(120deg, #fff 0%, #FBF5E8 58%, #F4EEDC 100%);
   --background: #F4EEDC;
   --foreground: #36393F;
   --card: #ffffff;
@@ -67,12 +73,46 @@ body {
   color: #A54131;
 }
 
+.checkout-page {
+  --checkout-heading-gold: #805F0B;
+  --brand-gold-gradient: linear-gradient(145deg, #D8B650, #C6A041);
+}
+
+.checkout-page :is(h2, h3):not(.checkout-review-title),
+.checkout-page :is(label, legend):not(.checkout-delivery-question) {
+  color: var(--checkout-heading-gold) !important;
+}
+
+.checkout-page button {
+  border-radius: 999px;
+}
+
 .admin-panel {
+  --admin-header-height: 3.75rem;
   --admin-gold: #8F6C12;
+  --admin-heading-gold: #805F0B;
+  --admin-search-text: var(--admin-heading-gold);
+  --admin-control-bg: #fff;
+  --admin-control-border: #D9C9A4;
   --admin-cream: #F4EEDC;
   --admin-forest: #3A6D5E;
   --admin-tomato: #A54131;
   font-size: 15px;
+}
+
+.admin-panel[data-theme="dark"] {
+  --admin-heading-gold: #E5C664;
+  --admin-search-text: #fff;
+  --admin-control-bg: #1E2128;
+  --admin-control-border: #454039;
+}
+
+.admin-panel :is(h1, h2, h3, h4) {
+  color: var(--admin-heading-gold) !important;
+}
+
+.admin-panel button:not([role="checkbox"]) {
+  border-radius: 999px;
 }
 
 .admin-panel .text-xs {
@@ -96,24 +136,44 @@ body {
 }
 
 /* Admin search: follows the theme (light and dark), same height and radius as the controls beside it */
-.admin-panel .search-control {
+.admin-panel :is(.search-control, .admin-filter-control) {
   min-height: 38px;
-  background: var(--admin-input) !important;
-  border: 1px solid var(--admin-input-b) !important;
-  border-radius: 0.75rem !important;
+  background: var(--admin-control-bg) !important;
+  border: 1px solid var(--admin-control-border) !important;
+  border-radius: 999px !important;
+  color: var(--admin-heading-gold);
 }
 
-.admin-panel .search-control:focus-within {
+.admin-panel[data-theme="dark"] :is(.search-control, .admin-filter-control) {
+  color-scheme: dark;
+}
+
+.admin-panel .admin-filter-control {
+  color: var(--admin-search-text);
+}
+
+.admin-panel .search-control input {
+  background: transparent !important;
+}
+
+.admin-panel .search-control input:-webkit-autofill {
+  box-shadow: 0 0 0 100px var(--admin-control-bg) inset;
+  -webkit-text-fill-color: var(--admin-search-text);
+}
+
+.admin-panel .search-control:focus-within,
+.admin-panel .admin-filter-control:focus-visible {
   border-color: #8F6C12 !important;
   box-shadow: 0 0 0 3px rgba(143,108,18,0.16);
 }
 
-.admin-panel .search-control input {
-  color: var(--admin-text) !important;
+.admin-panel .admin-filter-control[data-filtered="true"] {
+  border-color: #8F6C12 !important;
 }
 
+.admin-panel .search-control input,
 .admin-panel .search-control input::placeholder {
-  color: var(--admin-muted) !important;
+  color: var(--admin-search-text) !important;
 }
 
 /* Row actions: quiet icons; each shows its colour (and a soft fill) on hover or keyboard focus */
@@ -130,6 +190,12 @@ body {
   background: color-mix(in srgb, currentColor 14%, transparent) !important;
 }
 
+.admin-panel[data-theme="light"] {
+  --admin-nav-hover-bg: #FFFAEF;
+  --admin-nav-hover-icon: #8F6C12;
+  --admin-nav-hover-text: #29231A;
+}
+
 .admin-nav-item,
 .admin-subnav-item {
   min-height: 42px;
@@ -140,20 +206,20 @@ body {
 .admin-nav-item:focus-visible,
 .admin-subnav-item:hover,
 .admin-subnav-item:focus-visible {
-  background: rgba(242,229,192,0.08) !important;
+  background: var(--admin-nav-hover-bg, rgba(242,229,192,0.08)) !important;
   transform: translateX(2px);
 }
 
 .admin-nav-item:hover > span:first-child,
 .admin-nav-item:focus-visible > span:first-child {
-  color: #D29A42 !important;
+  color: var(--admin-nav-hover-icon, #D29A42) !important;
 }
 
 .admin-nav-item:hover > span:nth-child(2),
 .admin-nav-item:focus-visible > span:nth-child(2),
 .admin-subnav-item:hover span,
 .admin-subnav-item:focus-visible span {
-  color: #F2E5C0 !important;
+  color: var(--admin-nav-hover-text, #F2E5C0) !important;
 }
 
 .admin-subnav-item {
@@ -168,9 +234,7 @@ body {
   padding: 18px 24px;
   border: 1px solid rgba(182,140,28,0.2);
   border-radius: 24px;
-  background:
-    radial-gradient(ellipse at 88% 5%, rgba(242,194,48,0.22), transparent 34%),
-    linear-gradient(120deg, #fff 0%, #FBF5E8 58%, #F4EEDC 100%);
+  background: var(--brand-cream-gradient);
   box-shadow: 0 8px 24px rgba(54,57,63,0.055);
 }
 
@@ -440,6 +504,13 @@ label {
   }
 }
 
+.landing-page {
+  --landing-gold: var(--brand-gold);
+  --landing-gold-ink: var(--brand-gold-ink);
+  --landing-gold-button: var(--brand-gold-gradient);
+  --landing-gold-button-text: var(--brand-gold-ink);
+}
+
 .landing-brand-title {
   font-family: 'League Spartan', sans-serif !important;
   font-weight: 900 !important;
@@ -489,12 +560,9 @@ select {
 .landing-gold-shimmer {
   background-image: linear-gradient(
     110deg,
-    #A87912 0%,
-    #C08F20 28%,
-    #FFF1B3 46%,
-    #D5A82E 56%,
-    #A87912 78%,
-    #C08F20 100%
+    var(--landing-gold) 0% 40%,
+    #EBD077 50%,
+    var(--landing-gold) 60% 100%
   );
   background-size: 250% 100%;
   background-position: 100% 0;
@@ -507,7 +575,7 @@ select {
 
 .landing-gold-shimmer-brand { animation-duration: 17s; }
 .landing-gold-shimmer-location { animation-duration: 21s; animation-delay: 2.5s; }
-.landing-gold-shimmer-hero { animation-duration: 14.5s; animation-delay: 1.2s; }
+.landing-gold-shimmer-hero { animation-duration: 11s; animation-delay: -5.5s; }
 .landing-gold-shimmer-stat-1 { animation-duration: 19s; animation-delay: 3.5s; }
 .landing-gold-shimmer-stat-2 { animation-duration: 23s; animation-delay: 1.8s; }
 .landing-gold-shimmer-stat-3 { animation-duration: 26s; animation-delay: 5s; }
@@ -531,7 +599,7 @@ select {
 }
 
 .landing-promo-card {
-  transition: transform 140ms ease;
+  box-shadow: 0 8px 22px -18px rgb(69 47 16 / 27%);
 }
 
 .landing-promo-card[data-visible="true"] {
@@ -542,34 +610,16 @@ select {
   animation-delay: 130ms;
 }
 
-.landing-promo-card:hover {
-  transform: translateY(-5px);
-  animation: promo-inner-glow 2.8s ease-in-out infinite alternate;
-}
-
-.landing-promo-delivery:hover {
-  animation-duration: 3.4s;
-}
-
-.landing-promo-onion:hover {
-  animation-duration: 4.1s;
-}
-
 @keyframes promo-card-arrive {
   from { opacity: 0; transform: translateY(20px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
-@keyframes promo-inner-glow {
-  from {
-    box-shadow: inset 0 0 46px 10px rgba(182,140,28,0.2);
-  }
-  to {
-    box-shadow: inset 0 0 120px 36px rgba(213,169,51,0.5), inset 0 0 180px rgba(182,140,28,0.24);
-  }
-}
 
 .landing-order-button {
+  background: var(--landing-gold-button, #8F6C12);
+  color: var(--landing-gold-button-text, #fff);
+  border-radius: 999px;
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -581,7 +631,7 @@ select {
   inset: 0;
   z-index: 1;
   border-radius: inherit;
-  background: linear-gradient(110deg, transparent 25%, rgba(255,239,181,0.38) 50%, transparent 75%);
+  background: linear-gradient(110deg, transparent 30%, rgb(255 246 211 / 13%) 50%, transparent 70%);
   content: "";
   transform: translateX(-110%);
   pointer-events: none;
@@ -591,12 +641,7 @@ select {
 .landing-order-button:hover,
 .landing-order-button:focus-visible {
   transform: translateY(-2px);
-  filter: brightness(1.06);
-}
-
-.landing-order-button:hover::after,
-.landing-order-button:focus-visible::after {
-  animation-duration: 9s;
+  filter: brightness(1.025);
 }
 
 .landing-order-button:active {
@@ -617,6 +662,39 @@ select {
   transform: translateY(0) scale(0.98);
 }
 
+.menu-category-ring::before,
+.menu-category-ring::after {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border-radius: 50%;
+  pointer-events: none;
+  content: "";
+}
+
+.menu-category-ring::before {
+  border: 1px solid var(--brand-gold);
+}
+
+.menu-category-ring::after {
+  padding: 1px;
+  opacity: 0;
+  background: conic-gradient(from -80deg, transparent, #FFF5CA 55deg, transparent 110deg);
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-menu-categories-visible="true"] .menu-category-ring::after {
+    animation: menu-category-ring-shine 1.5s ease-in-out both;
+  }
+}
+
+@keyframes menu-category-ring-shine {
+  0% { opacity: 0; transform: rotate(0deg); }
+  22%, 78% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(180deg); }
+}
+
 .landing-menu-control,
 .landing-page .pagination-control {
   position: relative;
@@ -630,7 +708,7 @@ select {
   inset: 0;
   z-index: 1;
   border-radius: inherit;
-  background: linear-gradient(110deg, transparent 25%, rgba(255,239,181,0.52) 50%, transparent 75%);
+  background: linear-gradient(110deg, transparent 30%, rgb(255 246 211 / 15%) 50%, transparent 70%);
   content: "";
   pointer-events: none;
   transform: translateX(-120%);
@@ -638,14 +716,14 @@ select {
 }
 
 @keyframes landing-surface-shine {
-  0%, 28% { transform: translateX(-120%); }
-  68%, 100% { transform: translateX(120%); }
+  0%, 70% { transform: translateX(-120%); }
+  92%, 100% { transform: translateX(120%); }
 }
 
-.landing-page header .landing-order-button-header::after { animation-duration: 13s; animation-delay: 1s; }
-.landing-page header .landing-order-button-mobile-menu::after { animation-duration: 19s; animation-delay: 5s; }
-.landing-page .landing-order-button-story::after { animation-duration: 16s; animation-delay: 3s; }
-.landing-page .landing-order-button-floating::after { animation-duration: 22s; animation-delay: 6s; }
+.landing-page header .landing-order-button-header::after { animation-duration: 24s; animation-delay: 1s; }
+.landing-page header .landing-order-button-mobile-menu::after { animation-duration: 29s; animation-delay: 5s; }
+.landing-page .landing-order-button-story::after { animation-duration: 27s; animation-delay: 3s; }
+.landing-page .landing-order-button-floating::after { animation-duration: 32s; animation-delay: 6s; }
 
 .landing-page .landing-menu-control:nth-child(1)::after { animation-duration: 14s; animation-delay: 2s; }
 .landing-page .landing-menu-control:nth-child(2)::after { animation-duration: 17s; animation-delay: 4s; }
@@ -717,7 +795,8 @@ select {
   z-index: 1;
   max-width: calc(100% - 24px);
   overflow: hidden;
-  background: #8F6C12;
+  background: var(--brand-gold);
+  color: #fff;
 }
 
 .landing-story-badge::after {
@@ -747,6 +826,11 @@ select {
 .search-control:focus-within {
   border-color: #D29A42 !important;
   box-shadow: 0 0 0 3px rgba(210,154,66,0.2);
+}
+
+.landing-page .search-control,
+.landing-page .search-control:focus-within {
+  border-color: var(--brand-gold) !important;
 }
 
 .search-control input {
@@ -788,7 +872,7 @@ select {
 }
 
 .landing-how-card {
-  --step-accent: #8F6C12;
+  --step-accent: var(--brand-gold);
   position: relative;
   overflow: hidden;
   transition: transform 260ms ease, box-shadow 260ms ease, border-color 260ms ease;
@@ -881,7 +965,9 @@ select {
 }
 
 .landing-cta {
-  background: #17130D;
+  background:
+    radial-gradient(ellipse 115% 78% at 50% 35%, rgb(255 201 65 / 11%), transparent 82%),
+    linear-gradient(180deg, #17130D 15%, #0E0C09 100%);
 }
 
 .landing-footer {
@@ -909,7 +995,7 @@ select {
   width: 34px;
   height: 2px;
   border-radius: 99px;
-  background: linear-gradient(90deg, #D29A42, #8F6C12);
+  background: var(--landing-gold-button);
   content: "";
 }
 
@@ -924,8 +1010,8 @@ select {
 
 .landing-page .pagination-control:not(:disabled):hover,
 .landing-page .pagination-control:not(:disabled):focus-visible {
-  background: #8F6C12 !important;
-  color: #fff !important;
+  background: var(--brand-gold) !important;
+  color: var(--brand-gold-ink) !important;
   box-shadow: 0 8px 20px rgba(182,140,28,0.3), 0 0 14px rgba(213,169,51,0.2);
 }
 
@@ -956,6 +1042,13 @@ select {
   .landing-reveal {
     opacity: 1;
     transform: none;
+  }
+
+  .landing-gold-shimmer {
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+    color: var(--landing-gold) !important;
+    animation: none;
   }
 
   .landing-info-card:hover,
@@ -1073,7 +1166,7 @@ select {
 .admin-save-shine::after {
   position: absolute;
   inset: 0;
-  background: linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.35) 50%, transparent 70%);
+  background: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 13%) 50%, transparent 70%);
   transform: translateX(-120%);
   content: "";
   pointer-events: none;
@@ -1114,6 +1207,19 @@ select {
 
 /* ── Add to cart: the button confirms and the cart count bounces ─────────── */
 .cart-added-pop { animation: cart-added-pop 320ms cubic-bezier(0.3,1.6,0.5,1) both; }
+.add-product-dialog {
+  -webkit-tap-highlight-color: rgb(212 175 55 / 22%);
+}
+
+.add-product-dialog ::selection {
+  background: #F3E2B6;
+  color: #3D2D16;
+}
+
+.add-product-dialog :focus-visible {
+  outline: 2px solid var(--brand-gold);
+  outline-offset: 2px;
+}
 .cart-badge-bump { animation: cart-badge-bump 450ms cubic-bezier(0.3,1.6,0.5,1) both; }
 @keyframes cart-added-pop {
   from { opacity: 0; transform: scale(0.6); }
@@ -1195,24 +1301,12 @@ select {
 
 /* ── Landing: reviews row, dragged with the mouse, settles on a card ─────── */
 .reviews-track {
-  scroll-snap-type: x mandatory;
   scrollbar-width: none;
   cursor: grab;
-  scroll-behavior: smooth;
 }
 .reviews-track::-webkit-scrollbar { display: none; }
-.reviews-track:focus-visible { outline: 2px solid #8F6C12; outline-offset: 4px; border-radius: 1.5rem; }
-/* While dragging it follows the cursor exactly; on release it snaps to the nearest card */
-.reviews-track-dragging { cursor: grabbing; scroll-snap-type: none; scroll-behavior: auto; user-select: none; }
-.reviews-track-dragging .reviews-card { transform: scale(0.98); }
-.reviews-card {
-  scroll-snap-align: start;
-  transition: transform 260ms cubic-bezier(0.2,0.7,0.25,1);
-}
-/* Bubbles lean slightly, alternating, like messages on a board; they straighten up on hover */
-.reviews-tilt-left { transform: rotate(-1.2deg); }
-.reviews-tilt-right { transform: rotate(1.2deg) translateY(10px); }
-.reviews-track:not(.reviews-track-dragging) .reviews-card:hover { transform: translateY(-6px) rotate(0deg); }
+.reviews-track:focus-visible { outline: 2px solid var(--brand-gold); outline-offset: 4px; border-radius: 1.5rem; }
+.reviews-track-dragging { cursor: grabbing; user-select: none; }
 /* The bubble's tail, in the bubble's own colour, pointing at the person below */
 .reviews-bubble::after {
   position: absolute;
@@ -1227,8 +1321,6 @@ select {
 @media (prefers-reduced-motion: reduce) {
   .admin-label, .admin-subnav { transition: none; }
   .admin-side-panel { animation: none; }
-  .reviews-track { scroll-behavior: auto; }
-  .reviews-card { transition: none; }
 }
 
 /* Printable sale receipt: only the sale detail is printed (window.print from the sale's "Ver detalle") */

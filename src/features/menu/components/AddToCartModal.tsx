@@ -1,12 +1,24 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import BeverageArt from "@/features/menu/components/BeverageArt"
 import { ADDITIONS, BEVERAGES, BEVERAGE_SIZES, MENU_EXTRAS, SAUCES, SODA_INFO, SODA_RE, allMenuProducts, beverageLabel, sizeMl, sodaInfo, sodaPrice } from "@/features/menu/data/products"
+import hitTropicalPhoto from "@/imports/bebidas/hit-frutas-tropicales.jpg"
+import hitMangoPhoto from "@/imports/bebidas/hit-mango.jpg"
+import hitMoraPhoto from "@/imports/bebidas/hit-mora.jpg"
+import hitOrangePineapplePhoto from "@/imports/bebidas/hit-naranja-pina.jpg"
 import QtyStepper from "@/shared/components/QtyStepper"
 import ZoomableImage from "@/shared/components/ZoomableImage"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
 import type { Product } from "@/shared/types"
 import { fmt } from "@/shared/utils/format"
+
+const HIT_PHOTOS = {
+  Mora: hitMoraPhoto,
+  Mango: hitMangoPhoto,
+  "Frutas Tropicales": hitTropicalPhoto,
+  "Naranja Piña": hitOrangePineapplePhoto,
+}
+const HIT_FLAVORS = Object.keys(HIT_PHOTOS) as (keyof typeof HIT_PHOTOS)[]
 
 export default function AddToCartModal({
   product: selectedProduct,
@@ -65,9 +77,12 @@ export default function AddToCartModal({
   // [, sabor, tamaño] when the product is a soda («Gaseosa Coca-Cola (1.5 L)»)
   const sodaParts = SODA_RE.exec(product.name)
   // A litre of Hit comes in several flavours: the client picks one (it goes in the line's note)
-  const HIT_FLAVORS = ["Mora", "Mango", "Frutas Tropicales", "Naranja Piña"]
   const isHit = /^hit\b/i.test(product.name.trim())
-  const [hitFlavor, setHitFlavor] = useState(() => /Sabor: (.+)/.exec(initial?.note ?? "")?.[1] ?? HIT_FLAVORS[0])
+  const [hitFlavor, setHitFlavor] = useState(() => {
+    const savedFlavor = /Sabor: (.+)/.exec(initial?.note ?? "")?.[1]?.trim()
+    return HIT_FLAVORS.find((flavor) => flavor === savedFlavor) ?? HIT_FLAVORS[0]
+  })
+  const productPhoto = isHit ? HIT_PHOTOS[hitFlavor] : product.img
   // Cream card under the photo (the photo's curve blends into it)
   const CARD = dark ? "#1E1C18" : "#FBF6E9"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
@@ -287,7 +302,7 @@ export default function AddToCartModal({
             disabled={qty >= MAX_QTY}
             aria-label="Una más"
             className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full font-bold disabled:cursor-not-allowed disabled:opacity-40"
-            style={{ background: C.mustard, color: "#fff" }}
+            style={{ background: "var(--brand-gold-gradient)", color: "#fff" }}
           >
             +
           </button>
@@ -297,7 +312,7 @@ export default function AddToCartModal({
           onClick={addWithFeedback}
           disabled={product.soldOut}
           className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-4 whitespace-nowrap rounded-full py-2.5 pl-5 pr-5 text-sm font-bold transition-[opacity,background-color] duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55 sm:text-base [&_svg]:h-4 [&_svg]:w-4"
-          style={{ background: added ? C.forest : C.mustard, color: "#fff", boxShadow: `0 6px 16px ${C.mustard}40` }}
+          style={{ background: added ? "#F3E2B6" : C.mustard, color: added ? "#3D2D16" : "#fff", boxShadow: `0 6px 16px ${C.mustard}40` }}
         >
           <span key={added ? "added" : "add"} className={`flex items-center gap-1.5 ${added ? "cart-added-pop" : ""}`}>
             {Ico.check}
@@ -325,7 +340,7 @@ export default function AddToCartModal({
       role="dialog"
       aria-modal="true"
       aria-label={product.name}
-      className="fixed inset-0 z-50 flex flex-col overflow-hidden"
+      className="add-product-dialog fixed inset-0 z-50 flex flex-col overflow-hidden"
       style={{ background: PAGE }}
     >
       {/* Top bar: back to the menu */}
@@ -355,17 +370,23 @@ export default function AddToCartModal({
             <div
               ref={photoRef}
               className="relative flex h-[34vh] w-full items-center justify-center overflow-hidden rounded-3xl shadow-[0_22px_44px_-28px_rgba(25,21,18,0.7)] md:h-[36vh] md:[@media(max-height:800px)]:h-[30vh]"
-              style={{ background: dark ? "#1E1C18" : "#2A2420" }}
+              style={{ background: isHit ? "#fff" : dark ? "#1E1C18" : "#2A2420" }}
             >
-              {product.img && (
+              {productPhoto && (
                 <>
                   {/* The same photo, blurred, fills the card behind the complete one: no empty bands, nothing cropped */}
-                  <img src={product.img} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-70 blur-2xl" />
-                  <ZoomableImage src={product.img} alt={product.name} className="relative block h-full w-auto max-w-full object-contain drop-shadow-[0_18px_24px_rgba(0,0,0,0.45)]" />
+                  {!isHit && (
+                    <img src={productPhoto} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-70 blur-2xl" />
+                  )}
+                  <ZoomableImage
+                    src={productPhoto}
+                    alt={isHit ? `${product.name} · ${hitFlavor}` : product.name}
+                    className={`relative block h-full w-auto max-w-full object-contain ${isHit ? "" : "drop-shadow-[0_18px_24px_rgba(0,0,0,0.45)]"}`}
+                  />
                 </>
               )}
               {product.badge && (
-                <span className="pointer-events-none absolute left-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-bold shadow-sm" style={{ background: C.mustard, color: "#fff" }}>
+                <span className="pointer-events-none absolute left-3 top-3 rounded-full px-2.5 py-1 text-[11px] font-bold shadow-sm" style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}>
                   ★ {product.badge}
                 </span>
               )}

@@ -69,7 +69,7 @@ export default function ResetPage({
           <button
             onClick={onDone}
             className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer"
-            style={{ background: C.mustard, color: "#fff" }}
+            style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
           >
             Iniciar sesión
           </button>
@@ -196,7 +196,7 @@ export default function ResetPage({
           type="submit"
           disabled={busy || resending}
           className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
-          style={{ background: C.mustard, color: "#fff" }}
+          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
         >
           {busy
             ? verificationToken

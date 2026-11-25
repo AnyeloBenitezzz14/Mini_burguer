@@ -14,10 +14,10 @@ export const WA = "573206332670"
 export function tk(dark: boolean) {
   return {
     bg: dark ? "#0D0F14" : "#F0EDE6",
-    sidebarBg: dark ? "#111318" : "#1F1A14",
-    sidebarBd: dark ? "rgba(255,255,255,0.06)" : "rgba(242,229,192,0.10)",
-    sidebarTx: dark ? "rgba(255,255,255,0.92)" : "rgba(242,229,192,0.92)",
-    sidebarMu: dark ? "rgba(255,255,255,0.7)" : "rgba(242,229,192,0.62)",
+    sidebarBg: dark ? "#111318" : "#FAF6EA",
+    sidebarBd: dark ? "rgba(255,255,255,0.06)" : "#E8DECA",
+    sidebarTx: dark ? "rgba(255,255,255,0.92)" : "#29231A",
+    sidebarMu: dark ? "rgba(255,255,255,0.7)" : "#695E4C",
     hdrBg: dark ? "#111318" : "#FFFFFF",
     hdrBd: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)",
     card: dark ? "#181B22" : "#FFFFFF",

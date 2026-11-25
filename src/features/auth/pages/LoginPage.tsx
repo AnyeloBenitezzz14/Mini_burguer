@@ -65,7 +65,7 @@ export default function LoginPage({
           />
           <div
             className="mb-3 text-sm font-bold uppercase tracking-widest"
-            style={{ color: "#D6B44B" }}
+            style={{ color: "var(--brand-gold)" }}
           >
             Bienvenido a El Parche
           </div>
@@ -143,7 +143,7 @@ export default function LoginPage({
               type="submit"
               disabled={busy}
               className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
-              style={{ background: C.mustard, color: "#fff" }}
+              style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
             >
               {busy ? "Ingresando..." : "Iniciar sesión"}
             </button>

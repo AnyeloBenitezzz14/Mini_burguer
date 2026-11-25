@@ -38,7 +38,7 @@ export default function PaymentAccounts({ amount, compact = false }: { amount?: 
       </div>
       <ul className="flex flex-col gap-2">
         {PAYMENT_ACCOUNTS.map((a) => (
-          <li key={a.number} className="flex items-center justify-between gap-3 rounded-xl px-3 py-2" style={{ background: "#fff", border: "1px solid rgba(30,30,30,0.1)" }}>
+          <li key={a.number} className="flex items-center justify-between gap-3 rounded-full px-5 py-2.5 sm:px-6" style={{ background: "#fff", border: "1px solid rgba(30,30,30,0.1)" }}>
             <span className="min-w-0">
               <span className="block text-[11px] font-semibold" style={{ color: "rgba(30,30,30,0.55)" }}>{a.label}</span>
               <span className="block font-mono text-base font-bold tracking-wide" style={{ color: C.dark }}>{a.number}</span>
@@ -48,7 +48,7 @@ export default function PaymentAccounts({ amount, compact = false }: { amount?: 
               type="button"
               onClick={() => copy(a.number)}
               aria-label={`Copiar ${a.label}: ${a.number}`}
-              className="flex-shrink-0 cursor-pointer rounded-lg px-2.5 py-1.5 text-xs font-bold"
+              className="flex-shrink-0 cursor-pointer rounded-full px-2.5 py-1.5 text-xs font-bold"
               style={{ background: copied === a.number ? "#2E7D60" : `${C.mustard}18`, color: copied === a.number ? "#fff" : C.mustard }}
             >
               {copied === a.number ? "Copiado ✓" : "Copiar"}

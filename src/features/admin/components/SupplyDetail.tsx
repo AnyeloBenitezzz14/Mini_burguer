@@ -208,7 +208,7 @@ export default function SupplyDetail(adminState: AdminPanelState, row: (string |
                     <li key={i} className="flex gap-2.5 text-xs leading-relaxed" style={{ color: t.text }}>
                       <span
                         className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
-                        style={{ background: C.mustard, color: "#fff" }}
+                        style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                       >
                         {i + 1}
                       </span>
