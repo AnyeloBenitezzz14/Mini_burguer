@@ -47,7 +47,7 @@ return (
         <div className={`min-w-0 ${hideOnMini}`}>
           <div
             className="font-semibold text-sm truncate"
-            style={{ fontFamily: "League Spartan, sans-serif", color: C.amber }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: t.sidebarAccent }}
           >
             El Parche
           </div>
@@ -94,7 +94,7 @@ return (
               className="admin-nav-item w-full flex items-center gap-2.5 px-[19px] py-2.5 rounded-xl cursor-pointer"
               style={{
                 background: active
-                  ? `${C.amber}18`
+                  ? `${t.sidebarAccent}18`
                   : anyChild
                     ? dark
                       ? "rgba(255,255,255,0.04)"
@@ -104,7 +104,7 @@ return (
             >
               <span
                 className="relative flex w-[18px] flex-shrink-0 justify-center"
-                style={{ color: active || anyChild ? C.amber : t.sidebarMu }}
+                style={{ color: active || anyChild ? t.sidebarAccent : t.sidebarMu }}
               >
                 {g.icon}
                 {/* Closed menu: a dot on Ventas when there are new orders */}
@@ -114,7 +114,7 @@ return (
               </span>
               <span
                 className={`flex-1 truncate text-left text-xs font-medium ${hideOnMini}`}
-                style={{ color: active ? C.amber : t.sidebarTx, fontWeight: active ? 600 : undefined }}
+                style={{ color: active ? t.sidebarAccent : t.sidebarTx, fontWeight: active ? 600 : undefined }}
               >
                 {g.label}
               </span>
@@ -154,13 +154,13 @@ return (
                     style={{
                       paddingLeft: "18.5px",
                       background:
-                        section === item.key ? `${C.amber}14` : "transparent",
+                        section === item.key ? `${t.sidebarAccent}14` : "transparent",
                     }}
                   >
                     <span
                       className="text-xs font-medium"
                       style={{
-                        color: section === item.key ? C.amber : t.sidebarTx,
+                        color: section === item.key ? t.sidebarAccent : t.sidebarTx,
                         fontWeight: section === item.key ? 600 : undefined,
                       }}
                     >
@@ -201,7 +201,7 @@ return (
         onClick={onLogout}
         title={sidebarCollapsed ? "Cerrar sesión" : undefined}
         className={`mt-1 w-full flex items-center gap-2.5 overflow-hidden px-[15px] py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80`}
-        style={{ color: "#E3826F" }}
+        style={{ color: t.sidebarDanger }}
       >
         <span className="flex w-[18px] flex-shrink-0 justify-center">{Ico.logout}</span>
         <span className={hideOnMini}>Cerrar sesión</span>

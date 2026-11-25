@@ -71,6 +71,9 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
         ["--admin-text" as string]: t.text,
         ["--admin-muted" as string]: t.muted,
         ["--admin-hover" as string]: t.hover,
+        ["--sb-hover" as string]: t.sidebarHover,
+        ["--sb-accent" as string]: t.sidebarAccent,
+        ["--sb-hover-tx" as string]: t.sidebarHoverTx,
       }}
     >
       {sidebarOpen && (

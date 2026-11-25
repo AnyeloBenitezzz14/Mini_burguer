@@ -14,10 +14,16 @@ export const WA = "573206332670"
 export function tk(dark: boolean) {
   return {
     bg: dark ? "#0D0F14" : "#F0EDE6",
-    sidebarBg: dark ? "#111318" : "#1F1A14",
-    sidebarBd: dark ? "rgba(255,255,255,0.06)" : "rgba(242,229,192,0.10)",
-    sidebarTx: dark ? "rgba(255,255,255,0.92)" : "rgba(242,229,192,0.92)",
-    sidebarMu: dark ? "rgba(255,255,255,0.7)" : "rgba(242,229,192,0.62)",
+    // Side menu: cream like the landing page in light mode, dark in dark mode
+    sidebarBg: dark ? "#111318" : "#FAF4E8",
+    sidebarBd: dark ? "rgba(255,255,255,0.06)" : "rgba(24,22,15,0.08)",
+    sidebarTx: dark ? "rgba(255,255,255,0.92)" : "rgba(24,22,15,0.86)",
+    sidebarMu: dark ? "rgba(255,255,255,0.7)" : "rgba(24,22,15,0.58)",
+    // The open section and hovered items (gold that reads on each background) and «Cerrar sesión»
+    sidebarAccent: dark ? "#D29A42" : "#8F6C12",
+    sidebarHover: dark ? "rgba(242,229,192,0.08)" : "rgba(143,108,18,0.08)",
+    sidebarHoverTx: dark ? "#F2E5C0" : "#18160F",
+    sidebarDanger: dark ? "#E3826F" : "#A54131",
     hdrBg: dark ? "#111318" : "#FFFFFF",
     hdrBd: dark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.08)",
     card: dark ? "#181B22" : "#FFFFFF",

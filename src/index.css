@@ -140,20 +140,20 @@ body {
 .admin-nav-item:focus-visible,
 .admin-subnav-item:hover,
 .admin-subnav-item:focus-visible {
-  background: rgba(242,229,192,0.08) !important;
+  background: var(--sb-hover, rgba(242,229,192,0.08)) !important;
   transform: translateX(2px);
 }
 
 .admin-nav-item:hover > span:first-child,
 .admin-nav-item:focus-visible > span:first-child {
-  color: #D29A42 !important;
+  color: var(--sb-accent, #D29A42) !important;
 }
 
 .admin-nav-item:hover > span:nth-child(2),
 .admin-nav-item:focus-visible > span:nth-child(2),
 .admin-subnav-item:hover span,
 .admin-subnav-item:focus-visible span {
-  color: #F2E5C0 !important;
+  color: var(--sb-hover-tx, #F2E5C0) !important;
 }
 
 .admin-subnav-item {
