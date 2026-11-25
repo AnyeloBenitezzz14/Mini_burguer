@@ -8,6 +8,7 @@ import { loadRegisteredClients } from "@/features/auth/services/auth.service"
 import { ADDITION_PRODUCT, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders, pushOrder, readVoucher, saveOrders } from "@/features/orders/services/orders.service"
 import { isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { appAlert } from "@/shared/components/AppDialog"
 import { Ico } from "@/shared/components/icons"
 import { FIRST_DAY } from "@/shared/constants"
 import { api, imageUrl } from "@/shared/services/api"
@@ -1974,6 +1975,33 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       : {}
   const shownFieldError = (key: string) =>
     formTried || touchedFields[key] ? fieldErrors[key] : undefined
+  // Every form validates live: a field shows what's wrong as soon as it changes (all of them after «Guardar»)
+  useEffect(() => {
+    if (!modal.section || modal.mode === "view" || modal.mode === null) return
+    const errors = validateManagedForm(modal.section, formData, modal.mode)
+    setFormFieldErrors(
+      formValidationAttempted ? errors : Object.fromEntries(Object.entries(errors).filter(([key]) => touchedFields[key])),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData, touchedFields, formValidationAttempted, modal.section, modal.mode])
+  // «Guardar» with something missing: one alert listing each field and what it needs
+  const alertFormErrors = (sec: string, errors: Record<string, string>) => {
+    const label = (key: string) => (key === "img" ? "Imagen" : (MOD_CFG[sec]?.fields.find((f) => f.key === key)?.label ?? "").replace(/\s*\(.*\)$/, ""))
+    const lines = [...new Set(Object.entries(errors).filter(([, message]) => message).map(([key, message]) => `• ${label(key) ? `${label(key)}: ` : ""}${message}`))]
+    if (lines.length)
+      appAlert(lines.join("\n"), lines.length === 1 ? "Falta algo para guardar" : `Faltan ${lines.length} cosas para guardar`)
+  }
+  // The messages a form shows on its own (a purchase without insumos, a production order without products,
+  // a sheet without steps, the server's answer...): each new one also comes up as an alert
+  const formMessages = { saveError, technicalSheetError, productionFormError, purchaseFormError, lossError, pncError, clientFormError, supplyFormError }
+  const alertedMessages = useRef<Record<string, string>>({})
+  useEffect(() => {
+    for (const [key, message] of Object.entries(formMessages)) {
+      if (message && alertedMessages.current[key] !== message) appAlert(message, "Revisa el formulario")
+      alertedMessages.current[key] = message
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveError, technicalSheetError, productionFormError, purchaseFormError, lossError, pncError, clientFormError, supplyFormError])
   const isRequiredField = (key: string) =>
     modal.mode !== "view" && (REQUIRED_KEYS[modal.section] || []).includes(key)
   // After a failed "Guardar", bring the first field with an error into view (it may be
@@ -2160,13 +2188,21 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
 
     if (VALIDATED_SECTIONS.includes(sec)) {
       setFormTried(true)
-      if (Object.keys(getFieldErrors()).length) return revealFirstFormError()
+      const liveErrors = getFieldErrors()
+      if (Object.keys(liveErrors).length) {
+        setFormValidationAttempted(true)
+        alertFormErrors(sec, { ...validateManagedForm(sec, formData, modal.mode), ...liveErrors })
+        return revealFirstFormError()
+      }
     }
 
     setFormValidationAttempted(true)
     const errors = validateManagedForm(sec, formData, modal.mode)
     setFormFieldErrors(errors)
-    if (Object.keys(errors).length) return revealFirstFormError()
+    if (Object.keys(errors).length) {
+      alertFormErrors(sec, errors)
+      return revealFirstFormError()
+    }
 
     if (sec === "roles") {
       const roleName = String(formData["0"] ?? "").trim()

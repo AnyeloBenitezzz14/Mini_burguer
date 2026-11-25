@@ -109,12 +109,14 @@ export default function CheckoutPage({
   const [neighborhoods, setNeighborhoods] = useState<DeliveryNeighborhood[]>(fallbackNeighborhoods)
   const [neighborhoodsLoading, setNeighborhoodsLoading] = useState(true)
   const [neighborhoodsError, setNeighborhoodsError] = useState("")
-  const setAddressPart = (key: keyof CheckoutAddressParts, value: string) =>
-    setAddressParts((current) => {
+  const setAddressPart = (key: keyof CheckoutAddressParts, value: string) => {
+    markTouched(key)
+    return setAddressParts((current) => {
       const next = { ...current, [key]: value }
       setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(next) }))
       return next
     })
+  }
   // Where the address is on the map and whether it's inside the delivery zone
   const [geo, setGeo] = useState<{
     status: "idle" | "loading" | "ok" | "notfound" | "error"
@@ -322,6 +324,9 @@ export default function CheckoutPage({
     () => !(user?.addresses?.length),
   )
   const [deliveryTried, setDeliveryTried] = useState(false)
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const markTouched = (key: string) => setTouched((current) => (current[key] ? current : { ...current, [key]: true }))
+  const showErr = (key: string) => deliveryTried || !!touched[key]
   const toggleDeliveryRecipient = () => {
     const nextIsOtherPerson = !deliverToOtherPerson
     setDeliverToOtherPerson(nextIsOtherPerson)
@@ -1198,14 +1203,18 @@ export default function CheckoutPage({
                           type={t}
                           placeholder={ph}
                           value={delivForm[k as keyof typeof delivForm]}
-                          onChange={(v) => setDelivForm((f) => ({ ...f, [k]: v }))}
+                          onChange={(v) => {
+                            setDelivForm((f) => ({ ...f, [k]: v }))
+                            markTouched(k)
+                          }}
+                          onBlur={() => markTouched(k)}
                           required={k === "nombre" || k === "telefono"}
                           error={
-                            deliveryTried &&
+                            showErr(k) &&
                             k === "nombre" &&
                             !delivForm.nombre.trim()
                               ? "El nombre es obligatorio."
-                              : deliveryTried && k === "telefono"
+                              : showErr(k) && k === "telefono"
                                 ? delivForm.telefono.trim()
                                   ? validatePhoneNumber(delivForm.telefono)
                                   : "El teléfono es obligatorio."
@@ -1240,12 +1249,15 @@ export default function CheckoutPage({
                         neighborhoods={neighborhoods}
                         loading={neighborhoodsLoading}
                         loadError={neighborhoodsError}
-                        onQueryChange={setNeighborhoodQuery}
+                        onQueryChange={(q) => {
+                          setNeighborhoodQuery(q)
+                          markTouched("barrio")
+                        }}
                         onSelect={(n) => {
                           setAddressPart("barrio", n === null ? "" : typeof n === "string" ? n : n.nombre)
                           setNeighborhoodQuery(null)
                         }}
-                        error={deliveryTried && isDelivery && !selectedNeighborhood && !geocodedInsideBello
+                        error={showErr("barrio") && isDelivery && !selectedNeighborhood && !geocodedInsideBello
                           ? "Elige un barrio habilitado o verifica que la dirección esté en Bello."
                           : undefined}
                       />
@@ -1319,18 +1331,18 @@ export default function CheckoutPage({
                             required
                             value={addressParts.tipoVia}
                             onChange={(event) => setAddressPart("tipoVia", event.target.value)}
-                            aria-invalid={deliveryTried && !addressParts.tipoVia}
+                            aria-invalid={showErr("tipoVia") && !addressParts.tipoVia}
                             className="w-full rounded-xl px-3.5 py-3 text-sm outline-none"
                             style={{
                               background: "rgba(30,30,30,0.05)",
-                              border: `1.5px solid ${deliveryTried && !addressParts.tipoVia ? C.red : "rgba(30,30,30,0.12)"}`,
+                              border: `1.5px solid ${showErr("tipoVia") && !addressParts.tipoVia ? C.red : "rgba(30,30,30,0.12)"}`,
                               color: C.dark,
                             }}
                           >
                             <option value="">Selecciona el tipo de vía</option>
                             {[...STREET_TYPES, ...(addressParts.tipoVia === "Circular" ? ["Circular"] : [])].map((type) => <option key={type} value={type}>{type}</option>)}
                           </select>
-                          {deliveryTried && !addressParts.tipoVia && (
+                          {showErr("tipoVia") && !addressParts.tipoVia && (
                             <span className="text-xs font-normal" role="alert" style={{ color: C.red }}>Selecciona el tipo de vía.</span>
                           )}
                         </label>
@@ -1339,8 +1351,9 @@ export default function CheckoutPage({
                           placeholder="Ej: 49"
                           value={addressParts.numeroVia}
                           onChange={(value) => setAddressPart("numeroVia", value)}
+                          onBlur={() => markTouched("numeroVia")}
                           required
-                          error={deliveryTried
+                          error={showErr("numeroVia")
                             ? !addressParts.numeroVia.trim()
                               ? "Ingresa el número."
                               : !validAddressNumber(addressParts.numeroVia)
@@ -1353,7 +1366,7 @@ export default function CheckoutPage({
                           placeholder="Ej: A"
                           value={addressParts.letraVia}
                           onChange={(value) => setAddressPart("letraVia", value.toUpperCase())}
-                          error={deliveryTried && !validAddressLetter(addressParts.letraVia)
+                          error={showErr("letraVia") && !validAddressLetter(addressParts.letraVia)
                             ? "Ingresa una sola letra."
                             : undefined}
                         />
@@ -1362,18 +1375,18 @@ export default function CheckoutPage({
                           <select
                             value={addressParts.tipoViaSecundaria}
                             onChange={(event) => setAddressPart("tipoViaSecundaria", event.target.value)}
-                            aria-invalid={deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria)}
+                            aria-invalid={showErr("tipoViaSecundaria") && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria)}
                             className="w-full rounded-xl px-3.5 py-3 text-sm outline-none"
                             style={{
                               background: "rgba(30,30,30,0.05)",
-                              border: `1.5px solid ${deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) ? C.red : "rgba(30,30,30,0.12)"}`,
+                              border: `1.5px solid ${showErr("tipoViaSecundaria") && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) ? C.red : "rgba(30,30,30,0.12)"}`,
                               color: C.dark,
                             }}
                           >
                             <option value="">Selecciona el tipo de vía</option>
                             {[...STREET_TYPES, ...(addressParts.tipoViaSecundaria === "Circular" ? ["Circular"] : [])].map((type) => <option key={type} value={type}>{type}</option>)}
                           </select>
-                          {deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) && (
+                          {showErr("tipoViaSecundaria") && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) && (
                             <span className="text-xs font-normal" role="alert" style={{ color: C.red }}>Selecciona el tipo de vía.</span>
                           )}
                         </label>
@@ -1382,8 +1395,9 @@ export default function CheckoutPage({
                           placeholder="Ej: 57"
                           value={addressParts.numeroViaSecundaria}
                           onChange={(value) => setAddressPart("numeroViaSecundaria", value)}
+                          onBlur={() => markTouched("numeroViaSecundaria")}
                           required
-                          error={deliveryTried
+                          error={showErr("numeroViaSecundaria")
                             ? !addressParts.numeroViaSecundaria.trim()
                               ? "Ingresa el segundo número."
                               : !validAddressNumber(addressParts.numeroViaSecundaria)
@@ -1396,7 +1410,7 @@ export default function CheckoutPage({
                           placeholder="Ej: A"
                           value={addressParts.letraViaSecundaria}
                           onChange={(value) => setAddressPart("letraViaSecundaria", value.toUpperCase())}
-                          error={deliveryTried && !validAddressLetter(addressParts.letraViaSecundaria)
+                          error={showErr("letraViaSecundaria") && !validAddressLetter(addressParts.letraViaSecundaria)
                             ? "Ingresa una sola letra."
                             : undefined}
                         />
@@ -1405,8 +1419,9 @@ export default function CheckoutPage({
                           placeholder="Ej: 18"
                           value={addressParts.numeroPlaca}
                           onChange={(value) => setAddressPart("numeroPlaca", value)}
+                          onBlur={() => markTouched("numeroPlaca")}
                           required
-                          error={deliveryTried
+                          error={showErr("numeroPlaca")
                             ? !addressParts.numeroPlaca.trim()
                               ? "Ingresa el tercer número."
                               : !validAddressNumber(addressParts.numeroPlaca)
@@ -1419,7 +1434,7 @@ export default function CheckoutPage({
                           placeholder="Ej: C"
                           value={addressParts.letraPlaca}
                           onChange={(value) => setAddressPart("letraPlaca", value.toUpperCase())}
-                          error={deliveryTried && !validAddressLetter(addressParts.letraPlaca)
+                          error={showErr("letraPlaca") && !validAddressLetter(addressParts.letraPlaca)
                             ? "Ingresa una sola letra."
                             : undefined}
                         />
@@ -1931,6 +1946,20 @@ export default function CheckoutPage({
               >
                 Inicia sesión o regístrate para continuar.
               </p>
+            )}
+            {((user && checkoutStep > 1) || (!user && showAuth)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!user) setShowAuth(false)
+                  else setCheckoutStep(checkoutStep === 3 ? 2 : 1)
+                  window.scrollTo({ top: 0, behavior: "smooth" })
+                }}
+                className="mt-2 w-full cursor-pointer rounded-xl py-3 text-sm font-bold transition hover:bg-black/[0.03]"
+                style={{ border: "1.5px solid rgba(30,30,30,0.14)", color: C.dark, background: "#fff" }}
+              >
+                ← {checkoutStep === 3 ? "Volver a los datos de entrega" : "Volver al carrito"}
+              </button>
             )}
             {user && checkoutStep >= 2 && (!delivFilled || !deliveryCostConfigured || !payReady) && (
               <p className="mt-3 text-xs text-center" style={{ color: MUTED }}>
