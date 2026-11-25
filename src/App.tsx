@@ -10,6 +10,7 @@ import { saveRegisteredClient, toUser } from "@/features/auth/services/auth.serv
 const CheckoutPage = lazy(() => import("@/features/checkout/pages/CheckoutPage"))
 const ClientApp = lazy(() => import("@/features/client/pages/ClientApp"))
 const LandingPage = lazy(() => import("@/features/landing/pages/LandingPage"))
+const LicensesPage = lazy(() => import("@/features/landing/pages/LicensesPage"))
 const GuestMenuPage = lazy(() => import("@/features/menu/pages/GuestMenuPage"))
 import { addCartItem, kitchenNote } from "@/features/checkout/utils/cart"
 import { loadMenu, refreshCartProducts } from "@/features/menu/services/menu.service"
@@ -25,13 +26,18 @@ import { clearSession, getToken, loadLS, loadSession, saveLS, saveSession } from
 
 // ── App Root ───────────────────────────────────────────────────────────────────
 // Pages a reload can reopen without an account («reset» needs the email typed before, so it isn't one)
-const GUEST_PAGES: Page[] = ["checkout", "guest-menu", "login", "register", "forgot"]
+const GUEST_PAGES: Page[] = ["checkout", "guest-menu", "login", "register", "forgot", "licenses"]
+// The only page with its own address: /licencias opens it directly, also on a reload (vercel.json sends every path to the app)
+const LICENSES_PATH = "/licencias"
 function AppRoutes() {
   // A reload opens this tab's account at once (saved in the tab); the backend confirms it right after
   const [user, setUser] = useState<User | null>(() => (getToken() ? loadSession<User | null>("user", null) : null))
   // A reload stays on the same page (a guest too, on the pages it can reach without an account)
   const [page, setPage] = useState<Page>(() => {
+    if (window.location.pathname === LICENSES_PATH) return "licenses"
     const last = sessionStorage.getItem("page") as Page | null
+    // Its address decides: «/» after visiting /licencias is the home page
+    if (last === "licenses") return "landing"
     if (user) return last || "app"
     return last && (GUEST_PAGES as string[]).includes(last) ? last : "landing"
   })
@@ -159,7 +165,8 @@ function AppRoutes() {
   // Checks the saved token with the backend: refreshes the account, or signs out if the session expired
   useEffect(() => {
     if (!getToken()) return
-    const lastPage = (sessionStorage.getItem("page") || "app") as Page
+    // The page this load opened (the last one of the tab, or /licencias)
+    const lastPage = page
     api<Omit<AuthData, "token">>("/auth/me")
       .then((data) => login(toUser({ ...data, token: getToken() } as AuthData), lastPage))
       // No connection: stay in the account; a rejected token (expired, deleted user) signs out
@@ -167,7 +174,18 @@ function AppRoutes() {
   }, [])
   useEffect(() => {
     sessionStorage.setItem("page", page)
+    // The address follows the page: /licencias while it's open, back to / (keeping a #section) when it closes
+    const onLicensesPath = window.location.pathname === LICENSES_PATH
+    if (page === "licenses" && !onLicensesPath) window.history.pushState(null, "", LICENSES_PATH)
+    if (page !== "licenses" && onLicensesPath) window.history.pushState(null, "", `/${window.location.hash}`)
   }, [page])
+  // The browser's back / forward buttons move in and out of /licencias
+  useEffect(() => {
+    const onPop = () =>
+      setPage((current) => (window.location.pathname === LICENSES_PATH ? "licenses" : current === "licenses" ? "landing" : current))
+    window.addEventListener("popstate", onPop)
+    return () => window.removeEventListener("popstate", onPop)
+  }, [])
   useEffect(() => {
     if (user) saveSession("user", { ...user, password: undefined })
   }, [user])
@@ -406,34 +424,47 @@ function AppRoutes() {
         user={user}
       />
     )
+  const accountMenu =
+    user && !user.mustChangePassword ? (
+      <AccountMenu
+        user={user}
+        dark={false}
+        onProfile={() => setPage("profile" as Page)}
+        onOrders={() => {
+          setClientView("orders")
+          setPage("app")
+        }}
+        onAdmin={() => setPage("admin")}
+        onLogout={logout}
+      />
+    ) : undefined
+  // A client with an open session goes straight back to their menu
+  const openLogin = () => setPage(user ? "app" : "login")
+  const openMenu = user
+    ? () => {
+        setClientView("menu")
+        setPage("app")
+      }
+    : goGuestMenu
+  if (page === "licenses")
+    return (
+      <LicensesPage
+        account={accountMenu}
+        cartCount={cart.reduce((n, item) => n + item.qty, 0)}
+        onCheckout={goCheckout}
+        onLogin={openLogin}
+        onOrder={openMenu}
+        onNav={goHomeSection}
+        onHome={() => setPage("landing")}
+      />
+    )
   return (
     <LandingPage
-      account={
-        user && !user.mustChangePassword ? (
-          <AccountMenu
-            user={user}
-            dark={false}
-            onProfile={() => setPage("profile" as Page)}
-            onOrders={() => {
-              setClientView("orders")
-              setPage("app")
-            }}
-            onAdmin={() => setPage("admin")}
-            onLogout={logout}
-          />
-        ) : undefined
-      }
-      // A client with an open session goes straight back to their menu
-      onLogin={() => setPage(user ? "app" : "login")}
-      onGuestMenu={
-        user
-          ? () => {
-              setClientView("menu")
-              setPage("app")
-            }
-          : goGuestMenu
-      }
+      account={accountMenu}
+      onLogin={openLogin}
+      onGuestMenu={openMenu}
       onCheckout={goCheckout}
+      onLicenses={() => setPage("licenses")}
       cart={cart}
       setCart={setCart}
     />

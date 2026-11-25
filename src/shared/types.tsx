@@ -1,5 +1,5 @@
 // ── Types ──────────────────────────────────────────────────────────────────────
-export type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "app" | "admin"
+export type Page = "landing" | "guest-menu" | "checkout" | "login" | "register" | "verify" | "forgot" | "reset" | "app" | "admin" | "licenses"
 
 export type AdminSection = "dashboard" | "roles" | "usuarios" | "cat-insumos" | "insumos" | "proveedores" | "compras" | "perdidas" | "cat-producto" | "producto" | "produccion" | "producto-no-conforme" | "clientes" | "ventas" | "pedidos" | "domicilios" | "devoluciones"
 
