@@ -19,7 +19,8 @@ export function saveLS(key: string, value: unknown) {
 // account, and a reload stays signed in
 export const getToken = () => sessionStorage.getItem("token") ?? ""
 export const setToken = (token: string) => sessionStorage.setItem("token", token)
-export const clearSession = () => ["token", "orders", "page", "user"].forEach((key) => sessionStorage.removeItem(key))
+// "checkout-draft": what the last person typed in the checkout (their address, their payment proof)
+export const clearSession = () => ["token", "orders", "page", "user", "checkout-draft"].forEach((key) => sessionStorage.removeItem(key))
 
 export function loadSession<T>(key: string, fallback: T): T {
   try {

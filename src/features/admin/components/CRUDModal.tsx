@@ -304,6 +304,12 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     value.split(",").map((item) => item.trim()).filter(Boolean)
   const supplyInfo = (name: string) =>
     (rows.insumos || []).find((supply) => String(supply[0]) === name)
+  const allSauces = () => [...new Set([
+    ...SAUCES,
+    ...(rows.producto || [])
+      .filter((product) => normalizeName(String(product[1] ?? "")) === "salsas" && isActiveStatus(product[4]))
+      .map((product) => String(product[0])),
+  ])]
   // Insumos the supplier sells (supplier row[7]), limited to insumos that still exist
   const supplierSupplies = (supplierName: string) => {
     const supplier = (rows.proveedores || []).find((p) => String(p[0]) === supplierName)
@@ -1844,14 +1850,13 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         productionProductSelect &&
                         !["adiciones", "bebidas", "sabores de bebida"].includes(normalizeName(String(rows.producto?.find((item) => item[0] === productionProductSelect)?.[1] ?? ""))) && (
                           <div className="flex flex-wrap gap-2 sm:col-span-4">
-                            {SAUCES.map((sauce) => {
+                            {allSauces().map((sauce) => {
                               const selected = productionSelectedSauces.includes(sauce)
                               return (
                                 <label key={sauce} className="flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1.5 text-xs" style={{ background: selected ? `${C.mustard}18` : t.input, color: selected ? C.mustard : t.text }}>
                                   <input
                                     type="checkbox"
                                     checked={selected}
-                                    disabled={!selected && productionSelectedSauces.length >= 4}
                                     onChange={() => setProductionSelectedSauces((current) =>
                                       selected ? current.filter((item) => item !== sauce) : [...current, sauce],
                                     )}
@@ -1861,7 +1866,6 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                 </label>
                               )
                             })}
-                            <span className="self-center text-[10px]" style={{ color: t.muted }}>Hasta 4 salsas, igual que en la compra del cliente.</span>
                           </div>
                         )}
                       {productionProductSelect && draftQty > 0 && (
@@ -3029,19 +3033,17 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         Insumos comprados
                       </h4>
                     </div>
-                    {!supplier ? (
-                      <p className="mt-1 text-xs" style={{ color: t.muted }}>
-                        Primero selecciona el proveedor para ver los insumos que te vende.
-                      </p>
-                    ) : !allowed.length ? (
+                    {!allowed.length ? (
                       <p className="mt-1 text-xs" style={{ color: C.red }}>
                         No hay insumos activos para comprar. Créalos primero en Insumos.
                       </p>
                     ) : (
                       <>
                         <p className="mt-1 text-xs" style={{ color: t.muted }}>
-                          {categories.length
-                            ? <>Insumos de {categories.join(", ")}: lo que vende «{supplier}». Al guardar, los que compres quedan en su lista.</>
+                          {!supplier
+                            ? <>Elige los insumos y el proveedor, en el orden que quieras. Al guardar, el proveedor quedará vendiéndolos.</>
+                            : categories.length
+                            ? <>Insumos de {categories.join(", ")}: lo que vende «{supplier}». Escribe para buscar cualquier otro; al guardar quedan en su lista.</>
                             : <>«{supplier}» aún no tiene compras: puedes elegir cualquier insumo. Al guardar, quedará vendiéndolo.</>}
                         </p>
                         <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_120px_96px_120px_auto]">
@@ -3971,8 +3973,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   return
                 }
                 if (isPurchase && f.key === "0") {
-                  // Changing supplier keeps only the items the new supplier sells
-                  const allowed = purchaseSupplies(value)
+                  // Changing supplier keeps the insumos already added, and the sodas the new supplier sells
+                  const allowed = [...purchaseSupplies(value), ...(rows.insumos || []).map((i) => String(i[0]))]
                   const nextForm = {
                     ...formData,
                     "0": value,
@@ -4579,17 +4581,14 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                 Number(product[2]) > 0,
                             )
                             // Sauces go with each meal, free and up to 4, like in the store
-                            const sauceNames = (rows.producto || [])
-                              .filter((product) => normalizeName(String(product[1] ?? "")) === "salsas" && isActiveStatus(product[4]))
-                              .map((product) => String(product[0]))
-                            const MAX_SAUCES = 4
+                            const sauceNames = allSauces()
                             const toggleSauce = (id: string, sauce: string) =>
                               setPedidoOrderLines((current) =>
                                 current.map((item) => {
                                   if (item.id !== id) return item
                                   const sauces = item.sauces || []
                                   if (sauces.includes(sauce)) return { ...item, sauces: sauces.filter((s) => s !== sauce) }
-                                  return sauces.length >= MAX_SAUCES ? item : { ...item, sauces: [...sauces, sauce] }
+                                  return { ...item, sauces: [...sauces, sauce] }
                                 }),
                               )
                             const setQuantity = (id: string, quantity: number) =>
@@ -4721,17 +4720,15 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                       {sauceNames.length > 0 && (
                                         <>
                                           <span className="mt-1 w-full text-[10px] font-semibold" style={{ color: t.muted }}>
-                                            Salsas para {line.product} (hasta {MAX_SAUCES}, sin costo):
+                                            Salsas para {line.product} (sin costo):
                                           </span>
                                           {sauceNames.map((sauce) => {
                                             const on = !!line.sauces?.includes(sauce)
-                                            const full = !on && (line.sauces?.length ?? 0) >= MAX_SAUCES
                                             return (
                                               <button
                                                 key={sauce}
                                                 type="button"
                                                 aria-pressed={on}
-                                                disabled={full}
                                                 onClick={() => toggleSauce(line.id, sauce)}
                                                 className="cursor-pointer rounded-full px-2.5 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
                                                 style={{
@@ -5877,6 +5874,18 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         {badge(`Pago: ${panelPaymentLabel(String(row[8] || "Pendiente"))}`, String(row[8]) === "Pagado", String(row[8]) === "Rechazado")}
                       </div>
                     </div>
+                    {(() => {
+                      const request = loadOrders().find((order) => order.id === String(row[0]))?.returnRequest
+                      return request ? (
+                        <div className="rounded-2xl px-4 py-3 text-sm md:col-span-2" style={{ background: `${C.red}0D`, border: `1px solid ${C.red}33` }}>
+                          <div className="font-semibold" style={{ color: C.red }}>
+                            El cliente pidió la devolución · {new Date(request.requestedAt).toLocaleString("es-CO", { dateStyle: "medium", timeStyle: "short" })}
+                          </div>
+                          <div className="mt-0.5" style={{ color: t.text }}>«{request.reason}»</div>
+                          <div className="mt-1 text-xs" style={{ color: t.muted }}>Regístrala en Ventas › Devoluciones con la venta de este pedido.</div>
+                        </div>
+                      ) : null
+                    })()}
                     {/* Modality isn't shown: it follows the type and payment method by itself */}
                     <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:col-span-2">
                       {info("Tipo de pedido", String(row[3] ?? ""))}
@@ -6064,7 +6073,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Validador de la transferencia</div>
                             {last.reference || last.amount ? (
                               <ul className="flex flex-col gap-1">
-                                {check(true, `Referencia ${last.reference ?? "—"}: no se ha usado en otro pedido`)}
+                                {last.reference && check(true, `Referencia ${last.reference}: no se ha usado en otro pedido`)}
                                 {check(true, "La imagen no se repite en otro pedido")}
                                 {check((last.amount ?? 0) >= owed, `Valor transferido ${fmt(last.amount ?? 0)} · debe ${fmt(owed)}${deposit ? (String(row?.[8]) === "Abonado" ? " (saldo)" : " (abono 50%)") : ""}`)}
                                 {check(null, "Confírmalo en la app del banco (referencia y valor) antes de aprobar")}

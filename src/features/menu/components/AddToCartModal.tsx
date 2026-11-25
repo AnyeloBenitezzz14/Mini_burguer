@@ -76,7 +76,7 @@ export default function AddToCartModal({
   const toggleSauce = (s: string) =>
     setSelSauces((p) => {
       if (p.includes(s)) return p.filter((x) => x !== s)
-      return p.length < 4 ? [...p, s] : p
+      return [...p, s]
     })
   const changeAdd = (name: string, d: number) =>
     setAddQtys((p) => ({ ...p, [name]: Math.min(99, Math.max(0, (p[name] || 0) + d)) }))
@@ -468,19 +468,26 @@ export default function AddToCartModal({
             )}
 
             {!isMenuExtra && (
-              <Section id="sec-sauces" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.7c3.2 3.6 5.5 6.9 5.5 10a5.5 5.5 0 0 1-11 0c0-3.1 2.3-6.4 5.5-10Z" /></svg>} title="Salsas" hint={`${SAUCES.length} opciones · elige hasta 4, son gratis`} summary={selSauces.length ? selSauces.join(", ") : undefined} count={`${selSauces.length}/4`}>
+              <Section id="sec-sauces" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2.7c3.2 3.6 5.5 6.9 5.5 10a5.5 5.5 0 0 1-11 0c0-3.1 2.3-6.4 5.5-10Z" /></svg>} title="Salsas" hint={`${SAUCES.length} opciones · elige las que quieras, son gratis`} summary={selSauces.length ? selSauces.join(", ") : undefined} count={selSauces.length ? String(selSauces.length) : undefined}>
+                <button
+                  type="button"
+                  onClick={() => setSelSauces(selSauces.length === SAUCES.length ? [] : [...SAUCES])}
+                  aria-pressed={selSauces.length === SAUCES.length}
+                  className="mb-2 cursor-pointer rounded-full px-4 py-1.5 text-xs font-bold transition-colors"
+                  style={{ border: `1.5px solid ${C.mustard}`, background: selSauces.length === SAUCES.length ? C.mustard : "transparent", color: selSauces.length === SAUCES.length ? "#fff" : C.mustard }}
+                >
+                  {selSauces.length === SAUCES.length ? "Quitar todas" : "Elegir todas las salsas"}
+                </button>
                 <div role="group" aria-label="Salsas" className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-4">
                   {SAUCES.map((s) => {
                     const on = selSauces.includes(s)
-                    const full = !on && selSauces.length >= 4
                     return (
                       <button
                         key={s}
                         type="button"
                         onClick={() => toggleSauce(s)}
-                        disabled={full}
                         aria-pressed={on}
-                        className="flex min-w-0 cursor-pointer items-center gap-2 rounded-xl py-2 pl-2.5 pr-3 text-left text-sm font-semibold transition-all duration-150 hover:-translate-y-px active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0"
+                        className="flex min-w-0 cursor-pointer items-center gap-2 rounded-full py-2 pl-2.5 pr-3 text-left text-sm font-semibold transition-all duration-150 hover:-translate-y-px active:scale-95"
                         style={{
                           border: `1.5px solid ${on ? C.mustard : BORDER}`,
                           background: on ? C.mustard : SOFT,

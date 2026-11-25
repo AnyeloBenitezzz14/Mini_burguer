@@ -24,12 +24,20 @@ import type { AuthData, CartItem, DbRecord, Order, Page, User } from "@/shared/t
 import { clearSession, getToken, loadLS, loadSession, saveLS, saveSession } from "@/shared/utils/storage"
 
 // ── App Root ───────────────────────────────────────────────────────────────────
+// Pages a reload can reopen without an account («reset» needs the email typed before, so it isn't one)
+const GUEST_PAGES: Page[] = ["checkout", "guest-menu", "login", "register", "forgot"]
 function AppRoutes() {
   // A reload opens this tab's account at once (saved in the tab); the backend confirms it right after
   const [user, setUser] = useState<User | null>(() => (getToken() ? loadSession<User | null>("user", null) : null))
-  const [page, setPage] = useState<Page>(() => (user ? (sessionStorage.getItem("page") || "app") as Page : "landing"))
-  // The cart is kept in the browser: one per account ("cart:<email>") and one for guests ("cart")
-  const [cart, setCart] = useState<CartItem[]>(() => loadLS("cart", []))
+  // A reload stays on the same page (a guest too, on the pages it can reach without an account)
+  const [page, setPage] = useState<Page>(() => {
+    const last = sessionStorage.getItem("page") as Page | null
+    if (user) return last || "app"
+    return last && (GUEST_PAGES as string[]).includes(last) ? last : "landing"
+  })
+  // The cart is kept in the browser: one per account ("cart:<email>") and one for guests ("cart").
+  // A reload with a session reads the account's (reading the guest one here wiped the account's cart)
+  const [cart, setCart] = useState<CartItem[]>(() => loadLS(user ? `cart:${user.email.toLowerCase()}` : "cart", []))
   const [forgotEmail, setForgotEmail] = useState("")
   const [, setOrdersVersion] = useState(0)
   const [clientView, setClientView] = useState<"menu" | "orders">("menu")
@@ -158,8 +166,8 @@ function AppRoutes() {
       .catch((err: Error) => { if (!/conectar/i.test(err.message)) logout() })
   }, [])
   useEffect(() => {
-    if (user) sessionStorage.setItem("page", page)
-  }, [page, user])
+    sessionStorage.setItem("page", page)
+  }, [page])
   useEffect(() => {
     if (user) saveSession("user", { ...user, password: undefined })
   }, [user])
@@ -197,8 +205,8 @@ function AppRoutes() {
   }
   // The backend puts a rejected payment back to "Pendiente de verificación"
   // Resolves to the error message (the detail shows it next to the form), or "" when saved
-  const setVoucher = (id: string, voucher: string, referencia: string, valor: number) =>
-    api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobante`, "PATCH", { comprobante: voucher, referencia, valor })
+  const setVoucher = (id: string, voucher: string, valor: number) =>
+    api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobante`, "PATCH", { comprobante: voucher, valor })
       .then((p) => {
         updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o)))
         return ""
@@ -206,6 +214,13 @@ function AppRoutes() {
       .catch((err) => (err as Error).message)
   const removeVoucher = (id: string, index: number) =>
     api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobantes/${index}`, "DELETE")
+      .then((p) => {
+        updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o)))
+        return ""
+      })
+      .catch((err) => (err as Error).message)
+  const requestReturn = (id: string, motivo: string) =>
+    api<DbRecord>(`/pedidos/${orderDbId(id)}/devolucion`, "POST", { motivo })
       .then((p) => {
         updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o)))
         return ""
@@ -294,6 +309,7 @@ function AppRoutes() {
         setCart={setCart}
         user={user}
         onLogin={(u) => login(u, "checkout")}
+        onForgot={() => setPage("forgot")}
         onBack={() => setPage(user ? "app" : "landing")}
         onPlaceOrder={async (info, shouldSaveAddress) => {
           if (!user) return
@@ -323,7 +339,7 @@ function AppRoutes() {
             notas: info.notas,
             pago: info.pago,
             comprobante: info.voucher,
-            ...(info.voucher ? { referencia_pago: info.voucherRef, valor_pago: info.voucherAmount } : {}),
+            ...(info.voucher ? { valor_pago: info.voucherAmount } : {}),
             items: cart
               .filter((item) => item.qty > 0)
               .map((item) => ({
@@ -359,6 +375,7 @@ function AppRoutes() {
         orders={orders}
         onVoucher={setVoucher}
         onRemoveVoucher={removeVoucher}
+        onReturn={requestReturn}
         initialView={clientView}
       />
     )
