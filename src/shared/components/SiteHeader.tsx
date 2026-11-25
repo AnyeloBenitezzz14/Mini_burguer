@@ -39,6 +39,7 @@ export default function SiteHeader({
   const MUTED = dark ? "rgba(240,232,214,0.48)" : "rgba(24,20,10,0.5)"
   const BORDER = dark ? "rgba(240,232,214,0.07)" : "rgba(24,20,10,0.08)"
   const HDR_BG = scrolled ? (dark ? "rgba(19,17,14,0.96)" : "rgba(250,244,232,0.96)") : "transparent"
+  const iconBackground = scrolled && !dark ? "#EEE1CA" : "rgb(238 225 202 / 12%)"
   const NAVLINKS = SITE_NAVLINKS
   const go = (e: React.MouseEvent, href: string) => {
     setMenuOpen(false)
@@ -65,14 +66,14 @@ export default function SiteHeader({
             <div>
               <div
                 className="landing-brand-title font-black text-lg sm:text-xl leading-tight"
-                style={{ color: C.mustard }}
+                style={{ color: "var(--brand-gold)" }}
               >
                 EL PARCHE
               </div>
               <div
                 className="landing-brand-subtitle"
                 style={{
-                  color: scrolled ? MUTED : "rgba(255,255,255,0.65)",
+                  color: scrolled ? MUTED : "#fff",
                 }}
               >
                 MINI BURGUER
@@ -98,7 +99,7 @@ export default function SiteHeader({
               onClick={onToggleDark}
               aria-label={dark ? "Usar modo claro" : "Usar modo oscuro"}
               className="w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
-              style={{ background: BORDER, color: scrolled ? TEXT : "#fff" }}
+              style={{ background: iconBackground, color: scrolled ? TEXT : "#fff" }}
             >
               {dark ? Ico.sun : Ico.moon}
             </button>
@@ -109,7 +110,7 @@ export default function SiteHeader({
               data-cart-target
               aria-label={`Carrito, ${cartCount} productos`}
               className="relative w-9 h-9 flex items-center justify-center rounded-full cursor-pointer"
-              style={{ background: BORDER, color: scrolled ? TEXT : "#fff" }}
+              style={{ background: iconBackground, color: scrolled ? TEXT : "#fff" }}
             >
               {Ico.cart}
               {cartCount > 0 && (
@@ -145,7 +146,6 @@ export default function SiteHeader({
             <button
               onClick={onOrder}
               className="landing-order-button landing-order-button-header hidden sm:inline-flex min-h-11 px-5 py-2.5 rounded-full text-base font-bold cursor-pointer"
-              style={{ background: C.mustard, color: "#fff" }}
             >
               Pide Ahora
             </button>
@@ -203,7 +203,6 @@ export default function SiteHeader({
                   onOrder()
                 }}
                 className="landing-order-button landing-order-button-mobile-menu w-full py-3.5 rounded-2xl font-bold text-base cursor-pointer"
-                style={{ background: C.mustard, color: "#fff" }}
               >
                 Pide Ahora
               </button>

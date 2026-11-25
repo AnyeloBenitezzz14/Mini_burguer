@@ -1,73 +1,57 @@
 export type Review = {
   name: string
-  // 1-5
   stars: number
   text: string
-  // Where it was left, e.g. "Google" or "Instagram"
   source: string
-  // What they ordered (shown as a small tag)
-  dish: string
 }
-
-// SAMPLE REVIEWS: replace them with real ones (copied from Google Maps, Instagram...) and set this to false.
-// While it is true the carousel only shows in development, so invented reviews never reach the published site.
-export const REVIEWS_ARE_SAMPLE = true
 
 export const REVIEWS: Review[] = [
   {
-    name: "Laura M.",
+    name: "aleone Bedoya",
     stars: 5,
-    text: "La mini burger tradicional es otra cosa. Llegó caliente a la casa y la cebolla marinada es lo mejor.",
+    text: "Muy rico y barato […] excelente servicio y Calidad",
     source: "Google",
-    dish: "Mini tradicional",
   },
   {
-    name: "Andrés P.",
+    name: "Pablo Vargas",
     stars: 5,
-    text: "Vamos cada viernes con los amigos. Atienden rápido y el patacón ranchero es enorme.",
+    text: "Sus salchipapas son de otro mundo, la mega es perfecta para dos personas.",
     source: "Google",
-    dish: "Patacón ranchero",
   },
   {
-    name: "Camila R.",
+    name: "Elkin Delgado",
     stars: 4,
-    text: "Muy rico todo y buen precio. El domicilio tardó un poco un sábado, pero valió la pena.",
-    source: "Instagram",
-    dish: "Domicilio",
-  },
-  {
-    name: "Julián G.",
-    stars: 5,
-    text: "El parche de siempre en Bello. La salchipapa especial alcanza para compartir.",
+    text: "Trabajan bastante rápido, tienen buenos precios y la comida es rica […]",
     source: "Google",
-    dish: "Salchipapa especial",
   },
   {
-    name: "Valentina S.",
+    name: "Alexander Loaiza Restrepo",
     stars: 5,
-    text: "Pedí la triple pensando que no me la iba a comer toda… me la comí toda. Volveré.",
-    source: "Instagram",
-    dish: "Burger triple",
-  },
-  {
-    name: "Don Hernán",
-    stars: 5,
-    text: "Los conozco desde que abrieron. Siguen con el mismo sabor y la misma buena atención.",
+    text: "Me encanto las cebolla marinada es muy Rica le doy un 10/10",
     source: "Google",
-    dish: "Perro caliente",
   },
   {
-    name: "Mateo L.",
+    name: "JEFERSON MIRA",
     stars: 4,
-    text: "Los chuzos de pollo bien jugosos. Me hubiera gustado más salsa de la casa, pero excelente.",
+    text: "Buena comidas rapida, el servicio excelente y no son muy largos los tiempo de espera",
     source: "Google",
-    dish: "Chuzo de pollo",
   },
   {
-    name: "Sofía T.",
+    name: "Alexandra MP",
     stars: 5,
-    text: "Hice el pedido por la página sin registrarme y fue facilísimo. La arepa rellena, una delicia.",
-    source: "WhatsApp",
-    dish: "Arepa rellena",
+    text: "Unos precios excelentes para una comida deliciosa",
+    source: "Google",
+  },
+  {
+    name: "jeisson londoño zapata",
+    stars: 5,
+    text: "Muy ricas, lo mejor del sector",
+    source: "Google",
+  },
+  {
+    name: "Gustavo Polanco gomez",
+    stars: 5,
+    text: "De las mejores hamburguesas y salchipapas.",
+    source: "Google",
   },
 ]

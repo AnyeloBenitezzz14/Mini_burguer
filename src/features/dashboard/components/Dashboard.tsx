@@ -65,9 +65,9 @@ return (
 
     {/* What needs attention now, before any total */}
     <section aria-label="Necesita tu atención" className="admin-dashboard-card min-w-0 rounded-2xl p-4" style={{ background: t.card, border: `1px solid ${t.border}` }}>
-      <div className="mb-3 text-sm font-semibold" style={{ color: t.text }}>
+      <h3 className="mb-3 text-sm font-semibold">
         {PENDING.length ? "Necesita tu atención" : "Todo al día"}
-      </div>
+      </h3>
       {PENDING.length ? (
         <div className="grid min-w-0 gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {PENDING.map((p) => (
@@ -181,9 +181,9 @@ return (
       >
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="font-semibold text-sm" style={{ color: t.text }}>
+            <h3 className="font-semibold text-sm">
               Ventas vs Pérdidas
-            </div>
+            </h3>
             <div className="flex items-center gap-3 mt-1">
               <div className="flex items-center gap-1">
                 <div
@@ -438,9 +438,9 @@ return (
       >
         <div className="flex items-center gap-2 mb-4">
           <span style={{ color: C.amber }}>{Ico.fire}</span>
-          <div className="font-semibold text-sm" style={{ color: t.text }}>
+          <h3 className="font-semibold text-sm">
             Más vendidos
-          </div>
+          </h3>
         </div>
         <div className="space-y-3">
           {!TOP.length && (

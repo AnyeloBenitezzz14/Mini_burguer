@@ -49,7 +49,7 @@ export default function ForgotPage({
           <button
             onClick={() => onReset(email)}
             className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer"
-            style={{ background: C.mustard, color: "#fff" }}
+            style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
           >
             Continuar
           </button>
@@ -110,7 +110,7 @@ export default function ForgotPage({
           type="submit"
           disabled={busy}
           className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
-          style={{ background: C.mustard, color: "#fff" }}
+          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
         >
           {busy ? "Enviando..." : "Enviar código"}
         </button>

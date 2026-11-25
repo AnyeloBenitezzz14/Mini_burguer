@@ -204,7 +204,7 @@ export default function OrderList({
                   aria-current={active ? "page" : undefined}
                   disabled={disabled}
                   onClick={() => goTo(n)}
-                  className="flex h-9 min-w-9 cursor-pointer items-center justify-center rounded-lg px-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-35"
+                  className="flex h-9 min-w-9 cursor-pointer items-center justify-center rounded-full px-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-35"
                   style={{ background: active ? C.mustard : dark ? "rgba(244,238,220,0.07)" : "#fff", color: active ? "#fff" : TEXT, border: `1px solid ${active ? C.mustard : BORDER}` }}
                 >
                   {label}

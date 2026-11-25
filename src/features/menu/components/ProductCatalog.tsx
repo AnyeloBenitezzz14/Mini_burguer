@@ -32,11 +32,27 @@ export default function ProductCatalog({
   }, [])
   const open = isStoreOpen(now)
   const topRef = useRef<HTMLDivElement>(null)
+  const categoriesRef = useRef<HTMLDivElement>(null)
+  const [categoriesVisible, setCategoriesVisible] = useState(false)
+  useEffect(() => {
+    const row = categoriesRef.current
+    if (!row || !("IntersectionObserver" in window)) return
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry?.isIntersecting) return
+      setCategoriesVisible(true)
+      observer.disconnect()
+    }, { threshold: 0.12 })
+    observer.observe(row)
+    return () => observer.disconnect()
+  }, [])
   // Changing page brings the menu back into view
   const goPage = (i: number) => {
     setPg(i)
     if (!compact) topRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
   }
+  const gold = `var(--landing-gold, ${C.mustard})`
+  const goldInk = "var(--landing-gold-ink, #fff)"
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.5)" : "rgba(30,30,30,0.5)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.08)"
@@ -70,12 +86,24 @@ export default function ProductCatalog({
         p.name.toLowerCase().includes(search.toLowerCase()) ||
         p.desc.toLowerCase().includes(search.toLowerCase())),
   )
-  const shouldPaginate =
-    paginate && activeCat === "todos" && filtered.length > ITEMS_PER_PAGE && !search
-  const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE)
-  const pageItems = shouldPaginate
-    ? filtered.slice(pg * ITEMS_PER_PAGE, (pg + 1) * ITEMS_PER_PAGE)
+  const showCategoryPreview = activeCat === "todos" && !search
+  const representatives = new Map<Product["cat"], Product>()
+  if (showCategoryPreview) {
+    for (const product of filtered) {
+      const current = representatives.get(product.cat)
+      if (!current || (!current.img && product.img)) representatives.set(product.cat, product)
+    }
+  }
+  const featuredProducts = [...representatives.values()]
+  const orderedProducts = showCategoryPreview
+    ? [...featuredProducts, ...filtered.filter((product) => representatives.get(product.cat) !== product)]
     : filtered
+  const pageSize = Math.max(ITEMS_PER_PAGE, featuredProducts.length)
+  const shouldPaginate = paginate && showCategoryPreview && orderedProducts.length > pageSize
+  const totalPages = Math.ceil(orderedProducts.length / pageSize)
+  const pageItems = shouldPaginate
+    ? orderedProducts.slice(pg * pageSize, (pg + 1) * pageSize)
+    : orderedProducts
   const visiblePages = visiblePaginationPages(pg, totalPages)
   const switchCat = (id: string) => {
     setActiveCat(id)
@@ -85,6 +113,8 @@ export default function ProductCatalog({
     <div ref={topRef}>
       {/* Category tabs: a photo of one of its products over the name; the chosen one gets a mustard ring and underline */}
       <div
+        ref={categoriesRef}
+        data-menu-categories-visible={categoriesVisible}
         className={`-mx-1 flex snap-x gap-1 overflow-x-auto border-b px-1 pt-1 sm:gap-2 ${compact ? "mb-3" : "mb-6"}`}
         style={{ scrollbarWidth: "none", borderColor: BORDER }}
         role="tablist"
@@ -115,15 +145,15 @@ export default function ProductCatalog({
               className={`group relative flex flex-shrink-0 snap-start cursor-pointer flex-col items-center gap-2 px-2.5 sm:px-3 ${compact ? "pb-2.5" : "pb-3.5"}`}
             >
               <span
-                className={`relative flex items-center justify-center rounded-full p-[3px] transition-all duration-300 group-hover:-translate-y-1 ${compact ? "h-14 w-14 md:h-16 md:w-16" : "h-16 w-16 md:h-[72px] md:w-[72px]"}`}
+                className={`menu-category-ring relative flex items-center justify-center rounded-full p-[3px] transition-all duration-300 group-hover:-translate-y-1 ${compact ? "h-14 w-14 md:h-16 md:w-16" : "h-16 w-16 md:h-[72px] md:w-[72px]"}`}
                 style={{
-                  background: active ? `linear-gradient(135deg, ${C.amber}, ${C.mustard})` : dark ? "rgba(244,238,220,0.08)" : C.cream,
-                  boxShadow: active ? `0 8px 18px -8px ${C.mustard}` : dark ? "none" : "0 6px 14px -10px rgba(25,21,18,0.55)",
+                  background: active ? `var(--landing-gold, linear-gradient(135deg, ${C.amber}, ${C.mustard}))` : dark ? "rgba(244,238,220,0.08)" : C.cream,
+                  boxShadow: active ? `0 8px 18px -8px ${gold}` : dark ? "none" : "0 6px 14px -10px rgba(25,21,18,0.55)",
                 }}
               >
                 <span
                   className="flex h-full w-full items-center justify-center overflow-hidden rounded-full"
-                  style={{ background: dark ? "#1E1C18" : "#fff", color: C.mustard, border: `2px solid ${dark ? "#1E1C18" : "#fff"}` }}
+                  style={{ background: dark ? "#1E1C18" : "#fff", color: gold, border: `2px solid ${dark ? "#1E1C18" : "#fff"}` }}
                 >
                   {photo ? (
                     <img src={photo} alt="" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110" />
@@ -134,30 +164,28 @@ export default function ProductCatalog({
               </span>
               <span
                 className={`whitespace-nowrap font-bold tracking-wide transition-colors ${compact ? "text-xs" : "text-[13px]"}`}
-                style={{ fontFamily: "League Spartan, sans-serif", color: active ? C.mustard : TEXT, opacity: active ? 1 : 0.78 }}
+                style={{ fontFamily: "League Spartan, sans-serif", color: active ? gold : TEXT, opacity: active ? 1 : 0.78 }}
               >
                 {cat.label}
               </span>
               <span
                 aria-hidden="true"
                 className="absolute -bottom-px left-1/2 h-[3px] -translate-x-1/2 rounded-full transition-all duration-300"
-                style={{ background: C.mustard, width: active ? "70%" : "0%" }}
+                style={{ background: gold, width: active ? "70%" : "0%" }}
               />
             </button>
           )
         })}
       </div>
-      {/* Outside the store hours: a dark card like the landing's «Horario» (the menu stays visible) */}
       {!open && (
         <div
           role="status"
-          className={`relative flex flex-wrap items-center gap-x-4 gap-y-3 overflow-hidden rounded-2xl ${compact ? "mb-3 px-4 py-3" : "mb-6 px-5 py-4"}`}
-          style={{ background: C.dark, color: "#FAF3E0", boxShadow: "0 14px 30px -18px rgba(25,21,18,0.8)" }}
+          className={`flex flex-wrap items-center gap-x-4 gap-y-3 rounded-3xl border ${compact ? "mb-3 px-4 py-3" : "mb-6 px-5 py-4"}`}
+          style={{ background: "linear-gradient(110deg, #FFFCF4, #F6EACB)", borderColor: "#E9D8AD", color: "#3D2D16" }}
         >
-          <span aria-hidden="true" className="absolute inset-y-0 left-0 w-1" style={{ background: `linear-gradient(${C.amber}, ${C.red})` }} />
           <span
-            className={`flex flex-shrink-0 items-center justify-center rounded-xl ${compact ? "h-9 w-9" : "h-11 w-11"}`}
-            style={{ background: `${C.amber}22`, color: C.amber }}
+            className={`flex flex-shrink-0 items-center justify-center rounded-full ${compact ? "size-9" : "size-11"}`}
+            style={{ background: "#F3E4BD", color: "#805F0B" }}
           >
             {Ico.clock}
           </span>
@@ -166,28 +194,18 @@ export default function ProductCatalog({
               <span className={`font-bold ${compact ? "text-sm" : "text-lg"}`} style={{ fontFamily: "League Spartan, sans-serif" }}>
                 Tienda cerrada
               </span>
-              <span
-                className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider"
-                style={{ background: `${C.red}33`, color: "#F2A493" }}
-              >
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full motion-reduce:hidden" style={{ background: "#F2A493", opacity: 0.7 }} />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full" style={{ background: "#F2A493" }} />
-                </span>
-                Cerrado ahora
-              </span>
             </span>
-            <span className={`mt-0.5 block ${compact ? "text-xs" : "text-sm"}`} style={{ color: "rgba(250,243,224,0.78)" }}>
-              El Parche atenderá <b style={{ color: C.amber }}>{nextOpeningLabel(now)}</b> · Puedes ir viendo el menú
+            <span className={`mt-0.5 block ${compact ? "text-xs" : "text-sm"}`} style={{ color: "#65513A" }}>
+              El Parche atenderá <b style={{ color: "#805F0B" }}>{nextOpeningLabel(now)}</b> · Puedes ir viendo el menú
             </span>
           </span>
           {(
             <span
-              className="hidden flex-shrink-0 rounded-xl px-3 py-2 text-xs sm:block"
-              style={{ background: "rgba(250,243,224,0.06)", border: "1px solid rgba(250,243,224,0.1)" }}
+              className="hidden flex-shrink-0 rounded-full border px-4 py-2 text-xs sm:block"
+              style={{ background: "#FFFCF4", borderColor: "#E9D8AD" }}
             >
-              <span className="block" style={{ color: "rgba(250,243,224,0.6)" }}>Lun – Dom</span>
-              <span className="block font-semibold" style={{ color: C.amber }}>{STORE_HOURS_LABEL}</span>
+              <span className="block" style={{ color: "#65513A" }}>Lun – Dom</span>
+              <span className="block font-semibold" style={{ color: "#805F0B" }}>{STORE_HOURS_LABEL}</span>
             </span>
           )}
         </div>
@@ -197,7 +215,7 @@ export default function ProductCatalog({
         className={`search-control flex w-full items-center gap-2 rounded-full px-3 ${compact ? "mb-3 py-2" : "mb-5 py-2.5"} sm:max-w-md`}
         style={{
           background: dark ? "#1E1C18" : "#fff",
-          border: `1.5px solid ${C.mustard}`,
+          border: `1.5px solid ${gold}`,
         }}
       >
         <span>{Ico.search}</span>
@@ -258,9 +276,9 @@ export default function ProductCatalog({
             )}
             <div
               className={`absolute bottom-0 left-0 right-0 ${compact ? "px-2 py-1.5" : "px-3 py-2.5"}`}
-              style={{ background: C.mustard }}
+              style={{ background: C.mustard, color: "#fff" }}
             >
-              <div className={`truncate font-bold leading-tight text-white ${compact ? "text-xs" : "text-sm"}`}>
+              <div className={`truncate font-bold leading-tight ${compact ? "text-xs" : "text-sm"}`}>
                 {p.name}
               </div>
             </div>
@@ -271,7 +289,7 @@ export default function ProductCatalog({
               {p.badge && (
                 <span
                   className={`font-label rounded-full px-2 py-0.5 font-bold ${compact ? "mb-1 text-[10px]" : "mb-2 text-xs"}`}
-                  style={{ background: C.mustard, color: "#fff" }}
+                  style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                 >
                   {p.badge}
                 </span>
@@ -294,8 +312,8 @@ export default function ProductCatalog({
                   event.stopPropagation()
                   openProduct(p)
                 }}
-                className={`cursor-pointer rounded-full font-bold text-white hover:opacity-90 disabled:cursor-not-allowed ${compact ? "px-3 py-1 text-xs" : "px-4 py-2 text-sm"}`}
-                style={{ background: C.mustard, opacity: p.soldOut ? 0.55 : 1 }}
+                className={`cursor-pointer rounded-full font-bold hover:opacity-90 disabled:cursor-not-allowed ${compact ? "px-3 py-1 text-xs" : "px-4 py-2 text-sm"}`}
+                style={{ background: C.mustard, color: "#fff", opacity: p.soldOut ? 0.55 : 1 }}
               >
                 {p.soldOut ? "Agotado" : "+ Agregar"}
               </button>
@@ -309,7 +327,7 @@ export default function ProductCatalog({
           <button
             disabled={pg === 0}
             onClick={() => goPage(pg - 1)}
-            className="pagination-control px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
+            className="pagination-control px-3 py-1.5 rounded-full text-sm cursor-pointer disabled:opacity-30"
             style={{
               background: dark
                 ? "rgba(255,255,255,0.08)"
@@ -323,16 +341,16 @@ export default function ProductCatalog({
             <button
               key={i}
               onClick={() => goPage(i)}
-              className="pagination-control w-8 h-8 rounded-lg text-sm font-bold cursor-pointer"
+              className="pagination-control w-8 h-8 rounded-full text-sm font-bold cursor-pointer"
               aria-current={i === pg ? "page" : undefined}
               style={{
                 background:
                   i === pg
-                    ? C.mustard
+                    ? gold
                     : dark
                       ? "rgba(255,255,255,0.08)"
                       : "rgba(30,30,30,0.08)",
-                color: i === pg ? "#fff" : MUTED,
+                color: i === pg ? goldInk : MUTED,
               }}
             >
               {i + 1}
@@ -341,7 +359,7 @@ export default function ProductCatalog({
           <button
             disabled={pg >= totalPages - 1}
             onClick={() => goPage(pg + 1)}
-            className="pagination-control px-3 py-1.5 rounded-lg text-sm cursor-pointer disabled:opacity-30"
+            className="pagination-control px-3 py-1.5 rounded-full text-sm cursor-pointer disabled:opacity-30"
             style={{
               background: dark
                 ? "rgba(255,255,255,0.08)"

@@ -443,7 +443,7 @@ export const MENU_CATS = [
   },
   {
     id: "perros",
-    label: "Perros Cal.",
+    label: "Perros",
     icon: (
       <>
         <rect x="2.5" y="8" width="19" height="4.6" rx="2.3" />

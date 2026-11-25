@@ -130,7 +130,7 @@ export default function LandingPage({
           <div className="max-w-[28rem]">
             <div
               className="landing-enter landing-enter-1 inline-flex items-center gap-2 mb-5 text-base font-semibold"
-              style={{ color: C.amber }}
+              style={{ color: "var(--landing-gold)" }}
             >
               <span className="mr-1 inline-flex align-middle">{Ico.fire}</span>
               <span >Desde 2013 en Bello, Antioquia</span>
@@ -150,7 +150,7 @@ export default function LandingPage({
             >
               <span style={{ fontSize: "1.02em" }}>EL SABOR QUE</span>
               <br />
-              <span style={{ color: C.mustard }}>TE REÚNE</span>
+              <span className="landing-gold-shimmer landing-gold-shimmer-hero">TE REÚNE</span>
             </h1>
             <p
               className="landing-enter landing-enter-3 mt-5 mb-8 text-lg sm:text-xl leading-relaxed"
@@ -165,16 +165,16 @@ export default function LandingPage({
             </p>
             <div className="landing-enter landing-enter-4 flex items-center gap-8 mt-8">
               {[
-                ["4.9", "Calificación"],
-                ["200+", "Reseñas"],
-                ["10+", "Años"],
+                ["4,4", "Calificación"],
+                ["77+", "Reseñas"],
+                ["13+", "Años"],
               ].map(([val, lbl], i) => (
                 <div key={lbl}>
                   <div
                     className="font-black text-2xl"
                     style={{
                       fontFamily: "League Spartan, sans-serif",
-                      color: C.amber,
+                      color: "var(--landing-gold)",
                     }}
                   >
                     {val}
@@ -197,14 +197,15 @@ export default function LandingPage({
         <div className="max-w-7xl mx-auto grid sm:grid-cols-2 gap-4">
           <div
             data-reveal
-            className="landing-reveal landing-promo-card landing-promo-delivery rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5"
+            className="landing-reveal landing-promo-card flex items-center gap-4 rounded-[2rem] border px-5 py-5 sm:gap-5 sm:rounded-full sm:px-8"
             style={{
-              background: dark ? "#211D17" : "#FFFDF7",
+              background: dark ? "#33231F" : "linear-gradient(120deg, #FFFCF4, #F8EAE4)",
+              borderColor: dark ? "#57362E" : "#EBD8D0",
             }}
           >
             <div
-              className="landing-icon-bounce flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ background: "rgba(58,109,94,0.11)", color: C.mustard }}
+              className="flex size-12 shrink-0 items-center justify-center rounded-full"
+              style={{ background: "#F4DDD5", color: C.red }}
             >
               {Ico.delivery}
             </div>
@@ -215,21 +216,22 @@ export default function LandingPage({
               >
                 Domicilios por toda la zona
               </div>
-              <div className="text-base mt-1 leading-relaxed" style={{ color: TEXT }}>
+              <div className="mt-1 text-sm leading-relaxed sm:text-base" style={{ color: TEXT }}>
                 Consulta la cobertura y el costo del envío al realizar tu pedido.
               </div>
             </div>
           </div>
           <div
             data-reveal
-            className="landing-reveal landing-promo-card landing-promo-onion rounded-2xl px-5 sm:px-6 py-5 flex items-center gap-4 sm:gap-5"
+            className="landing-reveal landing-promo-card landing-promo-onion flex items-center gap-4 rounded-[2rem] border px-5 py-5 sm:gap-5 sm:rounded-full sm:px-8"
             style={{
-              background: dark ? "#211D17" : "#FFFDF7",
+              background: dark ? "#32281A" : "linear-gradient(120deg, #FFFCF4, #F8EED5)",
+              borderColor: dark ? "#584729" : "#EADBB5",
             }}
           >
             <div
-              className="flex-shrink-0 w-12 h-12 rounded-xl flex items-center justify-center"
-              style={{ background: "rgba(165,65,49,0.1)", color: C.mustard }}
+              className="flex size-12 shrink-0 items-center justify-center rounded-full"
+              style={{ background: "#F3E4BD", color: "#805F0B" }}
             >
               {Ico.onion}
             </div>
@@ -240,9 +242,9 @@ export default function LandingPage({
               >
                 Cebolla Marinada
               </div>
-              <div className="text-base mt-1 leading-relaxed" style={{ color: TEXT }}>
-                Nuestra especialidad —{" "}
-                <strong style={{ color: C.red }}>100% Gratis</strong>.
+              <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm leading-relaxed sm:text-base" style={{ color: TEXT }}>
+                Nuestra especialidad
+                <strong className="rounded-full px-2.5 py-0.5 text-xs" style={{ background: "#F3E4BD", color: "#6C4E09" }}>100% gratis</strong>
               </div>
             </div>
           </div>
@@ -255,7 +257,7 @@ export default function LandingPage({
           <div className="mb-8">
             <div
               className="mb-2 text-lg font-semibold"
-              style={{ color: dark ? C.mustard : "#8D6910" }}
+              style={{ color: "var(--brand-gold)" }}
             >
               <span >Nuestro Menú</span>
             </div>
@@ -279,18 +281,17 @@ export default function LandingPage({
           />
           {cartCount > 0 && (
             <div
-              className="mt-6 flex items-center justify-between p-4 rounded-2xl"
-              style={{ background: C.mustard }}
+              className="mt-6 flex items-center justify-between gap-3 rounded-[2rem] px-4 py-4 sm:rounded-full sm:px-6"
+              style={{ background: "var(--brand-gold)", color: "var(--brand-gold-ink)" }}
             >
               <div className="flex items-center gap-3">
-                <span className="inline-flex text-white">{Ico.shopping}</span>
+                <span className="inline-flex">{Ico.shopping}</span>
                 <div>
-                  <div className="font-bold text-sm text-white">
+                  <div className="font-bold text-sm">
                     {cartCount} producto{cartCount > 1 ? "s" : ""} en tu carrito
                   </div>
                   <div
                     className="text-xs"
-                    style={{ color: "rgba(255,255,255,0.75)" }}
                   >
                     Listo para ordenar
                   </div>
@@ -298,8 +299,8 @@ export default function LandingPage({
               </div>
               <button
                 onClick={onCheckout}
-                className="px-5 py-2.5 rounded-xl font-bold text-sm cursor-pointer"
-                style={{ background: "#fff", color: C.mustard }}
+                className="shrink-0 cursor-pointer rounded-full px-4 py-2.5 text-sm font-bold sm:px-5"
+                style={{ background: "#fff", color: "var(--brand-gold-ink)" }}
               >
                 Ver carrito →
               </button>
@@ -325,7 +326,7 @@ export default function LandingPage({
               letterSpacing: "-0.02em",
             }}
           >
-            ¿Cómo <span style={{ color: C.mustard }}>funciona?</span>
+            ¿Cómo <span style={{ color: "var(--landing-gold)" }}>funciona?</span>
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
             {[
@@ -389,7 +390,7 @@ export default function LandingPage({
                   className="font-black text-5xl mb-4"
                   style={{
                     fontFamily: "League Spartan, sans-serif",
-                    color: [C.amber, "#E67B66", "#7FBBA8"][i],
+                    color: ["var(--brand-gold)", "#E67B66", "#7FBBA8"][i],
                   }}
                 >
                   {s.n}
@@ -421,7 +422,7 @@ export default function LandingPage({
         <div className="max-w-7xl mx-auto">
           <div
             className="mb-2 text-lg font-semibold"
-            style={{ color: dark ? C.mustard : "#8D6910" }}
+            style={{ color: "var(--brand-gold)" }}
           >
             Nuestra Historia
           </div>
@@ -440,7 +441,7 @@ export default function LandingPage({
               >
                 Más que un restaurante,
                 <br />
-                <span style={{ color: dark ? C.mustard : "#8D6910" }}>somos el parche</span>
+                <span style={{ color: "var(--brand-gold)" }}>somos el parche</span>
               </h2>
               <p
                 className="text-lg leading-relaxed mb-4"
@@ -471,12 +472,12 @@ export default function LandingPage({
                   className="landing-story-badge absolute bottom-4 right-4 rounded-2xl p-3 sm:p-4"
                 >
                   <div
-                    className="font-black text-xl sm:text-2xl text-white"
+                    className="font-black text-xl sm:text-2xl"
                     style={{ fontFamily: "League Spartan, sans-serif" }}
                   >
                     2013
                   </div>
-                  <div className="text-[11px] sm:text-xs text-white">
+                  <div className="text-[11px] sm:text-xs">
                     Fundados en Bello
                   </div>
                 </div>
@@ -512,7 +513,7 @@ export default function LandingPage({
               >
                 <div
                   className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl"
-                  style={{ background: `${C.mustard}1F`, color: C.mustard }}
+                  style={{ background: "rgb(212 175 55 / 12%)", color: "var(--brand-gold)" }}
                 >
                   {aboutIcon(24, v.icon)}
                 </div>
@@ -569,7 +570,7 @@ export default function LandingPage({
               >
                 <div
                   className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-full"
-                  style={{ background: `${C.mustard}1F`, color: C.mustard }}
+                  style={{ background: "rgb(212 175 55 / 12%)", color: "var(--brand-gold)" }}
                 >
                   {aboutIcon(26, m.icon)}
                 </div>
@@ -601,7 +602,7 @@ export default function LandingPage({
               letterSpacing: "-0.02em",
             }}
           >
-            ¿Listo para <span style={{ color: C.mustard }}>pedir?</span>
+            ¿Listo para <span style={{ color: "var(--landing-gold)" }}>pedir?</span>
           </h2>
           <p
             className="mb-8 text-lg"
@@ -618,7 +619,6 @@ export default function LandingPage({
                   ?.scrollIntoView({ behavior: "smooth" })
               }
               className="landing-order-button landing-order-button-story px-8 py-4 rounded-2xl font-bold text-base cursor-pointer"
-              style={{ background: C.mustard, color: "#fff" }}
             >
               Ver el menú
             </button>
@@ -660,7 +660,7 @@ export default function LandingPage({
                   className="font-black text-xl leading-tight"
                   style={{
                     fontFamily: "League Spartan, sans-serif",
-                    color: C.mustard,
+                    color: "var(--landing-gold)",
                   }}
                 >
                   El Parche
@@ -723,22 +723,22 @@ export default function LandingPage({
               </h4>
               <ul className="flex flex-col gap-3 text-base">
                 <li className="flex gap-2.5 items-start">
-                  <span className="mt-0.5" style={{ color: C.amber }}>{Ico.mapPin}</span>
+                  <span className="mt-0.5" style={{ color: "var(--landing-gold)" }}>{Ico.mapPin}</span>
                   <span style={{ color: "rgba(250,243,224,0.8)" }}>
                     051053, Cra. 58A #42c-28, Bello, Antioquia
                   </span>
                 </li>
                 <li className="flex gap-2.5 items-center">
-                  <span style={{ color: C.amber }}>{Ico.phone}</span>
-                  <a href="tel:+573206332670" style={{ color: C.amber }}>
+                  <span style={{ color: "var(--landing-gold)" }}>{Ico.phone}</span>
+                  <a href="tel:+573206332670" style={{ color: "var(--landing-gold)" }}>
                     320 633 2670
                   </a>
                 </li>
                 <li className="flex gap-2.5 items-center">
-                  <span style={{ color: C.amber }}>{Ico.mail}</span>
+                  <span style={{ color: "var(--landing-gold)" }}>{Ico.mail}</span>
                   <a
                     href="mailto:Elparchedelasminiburguers@gmail.com"
-                    style={{ color: C.amber }}
+                    style={{ color: "var(--landing-gold)" }}
                   >
                     Elparchedelasminiburguers@gmail.com
                   </a>
@@ -769,7 +769,7 @@ export default function LandingPage({
                   </span>
                   <span
                     className="text-base font-semibold"
-                    style={{ color: C.amber }}
+                    style={{ color: "var(--landing-gold)" }}
                   >
                     {STORE_HOURS_LABEL}
                   </span>
@@ -906,8 +906,7 @@ export default function LandingPage({
       <button
         type="button"
         onClick={goToMenu}
-        className="landing-order-button landing-order-button-floating fixed bottom-28 left-4 right-20 z-40 rounded-full py-3 text-sm font-bold text-white shadow-lg sm:hidden"
-        style={{ background: C.mustard }}
+        className="landing-order-button landing-order-button-floating fixed bottom-28 left-4 right-20 z-40 rounded-full py-3 text-sm font-bold shadow-lg sm:hidden"
       >
         Pide Ahora
       </button>

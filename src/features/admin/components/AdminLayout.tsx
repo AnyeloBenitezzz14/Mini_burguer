@@ -60,6 +60,9 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
     unreadNotifications,
     user,
   } = adminState
+  const headerButtonBg = dark ? "#30271C" : "#F1E5CF"
+  const headerButtonActiveBg = dark ? "#443524" : "#EAD8B6"
+
   return (
     <div
       className="admin-panel flex h-screen overflow-hidden"
@@ -93,7 +96,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         } ${sidebarCollapsed ? "lg:w-[72px]" : ""}`}
         style={{
-          background: t.sidebarBg,
+          background: dark ? t.sidebarBg : `linear-gradient(180deg, ${t.sidebarBg} 0%, #fff 18%, #fff 79%, ${t.sidebarBg} 100%)`,
           borderRight: `1px solid ${t.sidebarBd}`,
           flexShrink: 0,
         }}
@@ -105,7 +108,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
         <header
-          className="admin-header flex items-center gap-3 px-4 py-3 flex-shrink-0"
+          className="admin-header flex h-[var(--admin-header-height)] shrink-0 items-center gap-3 px-4"
           style={{ background: t.hdrBg, borderBottom: `1px solid ${t.hdrBd}` }}
         >
           {/* Phones: slides the menu in; desktop: shows or hides the menu's labels */}
@@ -139,7 +142,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
               aria-label={orderSound ? "Silenciar el sonido de pedidos nuevos" : "Activar el sonido de pedidos nuevos"}
               title={orderSound ? "Sonido de pedidos nuevos: activado" : "Sonido de pedidos nuevos: silenciado"}
               className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl"
-              style={{ background: t.input, color: orderSound ? C.mustard : t.muted }}
+              style={{ background: headerButtonBg, color: orderSound ? "var(--admin-heading-gold)" : t.muted }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M11 5 6 9H3v6h3l5 4V5Z" />
@@ -160,8 +163,8 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
                 }}
                 className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-xl"
                 style={{
-                  background: notificationsOpen ? t.inputB : t.input,
-                  color: notificationsOpen ? C.mustard : t.muted,
+                  background: notificationsOpen ? headerButtonActiveBg : headerButtonBg,
+                  color: notificationsOpen ? "var(--admin-heading-gold)" : t.muted,
                 }}
               >
                 <span className={`flex ${unreadNotifications > 0 ? "admin-bell-ring" : ""}`}>{Ico.bell}</span>
@@ -319,8 +322,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
               title={dark ? "Modo claro" : "Modo oscuro"}
               className="w-8 h-8 flex items-center justify-center rounded-xl cursor-pointer"
               style={{
-                background: t.input,
-                border: `1px solid ${t.inputB}`,
+                background: headerButtonBg,
                 color: t.muted,
               }}
             >
@@ -331,7 +333,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
             <button
               onClick={onSwitchToClient}
               className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
-              style={{ background: C.mustard, color: "#fff" }}
+              style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
             >
               {Ico.globe} {user ? "App" : "Sitio"}
             </button>
@@ -342,7 +344,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
                   setNotificationsOpen(false)
                 }}
                 className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm cursor-pointer"
-                style={{ background: C.mustard, color: "#fff" }}
+                style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
               >
                 {user?.name?.charAt(0) ?? "A"}
               </button>
@@ -470,7 +472,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
               setNewOrderToast(null)
             }}
             className="cursor-pointer rounded-xl px-3 py-1.5 text-xs font-bold"
-            style={{ background: C.mustard, color: "#fff" }}
+            style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
           >
             Ver
           </button>

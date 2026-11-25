@@ -125,7 +125,7 @@ export default function RegisterPage({
             type="submit"
             disabled={busy}
             className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
-            style={{ background: C.mustard, color: "#fff" }}
+            style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
           >
             {busy ? "Verificando..." : "Verificar y crear cuenta"}
           </button>
@@ -320,7 +320,7 @@ export default function RegisterPage({
               type="submit"
               disabled={busy}
               className="w-full py-2.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
-              style={{ background: C.mustard, color: "#fff" }}
+              style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
             >
               {busy ? "Creando cuenta..." : "Crear cuenta →"}
             </button>
