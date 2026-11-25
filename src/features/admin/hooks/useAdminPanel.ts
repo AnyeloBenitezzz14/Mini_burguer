@@ -1309,6 +1309,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         ...(String(draft["7"] ?? "").toLowerCase() === "sí"
           ? ["8", "9"]
           : ["8", "9", "10", "11"]),
+        // Precio de venta y porción: only for the ones made here, optional, checked when saving
+        "15",
+        "16",
       ],
       producto: ["5", "6", "7", "8", "10", ...(draft["1"] === ADDITION_PRODUCT ? ["3"] : [])],
       produccion: ["0", "1", "15"],
