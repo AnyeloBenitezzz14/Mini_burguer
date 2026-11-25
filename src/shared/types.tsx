@@ -54,7 +54,6 @@ export type DeliveryInfo = {
   pago: string
   voucher?: string
   // The bank's reference and the amount sent, checked by the backend's validator
-  voucherRef?: string
   voucherAmount?: number
 }
 

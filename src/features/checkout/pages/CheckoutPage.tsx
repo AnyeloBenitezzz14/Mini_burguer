@@ -28,6 +28,7 @@ import type { CartItem, DeliveryEstimate, DeliveryInfo, DeliveryNeighborhood, Pr
 import { EMPTY_CHECKOUT_ADDRESS_PARTS, SHOP_LOCATION, STREET_TYPES, addressPartsFromAddress, composeDeliveryAddress, composeStreetAddress, distanceKm, isKnownBelloNeighborhood } from "@/shared/utils/address"
 import type { CheckoutAddressParts } from "@/shared/utils/address"
 import { fmt, formatDuration } from "@/shared/utils/format"
+import { appAlert } from "@/shared/components/AppDialog"
 import { DOC_TYPES, digitsOnly, normalizeAccountDocumentInput, validatePhoneNumber } from "@/shared/utils/validation"
 
 // ── Checkout Page (split: cart+form | auth) ────────────────────────────────────
@@ -39,6 +40,7 @@ export default function CheckoutPage({
   onBack,
   onPlaceOrder,
   onComplete,
+  onForgot,
 }: {
   cart: CartItem[]
   setCart: React.Dispatch<React.SetStateAction<CartItem[]>>
@@ -47,6 +49,7 @@ export default function CheckoutPage({
   onBack: () => void
   onPlaceOrder: (info: DeliveryInfo, saveAddress: boolean) => Promise<number | void>
   onComplete: () => void
+  onForgot: () => void
 }) {
   const [cartNotice, showCartNotice] = useCartNotice()
   const [authTab, setAuthTab] = useState<"login" | "register">("login")
@@ -326,8 +329,7 @@ export default function CheckoutPage({
     setSaveAddress(!hasSavedAddress)
   }, [user])
   const [voucher, setVoucher] = useState("")
-  // What the validator checks: the bank's reference and the amount sent
-  const [voucherRef, setVoucherRef] = useState("")
+  // What the validator checks: the amount sent
   const [voucherAmount, setVoucherAmount] = useState("")
   const [ordered, setOrdered] = useState(false)
   const [placedTotal, setPlacedTotal] = useState(0)
@@ -343,9 +345,35 @@ export default function CheckoutPage({
   const [orderError, setOrderError] = useState("")
   const [placing, setPlacing] = useState(false)
   const [showOutOfRangeDialog, setShowOutOfRangeDialog] = useState(false)
+  // Everything still missing to place the order, each with why (shown together in one alert)
+  const missingForOrder = () => {
+    const r: string[] = []
+    if (!delivForm.nombre.trim()) r.push("Escribe el nombre de quien recibe el pedido.")
+    const phoneError = validatePhoneNumber(delivForm.telefono)
+    if (phoneError) r.push(`Teléfono: ${phoneError}`)
+    if (isDelivery) {
+      if (!delivForm.direccion.trim() || !addressPartsValid) r.push("Completa la dirección de entrega (tipo de vía, número y placa) para saber a dónde llevarlo.")
+      if (!selectedNeighborhood && !geocodedInsideBello) r.push("Elige tu barrio: con él calculamos el costo y el tiempo del domicilio.")
+      else if (deliveryEstimate.status === "error") r.push("No pudimos calcular el costo del domicilio: toca «Reintentar» en el resumen del pedido.")
+      else if (neighborhoodsLoading || !deliveryCostConfigured) r.push("Aún estamos calculando el costo del domicilio. Espera unos segundos y vuelve a intentarlo.")
+    }
+    if (deposit && !needsVoucher)
+      r.push(`Tu pedido es de ${fmt(orderTotal)}: desde ${fmt(APPROVAL_MIN)} se paga el 50% por adelantado con transferencia. Elige Nequi o Bancolombia.`)
+    if (needsVoucher) {
+      if (!voucher) r.push(`Sube la captura del comprobante de tu pago por ${delivForm.pago}: sin él no podemos confirmar el pago.`)
+      if (!(Number(voucherAmount) > 0)) r.push("Escribe el valor que transferiste.")
+      else if (deliveryCostConfigured && Number(voucherAmount) < toPay) r.push(`El valor transferido no alcanza: debes transferir ${fmt(toPay)}.`)
+    }
+    return r
+  }
+  const alertMissing = (r: string[]) =>
+    appAlert(r.map((line) => `• ${line}`).join("\n"), r.length === 1 ? "Te falta algo para hacer el pedido" : `Te faltan ${r.length} cosas para hacer el pedido`)
   const placeOrder = async () => {
     setDeliveryTried(true)
-    if (placing || !user || !delivFilled || !deliveryCostConfigured || !payReady || cart.length === 0) return
+    if (placing || !user || cart.length === 0) return
+    const missing = missingForOrder()
+    if (missing.length) return alertMissing(missing)
+    if (!delivFilled || !deliveryCostConfigured || !payReady) return
     setOrderError("")
     setPlacing(true)
     try {
@@ -364,7 +392,6 @@ export default function CheckoutPage({
             : undefined,
           costoDomicilio: isDelivery ? displayedDeliveryCost : 0,
           voucher: needsVoucher ? voucher : undefined,
-          voucherRef: needsVoucher ? voucherRef.trim() : undefined,
           voucherAmount: needsVoucher ? Number(voucherAmount) || undefined : undefined,
         },
         isDelivery && (saveAddress || !(user.addresses?.length)),
@@ -377,19 +404,20 @@ export default function CheckoutPage({
       setOrdered(true)
     } catch (err) {
       setOrderError((err as Error).message)
+      appAlert((err as Error).message, "No pudimos hacer tu pedido")
     } finally {
       setPlacing(false)
     }
   }
   const continueToReview = () => {
     setDeliveryTried(true)
-    if (!customerInfoFilled || !payReady) return
-    if (isDelivery && neighborhoodsLoading) return
     if (neighborhoodOutOfRange) {
       setShowOutOfRangeDialog(true)
       return
     }
-    if (!delivFilled || !deliveryCostConfigured) return
+    const missing = missingForOrder()
+    if (missing.length) return alertMissing(missing)
+    if (!delivFilled || !deliveryCostConfigured || !payReady) return
     setCheckoutStep(3)
   }
   // Nequi / Bancolombia must attach the payment receipt before continuing
@@ -408,7 +436,7 @@ export default function CheckoutPage({
   const deposit = orderTotal >= APPROVAL_MIN
   const depositAmount = depositOf(orderTotal)
   const toPay = deposit ? depositAmount : orderTotal
-  const voucherComplete = !!voucher && voucherRef.trim().length >= 3 && Number(voucherAmount) >= toPay
+  const voucherComplete = !!voucher && Number(voucherAmount) >= toPay
   const payReady = (!needsVoucher || voucherComplete) && !(deposit && !needsVoucher)
   const neighborhoodOutOfRange =
     isDelivery &&
@@ -563,7 +591,8 @@ export default function CheckoutPage({
       : {
           label: placing ? "Enviando pedido..." : "Confirmar pedido",
           onClick: placeOrder,
-          disabled: placing || !hasActiveItems || !canOrder || !payReady,
+          // Not disabled when something is missing: pressing it says what and why
+          disabled: placing || !hasActiveItems,
         }
 
   if (ordered)
@@ -875,6 +904,14 @@ export default function CheckoutPage({
                       onBlur={touchLogin("pass")}
                       error={loginErrors.pass}
                     />
+                    <button
+                      type="button"
+                      onClick={onForgot}
+                      className="cursor-pointer self-end text-xs"
+                      style={{ color: C.mustard }}
+                    >
+                      ¿Olvidaste tu contraseña?
+                    </button>
                     <FieldError msg={serverErr} />
                     <button
                       type="submit"
@@ -1495,7 +1532,7 @@ export default function CheckoutPage({
                         <ol className="list-decimal space-y-1 pl-4 text-xs" style={{ color: MUTED }}>
                           <li>Escanea el QR o transfiere a la cuenta o a una de las llaves.</li>
                           <li>{deposit ? `Paga el abono exacto (${fmt(depositAmount)}); el saldo (${fmt(orderTotal - depositAmount)}) al recibir.` : "Paga el total exacto."}</li>
-                          <li>Sube la captura del comprobante con su referencia.</li>
+                          <li>Sube la captura del comprobante y escribe el valor que transferiste.</li>
                         </ol>
                       </div>
                       <PaymentAccounts amount={deliveryCostConfigured ? `${fmt(toPay)}${deposit ? " (abono 50%)" : ""}` : "Por confirmar"} />
@@ -1506,7 +1543,7 @@ export default function CheckoutPage({
                           if (!voucherAmount && deliveryCostConfigured) setVoucherAmount(String(toPay))
                         }}
                         onRemove={() => setVoucher("")}
-                        reference={{ code: voucherRef, amount: voucherAmount, expected: deliveryCostConfigured ? toPay : undefined, onCode: setVoucherRef, onAmount: setVoucherAmount }}
+                        reference={{ amount: voucherAmount, expected: deliveryCostConfigured ? toPay : undefined, onAmount: setVoucherAmount }}
                       />
                     </div>
                   )}

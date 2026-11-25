@@ -2,7 +2,7 @@ import { readVoucher } from "@/features/orders/services/orders.service"
 import { C } from "@/shared/styles/theme"
 
 // Payment proof picker. With `onRemove`, a chosen image can be taken back (a wrong screenshot, say).
-// With `reference`, also asks for the bank's reference and the amount sent (what the validator checks).
+// With `reference`, also asks for the amount sent (what the validator checks).
 export default function VoucherInput({
   value,
   onChange,
@@ -15,10 +15,8 @@ export default function VoucherInput({
   onRemove?: () => void
   label?: string
   reference?: {
-    code: string
     amount: string
     expected?: number
-    onCode: (v: string) => void
     onAmount: (v: string) => void
   }
 }) {
@@ -58,18 +56,7 @@ export default function VoucherInput({
         )}
       </div>
       {reference && (
-        <div className="grid gap-2 sm:grid-cols-2">
-          <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: "rgba(30,30,30,0.6)" }}>
-            Referencia o número de aprobación *
-            <input
-              type="text"
-              value={reference.code}
-              onChange={(e) => reference.onCode(e.target.value.slice(0, 40))}
-              placeholder="Ej.: M1234567"
-              className="rounded-xl px-3 py-2 text-sm outline-none"
-              style={{ background: "#fff", border: "1.5px solid rgba(30,30,30,0.15)" }}
-            />
-          </label>
+        <div className="grid gap-2">
           <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: "rgba(30,30,30,0.6)" }}>
             Valor que transferiste *
             <input
@@ -84,10 +71,10 @@ export default function VoucherInput({
             />
           </label>
           {reference.expected ? (
-            <span className="text-[11px] sm:col-span-2" style={{ color: short ? C.red : "rgba(30,30,30,0.55)" }}>
+            <span className="text-[11px]" style={{ color: short ? C.red : "rgba(30,30,30,0.55)" }}>
               {short
                 ? `No alcanza: debes transferir ${fmtCOP(reference.expected)}.`
-                : `Debes transferir ${fmtCOP(reference.expected)}. Revisamos que la referencia y la imagen no se hayan usado en otro pedido.`}
+                : `Debes transferir ${fmtCOP(reference.expected)}. Revisamos que la imagen no se haya usado en otro pedido.`}
             </span>
           ) : null}
         </div>

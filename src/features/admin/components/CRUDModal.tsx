@@ -6073,7 +6073,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Validador de la transferencia</div>
                             {last.reference || last.amount ? (
                               <ul className="flex flex-col gap-1">
-                                {check(true, `Referencia ${last.reference ?? "—"}: no se ha usado en otro pedido`)}
+                                {last.reference && check(true, `Referencia ${last.reference}: no se ha usado en otro pedido`)}
                                 {check(true, "La imagen no se repite en otro pedido")}
                                 {check((last.amount ?? 0) >= owed, `Valor transferido ${fmt(last.amount ?? 0)} · debe ${fmt(owed)}${deposit ? (String(row?.[8]) === "Abonado" ? " (saldo)" : " (abono 50%)") : ""}`)}
                                 {check(null, "Confírmalo en la app del banco (referencia y valor) antes de aprobar")}
