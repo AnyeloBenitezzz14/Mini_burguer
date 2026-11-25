@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import SiteFooter from "@/features/landing/components/SiteFooter"
+import { LICENSE_LOGOS } from "@/features/landing/data/licenseLogos"
 import { LICENSE_GROUPS, type LicenseClass } from "@/features/landing/data/licenses"
 import SiteHeader from "@/shared/components/SiteHeader"
 import { C } from "@/shared/styles/theme"
@@ -119,18 +120,40 @@ export default function LicensesPage({
                   className="landing-info-card flex min-w-0 flex-col rounded-2xl p-6"
                   style={{ background: CARD, border: `1px solid ${BORDER}` }}
                 >
-                  {/* 1 Tecnología */}
-                  <h3
-                    className="landing-display-title break-words text-xl font-black leading-tight"
-                    style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
-                  >
-                    {tech.name}
-                  </h3>
-                  {tech.version && (
-                    <div className="mt-1 text-sm tabular-nums" style={{ color: MUTED }}>
-                      Versión {tech.version}
+                  {/* 1 Tecnología: its logo in the landing's gold tile (its initials when there is no logo) */}
+                  <div className="flex min-w-0 items-start gap-4">
+                    <span
+                      className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl"
+                      style={{ background: `${C.mustard}1F`, color: ACCENT }}
+                    >
+                      {tech.logo && LICENSE_LOGOS[tech.logo] ? (
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" role="img" aria-label={`Logo de ${tech.name}`}>
+                          <path d={LICENSE_LOGOS[tech.logo]} />
+                        </svg>
+                      ) : (
+                        <span
+                          aria-hidden="true"
+                          className="text-base font-black"
+                          style={{ fontFamily: "League Spartan, sans-serif" }}
+                        >
+                          {tech.mono ?? tech.name.slice(0, 2)}
+                        </span>
+                      )}
+                    </span>
+                    <div className="min-w-0 pt-0.5">
+                      <h3
+                        className="landing-display-title break-words text-xl font-black leading-tight"
+                        style={{ fontFamily: "League Spartan, sans-serif", color: TEXT }}
+                      >
+                        {tech.name}
+                      </h3>
+                      {tech.version && (
+                        <div className="mt-1 text-sm tabular-nums" style={{ color: MUTED }}>
+                          Versión {tech.version}
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
                   <dl className="mt-4 flex flex-1 flex-col gap-3">
                     {/* 2 Tipo de licencia */}
                     <div>
@@ -165,8 +188,12 @@ export default function LicensesPage({
                           className="break-words text-base font-semibold underline underline-offset-4 hover:opacity-70"
                           style={{ color: ACCENT }}
                         >
-                          {tech.classification === "Servicio en la nube" ? "Ver términos oficiales" : tech.classification === "Estándar abierto" ? "Ver el estándar" : "Ver licencia oficial"} ↗
+                          {tech.classification === "Servicio en la nube" ? "Ver términos oficiales" : tech.classification === "Estándar abierto" ? "Ver licencia del estándar" : "Ver licencia oficial"} ↗
                         </a>
+                        {/* Where it leads: projects that only publish their license in their own repository */}
+                        <span className="mt-0.5 block text-xs" style={{ color: MUTED }}>
+                          {/github\.com/.test(tech.url) ? "En el repositorio oficial del proyecto" : "En el sitio oficial"}
+                        </span>
                       </dd>
                     </div>
                   </dl>
@@ -179,6 +206,7 @@ export default function LicensesPage({
         <p className="mt-14 text-sm" style={{ color: MUTED }}>
           Las versiones corresponden a las dependencias instaladas en el frontend y el backend del aplicativo. Las
           licencias de cada paquete aplican al software; los servicios en la nube se rigen por sus propios términos.
+          Los logos son de Simple Icons (CC0) y las marcas pertenecen a sus respectivos dueños.
         </p>
       </main>
       <SiteFooter onLicenses={() => window.scrollTo({ top: 0, behavior: "smooth" })} />
