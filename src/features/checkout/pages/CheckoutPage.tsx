@@ -32,6 +32,25 @@ import { appAlert } from "@/shared/components/AppDialog"
 import { DOC_TYPES, digitsOnly, normalizeAccountDocumentInput, validatePhoneNumber } from "@/shared/utils/validation"
 
 // ── Checkout Page (split: cart+form | auth) ────────────────────────────────────
+// What was typed in the checkout, kept in this tab so a reload doesn't lose it (cleared once the order is placed)
+const DRAFT_KEY = "checkout-draft"
+type CheckoutDraft = {
+  step?: 1 | 2 | 3
+  delivForm?: { nombre: string; telefono: string; direccion: string; notas: string; pago: string }
+  deliveryMethod?: DeliveryInfo["tipoEntrega"]
+  addressParts?: CheckoutAddressParts
+  deliverToOtherPerson?: boolean
+  voucher?: string
+  voucherAmount?: string
+}
+const readDraft = (): CheckoutDraft => {
+  try {
+    return JSON.parse(sessionStorage.getItem(DRAFT_KEY) || "{}")
+  } catch {
+    return {}
+  }
+}
+
 export default function CheckoutPage({
   cart,
   setCart,
@@ -66,21 +85,22 @@ export default function CheckoutPage({
   })
   const [registrationPending, setRegistrationPending] = useState(false)
   const [registrationCode, setRegistrationCode] = useState("")
-  const [delivForm, setDelivForm] = useState({
+  const [draft] = useState(readDraft)
+  const [delivForm, setDelivForm] = useState(() => draft.delivForm ?? {
     nombre: "",
     telefono: "",
     direccion: "",
     notas: "",
     pago: "Efectivo",
   })
-  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryInfo["tipoEntrega"]>("domicilio")
+  const [deliveryMethod, setDeliveryMethod] = useState<DeliveryInfo["tipoEntrega"]>(draft.deliveryMethod ?? "domicilio")
   const isDelivery = deliveryMethod === "domicilio"
   const deliveryMethodLabel =
     deliveryMethod === "recoger"
         ? "Recoger pedido"
         : "Pedir a domicilio"
   // The backend still receives one formatted address string.
-  const [addressParts, setAddressParts] = useState<CheckoutAddressParts>(EMPTY_CHECKOUT_ADDRESS_PARTS)
+  const [addressParts, setAddressParts] = useState<CheckoutAddressParts>(draft.addressParts ?? EMPTY_CHECKOUT_ADDRESS_PARTS)
   const [addressRetry, setAddressRetry] = useState(0)
   const fallbackNeighborhoods: DeliveryNeighborhood[] = BELLO_NEIGHBORHOODS.map((nombre) => ({
     id_barrio: null,
@@ -297,7 +317,7 @@ export default function CheckoutPage({
     const interval = window.setInterval(() => setEstimateRefresh((value) => value + 1), 30_000)
     return () => window.clearInterval(interval)
   }, [user?.email])
-  const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(false)
+  const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(!!draft.deliverToOtherPerson)
   const [saveAddress, setSaveAddress] = useState(
     () => !(user?.addresses?.length),
   )
@@ -322,19 +342,32 @@ export default function CheckoutPage({
       telefono: f.telefono || user.phone || "",
       direccion: f.direccion || user.addresses?.[0] || "",
     }))
+    // After a reload the address the client was typing stays (not the saved one)
+    if (draft.addressParts) return
     const savedAddress = user.addresses?.[0] || ""
     const savedParts = savedAddress ? addressPartsFromAddress(savedAddress) : EMPTY_CHECKOUT_ADDRESS_PARTS
     setAddressParts(savedParts)
     setEditingAddress(!hasSavedAddress)
     setSaveAddress(!hasSavedAddress)
   }, [user])
-  const [voucher, setVoucher] = useState("")
+  const [voucher, setVoucher] = useState(draft.voucher ?? "")
   // What the validator checks: the amount sent
-  const [voucherAmount, setVoucherAmount] = useState("")
+  const [voucherAmount, setVoucherAmount] = useState(draft.voucherAmount ?? "")
   const [ordered, setOrdered] = useState(false)
   const [placedTotal, setPlacedTotal] = useState(0)
   // Everybody (guest, client, admin, employee) starts by reviewing the cart
-  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(1)
+  const [checkoutStep, setCheckoutStep] = useState<1 | 2 | 3>(user && draft.step ? draft.step : 1)
+  useEffect(() => {
+    try {
+      if (ordered) sessionStorage.removeItem(DRAFT_KEY)
+      else
+        sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
+          step: checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount,
+        } satisfies CheckoutDraft))
+    } catch {
+      // Storage full or blocked: the checkout still works, it just won't survive a reload
+    }
+  }, [ordered, checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount])
   // Guests see only their cart until they press "Hacer pedido"
   const [showAuth, setShowAuth] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)

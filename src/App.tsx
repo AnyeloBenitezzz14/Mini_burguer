@@ -24,12 +24,20 @@ import type { AuthData, CartItem, DbRecord, Order, Page, User } from "@/shared/t
 import { clearSession, getToken, loadLS, loadSession, saveLS, saveSession } from "@/shared/utils/storage"
 
 // ── App Root ───────────────────────────────────────────────────────────────────
+// Pages a reload can reopen without an account («reset» needs the email typed before, so it isn't one)
+const GUEST_PAGES: Page[] = ["checkout", "guest-menu", "login", "register", "forgot"]
 function AppRoutes() {
   // A reload opens this tab's account at once (saved in the tab); the backend confirms it right after
   const [user, setUser] = useState<User | null>(() => (getToken() ? loadSession<User | null>("user", null) : null))
-  const [page, setPage] = useState<Page>(() => (user ? (sessionStorage.getItem("page") || "app") as Page : "landing"))
-  // The cart is kept in the browser: one per account ("cart:<email>") and one for guests ("cart")
-  const [cart, setCart] = useState<CartItem[]>(() => loadLS("cart", []))
+  // A reload stays on the same page (a guest too, on the pages it can reach without an account)
+  const [page, setPage] = useState<Page>(() => {
+    const last = sessionStorage.getItem("page") as Page | null
+    if (user) return last || "app"
+    return last && (GUEST_PAGES as string[]).includes(last) ? last : "landing"
+  })
+  // The cart is kept in the browser: one per account ("cart:<email>") and one for guests ("cart").
+  // A reload with a session reads the account's (reading the guest one here wiped the account's cart)
+  const [cart, setCart] = useState<CartItem[]>(() => loadLS(user ? `cart:${user.email.toLowerCase()}` : "cart", []))
   const [forgotEmail, setForgotEmail] = useState("")
   const [, setOrdersVersion] = useState(0)
   const [clientView, setClientView] = useState<"menu" | "orders">("menu")
@@ -158,8 +166,8 @@ function AppRoutes() {
       .catch((err: Error) => { if (!/conectar/i.test(err.message)) logout() })
   }, [])
   useEffect(() => {
-    if (user) sessionStorage.setItem("page", page)
-  }, [page, user])
+    sessionStorage.setItem("page", page)
+  }, [page])
   useEffect(() => {
     if (user) saveSession("user", { ...user, password: undefined })
   }, [user])
