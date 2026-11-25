@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { aboutIcon } from "@/features/landing/utils/aboutIcons"
-import { MENU_CATS, SODA_RE, allMenuProducts, sizeMl } from "@/features/menu/data/products"
+import { MENU_CATS, SODA_RE, allMenuProducts, beverageImage, sizeMl } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { Ico } from "@/shared/components/icons"
 import { ITEMS_PER_PAGE } from "@/shared/constants"
@@ -90,9 +90,21 @@ export default function ProductCatalog({
         role="tablist"
         aria-label="Categorías del menú"
       >
-        {MENU_CATS.filter((cat) => cat.id !== "salsas" && (cat.id === "todos" || catalogProducts.some((p) => p.cat === cat.id))).map((cat) => {
+        {MENU_CATS.filter((cat) => cat.id !== "salsas" && (cat.id === "todos" || catalogProducts.some((p) => p.cat === cat.id))).map((cat, _i, cats) => {
           const active = activeCat === cat.id
-          const photo = (cat.id === "todos" ? catalogProducts : catalogProducts.filter((p) => p.cat === cat.id)).find((p) => p.img)?.img
+          // «Todos» shows its grid icon; each category takes a photo no earlier tab already used
+          const used = new Set<string>()
+          let photo: string | undefined
+          for (const c of cats) {
+            if (c.id === "todos") continue
+            // Drinks are pictured by a Coca-Cola (the bundled personal bottle if its product has no photo)
+            const pick =
+              c.id === "bebidas"
+                ? catalogProducts.find((p) => p.cat === "bebidas" && /coca-cola/i.test(p.name) && p.img)?.img ?? beverageImage("Coca-Cola", "Personal")
+                : catalogProducts.find((p) => p.cat === c.id && p.img && !used.has(p.img))?.img
+            if (pick) used.add(pick)
+            if (c.id === cat.id) { photo = pick; break }
+          }
           return (
             <button
               key={cat.id}

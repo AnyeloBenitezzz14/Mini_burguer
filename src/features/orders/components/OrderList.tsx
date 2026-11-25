@@ -1,4 +1,6 @@
-import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { useEffect, useRef, useState } from "react"
+import { visiblePaginationPages } from "@/features/menu/utils/pagination"
+import { ORDER_STEPS, clientPaymentLabel, clientStatusLabel, isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { Order } from "@/shared/types"
 import { fmt, formatDuration } from "@/shared/utils/format"
@@ -15,6 +17,19 @@ export default function OrderList({
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.09)"
+  // 5 orders per page, newest first (as they come)
+  const PER_PAGE = 5
+  const [page, setPage] = useState(0)
+  const totalPages = Math.max(1, Math.ceil(orders.length / PER_PAGE))
+  const current = Math.min(page, totalPages - 1)
+  const top = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (page > totalPages - 1) setPage(totalPages - 1)
+  }, [page, totalPages])
+  const goTo = (next: number) => {
+    setPage(next)
+    top.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
   if (orders.length === 0)
     return (
       <div className="text-center py-10 text-sm" style={{ color: MUTED }}>
@@ -30,8 +45,8 @@ export default function OrderList({
   }
 
   return (
-    <div className="space-y-3">
-      {orders.map((o) => {
+    <div ref={top} className="space-y-3 scroll-mt-24">
+      {orders.slice(current * PER_PAGE, (current + 1) * PER_PAGE).map((o) => {
         const badge = badgeSt(o.status)
         const paymentStatus =
           o.paymentStatus ??
@@ -49,6 +64,15 @@ export default function OrderList({
               border: `1px solid ${BORDER}`,
             }}
           >
+            {paymentStatus === "Rechazado" && (
+              <div role="alert" className="mb-4 rounded-xl px-4 py-3 text-sm" style={{ background: `${C.red}12`, color: C.red, border: `1px solid ${C.red}33` }}>
+                <strong className="block">Comprobante rechazado, intenta mandar otro comprobante</strong>
+                {o.paymentRejectionReason && <span className="mt-1 block">{o.paymentRejectionReason}</span>}
+                <button type="button" onClick={() => onSelect(o)} className="mt-2 cursor-pointer text-xs font-bold underline">
+                  Subir otro comprobante
+                </button>
+              </div>
+            )}
             <div className="mb-4 border-b pb-3" style={{ borderColor: BORDER }}>
               <OrderProgress status={o.status} dark={dark} />
             </div>
@@ -75,7 +99,7 @@ export default function OrderList({
                   className="rounded-full px-3 py-1.5 text-sm font-semibold"
                   style={{ background: badge?.bg, color: badge?.color }}
                 >
-                  {o.status}
+                  {clientStatusLabel(o.status)}
                 </span>
                 {paymentStatus !== "Pendiente" && (
                   <span
@@ -89,7 +113,7 @@ export default function OrderList({
                             : C.mustard,
                     }}
                   >
-                    Pago: {paymentStatus}
+                    {clientPaymentLabel(paymentStatus)}
                   </span>
                 )}
               </div>
@@ -158,6 +182,38 @@ export default function OrderList({
           </div>
         )
       })}
+      {totalPages > 1 && (
+        <nav aria-label="Páginas de pedidos" className="flex flex-wrap items-center justify-between gap-3 pt-2">
+          <span className="text-xs" style={{ color: MUTED }}>
+            {orders.length} pedidos · página {current + 1} de {totalPages}
+          </span>
+          <div className="flex items-center gap-1.5">
+            {[
+              ["←", "Página anterior", current - 1],
+              ...visiblePaginationPages(current, totalPages).map((n) => [String(n + 1), `Página ${n + 1}`, n] as const),
+              ["→", "Página siguiente", current + 1],
+            ].map(([label, aria, target]) => {
+              const n = Number(target)
+              const active = n === current && label !== "←" && label !== "→"
+              const disabled = n < 0 || n > totalPages - 1 || (n === current && !active)
+              return (
+                <button
+                  key={`${label}-${aria}`}
+                  type="button"
+                  aria-label={String(aria)}
+                  aria-current={active ? "page" : undefined}
+                  disabled={disabled}
+                  onClick={() => goTo(n)}
+                  className="flex h-9 min-w-9 cursor-pointer items-center justify-center rounded-lg px-2 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-35"
+                  style={{ background: active ? C.mustard : dark ? "rgba(244,238,220,0.07)" : "#fff", color: active ? "#fff" : TEXT, border: `1px solid ${active ? C.mustard : BORDER}` }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </nav>
+      )}
     </div>
   )
 }
@@ -177,13 +233,13 @@ function OrderProgress({ status, dark }: { status: string; dark: boolean }) {
     return (
       <div className="flex items-center gap-2 text-xs font-semibold" style={{ color: badge?.color || MUTED }}>
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: badge?.color || MUTED }} />
-        Estado del pedido: {status}
+        Estado del pedido: {clientStatusLabel(status)}
       </div>
     )
   }
 
   return (
-    <ol aria-label={`Seguimiento del pedido: ${status}`} className="flex w-full items-start">
+    <ol aria-label={`Seguimiento del pedido: ${clientStatusLabel(status)}`} className="flex w-full items-start">
       {steps.map((step, index) => {
         const complete = index <= currentStep
         const active = index === currentStep
@@ -198,7 +254,7 @@ function OrderProgress({ status, dark }: { status: string; dark: boolean }) {
                 className="mt-1.5 max-w-full text-center text-[10px] leading-tight"
                 style={{ color: active ? C.mustard : MUTED, fontWeight: active ? 700 : 500 }}
               >
-                {step}
+                {clientStatusLabel(step)}
               </span>
             </div>
             {index < steps.length - 1 && (

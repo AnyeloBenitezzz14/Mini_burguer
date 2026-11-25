@@ -95,6 +95,41 @@ body {
   line-height: 1.4;
 }
 
+/* Admin search: follows the theme (light and dark), same height and radius as the controls beside it */
+.admin-panel .search-control {
+  min-height: 38px;
+  background: var(--admin-input) !important;
+  border: 1px solid var(--admin-input-b) !important;
+  border-radius: 0.75rem !important;
+}
+
+.admin-panel .search-control:focus-within {
+  border-color: #8F6C12 !important;
+  box-shadow: 0 0 0 3px rgba(143,108,18,0.16);
+}
+
+.admin-panel .search-control input {
+  color: var(--admin-text) !important;
+}
+
+.admin-panel .search-control input::placeholder {
+  color: var(--admin-muted) !important;
+}
+
+/* Row actions: quiet icons; each shows its colour (and a soft fill) on hover or keyboard focus */
+.admin-row-actions button {
+  background: transparent !important;
+}
+
+.admin-row-actions button:not(:disabled):not(:hover):not(:focus-visible) {
+  color: var(--admin-muted) !important;
+}
+
+.admin-row-actions button:not(:disabled):hover,
+.admin-row-actions button:focus-visible {
+  background: color-mix(in srgb, currentColor 14%, transparent) !important;
+}
+
 .admin-nav-item,
 .admin-subnav-item {
   min-height: 42px;
@@ -105,21 +140,20 @@ body {
 .admin-nav-item:focus-visible,
 .admin-subnav-item:hover,
 .admin-subnav-item:focus-visible {
-  background: #fff !important;
-  box-shadow: 0 4px 14px rgba(54,57,63,0.1);
+  background: rgba(242,229,192,0.08) !important;
   transform: translateX(2px);
 }
 
 .admin-nav-item:hover > span:first-child,
 .admin-nav-item:focus-visible > span:first-child {
-  color: var(--admin-gold) !important;
+  color: #D29A42 !important;
 }
 
 .admin-nav-item:hover > span:nth-child(2),
 .admin-nav-item:focus-visible > span:nth-child(2),
 .admin-subnav-item:hover span,
 .admin-subnav-item:focus-visible span {
-  color: #36393F !important;
+  color: #F2E5C0 !important;
 }
 
 .admin-subnav-item {
@@ -131,8 +165,7 @@ body {
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  min-height: 150px;
-  padding: 24px 28px;
+  padding: 18px 24px;
   border: 1px solid rgba(182,140,28,0.2);
   border-radius: 24px;
   background:

@@ -47,19 +47,19 @@ return (
         <div className={`min-w-0 ${hideOnMini}`}>
           <div
             className="font-semibold text-sm truncate"
-            style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: C.amber }}
           >
             El Parche
           </div>
-          <div className="text-xs" style={{ color: t.sidebarMu }}>
-            Mini Burguer · Admin
+          <div className="truncate text-xs" style={{ color: t.sidebarMu }}>
+            Panel admin
           </div>
         </div>
       </button>
       <button
         onClick={() => setSidebarOpen(false)}
         className="lg:hidden w-7 h-7 flex items-center justify-center rounded-lg cursor-pointer"
-        style={{ color: t.sidebarMu, background: t.inputB }}
+        style={{ color: t.sidebarMu, background: t.sidebarBd }}
       >
         {Ico.x}
       </button>
@@ -94,7 +94,7 @@ return (
               className="admin-nav-item w-full flex items-center gap-2.5 px-[19px] py-2.5 rounded-xl cursor-pointer"
               style={{
                 background: active
-                  ? `${g.color}18`
+                  ? `${C.amber}18`
                   : anyChild
                     ? dark
                       ? "rgba(255,255,255,0.04)"
@@ -104,7 +104,7 @@ return (
             >
               <span
                 className="relative flex w-[18px] flex-shrink-0 justify-center"
-                style={{ color: active || anyChild ? g.color : t.sidebarMu }}
+                style={{ color: active || anyChild ? C.amber : t.sidebarMu }}
               >
                 {g.icon}
                 {/* Closed menu: a dot on Ventas when there are new orders */}
@@ -114,7 +114,7 @@ return (
               </span>
               <span
                 className={`flex-1 truncate text-left text-xs font-medium ${hideOnMini}`}
-                style={{ color: active ? g.color : t.sidebarTx }}
+                style={{ color: active ? C.amber : t.sidebarTx, fontWeight: active ? 600 : undefined }}
               >
                 {g.label}
               </span>
@@ -154,13 +154,14 @@ return (
                     style={{
                       paddingLeft: "18.5px",
                       background:
-                        section === item.key ? `${g.color}14` : "transparent",
+                        section === item.key ? `${C.amber}14` : "transparent",
                     }}
                   >
                     <span
                       className="text-xs font-medium"
                       style={{
-                        color: section === item.key ? g.color : t.sidebarTx,
+                        color: section === item.key ? C.amber : t.sidebarTx,
+                        fontWeight: section === item.key ? 600 : undefined,
                       }}
                     >
                       {item.label}
@@ -190,19 +191,19 @@ return (
       <button
         onClick={onSwitchToClient}
         title={sidebarCollapsed ? (user ? "Vista de cliente" : "Ver sitio") : undefined}
-        className={`w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80`}
+        className={`w-full flex items-center gap-2.5 overflow-hidden px-[15px] py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80`}
         style={{ color: t.sidebarMu }}
       >
-        {Ico.globe}
+        <span className="flex w-[18px] flex-shrink-0 justify-center">{Ico.globe}</span>
         <span className={hideOnMini}>{user ? "Vista de cliente" : "Ver sitio"}</span>
       </button>
       <button
         onClick={onLogout}
         title={sidebarCollapsed ? "Cerrar sesión" : undefined}
-        className={`mt-1 w-full flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80`}
-        style={{ color: C.red }}
+        className={`mt-1 w-full flex items-center gap-2.5 overflow-hidden px-[15px] py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80`}
+        style={{ color: "#E3826F" }}
       >
-        {Ico.logout}
+        <span className="flex w-[18px] flex-shrink-0 justify-center">{Ico.logout}</span>
         <span className={hideOnMini}>Cerrar sesión</span>
       </button>
     </div>

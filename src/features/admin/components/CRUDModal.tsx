@@ -1,20 +1,23 @@
 import { Fragment } from "react"
-import { MOD_CFG, NATURAL_SUPPLIER_KEYS, NATURAL_SUPPLIER_VIEW_KEYS, PAYMENT_NEXT, PURCHASE_ENTITIES, RETURNED_LOSS, STOCK_ORIGIN } from "@/features/admin/config/modules"
+import { MOD_CFG, NATURAL_SUPPLIER_KEYS, NATURAL_SUPPLIER_VIEW_KEYS, nextPaymentStatus, PURCHASE_ENTITIES, RETURNED_LOSS, STOCK_ORIGIN } from "@/features/admin/config/modules"
 import { DB_SYNC } from "@/features/admin/services/sync.service"
-import { derivePedidoPayment, isActiveStatus, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
+import { derivePedidoPayment, isActiveStatus, isSupplyProductRow, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
 import { ADDITION_PRODUCT, SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
-import { ORDER_STEPS, isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { ORDER_STEPS, isTransferPaymentMethod, panelPaymentLabel } from "@/features/orders/utils/orders"
 import FieldError from "@/shared/components/FieldError"
 import UserHistory from "@/features/admin/components/UserHistory"
 import SuggestInput from "@/features/admin/components/SuggestInput"
 import { Ico } from "@/shared/components/icons"
+import ZoomableImage from "@/shared/components/ZoomableImage"
+// A payment proof, zoomed: as big as the screen allows, so its reference and amount can be read
+const PROOF_ZOOM = "h-[90vh] w-[94vw] object-contain"
 import { FIRST_DAY, MAX_PRICE } from "@/shared/constants"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { AddressParts, AdminOrderLine, FieldType, ProductionItem, Row, TechnicalIngredient } from "@/shared/types"
 import { ADDRESS_VIAS, HOUSING, composeAddress } from "@/shared/utils/address"
-import { fmt, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
-import { convertQty, convertibleUnits, packOf } from "@/shared/utils/units"
+import { fmt, formatDateLabel, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
+import { convertQty, convertibleUnits, packOf, qtyLabel } from "@/shared/utils/units"
 import { normalizeDocumentInput, normalizePhoneInput } from "@/shared/utils/validation"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
@@ -22,7 +25,8 @@ import type { ReactNode } from "react"
 // Called as a plain function ({CRUDModal()}), not <CRUDModal />: a component
 // declared inside AdminPanel is a new type on every render, which remounted the
 // form on each keystroke and dropped input focus. Keep hooks out of here.
-export default function CRUDModal(adminState: AdminPanelState): ReactNode {
+// inline: the order form (new / edit pedido) is a page inside the module, not a floating window
+export default function CRUDModal(adminState: AdminPanelState, inline = false): ReactNode {
   const {
     ORDER_TO_PRODUCTION,
     PNC_UNITS,
@@ -32,6 +36,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     canDo,
     clientFormError,
     closeModal,
+    openView,
     requestCloseModal,
     discardAsk,
     setDiscardAsk,
@@ -79,7 +84,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     parseProductionHistory,
     parsePurchaseItems,
     paymentProofDraft,
-    paymentProofs,
+    proofOf,
     pedidoAdditionsFor,
     pedidoOrderLines,
     pedidoProductCategory,
@@ -105,6 +110,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     purchaseItemEdit,
     purchaseItemPrice,
     purchaseItemQty,
+    purchaseItemPack,
     purchaseItemSelect,
     purchaseLabel,
     purchaseLossMax,
@@ -160,6 +166,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     setPurchaseFormError,
     setPurchaseItemEdit,
     setPurchaseItemPrice,
+    setPurchaseItemPack,
+    setSupplyPriceDraft,
+    saveSupplySalePrice,
+    supplyPriceDraft,
     setPurchaseItemQty,
     setPurchaseItemSelect,
     setPurchaseNotice,
@@ -214,6 +224,19 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     validateManagedForm,
   } = adminState
   if (!modal.mode) return null
+  // Big forms (new / edit) open as a page in their module (AdminLayout shows it where the table goes), with
+  // «← Módulo» to go back and the save bar fixed at the bottom; details and small forms stay floating
+  const PAGE_FORMS: Record<string, string> = {
+    pedidos: "Pedidos",
+    producto: "Productos",
+    compras: "Compras",
+    produccion: "Órdenes de producción",
+    insumos: "Insumos",
+    proveedores: "Proveedores",
+  }
+  const choosingSupplierType = modal.section === "proveedores" && modal.mode === "add" && !formData["15"]
+  const asPage = !!PAGE_FORMS[modal.section] && modal.mode !== "view" && !choosingSupplierType
+  if (asPage !== inline) return null
   const cfg = MOD_CFG[modal.section]
   if (!cfg) return null
   const isView = modal.mode === "view"
@@ -269,7 +292,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
   // Sections whose first field is a name/main choice that reads better full width
   const WIDE_FIRST_FIELD = ["cat-insumos", "proveedores", "compras", "perdidas", "cat-producto", "clientes", "pedidos"]
   const isWideField = (f: FieldType) =>
-    (f.key === "0" && (WIDE_FIRST_FIELD.includes(modal.section) || !isSupplier)) ||
+    // A purchase's supplier shares its row with the date (shorter fields, less scrolling)
+    (f.key === "0" && !isPurchase && (WIDE_FIRST_FIELD.includes(modal.section) || !isSupplier)) ||
     f.type === "textarea" ||
     (isSales && f.key === "8") ||
     f.type === "checkbox" ||
@@ -302,7 +326,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
       ...supplierSupplies(supplierName).filter(isStockedExtra),
     ])].sort((a, b) => a.localeCompare(b, "es"))
   }
-  const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void) => {
+  const renderSupplyGroups = (names: string[], className: string, onRemove?: (name: string) => void, locked: string[] = []) => {
     const groups = new Map<string, string[]>()
     names.forEach((name) => {
       const category = currentCategory(String(supplyInfo(name)?.[1] ?? "").trim()) || (isSodaName(name) ? "Bebidas" : isStockedExtra(name) ? ADDITION_PRODUCT : "Sin categoría")
@@ -318,7 +342,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             </div>
             <div className="flex flex-wrap gap-1.5">
               {list.sort((a, b) => a.localeCompare(b)).map((name) =>
-                onRemove ? (
+                onRemove && locked.includes(name) ? (
+                  <span
+                    key={name}
+                    title="Ya tiene compras a este proveedor: no se puede quitar"
+                    className="flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                    style={{ background: `${C.mustard}18`, color: C.mustard }}
+                  >
+                    {name} <span aria-label="Con compras">🔒</span>
+                  </span>
+                ) : onRemove ? (
                   <button
                     key={name}
                     type="button"
@@ -552,12 +585,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
   }
   const formatViewValue = (f: FieldType, raw: string) => {
     if (!raw || raw === "—") return "—"
-    if (f.type === "date") {
-      const d = new Date(`${raw}T00:00:00`)
-      return Number.isNaN(d.getTime())
-        ? raw
-        : d.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
-    }
+    // Same date format as the tables: "20 nov 2026"
+    if (f.type === "date") return formatDateLabel(raw)
     if (f.type === "number" && /costo|subtotal|total/i.test(f.label)) return fmt(Number(raw))
     if (isSupply && f.key === "6") return `${Number(raw).toLocaleString("es-CO")} ${String(row?.[14] || "und")} por paquete`
     if (isSupply && ["4", "5"].includes(f.key))
@@ -568,7 +597,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     cfg.statusIndex !== undefined && row ? String(row[cfg.statusIndex] ?? "") : ""
   const dataFields = cfg.fields.filter((f) => f.type !== "image")
   const productCategory = normalizeName(currentCategory(String(isView ? row?.[1] ?? "" : formData["1"] ?? "")))
-  const hideProductTechnicalSheet = isProduct && productCategory === normalizeName(SODA_PRODUCT)
+  // An addition (Queso, Tocineta...) is only name, category and price: no photo, description nor ficha técnica
+  const isAdditionForm = isProduct && !isView && formData["1"] === ADDITION_PRODUCT
+  const isSupplyProductView = isProduct && isView && isSupplyProductRow(row ?? undefined)
+  const hideProductTechnicalSheet = isProduct && (productCategory === normalizeName(SODA_PRODUCT) || isAdditionForm || isSupplyProductView)
   const showSupplyTechnicalSheet =
     isSupply &&
     String(isView ? row?.[7] : formData["7"]).toLowerCase() === "sí"
@@ -578,6 +610,13 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
       ? NATURAL_SUPPLIER_VIEW_KEYS
       : NATURAL_SUPPLIER_KEYS
   const naturalSupplierForm = !!supplierFieldKeys
+  // A company supplier being written: six columns, company (left three) · contact (right three), three rows each
+  const companySupplierForm = isSupplier && !isView && !!formData["15"] && !naturalSupplierForm
+  const SUPPLIER_TYPES = [
+    { value: "Persona jurídica", icon: Ico.shopping, hint: "Empresa con NIT y una persona de contacto" },
+    { value: "Persona natural", icon: Ico.user, hint: "Una persona que vende con su documento de identidad" },
+  ]
+  const chosenSupplierType = isSupplier && !isView ? SUPPLIER_TYPES.find((type) => type.value === formData["15"]) : undefined
   const formDataFields = supplierFieldKeys
     ? supplierFieldKeys.map((key) => dataFields.find((field) => field.key === key)!)
     : isProduction
@@ -589,11 +628,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           (field) =>
             // "Stock actual" isn't entered when creating: it starts at 0
             !(modal.mode === "add" && field.key === "4") &&
-            // How many come in a package: only for the unit «paq»
-            (!["6", "14"].includes(field.key) || String(isView ? row?.[2] : formData["2"]) === "paq") &&
+            // How much its package brings (any unit); «14» (the package's unit) is always the insumo's own
+            field.key !== "14" &&
             // The unit cost is set by each purchase (its unit price): only the detail shows it
             !(modal.mode !== "view" && field.key === "3") &&
-            (!["8", "9", "10", "11"].includes(field.key) || showSupplyTechnicalSheet),
+            (!["8", "9", "10", "11", "15", "16"].includes(field.key) || showSupplyTechnicalSheet),
         )
     : isUser
       ? dataFields.filter(
@@ -606,7 +645,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
       : dataFields
   const productMainFields = isProduct
     ? dataFields.filter(
-        (field) => ["0", "1", "2", "3", "10", ...(formData["1"] === SODA_PRODUCT ? ["14"] : [])].includes(field.key),
+        (field) => ["0", "1", "2", ...(isAdditionForm ? [] : ["3"]), "10", ...(formData["1"] === SODA_PRODUCT ? ["14"] : [])].includes(field.key),
       )
     : dataFields
   // A drink (category «Bebidas») is a finished product: no ficha técnica, its own compact layout
@@ -614,7 +653,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
   const isDrinkView = isProduct && isView && row?.[1] === SODA_PRODUCT
   // The product form fields (name, category, price, description): left column, or right for a drink
   const renderProductFields = () => (
-    <div className={isView ? "hidden" : "grid gap-3 sm:grid-cols-2"}>
+    <div className={isView ? "hidden" : `grid gap-3 sm:grid-cols-2 ${isAdditionForm || isDrinkForm ? "lg:grid-flow-row-dense lg:grid-cols-3" : ""}`}>
     {productMainFields.map((f) => {
       if (isView) return null
       const val = isView
@@ -638,7 +677,14 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               .sort((a, b) => a.localeCompare(b))
           : f.options
       return (
-        <div key={f.key} className={`flex min-w-0 flex-col gap-1.5 ${f.key === "0" || f.key === "3" ? "sm:col-span-2" : ""}`}>
+        <div
+          key={f.key}
+          className={`flex min-w-0 flex-col gap-1.5 ${
+            f.key === "0" || f.key === "3"
+              ? isAdditionForm ? "sm:col-span-2 lg:col-span-1" : isDrinkForm ? "sm:col-span-2 lg:col-span-3" : "sm:col-span-2"
+              : ""
+          }`}
+        >
           <label
             className="text-xs font-semibold"
             style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
@@ -763,6 +809,20 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
         </div>
       )
     })}
+    {isAdditionForm && (
+      <div
+        className="flex items-start gap-3 rounded-xl px-4 py-3 text-xs sm:col-span-2 lg:col-span-3"
+        style={{ background: `${C.mustard}0d`, border: `1px solid ${C.mustard}30`, color: t.muted }}
+      >
+        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+          {Ico.plus}
+        </span>
+        <span>
+          <strong className="block text-sm" style={{ color: t.text }}>Una adición se suma a un plato y se cobra aparte</strong>
+          Aparece al armar un pedido (Queso, Tocineta…). No lleva foto, descripción ni ficha técnica: solo su nombre y su precio.
+        </span>
+      </div>
+    )}
     </div>
   )
   const productTechFields = isProduct
@@ -816,10 +876,42 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
     setSupplyFormError("")
   }
 
+  // Proof only matters for transfers (cash / pay at the store = contraentrega): in the order's right column
+  const pedidoProof = isPedido && !isView && formData["3"] === "Transferencia" ? (
+    <div className={"flex min-w-0 flex-col gap-2 sm:col-span-2 lg:order-5"}>
+      {isView ? (
+        paymentProofDraft ? (
+          <ZoomableImage src={paymentProofDraft} alt="Comprobante de pago" className="max-h-64 w-full rounded-xl object-contain" />
+        ) : (
+          <div className="rounded-xl px-4 py-6 text-center text-xs" style={{ background: t.input, color: t.muted }}>El cliente todavía no ha subido un comprobante.</div>
+        )
+      ) : (
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border-2 border-dashed px-3 py-2" style={{ borderColor: t.inputB }}>
+          {paymentProofDraft && <ZoomableImage src={paymentProofDraft} alt="Comprobante de pago" className="h-16 w-20 flex-shrink-0 rounded-lg object-cover" zoomClassName={PROOF_ZOOM} />}
+          <button type="button" onClick={() => document.getElementById("payment-proof-input")?.click()} className="cursor-pointer text-xs font-semibold" style={{ color: C.mustard }}>{paymentProofDraft ? "Cambiar comprobante" : "Subir comprobante de pago (imagen o PDF)"}</button>
+          <input id="payment-proof-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (!file) return
+            if (file.type === "application/pdf") {
+              setPaymentProofDraft(URL.createObjectURL(file))
+            } else {
+              const reader = new FileReader()
+              reader.onload = (loadEvent) => {
+                if (loadEvent.target?.result) setPaymentProofDraft(String(loadEvent.target.result))
+              }
+              reader.readAsDataURL(file)
+            }
+          }} />
+          <input type="url" placeholder="O pega una URL del comprobante" value={paymentProofDraft.startsWith("data:") ? "" : paymentProofDraft} onChange={(event) => setPaymentProofDraft(event.target.value)} className="min-w-0 flex-1 rounded-lg px-3 py-2 text-xs" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
+        </div>
+      )}
+    </div>
+  ) : null
+
   return (
     <div
-      className={`fixed inset-0 z-[70] flex ${isSidePanel ? "justify-end" : "items-center justify-center px-4 py-3"} ${isUser ? "lg:left-[72px]" : ""}`}
-      style={{ background: isSidePanel ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.65)" }}
+      className={inline ? "min-w-0" : `fixed inset-0 z-[70] flex ${isSidePanel ? "justify-end" : "items-center justify-center px-4 py-3"} ${isUser ? "lg:left-[72px]" : ""}`}
+      style={inline ? undefined : { background: isSidePanel ? "rgba(0,0,0,0.28)" : "rgba(0,0,0,0.65)" }}
       // Forms and details only close with their own buttons (X, Volver, Cancelar), never with a stray click outside
     >
       {discardAsk && (
@@ -857,11 +949,21 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-5xl" : "max-w-4xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
           maxHeight: isSidePanel ? "100vh" : isPurchaseModule || isProduct || isRoles || isUser ? "94vh" : "88vh",
+          // As a page: as wide as its content needs (fields that span the whole screen are hard to read), lined up
+          // with the module's title; it grows with its content and the page scrolls, the save bar stays at the bottom
+          ...(inline
+            ? {
+                // Every page form uses the module's whole width; each lays its fields out to fill it
+                maxWidth: "none",
+                maxHeight: "none",
+                overflow: "visible",
+              }
+            : {}),
         }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -875,14 +977,15 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             <button
               type="button"
               onClick={requestCloseModal}
-              aria-label="Volver"
-              title="Volver"
-              className="flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-xl"
+              aria-label={inline ? `Volver a ${PAGE_FORMS[modal.section]}` : "Volver"}
+              title={inline ? `Volver a ${PAGE_FORMS[modal.section]}` : "Volver"}
+              className={`flex h-8 flex-shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-xl ${inline ? "px-3 text-xs font-semibold" : "w-8"}`}
               style={{ background: t.input, color: t.muted }}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M19 12H5M12 19l-7-7 7-7" />
               </svg>
+              {inline && PAGE_FORMS[modal.section]}
             </button>
           )}
           <h3 className="font-semibold text-base" style={{ color: t.text }}>
@@ -898,6 +1001,26 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   ? "Editar registro"
                   : "Ver detalle"}
           </h3>
+          {chosenSupplierType && (
+            <span
+              className="ml-1 flex min-w-0 items-center gap-2 rounded-xl p-0.5"
+              style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}
+            >
+              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: C.mustard, color: "#fff" }}>
+                {chosenSupplierType.icon}
+              </span>
+              <span className="whitespace-nowrap text-xs font-semibold" style={{ color: t.text }}>{chosenSupplierType.value}</span>
+              <span className="hidden truncate text-[11px] lg:inline" style={{ color: t.muted }}>{chosenSupplierType.hint}</span>
+              <button
+                type="button"
+                onClick={() => updateAdminField("proveedores", "15", "")}
+                className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-semibold"
+                style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
+              >
+                <span className="rotate-90">{Ico.chevDown}</span> Cambiar tipo
+              </button>
+            </span>
+          )}
           </div>
           <div className="flex items-center gap-1.5">
           {isSidePanel && sidePosition >= 0 && (
@@ -944,7 +1067,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           </div>
         </div>
         <div
-          className={`${isSales && isView ? "print-receipt " : ""}min-w-0 overflow-x-hidden ${isRoles || isUser || isSidePanel ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
+          className={`${isSales && isView ? "print-receipt " : ""}min-w-0 ${inline ? "" : "overflow-x-hidden"} ${inline ? "" : isRoles || isUser || isSidePanel ? "min-h-0 flex-1 overflow-y-auto" : "overflow-y-auto"} px-4 ${isUser ? "py-2.5 sm:px-5" : "py-4 sm:px-5"} ${
             isUser
               ? "grid content-start grid-cols-2 gap-x-3 gap-y-2.5 sm:gap-x-4"
               : isRoles && !isView
@@ -954,11 +1077,17 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     // Supplier: 4 columns on large screens — supplier data spans the left two,
                     // contact person goes two fields per row on the right (keeps "Cargo" in view)
                     isSupplier
-                      ? "grid-cols-1 lg:grid-flow-row-dense lg:grid-cols-4"
+                      ? `grid-cols-1 lg:grid-flow-row-dense ${companySupplierForm ? "lg:grid-cols-6 lg:gap-y-2" : "lg:grid-cols-4"}`
                       : sheetBeside
-                        ? // the insumo's fields stay in the left half (one per row), the ficha takes the right half
-                          "sm:grid-cols-2 lg:grid-cols-4 lg:[&>*:not([data-sheet])]:col-span-2 lg:[&>*:not([data-sheet])]:col-start-1"
-                        : (isProduction || isPedido || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
+                        ? // three columns: data and stock · preparation and sale · the ficha
+                          "lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.45fr)] lg:gap-x-6"
+                        : isSupply && !isView
+                          ? // two halves: what it is (left) · inventory (right); preparation across the bottom
+                            "sm:grid-cols-2 lg:grid-flow-row-dense lg:grid-cols-4 lg:gap-x-6"
+                        : isPedido && !isView ? "lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:gap-x-6"
+                        : isPurchase && !isView ? "sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:grid-rows-[auto_auto_1fr] lg:gap-x-6"
+                        : isProduction && !isView ? "sm:grid-cols-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:gap-x-6"
+                        : (isProduction || isSales) && !isView ? "sm:grid-cols-3" : "sm:grid-cols-2"
                   }`
                 : isProduct
                   ? "flex min-h-0 flex-1 flex-col gap-3"
@@ -970,6 +1099,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             scrollbarWidth: "thin",
           }}
         >
+          {isView && (() => {
+            const reasonIndex = MOD_CFG[modal.section]?.anulReasonIndex
+            const reason = reasonIndex === undefined ? "" : String(row?.[reasonIndex] ?? "").trim()
+            return reason ? (
+              <div role="note" className="col-span-full rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}12`, border: `1px solid ${C.red}40`, color: t.text }}>
+                <span className="font-bold" style={{ color: C.red }}>Motivo de la anulación: </span>
+                {reason}
+              </div>
+            ) : null
+          })()}
           {isSales && isView && (
             <div className="print-only mb-3 border-b pb-2 text-center">
               <p className="text-base font-bold">El Parche Mini Burguer</p>
@@ -1001,41 +1140,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               )}
             </div>
           )}
-          {/* Proof only matters for transfers (cash / pay at the store = contraentrega) */}
-          {isPedido && !isView && formData["3"] === "Transferencia" && (
-            // Last in the form (order-last): client and products come first
-            <div className={`order-last flex min-w-0 flex-col gap-2 ${isPedido && !isView ? "sm:col-span-3" : "sm:col-span-2"}`}>
-              <label className="text-xs font-semibold" style={{ color: t.muted }}>Comprobante de pago</label>
-              {isView ? (
-                paymentProofDraft ? (
-                  <img src={paymentProofDraft} alt="Comprobante de pago" className="max-h-64 w-full rounded-xl object-contain" style={{ background: t.input }} />
-                ) : (
-                  <div className="rounded-xl px-4 py-6 text-center text-xs" style={{ background: t.input, color: t.muted }}>El cliente todavía no ha subido un comprobante.</div>
-                )
-              ) : (
-                <div className="min-w-0 rounded-xl border-2 border-dashed p-4 text-center" style={{ borderColor: t.inputB }}>
-                  {paymentProofDraft && <img src={paymentProofDraft} alt="Vista previa" className="mb-3 max-h-40 w-full rounded-lg object-contain" />}
-                  <button type="button" onClick={() => document.getElementById("payment-proof-input")?.click()} className="cursor-pointer text-xs font-semibold" style={{ color: C.mustard }}>Seleccionar imagen o PDF del comprobante</button>
-                  <input id="payment-proof-input" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="hidden" onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    if (!file) return
-                    if (file.type === "application/pdf") {
-                      setPaymentProofDraft(URL.createObjectURL(file))
-                    } else {
-                      const reader = new FileReader()
-                      reader.onload = (loadEvent) => {
-                        if (loadEvent.target?.result) setPaymentProofDraft(String(loadEvent.target.result))
-                      }
-                      reader.readAsDataURL(file)
-                    }
-                  }} />
-                  <input type="url" placeholder="O pega una URL del comprobante" value={paymentProofDraft.startsWith("data:") ? "" : paymentProofDraft} onChange={(event) => setPaymentProofDraft(event.target.value)} className="mt-3 w-full min-w-0 rounded-lg px-3 py-2 text-xs" style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }} />
-                </div>
-              )}
-            </div>
-          )}
           {isProduct ? (
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <div className={`grid grid-cols-1 gap-6 ${isAdditionForm || isSupplyProductView ? "" : "lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"}`}>
               <div className="flex flex-col gap-3">
                 {isView && row && (
                   <div className="flex flex-col gap-4">
@@ -1064,9 +1170,81 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         {String(row[0] ?? "—")}
                       </h4>
                       <div className="text-xl font-semibold" style={{ color: C.mustard }}>
-                        {Number(row[2]) > 0 ? fmt(Number(row[2])) : "Sin precio"}
+                        {Number(row[2]) > 0 ? fmt(Number(row[2])) : isSupplyProductRow(row) ? "Cortesía ($0)" : "Sin precio"}
                       </div>
                     </div>
+                    {isSupplyProductRow(row) && (
+                      // Same record as in Insumos: its ficha técnica, stock and status are managed there
+                      <div className="rounded-xl px-4 py-3 text-xs" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35`, color: t.muted }}>
+                        <span className="font-bold" style={{ color: C.mustard }}>Producto de insumo.</span> Aquí solo se consulta: su ficha técnica, stock y estado se manejan en Insumos.
+                        {(() => {
+                          const supply = (rows.insumos || []).find((r) => String(r[0]) === String(row[0]))
+                          return supply ? (
+                            <span className="mt-1.5 block" style={{ color: t.text }}>
+                              Stock: <strong>{Number(supply[4]) || 0} {String(supply[2] ?? "")}</strong> · mínimo {Number(supply[5]) || 0} {String(supply[2] ?? "")}
+                              {Number(supply[4]) <= Number(supply[5]) && <strong style={{ color: C.red }}> · stock bajo</strong>}
+                            </span>
+                          ) : null
+                        })()}
+                        {canDo("insumos", "EDITAR") && (() => {
+                          // Its sale price, right here: 0 = cortesía (free sauce), more = an addition that's charged
+                          const name = String(row[0])
+                          const draft = supplyPriceDraft?.name === name ? supplyPriceDraft : null
+                          return (
+                            <span className="mt-2 flex flex-wrap items-center gap-2" style={{ color: t.text }}>
+                              Precio de venta:
+                              {draft ? (
+                                <>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    autoFocus
+                                    value={draft.value}
+                                    onChange={(e) => setSupplyPriceDraft({ name, value: e.target.value })}
+                                    onKeyDown={(e) => { if (e.key === "Enter") saveSupplySalePrice(name, draft.value) }}
+                                    aria-label="Precio de venta (0 = cortesía)"
+                                    className="w-28 rounded-lg px-2 py-1 text-xs outline-none"
+                                    style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
+                                  />
+                                  <button type="button" disabled={draft.saving} onClick={() => saveSupplySalePrice(name, draft.value)}
+                                    className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-bold disabled:opacity-60" style={{ background: C.mustard, color: "#fff" }}>
+                                    {draft.saving ? "Guardando…" : "Guardar"}
+                                  </button>
+                                  <button type="button" onClick={() => setSupplyPriceDraft(null)}
+                                    className="cursor-pointer rounded-lg px-2.5 py-1 text-xs" style={{ background: t.input, color: t.muted }}>
+                                    Cancelar
+                                  </button>
+                                  <span className="basis-full text-[11px]" style={{ color: draft.error ? C.red : t.muted }}>
+                                    {draft.error || "0 = cortesía: sale gratis en Salsas. Con precio sale en Adiciones y se cobra."}
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <strong>{Number(row[2]) > 0 ? fmt(Number(row[2])) : "Cortesía ($0)"}</strong>
+                                  <button type="button" onClick={() => setSupplyPriceDraft({ name, value: String(Number(row[2]) || 0) })}
+                                    className="cursor-pointer font-bold underline" style={{ color: C.mustard }}>
+                                    Cambiar
+                                  </button>
+                                </>
+                              )}
+                            </span>
+                          )
+                        })()}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const idx = (rows.insumos || []).findIndex((r) => String(r[0]) === String(row[0]))
+                            closeModal()
+                            setSection("insumos")
+                            if (idx >= 0) setTimeout(() => openView("insumos", idx), 0)
+                          }}
+                          className="mt-2 block cursor-pointer font-bold underline"
+                          style={{ color: C.mustard }}
+                        >
+                          Abrir en Insumos →
+                        </button>
+                      </div>
+                    )}
                     <div className="rounded-xl px-4 py-3" style={{ background: t.cardAlt }}>
                       <div className="mb-1 text-[11px]" style={{ color: t.muted }}>Descripción</div>
                       <p className="text-sm leading-relaxed" style={{ color: String(row[3] ?? "").trim() ? t.text : t.muted }}>
@@ -1086,7 +1264,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     })()}
                   </div>
                 )}
-                {!isView && (
+                {!isView && !isAdditionForm && (
                   // Photo in the same place as in the detail; click (or drop) to change it
                   <div className="flex flex-col gap-2">
                     <label className="text-xs font-semibold" style={{ color: formFieldErrors.img ? C.red : t.muted }}>
@@ -1118,7 +1296,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             <img
                               src={shown}
                               alt=""
-                              className={`w-full rounded-2xl ${isDrinkForm ? "h-60 object-contain" : "h-44 object-cover"}`}
+                              className={`w-full rounded-2xl ${isDrinkForm ? "h-60 object-contain" : "h-[6.5rem] object-cover"}`}
                               style={isDrinkForm ? { background: "#fff" } : undefined}
                             />
                             <span
@@ -1132,7 +1310,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       })()}
                       {!imgPreview && !(isDrinkForm && sodaImage(`Gaseosa ${String(formData["0"] ?? "").trim().replace(/^gaseosa\s+/i, "")} (${String(formData.sodaSize ?? "").trim()})`)) && (
                         <div
-                          className="flex h-36 w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-xs"
+                          className={`flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed text-xs ${isDrinkForm ? "h-44" : "h-[6.5rem]"}`}
                           style={{ borderColor: formFieldErrors.img ? C.red : t.inputB, color: t.muted }}
                         >
                           <span className="flex items-center gap-1.5">{Ico.upload} Arrastra o selecciona una imagen</span>
@@ -1301,9 +1479,34 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       )}
                     </div>
                     {!recipe.length && !steps.length ? (
-                      <p className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.cardAlt, color: t.muted }}>
-                        {isView ? "Este producto no tiene ficha técnica." : "Opcional: agrega los insumos que lleva, sus cantidades y cómo se prepara."}
-                      </p>
+                      isView ? (
+                        <p className="rounded-xl px-3 py-4 text-center text-xs" style={{ background: t.cardAlt, color: t.muted }}>
+                          Este producto no tiene ficha técnica.
+                        </p>
+                      ) : (
+                        <div className="flex flex-1 flex-col items-center justify-center gap-3 rounded-xl px-6 py-4 text-center" style={{ background: t.cardAlt }}>
+                          <span className="flex h-10 w-10 items-center justify-center rounded-2xl" style={{ background: `${C.mustard}18`, color: C.mustard }}>
+                            {Ico.chef}
+                          </span>
+                          <div>
+                            <p className="text-sm font-semibold" style={{ color: t.text }}>Aún no tiene ficha técnica</p>
+                            <p className="mt-1 text-xs" style={{ color: t.muted }}>Es opcional, pero con ella el sistema sabe:</p>
+                          </div>
+                          <ul className="flex w-full max-w-sm flex-col gap-1.5 text-left text-xs" style={{ color: t.text }}>
+                            {[
+                              "Qué insumos lleva y cuánto de cada uno",
+                              "Cuánto cuesta hacer una unidad, frente a su precio",
+                              "Qué descontar del inventario en cada orden de producción",
+                              "Los pasos para prepararlo siempre igual",
+                            ].map((item) => (
+                              <li key={item} className="flex items-start gap-2 rounded-lg px-3 py-1.5" style={{ background: t.card }}>
+                                <span className="mt-px font-bold" style={{ color: C.mustard }}>✓</span>
+                                {item}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )
                     ) : (
                       <>
                         <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
@@ -1379,7 +1582,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   if (category === "salsas") return ["bolsita", "bolsitas"]
                   if (category === "adiciones") return ["porción", "porciones"]
                   if (category === "bebidas" || category === "gaseosas") return ["botella", "botellas"]
-                  if (category === "producto de insumo") {
+                  if (isSupplyProductRow(product) || category === "producto de insumo") {
                     const unit = String(supplyInfo(name)?.[2] ?? "und")
                     return [unit, unit]
                   }
@@ -1460,7 +1663,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 }
                 const controlSt = { background: t.input, border: `1px solid ${t.inputB}`, color: t.text }
                 return (
-                  <section className="flex flex-col gap-3 sm:col-span-3">
+                  <section className="flex flex-col gap-3 sm:col-span-3 lg:col-span-1 lg:col-start-1 lg:row-span-2 lg:row-start-1">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
@@ -1756,7 +1959,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         ))}
                       </div>
                     ) : (
-                      <p className="rounded-xl px-3 py-3 text-center text-xs" style={{ border: `1.5px dashed ${t.inputB}`, color: t.muted }}>
+                      <p className="flex flex-col items-center justify-center gap-2 rounded-xl px-3 py-3 text-center text-xs lg:flex-1" style={{ border: `1.5px dashed ${t.inputB}`, color: t.muted }}>
+                        <span className="hidden h-10 w-10 items-center justify-center rounded-xl lg:flex" style={{ background: `${C.mustard}14`, color: C.mustard }}>{Ico.chef}</span>
                         Aquí aparecen los productos que agregues.
                       </p>
                     )}
@@ -2190,7 +2394,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               )}
               {formReturn && formReturn.child === modal.section && modal.mode === "add" && (
                 <div
-                  className="rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 lg:col-span-4"
+                  className="col-span-full rounded-xl px-3.5 py-3 text-xs leading-relaxed"
                   style={{ background: `${C.mustard}12`, color: t.text, border: `1px solid ${C.mustard}35` }}
                 >
                   {formReturn.section === "proveedores" ? (
@@ -2206,7 +2410,27 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   )}
                 </div>
               )}
-              {formDataFields.map((f) => {
+              {((renderField: (f: FieldType) => ReactNode) =>
+                isPedido && !isView ? (
+                  <>
+                    {/* An order: products on the left; client, payment and notes on the right (fits without scrolling) */}
+                    <div className="flex min-w-0 flex-col gap-3">{formDataFields.filter((f) => f.key === "1").map(renderField)}</div>
+                    <div className="order-first grid min-w-0 content-start gap-x-3 gap-y-2.5 sm:grid-cols-2 lg:order-none">
+                      {formDataFields.filter((f) => f.key !== "1").map(renderField)}
+                      {pedidoProof}
+                    </div>
+                  </>
+                ) : sheetBeside ? (
+                  <>
+                    <div className="grid min-w-0 content-start gap-x-4 gap-y-3 sm:grid-cols-2">
+                      {formDataFields.filter((f) => !["7", "8", "15"].includes(f.key)).map(renderField)}
+                    </div>
+                    <div className="grid min-w-0 content-start gap-3">{formDataFields.filter((f) => f.key === "7" || f.key === "15").map(renderField)}</div>
+                    <div className="min-w-0">{formDataFields.filter((f) => f.key === "8").map(renderField)}</div>
+                  </>
+                ) : (
+                  formDataFields.map(renderField)
+                ))((f) => {
               if (isPnc && modal.mode === "add" && !pncManual) return null
               if (isPnc && !isView && f.key === "4") return null
               // Insumo and supplier details have their own layout (supplyDetail, supplierDetail)
@@ -2224,11 +2448,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               if (isPedido && !isView && f.key === "7" && modal.mode === "edit") {
                 // Pendiente / Pendiente de verificación → Pagado: the current one and the next, never back
                 const current = String(formData["7"] || "Pendiente")
-                const next = PAYMENT_NEXT[current]
+                const next = nextPaymentStatus(current, String(formData["4"] ?? ""))
                 const paid = current === "Pagado"
                 return (
-                  <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
-                    <span className="text-xs font-semibold" style={{ color: t.muted }}>{f.label}</span>
+                  <div key={f.key} className="grid min-w-0 gap-x-3 gap-y-1.5 sm:col-span-2 sm:grid-cols-2 sm:items-center lg:order-5">
+                    <span className="text-xs font-semibold sm:col-span-2" style={{ color: t.muted }}>{f.label}</span>
                     <div className="relative">
                       <span
                         className="pointer-events-none absolute left-3 top-1/2 h-2 w-2 -translate-y-1/2 rounded-full"
@@ -2261,10 +2485,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               // New order: modality and payment status aren't shown; they're set from the type and method on save
               if (isPedido && !isView && (f.key === "4" || (modal.mode === "add" && f.key === "7"))) return null
               if (isPedido && !isView && (f.key === "4" || f.key === "7")) {
-                const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""))
+                const orderTotal = pedidoOrderLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)
+                const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""), orderTotal)
                 const value = f.key === "4" ? payment.modalidad : payment.estadoPago
                 return (
-                  <div key={f.key} className="flex min-w-0 flex-col gap-1.5">
+                  <div key={f.key} className="flex min-w-0 flex-col gap-1.5 sm:col-span-2 lg:order-5">
                     <span className="text-xs font-semibold" style={{ color: t.muted }}>
                       {f.label}
                     </span>
@@ -2281,7 +2506,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     </div>
                     {f.key === "7" && (
                       <span className="text-[11px]" style={{ color: t.muted }}>
-                        Automático: efectivo en el local = pagado; transferencia con comprobante = pagado; efectivo a domicilio o para recoger = contraentrega, y queda pagado al marcarlo «Entregado».
+                        {payment.modalidad === "Abono 50%"
+                          ? `Pedido de $150.000 o más: se abona el 50% (${fmt(Math.ceil(orderTotal / 2))}) por adelantado y el saldo (${fmt(orderTotal - Math.ceil(orderTotal / 2))}) al entregar. Con transferencia y comprobante queda «Abonado».`
+                          : "Automático: efectivo en el local = pagado; transferencia con comprobante = pagado; efectivo a domicilio o para recoger = contraentrega, y queda pagado al marcarlo «Entregado»."}
                       </span>
                     )}
                   </div>
@@ -2290,7 +2517,108 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               // Products, quantity and comment show in its products / summary columns below
               if (isView && isProduction && ["0", "1", "3", "4", "15"].includes(f.key)) return null
               // Insumo technical sheet (fields 8-11) rendered as one card at field "8"
-              if (isSupply && ["9", "10", "11"].includes(f.key)) return null
+              if (isSupply && ["9", "10", "11", "16"].includes(f.key)) return null
+              if (isSupply && f.key === "6" && sheetBeside) return null
+              // Producto de insumo in orders: cortesía or charged, its portion, and what preparing it costs
+              if (isSupply && f.key === "15") {
+                if (!showSupplyTechnicalSheet || isView) return null
+                const base = String(formData["2"] || "und")
+                const raw = String(formData["15"] ?? "0")
+                const charged = raw !== "0" && raw !== ""
+                  ? true
+                  : raw === "" && formData["15"] !== undefined
+                const price = Number(raw) || 0
+                const portion = Number(formData["16"]) || 0
+                // Cost of 1 unit of what's prepared: each ingredient of the ficha at its last purchase price
+                const parts = parseMainSupplies(formData["10"]).map((part) => {
+                  const supply = supplyInfo(part.name)
+                  const inBase = supply
+                    ? convertQty(Number(part.quantity) || 0, part.unit || String(supply[2] ?? ""), String(supply[2] ?? ""), packOf(supply))
+                    : NaN
+                  return Number.isFinite(inBase) ? inBase * (Number(supply?.[3]) || 0) : NaN
+                })
+                const unitCost = parts.reduce((sum, cost) => sum + (Number.isFinite(cost) ? cost : 0), 0)
+                const unpriced = parts.some((cost) => !Number.isFinite(cost))
+                const portionCost = unitCost * portion
+                const setField = (key: string, value: string) => {
+                  setSupplyFormError("")
+                  updateAdminField(modal.section, key, value)
+                }
+                const pill = (on: boolean) => ({
+                  background: on ? C.mustard : t.input,
+                  color: on ? "#fff" : t.text,
+                  border: `1px solid ${on ? C.mustard : t.border}`,
+                })
+                return (
+                  <section key="supply-sale" className="col-span-full rounded-xl p-3.5" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <div className="text-sm font-semibold" style={{ color: t.text }}>Venta en pedidos</div>
+                    <p className="mt-0.5 text-xs" style={{ color: t.muted }}>
+                      Se ofrece mientras haya stock; cada porción servida sale del inventario, aunque sea gratis.
+                    </p>
+                    <div className="mt-2.5 grid grid-cols-2 gap-2" role="radiogroup" aria-label="Cómo se ofrece">
+                      <button type="button" role="radio" aria-checked={!charged} onClick={() => setField("15", "0")}
+                        className="cursor-pointer rounded-xl px-3 py-2 text-left text-xs font-bold leading-tight" style={pill(!charged)}>
+                        Cortesía ($0) · sale en Salsas
+                      </button>
+                      <button type="button" role="radio" aria-checked={charged} onClick={() => setField("15", charged ? raw : "")}
+                        className="cursor-pointer rounded-xl px-3 py-2 text-left text-xs font-bold leading-tight" style={pill(charged)}>
+                        Con precio · sale en Adiciones
+                      </button>
+                    </div>
+                    <div className={`mt-2.5 grid gap-3 ${charged ? "sm:grid-cols-2" : ""}`}>
+                      <label className={`flex gap-1 text-[11px] font-semibold ${charged ? "flex-col" : "items-center justify-between gap-3"}`} style={{ color: t.muted }}>
+                        Porción por pedido ({base})
+                        <input type="text" inputMode="decimal" value={String(formData["16"] ?? "")}
+                          onChange={(e) => setField("16", e.target.value.replace(",", "."))}
+                          placeholder={base === "und" ? "1" : "30"}
+                          className={`rounded-xl px-3 py-2.5 text-sm outline-none ${charged ? "w-full" : "w-28"}`}
+                          style={{ background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }} />
+                      </label>
+                      {charged && (
+                        <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                          Precio de venta por porción *
+                          <input type="number" min="0" value={raw}
+                            onChange={(e) => setField("15", e.target.value)}
+                            placeholder="$"
+                            className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                            style={{ background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }} />
+                        </label>
+                      )}
+                    </div>
+                    <div className="mt-2.5 grid gap-1.5 text-xs">
+                      <div className="flex items-baseline justify-between gap-2 rounded-lg px-3 py-1.5" style={{ background: t.input }}>
+                        <div style={{ color: t.muted }}>Costo de preparar 1 {base}</div>
+                        <div className="font-bold" style={{ color: t.text }}>{fmt(Math.round(unitCost))}</div>
+                      </div>
+                      <div className={`flex items-baseline justify-between gap-2 rounded-lg px-3 py-1.5 ${charged ? "" : "hidden"}`} style={{ background: t.input }}>
+                        <div style={{ color: t.muted }}>Costo por porción</div>
+                        <div className="font-bold" style={{ color: t.text }}>{portion > 0 ? fmt(Math.round(portionCost)) : "—"}</div>
+                      </div>
+                      <div className="flex items-baseline justify-between gap-2 rounded-lg px-3 py-1.5" style={{ background: t.input }}>
+                        <div style={{ color: t.muted }}>{charged ? "Ganancia por porción" : "Te cuesta regalarla"}</div>
+                        <div className="font-bold" style={{ color: charged ? (price - portionCost >= 0 ? "#2E7D60" : C.red) : C.mustard }}>
+                          {portion > 0 ? fmt(Math.round(charged ? price - portionCost : portionCost)) : "—"}
+                        </div>
+                      </div>
+                    </div>
+                    {charged && portion > 0 && price > 0 && price < portionCost && (
+                      <p role="alert" className="mt-2 text-xs font-semibold" style={{ color: C.red }}>
+                        Ojo: el precio es menor que lo que cuesta prepararla; se vendería a pérdida.
+                      </p>
+                    )}
+                    {unpriced && (
+                      <p className="mt-2 text-[11px]" style={{ color: t.muted }}>
+                        Algún insumo de la ficha no tiene costo o su unidad no se puede convertir: no se cuenta en el costo.
+                      </p>
+                    )}
+                    {!(portion > 0) && (
+                      <p className="mt-2 text-[11px]" style={{ color: t.muted }}>
+                        Sin porción no se descuenta del stock cuando se sirve en un pedido.
+                      </p>
+                    )}
+                  </section>
+                )
+              }
               if (isSupply && f.key === "8") {
                 if (!showSupplyTechnicalSheet) return null
                 const src = (key: string) => String((isView ? row?.[Number(key)] : formData[key]) ?? "")
@@ -2319,8 +2647,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 return (
                   <section
                     key="ficha-tecnica"
-                    data-sheet
-                    className={`rounded-xl p-4 sm:col-span-2 ${sheetBeside ? "lg:col-start-3 lg:row-start-1 lg:row-end-[span_14] lg:self-start" : ""}`}
+                    className="rounded-xl p-3.5 sm:col-span-2"
                     style={{ background: `${C.mustard}0D`, border: `1.5px solid ${C.mustard}55` }}
                   >
                     <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2328,7 +2655,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>
                           Ficha técnica · Producto de insumo
                         </div>
-                        <div className="text-sm font-semibold break-words" style={{ color: t.text }}>
+                        <div className={`text-sm font-semibold break-words ${isView ? "" : "hidden"}`} style={{ color: t.text }}>
                           {src("8").trim() || `Ficha técnica - ${supplyName}`}
                         </div>
                       </div>
@@ -2344,11 +2671,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         Esta ficha se crea junto con el insumo y también aparecerá en el módulo Productos.
                       </p>
                     )}
-                    <div className="mt-4 grid gap-3">
+                    <div className={`${isView ? "mt-4" : "mt-2"} grid grid-cols-[minmax(0,1fr)] gap-3`}>
                       {!isView && (
                         <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: t.muted }}>
-                          Nombre de la ficha
                           <input
+                            aria-label="Nombre de la ficha"
                             value={formData["8"] ?? ""}
                             onChange={(e) => setSheet("8", e.target.value)}
                             placeholder={`Ficha técnica - ${supplyName}`}
@@ -2358,7 +2685,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         </label>
                       )}
                       <div className="flex flex-col gap-1.5">
-                        <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                        <span className={`text-xs font-semibold ${!isView && mainSupplies.length ? "hidden" : ""}`} style={{ color: t.muted }}>
                           Insumos principales{!isView && " *"}
                         </span>
                         {mainSupplies.length === 0 ? (
@@ -2378,9 +2705,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             ))}
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-2">
+                          <div className="flex flex-col gap-2 lg:max-h-[9.5rem] lg:overflow-y-auto lg:pr-1" style={{ scrollbarWidth: "thin" }}>
                             <div className="flex items-center gap-2 px-1 text-[10px] font-bold uppercase tracking-wide" style={{ color: t.muted }}>
-                              <span className="flex-1">Insumo</span>
+                              <span className="flex-1">Insumos principales *</span>
                               <span className="w-[16rem] text-center">Cuánto usas y en qué unidad</span>
                               <span className="w-7" />
                             </div>
@@ -2395,7 +2722,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                   onClick={() =>
                                     setMainSupplies(
                                       mainSupplies.map((m, i) =>
-                                        i === index ? { ...m, quantity: String(Math.max(0, (Number(m.quantity) || 0) - 1)) } : m,
+                                        i === index && (Number(m.quantity) || 0) - 1 > 0 ? { ...m, quantity: String((Number(m.quantity) || 0) - 1) } : m,
                                       ),
                                     )
                                   }
@@ -2406,9 +2733,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 </button>
                                 <input
                                   type="number"
-                                  min="0"
+                                  min="0.001"
                                   step="any"
                                   value={item.quantity}
+                                  onKeyDown={(event) => ["-", "+", "e", "E"].includes(event.key) && event.preventDefault()}
                                   onChange={(e) =>
                                     setMainSupplies(
                                       mainSupplies.map((m, i) => (i === index ? { ...m, quantity: e.target.value } : m)),
@@ -2469,6 +2797,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         {!isView && (
                           <>
                             {/* Search box: typing filters the insumos; picking one adds it to the ficha */}
+                            <div className="flex items-center gap-2">
+                            <div className="min-w-0 flex-1">
                             <SuggestInput
                               t={t}
                               clearOnPick
@@ -2483,6 +2813,18 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 border: `1.5px solid ${formFieldErrors["10"] ? C.red : t.inputB}`,
                               }}
                             />
+                            </div>
+                            {/* An insumo that doesn't exist yet: create it and come back with it added to the ficha */}
+                            <button
+                              type="button"
+                              onClick={() => openChildForm("insumos")}
+                              title="Crear un insumo nuevo y volver a esta ficha técnica"
+                              className="flex flex-shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-xl px-3 py-2.5 text-xs font-semibold"
+                              style={{ background: `${C.mustard}14`, color: C.mustard }}
+                            >
+                              {Ico.plus} Crear insumo
+                            </button>
+                            </div>
                           </>
                         )}
                         {formFieldErrors["10"] && (
@@ -2521,40 +2863,108 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               }
               // Purchase form: subtotal/total are computed from the items below
               if (isPurchase && (f.key === "3" || f.key === "4")) return null
+              if (isPurchase && f.key === "6" && modal.mode === "edit") {
+                // Editing a purchase: its insumos, quantities and prices are fixed (only the date changes)
+                const items = parsePurchaseItems(formData["6"])
+                return (
+                  <section
+                    key="purchase-items"
+                    className="flex flex-col rounded-xl p-4 sm:col-span-2 lg:col-span-1 lg:col-start-2 lg:row-span-3 lg:row-start-1"
+                    style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        Insumos comprados
+                      </h4>
+                    </div>
+                    <p className="mt-0.5 pl-3 text-[11px]" style={{ color: t.muted }}>No se pueden cambiar: al editar una compra solo cambia su fecha.</p>
+                    <div className="mt-3 divide-y" style={{ borderColor: t.border }}>
+                      {items.map((item) => (
+                        <div key={item.name} className="flex items-center justify-between gap-3 py-2 text-sm" style={{ borderColor: t.border }}>
+                          <span className="min-w-0 truncate" style={{ color: t.text }}>
+                            {item.name} <span style={{ color: t.muted }}>× {qtyLabel(Number(item.quantity), String(supplyInfo(item.name)?.[2] ?? "und"), packOf(supplyInfo(item.name)))} · {fmt(Number(item.unitPrice))} c/u</span>
+                          </span>
+                          <span className="flex-shrink-0 font-semibold" style={{ color: t.text }}>{fmt(item.total)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between border-t pt-2.5 lg:hidden" style={{ borderColor: t.border }}>
+                      <span className="text-sm" style={{ color: t.muted }}>Total</span>
+                      <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(items.reduce((sum, item) => sum + item.total, 0))}</span>
+                    </div>
+                  </section>
+                )
+              }
               if (isPurchase && f.key === "6") {
                 const supplier = String(formData["0"] ?? "")
                 const allowed = purchaseSupplies(supplier)
+                // Empty search: the supplier's categories; typing: every active insumo (theirs first)
+                const searchPool = (q: string) =>
+                  q
+                    ? [...new Set([...allowed, ...(rows.insumos || []).filter((i) => isActiveStatus(i[12])).map((i) => String(i[0]))])]
+                        .filter((name) => normalizeName(name).includes(q))
+                    : allowed
                 const categories = supplierCategories(supplier)
                 const items = parsePurchaseItems(formData["6"])
                 const total = items.reduce((sum, item) => sum + item.total, 0)
-                const setItems = (next: { name: string; quantity: string; unitPrice?: string }[]) =>
+                const setItems = (next: { name: string; quantity: string; unitPrice?: string; pack?: string }[]) =>
                   setFormData((current) => ({
                     ...current,
-                    "6": next.map((i) => `${i.name} | ${i.quantity} | ${i.unitPrice ?? 0}`).join("\n"),
+                    "6": next.map((i) => `${i.name} | ${i.quantity} | ${i.unitPrice ?? 0}${i.pack ? ` | ${i.pack}` : ""}`).join("\n"),
                   }))
+                const PACK_KINDS = ["Caja", "Paquete", "Bulto"]
+                const pickedUnit = String(supplyInfo(purchaseItemSelect)?.[2] ?? "und")
+                const unitCostOf = (name: string) => Number(supplyInfo(name)?.[3]) || 0
+                // Price of one unit or of one package of `per`, from the insumo's last cost ("" when it has none)
+                const priceFor = (name: string, kind: string, per: string) =>
+                  unitCostOf(name) ? String(Math.round(unitCostOf(name) * (kind ? toDecimal(per) || 1 : 1))) : ""
                 const pickSupply = (name: string) => {
                   setPurchaseItemSelect(name)
-                  setPurchaseItemPrice(name ? String(supplyInfo(name)?.[3] ?? "") : "")
+                  // Bought in its package (pan x 12): «Paquete, trae 12» and the package's price, ready to change
+                  const pack = name ? packOf(supplyInfo(name)) : undefined
+                  const next = pack ? { kind: pack.kind, per: String(pack.size) } : { kind: "", per: "" }
+                  setPurchaseItemPack(next)
+                  setPurchaseItemPrice(name ? priceFor(name, next.kind, next.per) : "")
                   setPurchaseFormError("")
                 }
+                // Loose ↔ package: the content comes from the insumo, and the price follows unless it was typed by hand
+                const changePack = (next: { kind: string; per: string }) => {
+                  if (purchaseItemSelect && (!purchaseItemPrice || purchaseItemPrice === priceFor(purchaseItemSelect, purchaseItemPack.kind, purchaseItemPack.per)))
+                    setPurchaseItemPrice(priceFor(purchaseItemSelect, next.kind, next.per))
+                  setPurchaseItemPack(next)
+                }
                 const addItem = () => {
-                  const qty = toDecimal(purchaseItemQty)
-                  const price = Number(purchaseItemPrice)
+                  const count = toDecimal(purchaseItemQty)
+                  const packPrice = Number(purchaseItemPrice)
+                  const kind = purchaseItemPack.kind
+                  // By the box/pack/sack: what reaches the stock is boxes × what each holds, in the insumo's unit,
+                  // and the unit cost is the box price split over its content
+                  const per = kind ? toDecimal(purchaseItemPack.per) : 1
                   if (!purchaseItemSelect) return setPurchaseFormError("Elige el insumo que vas a agregar.")
-                  if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
-                  if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
-                  if (price > MAX_PRICE) return setPurchaseFormError(`El precio unitario puede ser máximo ${fmt(MAX_PRICE)}.`)
+                  if (!(count > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
+                  if (kind && !(per > 0)) return setPurchaseFormError(`Escribe cuántos ${pickedUnit} trae cada ${kind.toLowerCase()}.`)
+                  if (!(packPrice > 0)) return setPurchaseFormError(kind ? `Escribe el precio de cada ${kind.toLowerCase()}.` : "Escribe el precio unitario.")
+                  if (packPrice > MAX_PRICE) return setPurchaseFormError(`El precio puede ser máximo ${fmt(MAX_PRICE)}.`)
+                  const qty = Math.round(count * per * 1000) / 1000
+                  if (!Number.isInteger(qty))
+                    return setPurchaseFormError(`Lo que entra al inventario va en números enteros de ${pickedUnit}: ${qty.toLocaleString("es-CO")} no lo es.`)
+                  const price = Math.round((packPrice / per) * 100) / 100
+                  const pack = kind ? `${count.toLocaleString("es-CO")} ${kind}${count === 1 ? "" : "s"} × ${per.toLocaleString("es-CO")} ${pickedUnit} a ${fmt(packPrice)}` : ""
                   const existing = items.find(
-                    (i) => i.name === purchaseItemSelect && Number(i.unitPrice) === price,
+                    (i) => i.name === purchaseItemSelect && Number(i.unitPrice) === price && !i.pack && !pack,
                   )
                   setItems(
                     existing
                       ? items.map((i) => (i === existing ? { ...i, quantity: String(Number(i.quantity) + qty) } : i))
-                      : [...items, { name: purchaseItemSelect, quantity: String(qty), unitPrice: String(price) }],
+                      : [...items, { name: purchaseItemSelect, quantity: String(qty), unitPrice: String(price), pack }],
                   )
                   setPurchaseItemSelect("")
                   setPurchaseItemQty("1")
                   setPurchaseItemPrice("")
+                  setPurchaseItemPack({ kind: "", per: "" })
+                  // Ready for the next one without the mouse
+                  window.setTimeout(() => document.getElementById("purchase-supply-search")?.focus(), 0)
                   // A soda bought at or above its sale price would sell at a loss: say so (it still gets added)
                   const salePrice = Number(sodaProductRow(purchaseItemSelect)?.[2]) || 0
                   setPurchaseFormError(
@@ -2564,6 +2974,18 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   )
                 }
                 const controlSt = { background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }
+                const addOnEnter = (e: React.KeyboardEvent<HTMLInputElement>) => {
+                  if (e.key !== "Enter") return
+                  e.preventDefault()
+                  addItem()
+                }
+                // The last purchase to this supplier: one click brings its insumos, quantities and prices back
+                const lastPurchase = supplier
+                  ? (rows.compras || [])
+                      .filter((c) => String(c[0]) === supplier && isActiveStatus(c[5]))
+                      .sort((a, b) => String(b[1]).localeCompare(String(a[1])))[0]
+                  : undefined
+                const lastLines = lastPurchase ? parsePurchaseLines(lastPurchase[6]).filter((line) => supplyInfo(line.name)) : []
                 // "Enviar a pérdida": only for items already saved in this purchase (edit mode)
                 const savedItems = modal.mode === "edit" ? parsePurchaseItems(row?.[6]) : []
                 const lossOrigin = row ? purchaseLabel(row) : ""
@@ -2598,11 +3020,14 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 return (
                   <section
                     key="purchase-items"
-                    className="rounded-xl p-4 sm:col-span-2"
+                    className="flex flex-col rounded-xl p-4 sm:col-span-2 lg:col-span-1 lg:col-start-2 lg:row-span-3 lg:row-start-1"
                     style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}
                   >
-                    <div className="text-sm font-semibold" style={{ color: t.text }}>
-                      Insumos comprados
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        Insumos comprados
+                      </h4>
                     </div>
                     {!supplier ? (
                       <p className="mt-1 text-xs" style={{ color: t.muted }}>
@@ -2619,7 +3044,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             ? <>Insumos de {categories.join(", ")}: lo que vende «{supplier}». Al guardar, los que compres quedan en su lista.</>
                             : <>«{supplier}» aún no tiene compras: puedes elegir cualquier insumo. Al guardar, quedará vendiéndolo.</>}
                         </p>
-                        <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_96px_120px_auto]">
+                        <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_120px_96px_120px_auto]">
                           <label className="flex min-w-0 flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
                             Insumo
                             {/* Search: type to filter the supplier's insumos, click one to pick it */}
@@ -2642,12 +3067,14 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                     if (e.key !== "Enter") return
                                     e.preventDefault()
                                     const q = normalizeName(purchaseSupplySearch ?? "")
-                                    const first = allowed.find((name) => normalizeName(name).includes(q))
+                                    const first = searchPool(q)[0]
                                     if (first) {
                                       pickSupply(first)
                                       setPurchaseSupplySearch(null)
+                                      window.setTimeout(() => document.getElementById("purchase-item-qty")?.focus(), 0)
                                     }
                                   }}
+                                  id="purchase-supply-search"
                                   placeholder="Busca un insumo..."
                                   aria-label="Buscar insumo"
                                   className="w-full min-w-0 bg-transparent py-2.5 text-sm outline-none"
@@ -2662,7 +3089,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                 >
                                   {(() => {
                                     const q = normalizeName(purchaseSupplySearch)
-                                    const found = allowed.filter((name) => normalizeName(name).includes(q))
+                                    const found = searchPool(q)
                                     return found.length ? (
                                       found.map((name) => (
                                         <button
@@ -2686,7 +3113,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                       ))
                                     ) : (
                                       <p className="px-3 py-2 text-center text-xs" style={{ color: t.muted }}>
-                                        Ningún insumo de «{supplier}» coincide.
+                                        Ningún insumo coincide.
                                       </p>
                                     )
                                   })()}
@@ -2695,23 +3122,43 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             </div>
                           </label>
                           <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                            Cantidad
+                            Viene en
+                            <select
+                              value={purchaseItemPack.kind}
+                              onChange={(e) =>
+                                changePack({
+                                  kind: e.target.value,
+                                  per: e.target.value ? purchaseItemPack.per || String(packOf(supplyInfo(purchaseItemSelect))?.size ?? "") : "",
+                                })
+                              }
+                              className="w-full cursor-pointer rounded-xl px-2 py-2.5 text-sm outline-none"
+                              style={controlSt}
+                            >
+                              <option value="">{purchaseItemSelect ? `${pickedUnit} suelto` : "Suelto"}</option>
+                              {PACK_KINDS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+                            </select>
+                          </label>
+                          <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
+                            {purchaseItemPack.kind ? `${purchaseItemPack.kind}s` : "Cantidad"}
                             <input
+                              id="purchase-item-qty"
                               type="text"
                               inputMode="decimal"
                               value={purchaseItemQty}
                               onChange={(e) => setPurchaseItemQty(e.target.value)}
+                              onKeyDown={addOnEnter}
                               className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                               style={controlSt}
                             />
                           </label>
                           <label className="flex flex-col gap-1 text-[11px] font-semibold" style={{ color: t.muted }}>
-                            Precio unitario
+                            {purchaseItemPack.kind ? `Precio por ${purchaseItemPack.kind.toLowerCase()}` : "Precio unitario"}
                             <input
                               type="number"
                               min="0"
                               value={purchaseItemPrice}
                               onChange={(e) => setPurchaseItemPrice(e.target.value)}
+                              onKeyDown={addOnEnter}
                               placeholder="$"
                               className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                               style={controlSt}
@@ -2725,13 +3172,56 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           >
                             Agregar
                           </button>
+                          {purchaseItemPack.kind && (
+                            <label className="flex flex-wrap items-center gap-2 text-xs sm:col-span-5" style={{ color: t.text }}>
+                              Cada {purchaseItemPack.kind.toLowerCase()} trae
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={purchaseItemPack.per}
+                                onChange={(e) => changePack({ ...purchaseItemPack, per: e.target.value })}
+                                onKeyDown={addOnEnter}
+                                placeholder="24"
+                                aria-label={`Contenido de cada ${purchaseItemPack.kind.toLowerCase()}`}
+                                className="w-20 rounded-lg px-2 py-1.5 text-sm outline-none"
+                                style={controlSt}
+                              />
+                              {pickedUnit}
+                              {(() => {
+                                const count = toDecimal(purchaseItemQty)
+                                const per = toDecimal(purchaseItemPack.per)
+                                const price = Number(purchaseItemPrice)
+                                return count > 0 && per > 0 ? (
+                                  <span style={{ color: t.muted }}>
+                                    → entran {(count * per).toLocaleString("es-CO")} {pickedUnit} al inventario
+                                    {price > 0 ? ` · ${fmt(Math.round((price / per) * 100) / 100)} por ${pickedUnit}` : ""}
+                                  </span>
+                                ) : null
+                              })()}
+                            </label>
+                          )}
                         </div>
                       </>
                     )}
-                    <div className="mt-3 flex flex-col">
+                    <div className="mt-3 flex flex-col lg:flex-1">
                       {items.length === 0 ? (
-                        <div className="rounded-lg px-3 py-3 text-center text-xs" style={{ background: t.input, color: t.muted }}>
+                        <div className="flex flex-col items-center justify-center gap-2 rounded-lg px-3 py-3 text-center text-xs lg:flex-1" style={{ border: `1.5px dashed ${t.inputB}`, color: t.muted }}>
+                          <span className="hidden h-10 w-10 items-center justify-center rounded-xl lg:flex" style={{ background: `${C.mustard}14`, color: C.mustard }}>{Ico.shopping}</span>
                           Aún no has agregado insumos.
+                          {lastLines.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setItems(lastLines.map((line) => ({ name: line.name, quantity: String(line.quantity), unitPrice: String(line.unitPrice), pack: line.pack })))
+                                setPurchaseFormError("")
+                              }}
+                              className="mt-1 flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold"
+                              style={{ background: `${C.mustard}18`, color: C.mustard, border: `1px solid ${C.mustard}40` }}
+                            >
+                              {Ico.undo} Repetir la última compra ({lastLines.length} {lastLines.length === 1 ? "insumo" : "insumos"}, {formatDateLabel(String(lastPurchase?.[1] ?? ""))})
+                            </button>
+                          )}
+                          {lastLines.length > 0 && <span className="text-[11px]">Luego cambias cantidades o precios si algo varió.</span>}
                         </div>
                       ) : (
                         items.map((item, index) => (
@@ -2743,8 +3233,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             <div className="min-w-0 flex-1">
                               <div className="truncate font-semibold" style={{ color: t.text }}>{item.name}</div>
                               <div className="text-[11px]" style={{ color: t.muted }}>
-                                {Number(item.quantity).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")} × {fmt(Number(item.unitPrice || 0))}
+                                {qtyLabel(Number(item.quantity), String(supplyInfo(item.name)?.[2] ?? "und"), packOf(supplyInfo(item.name)))} × {fmt(Number(item.unitPrice || 0))} c/u
                               </div>
+                              {item.pack && (
+                                <div className="text-[11px]" style={{ color: C.mustard }}>Vino en: {item.pack}</div>
+                              )}
                               {savedItems.length > 0 && lostSoFar(item.name) > 0 && (
                                 <div className="text-[11px] font-semibold" style={{ color: C.red }}>
                                   Perdido: {lostSoFar(item.name).toLocaleString("es-CO")} {String(supplyInfo(item.name)?.[2] ?? "und")}
@@ -2781,7 +3274,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                     if (!(qty > 0)) return setPurchaseFormError("La cantidad debe ser mayor que 0.")
                                     if (!(price > 0)) return setPurchaseFormError("Escribe el precio unitario.")
                                     if (price > MAX_PRICE) return setPurchaseFormError(`El precio unitario puede ser máximo ${fmt(MAX_PRICE)}.`)
-                                    setItems(items.map((i, n) => (n === index ? { ...i, quantity: String(qty), unitPrice: String(price) } : i)))
+                                    setItems(items.map((i, n) => (n === index ? { ...i, quantity: String(qty), unitPrice: String(price), pack: Number(i.quantity) === qty && Number(i.unitPrice) === price ? i.pack : "" } : i)))
                                     setPurchaseItemEdit(null)
                                     setPurchaseFormError("")
                                   }}
@@ -2847,7 +3340,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         ))
                       )}
                     </div>
-                    <div className="mt-3 flex justify-end border-t pt-3 text-sm" style={{ borderColor: t.border, color: t.text }}>
+                    {/* On a wide screen the total is in the summary on the left */}
+                    <div className="mt-3 flex justify-end border-t pt-3 text-sm lg:hidden" style={{ borderColor: t.border, color: t.text }}>
                       <span>
                         Total: <strong style={{ color: C.mustard }}>{fmt(total)}</strong>
                       </span>
@@ -2970,6 +3464,20 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   </div>
                 )
               }
+              // A return's date is the day it's registered: shown, not chosen
+              if (isReturns && f.key === "5") {
+                const date = String((isView ? row?.[5] : formData["5"]) || getCurrentDateTimeParts().date).slice(0, 10)
+                const shown = new Date(`${date}T00:00:00`)
+                return (
+                  <div key="5" className="flex min-w-0 flex-col gap-1.5">
+                    <span className="text-xs font-semibold" style={{ color: t.muted }}>Fecha de la devolución</span>
+                    <div className="rounded-xl px-3.5 py-2.5 text-sm font-semibold" style={{ background: t.cardAlt, border: `1px dashed ${t.inputB}`, color: t.text }}>
+                      {Number.isNaN(shown.getTime()) ? date : shown.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" }).replace(".", "")}
+                    </div>
+                    {!isView && <span className="text-[11px]" style={{ color: t.muted }}>Es la fecha de hoy y no se cambia.</span>}
+                  </div>
+                )
+              }
               if (isReturns && f.key === "1") {
                 const saleCode = String((isView ? row?.[1] : formData["1"]) ?? "")
                 const sale = (rows.ventas || []).find((v) => String(v[0]) === saleCode)
@@ -3039,92 +3547,42 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         </div>
                         {(() => {
                           const allLines = getSaleOrderLines(sale ?? null)
-                          let chosen: { id: string; product: string; quantity: number; unitPrice: number }[] = []
+                          let chosen: { id: string; product: string; quantity: number; unitPrice: number; parentId?: string }[] = []
                           try {
                             chosen = JSON.parse(String((isView ? row?.[6] : formData["6"]) || "[]"))
                           } catch {
                             chosen = []
                           }
-                          const setChosen = (next: typeof chosen) => {
-                            setFormData((current) => ({ ...current, "6": JSON.stringify(next) }))
-                            setFormFieldErrors((current) => ({ ...current, "1": "" }))
-                          }
-                          const refund = chosen.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
-                          if (isView)
-                            return (
-                              <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.red}08`, border: `1px solid ${C.red}25` }}>
-                                <div className="mb-1 text-[11px] font-semibold" style={{ color: C.red }}>Productos devueltos</div>
-                                {chosen.length ? (
-                                  <>
-                                    {chosen.map((item) => (
-                                      <div key={item.id} className="flex justify-between gap-3 text-sm" style={{ color: t.text }}>
-                                        <span className="min-w-0 break-words">{item.product} ×{item.quantity}</span>
-                                        <span className="flex-shrink-0">{fmt(item.quantity * item.unitPrice)}</span>
-                                      </div>
-                                    ))}
-                                    <div className="mt-1 flex justify-between border-t pt-1 text-sm font-semibold" style={{ borderColor: `${C.red}25`, color: C.red }}>
-                                      <span>Valor devuelto</span>
-                                      <span>{fmt(refund)}</span>
-                                    </div>
-                                  </>
-                                ) : (
-                                  <span className="text-xs" style={{ color: t.muted }}>No se registraron productos (devolución anterior a este cambio).</span>
-                                )}
-                              </div>
-                            )
-                          if (!allLines.length) return <p className="text-xs" style={{ color: t.muted }}>Esta venta no tiene el detalle de sus productos.</p>
+                          // Everything sold comes back: all its products and additions, plus the delivery (the sale's total)
+                          const lines = isView ? chosen : allLines
+                          const productsTotal = lines.reduce((sum, item) => sum + item.quantity * item.unitPrice, 0)
+                          const saleTotal = isView ? Number(row?.[8]) || productsTotal : Number(sale[7] ?? sale[6]) || productsTotal
+                          const delivery = Math.max(0, saleTotal - productsTotal)
+                          if (!isView && !allLines.length) return <p className="text-xs" style={{ color: t.muted }}>Esta venta no tiene el detalle de sus productos.</p>
                           return (
-                            <div className="rounded-xl px-3 py-2.5" style={{ background: t.cardAlt }}>
-                              <div className="mb-1.5 text-[11px] font-semibold" style={{ color: t.muted }}>¿Qué productos se devuelven?</div>
-                              <div className={`gap-x-5 ${allLines.length > 5 ? "sm:columns-2" : ""}`}>
-                                {allLines.map((line) => {
-                                  const picked = chosen.find((item) => item.id === line.id)
-                                  return (
-                                    <div key={line.id} className={`mb-1 flex break-inside-avoid items-center gap-2 text-sm ${line.parentId ? "pl-5" : ""}`}>
-                                      <input
-                                        type="checkbox"
-                                        aria-label={`Devolver ${line.product}`}
-                                        checked={!!picked}
-                                        onChange={() =>
-                                          setChosen(
-                                            picked
-                                              ? chosen.filter((item) => item.id !== line.id)
-                                              : [...chosen, { id: line.id, product: line.product, quantity: line.quantity, unitPrice: line.unitPrice }],
-                                          )
-                                        }
-                                        style={{ accentColor: C.red }}
-                                      />
-                                      <span className="min-w-0 flex-1 break-words" style={{ color: line.parentId ? t.muted : t.text }}>
-                                        {line.parentId ? "+ " : ""}{line.product}
-                                      </span>
-                                      {picked ? (
-                                        <input
-                                          type="number"
-                                          min="1"
-                                          max={line.quantity}
-                                          aria-label={`Cantidad de ${line.product} que se devuelve`}
-                                          value={picked.quantity}
-                                          onChange={(event) =>
-                                            setChosen(
-                                              chosen.map((item) =>
-                                                item.id === line.id
-                                                  ? { ...item, quantity: Math.min(line.quantity, Math.max(1, Math.floor(Number(event.target.value)) || 1)) }
-                                                  : item,
-                                              ),
-                                            )
-                                          }
-                                          className="w-14 rounded-lg px-2 py-1 text-sm outline-none"
-                                          style={{ background: t.card, border: `1px solid ${t.inputB}`, color: t.text }}
-                                        />
-                                      ) : null}
-                                      <span className="w-14 flex-shrink-0 text-right text-xs" style={{ color: t.muted }}>de {line.quantity}</span>
-                                    </div>
-                                  )
-                                })}
+                            <div className="rounded-xl px-3 py-2.5" style={{ background: `${C.red}08`, border: `1px solid ${C.red}25` }}>
+                              <div className="mb-1 text-[11px] font-semibold" style={{ color: C.red }}>
+                                {isView ? "Se devolvió todo lo vendido" : "Se devuelve todo lo vendido"}
                               </div>
-                              <div className="mt-1.5 flex justify-between border-t pt-1.5 text-sm" style={{ borderColor: t.border }}>
-                                <span style={{ color: t.muted }}>Valor a devolver o reembolsar</span>
-                                <span className="font-semibold" style={{ color: chosen.length ? C.red : t.muted }}>{fmt(refund)}</span>
+                              {lines.length ? (
+                                lines.map((item) => (
+                                  <div key={item.id} className={`flex justify-between gap-3 text-sm ${"parentId" in item && item.parentId ? "pl-4" : ""}`} style={{ color: t.text }}>
+                                    <span className="min-w-0 break-words">{"parentId" in item && item.parentId ? "+ " : ""}{item.product} ×{item.quantity}</span>
+                                    <span className="flex-shrink-0">{fmt(item.quantity * item.unitPrice)}</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <span className="text-xs" style={{ color: t.muted }}>No se registraron productos (devolución anterior a este cambio).</span>
+                              )}
+                              {delivery > 0 && (
+                                <div className="flex justify-between gap-3 text-sm" style={{ color: t.text }}>
+                                  <span>Domicilio</span>
+                                  <span>{fmt(delivery)}</span>
+                                </div>
+                              )}
+                              <div className="mt-1 flex justify-between border-t pt-1 text-sm font-semibold" style={{ borderColor: `${C.red}25`, color: C.red }}>
+                                <span>{isView ? "Total devuelto" : "Total a devolver"}</span>
+                                <span>{fmt(saleTotal)}</span>
                               </div>
                             </div>
                           )
@@ -3139,37 +3597,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 )
               }
               if (isSupplier && !isView && f.key === "15") {
-                const types = [
-                  { value: "Persona jurídica", icon: Ico.shopping, hint: "Empresa con NIT y una persona de contacto" },
-                  { value: "Persona natural", icon: Ico.user, hint: "Una persona que vende con su documento de identidad" },
-                ]
-                // Type chosen: only its form shows, with a way back to the two options
-                const chosen = types.find((type) => type.value === formData["15"])
-                if (chosen) {
-                  return (
-                    <div
-                      key="15"
-                      className="flex items-center gap-3 rounded-xl px-4 py-2.5 sm:col-span-2 lg:col-span-4"
-                      style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}
-                    >
-                      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: C.mustard, color: "#fff" }}>
-                        {chosen.icon}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold" style={{ color: t.text }}>{chosen.value}</span>
-                        <span className="block text-[11px]" style={{ color: t.muted }}>{chosen.hint}</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => updateAdminField("proveedores", "15", "")}
-                        className="flex flex-shrink-0 cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-xs font-semibold"
-                        style={{ background: t.card, color: t.text, border: `1px solid ${t.inputB}` }}
-                      >
-                        <span className="rotate-90">{Ico.chevDown}</span> Cambiar tipo
-                      </button>
-                    </div>
-                  )
-                }
+                const types = SUPPLIER_TYPES
+                // Type chosen: it shows in the page header (with «Cambiar tipo»), only its form below
+                if (chosenSupplierType) return null
                 return (
                   <div key="15" className="flex flex-col gap-1.5 sm:col-span-2 lg:col-span-4">
                     {!formData["15"] && (
@@ -3236,10 +3666,20 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               // Supplier form: pick which insumos this supplier sells (search box that opens a list)
               if (isSupplier && !isView && f.key === "7") {
                 const selected = splitList(String(formData["7"] ?? ""))
+                // Insumos already bought from this supplier (purchases not annulled) can't be taken off its list
+                const supplierName = String((modal.mode === "edit" ? row?.[0] : formData["0"]) ?? "")
+                const bought = new Set(
+                  getSupplierPurchases(supplierName)
+                    .filter((purchase) => String(purchase[5]) !== "Anulado")
+                    .flatMap((purchase) => parsePurchaseLines(purchase[6]).map((line) => line.name)),
+                )
+                const locked = selected.filter((name) => bought.has(name))
                 const setSelected = (next: string[]) =>
-                  updateAdminField("proveedores", "7", [...new Set(next)].join(", "))
+                  updateAdminField("proveedores", "7", [...new Set([...locked, ...next])].join(", "))
                 const toggleSupply = (name: string) =>
-                  setSelected(selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name])
+                  bought.has(name) && selected.includes(name)
+                    ? undefined
+                    : setSelected(selected.includes(name) ? selected.filter((item) => item !== name) : [...selected, name])
                 // Active insumos, plus any already chosen (even if deactivated later), grouped by category
                 const query = normalizeName(supplierSupplySearch)
                 const groups = new Map<string, string[]>()
@@ -3267,12 +3707,31 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 return (
                   <div
                     key="7"
-                    className={`flex min-w-0 flex-col gap-1 sm:col-span-2 ${naturalSupplierForm ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-1"}`}
+                    className={`mt-1 flex min-w-0 flex-col gap-1 border-t pt-4 sm:col-span-2 ${companySupplierForm ? "lg:mt-0 lg:pt-2" : ""} ${naturalSupplierForm ? "lg:col-span-4" : "lg:col-span-6 lg:row-start-5"}`}
+                    style={{ borderColor: t.border }}
                   >
-                    <label htmlFor="supplier-supplies" className="text-xs font-semibold" style={{ color: fieldValidationError ? C.red : t.muted }}>
-                      Insumos que vende{requiredFormField && " *"}
-                    </label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-1 lg:flex-row lg:items-center lg:gap-6">
+                    <div className="mb-1 lg:mb-0 lg:w-[30rem] lg:flex-none">
+                      <div className="flex items-center gap-2">
+                        <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                        <label
+                          htmlFor="supplier-supplies"
+                          className="text-xs font-bold uppercase tracking-wider"
+                          style={{ color: fieldValidationError ? C.red : t.text, fontFamily: "League Spartan, sans-serif" }}
+                        >
+                          Insumos que vende{requiredFormField && " *"}
+                        </label>
+                      </div>
+                      <p className="mt-0.5 pl-3 text-[11px]" style={{ color: t.muted }}>
+                        Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
+                      </p>
+                      {locked.length > 0 && (
+                        <p className="pl-3 text-[11px]" style={{ color: t.muted }}>
+                          🔒 Con candado: ya tienen compras y no se pueden quitar.
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex min-w-0 items-center gap-2 lg:flex-1">
                       <div
                         className="search-control flex min-w-0 flex-1 cursor-text items-center gap-2 rounded-full px-3 py-2"
                         style={{ background: t.input, border: `1.5px solid ${fieldValidationError ? C.red : menu ? C.mustard : t.inputB}` }}
@@ -3322,6 +3781,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       >
                         {Ico.plus} Crear insumo
                       </button>
+                    </div>
                     </div>
                     {menu && (
                       <>
@@ -3380,6 +3840,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                       <input
                                         type="checkbox"
                                         checked={selected.includes(name)}
+                                        disabled={locked.includes(name)}
+                                        title={locked.includes(name) ? "Ya tiene compras a este proveedor: no se puede quitar" : undefined}
                                         onChange={() => toggleSupply(name)}
                                         style={{ accentColor: C.mustard }}
                                       />
@@ -3393,10 +3855,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         </div>
                       </>
                     )}
-                    {selected.length > 0 && renderSupplyGroups(selected, "pt-1 sm:grid-cols-2", toggleSupply)}
-                    <span className="text-[11px]" style={{ color: t.muted }}>
-                      Solo estos insumos se podrán elegir al registrar una compra a este proveedor.
-                    </span>
+                    {selected.length > 0 && renderSupplyGroups(selected, "sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(16rem,1fr))]", toggleSupply, locked)}
                     {fieldValidationError && (
                       <span role="alert" className="text-[10px] font-medium" style={{ color: C.red }}>
                         {fieldValidationError}
@@ -3417,6 +3876,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   ? "Nombre completo"
                   : isSupply && f.key === "7"
                       ? "¿Lo preparan ustedes?"
+                      : isSupply && f.key === "6" && !isView
+                        ? "Viene en · opcional"
                       : f.label
               const fieldRowIndex = Number(f.key) + rowOffset
               const val = isView
@@ -3486,6 +3947,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 const category = normalizeName(String(product?.[1] ?? ""))
                 return (
                   !!product &&
+                  !isSupplyProductRow(product) &&
                   !notAlone.includes(category) &&
                   Number(product[2]) > 0 &&
                   (pedidoProductCategory === "Todas" || String(product[1] ?? "") === pedidoProductCategory) &&
@@ -3556,13 +4018,24 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 {/* Insumo form in three parts: what it is, how much there is, who makes or sells it */}
                 {isSupply && !isView && (f.key === "0" || f.key === (modal.mode === "add" ? "5" : "4") || f.key === "7") && (
                   <div
-                    className={`flex items-center gap-2 sm:col-span-full ${f.key === "0" ? "" : "mt-1 border-t pt-4"}`}
+                    className={`sm:col-span-full ${f.key === "0" || (sheetBeside && f.key === "7") ? "" : "mt-1 border-t pt-4"} ${
+                      sheetBeside ? "" : f.key === "0" ? "lg:col-span-2 lg:col-start-1" : f.key === "7" ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-3 lg:mt-0 lg:border-t-0 lg:pt-0"
+                    }`}
                     style={{ borderColor: t.border }}
                   >
-                    <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
-                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
-                      {f.key === "0" ? "Datos del insumo" : f.key === "7" ? "Preparación" : "Inventario"}
-                    </h4>
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        {f.key === "0" ? "Datos del insumo" : f.key === "7" ? "Preparación" : "Inventario"}
+                      </h4>
+                    </div>
+                    <p className="mt-0.5 pl-3 text-[11px]" style={{ color: t.muted }}>
+                      {f.key === "0"
+                        ? "Cómo se llama y en qué unidad se cuenta."
+                        : f.key === "7"
+                          ? sheetBeside ? "Solo si lo preparan ustedes." : "Solo si lo preparan ustedes, como una salsa de la casa."
+                          : "Desde qué cantidad te avisamos que queda poco."}
+                    </p>
                   </div>
                 )}
                 {isSales && !isView && (f.key === "1" || f.key === "0") && (
@@ -3576,14 +4049,14 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     </h4>
                   </div>
                 )}
-                {isPedido && !isView && ["0", "1", "11"].includes(f.key) && (
+                {isPedido && !isView && ["0", "1"].includes(f.key) && (
                   <div
-                    className={`flex items-center gap-2 sm:col-span-3 ${f.key === "0" ? "" : "mt-1 border-t pt-4"}`}
+                    className={`flex items-center gap-2 ${f.key === "0" ? "sm:col-span-2" : ""}`}
                     style={{ borderColor: t.border }}
                   >
                     <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
                     <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
-                      {f.key === "0" ? "Cliente y pago" : f.key === "1" ? "Productos del pedido" : "Especificaciones"}
+                      {f.key === "0" ? "Cliente y pago" : "Productos del pedido"}
                     </h4>
                   </div>
                 )}
@@ -3607,44 +4080,73 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   <div
                     className={`pt-1 sm:col-span-2 ${
                       f.key === "8"
-                        ? naturalSupplier ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-3"
-                        : "lg:col-span-2 lg:col-start-1"
+                        ? naturalSupplier ? "lg:col-span-4" : "lg:col-span-3 lg:col-start-4 lg:row-start-1"
+                        : f.key === "1" && !isView ? "lg:col-span-3 lg:col-start-1 lg:row-start-1" : "lg:col-span-2 lg:col-start-1"
                     }`}
                   >
-                    <div className="mb-1 h-px" style={{ background: t.border }} />
-                    <h4 className="text-xs font-bold uppercase tracking-wide" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
-                      {f.key === "15"
-                        ? "Datos del proveedor"
-                        : f.key === "1"
-                          ? "Datos de la empresa"
+                    {isView && <div className="mb-2 h-px" style={{ background: t.border }} />}
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        {f.key === "15"
+                          ? "Datos del proveedor"
+                          : f.key === "1"
+                            ? "Datos de la empresa"
+                            : naturalSupplier
+                              ? "Datos de la persona"
+                              : "Persona de contacto"}
+                      </h4>
+                    </div>
+                    {!isView && f.key !== "15" && (
+                      <p className="mt-0.5 pl-3 text-[11px]" style={{ color: t.muted }}>
+                        {f.key === "1"
+                          ? "Como aparece en tus compras y cómo contactar a la empresa."
                           : naturalSupplier
-                            ? "Datos de la persona"
-                            : "Persona de contacto"}
-                    </h4>
+                            ? "Sus datos para las compras y para contactarla."
+                            : "Con quién hablas para hacer los pedidos."}
+                      </p>
+                    )}
                   </div>
                 )}
                 <div
                   className={`flex min-w-0 flex-col gap-1 ${
-                    isSupplier
+                    isSupply && !isView && sheetBeside
+                      ? f.key === "7" || (modal.mode === "edit" && (f.key === "4" || f.key === "5")) ? "" : "sm:col-span-2"
+                      : isSupply && !isView && !sheetBeside
+                      ? ({ "0": "sm:col-span-2 lg:col-start-1", "1": "lg:col-start-1", "2": "lg:col-start-2", "4": "lg:col-start-3", "5": modal.mode === "add" ? "lg:col-start-3" : "lg:col-start-4", "6": "lg:col-start-3", "7": "sm:col-span-2 lg:col-span-4" } as Record<string, string>)[f.key] ?? ""
+                      : isSupplier
                     ? naturalSupplier
-                      ? "lg:col-span-2" // one form, two fields per row
-                      : Number(f.key) < 8 || f.key === "15"
-                      ? "lg:col-span-2 lg:col-start-1"
-                      : f.key === "14"
-                        ? "lg:col-span-2 lg:col-start-3" // Cargo
-                        : Number(f.key) % 2 === 0
-                          ? "lg:col-start-3" // tipo doc, nombre, teléfono
-                          : "lg:col-start-4" // nº doc, apellido, correo
+                      ? f.key === "5" ? "lg:col-span-2" : "" // four fields per row, the address takes two
+                      : // company (left) · contact person (right), three rows each
+                        ({
+                          "0": "lg:col-span-2 lg:col-start-1 lg:row-start-2",
+                          "1": "lg:col-start-3 lg:row-start-2",
+                          "2": "lg:col-span-2 lg:col-start-1 lg:row-start-3",
+                          "3": "lg:col-start-3 lg:row-start-3",
+                          "5": "lg:col-span-3 lg:col-start-1 lg:row-start-4",
+                          "8": "lg:col-start-4 lg:row-start-2",
+                          "9": "lg:col-start-5 lg:row-start-2",
+                          "14": "lg:col-start-6 lg:row-start-2",
+                          "10": "lg:col-start-4 lg:row-start-3",
+                          "11": "lg:col-start-5 lg:row-start-3",
+                          "12": "lg:col-start-6 lg:row-start-3",
+                          "13": "lg:col-span-3 lg:col-start-4 lg:row-start-4",
+                        } as Record<string, string>)[f.key] ?? "lg:col-span-3 lg:col-start-1"
                       : isPedido && !isView
-                        ? f.key === "0" ? "sm:col-span-2" : f.key === "1" || f.key === "11" ? "sm:col-span-3" : ""
+                        // Right column: recibe · teléfono, tipo · método, then the comment; the products fill the left column
+                        ? ({ "0": "lg:order-1", "12": "lg:order-2", "2": "lg:order-3", "3": "lg:order-4", "11": "sm:col-span-2 lg:order-7", "1": "lg:min-h-0 lg:flex-1" } as Record<string, string>)[f.key] ?? "sm:col-span-2 lg:order-5"
                       : isSales && (f.key === "1" || f.key === "8")
                         ? "sm:col-span-2"
+                      : isProduction && !isView && f.key === "15"
+                        ? "sm:col-span-3 lg:col-span-1 lg:col-start-2 lg:row-start-1"
+                      : isPurchase && !isView && (f.key === "0" || f.key === "1")
+                        ? f.key === "0" ? "lg:col-start-1 lg:row-start-1" : "lg:col-start-1 lg:row-start-2"
                       : isPurchaseModule && isWideField(f) && !(isProduction && !isView)
                         ? "sm:col-span-2"
                         : ""
                   }`}
                 >
-                  <div className="flex items-center justify-between gap-2">
+                  <div className={`flex items-center justify-between gap-2 ${(isPedido && !isView && f.key === "1") || (isSupply && sheetBeside && f.key === "7") ? "hidden" : ""}`}>
                     <label
                       className="text-xs font-semibold"
                       style={{ color: !isView && shownFieldError(f.key) ? C.red : t.muted }}
@@ -3652,7 +4154,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       {fieldLabel}
                       {!isView && (isRequiredField(f.key) || requiredFormField) && " *"}
                     </label>
-                    {isPurchase && !isView && f.key === "0" && (
+                    {isPurchase && modal.mode === "add" && f.key === "0" && (
                       <button
                         type="button"
                         onClick={() => openChildForm("proveedores")}
@@ -3673,6 +4175,41 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       <span>{f.key === "3" ? formatViewValue(f, val) : val || "—"}</span>
                       <span className="text-[10px]" style={{ color: t.muted }}>No editable</span>
                     </div>
+                  ) : isSupply && !isView && f.key === "6" ? (
+                    // Loose, or a package / box / sack that brings N of its unit (a box of salt with 25 sobres = 25 und)
+                    <div className="flex min-w-0 items-center gap-2">
+                      <select
+                        value={String(formData["17"] ?? "")}
+                        onChange={(e) => {
+                          const kind = e.target.value
+                          // One update: loose also forgets how much the package brought
+                          setFormData((current) => ({ ...current, "17": kind, "6": kind ? current["6"] ?? "" : "" }))
+                        }}
+                        aria-label="En qué se compra"
+                        className="min-w-0 flex-1 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
+                        style={{ background: t.input, border: `1.5px solid ${t.inputB}`, color: t.text }}
+                      >
+                        <option value="">Suelto</option>
+                        {["Paquete", "Caja", "Bulto"].map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+                      </select>
+                      {formData["17"] && (
+                        <label className="flex flex-shrink-0 items-center gap-1.5 text-xs" style={{ color: t.muted }}>
+                          trae
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={String(formData["6"] ?? "")}
+                            onChange={(e) => updateAdminField(modal.section, "6", e.target.value.replace(/\D/g, ""))}
+                            placeholder="25"
+                            aria-label={`Cuánto trae cada ${String(formData["17"]).toLowerCase()}`}
+                            aria-invalid={!!shownFieldError("6")}
+                            className="w-16 rounded-xl px-2 py-2.5 text-center text-sm outline-none"
+                            style={{ background: t.input, border: `1.5px solid ${shownFieldError("6") ? C.red : t.inputB}`, color: t.text }}
+                          />
+                          {String(formData["2"] || "und")}
+                        </label>
+                      )}
+                    </div>
                   ) : isSupply && !isView && modal.mode === "edit" && (f.key === "3" || f.key === "4") ? (
                     <div
                       className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm"
@@ -3684,7 +4221,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           ? Number(val) ? fmt(Number(val)) : "Sin compras"
                           : `${Number(val || 0).toLocaleString("es-CO")} ${String(formData["2"] || "und")}`}
                       </span>
-                      <span className="text-[10px]" style={{ color: t.muted }}>
+                      <span className={`text-[10px] ${sheetBeside ? "hidden" : ""}`} style={{ color: t.muted }}>
                         {f.key === "3" ? "Se toma de la última compra" : "Suma con compras"}
                       </span>
                     </div>
@@ -3938,8 +4475,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       </button>
                     </div>
                   ) : isPedido && f.key === "1" && !isView ? (
-                    <div className="flex flex-col gap-3">
-                      <div className="rounded-xl p-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                    <div className="flex flex-col gap-3 lg:h-[max(19rem,calc(100dvh-24rem))] lg:flex-auto">
+                      <div className={`flex flex-col rounded-xl p-3 lg:flex-1 ${pedidoOrderLines.length ? "lg:min-h-[9rem]" : "lg:min-h-[15rem]"}`} style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                         {/* Category and a search that narrow the cards; a click on a card adds 1 to the order */}
                         <div className="mb-3 grid max-w-xl gap-2 sm:grid-cols-[150px_minmax(0,1fr)]">
                           <select
@@ -3970,7 +4507,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           </div>
                         </div>
                         {filteredOrderProducts.length ? (
-                          <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4">
+                          <div className="grid max-h-80 grid-cols-2 content-start gap-2 overflow-y-auto pr-1 sm:grid-cols-3 md:grid-cols-4 lg:max-h-none lg:min-h-0 lg:flex-[1_1_0px] lg:auto-rows-max lg:grid-cols-4 2xl:grid-cols-5">
                             {filteredOrderProducts.map((product) => {
                               const productIndex = (rows.producto || []).findIndex((item) => item[0] === product)
                               const productRow = rows.producto?.[productIndex]
@@ -4033,7 +4570,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                           Agrega al menos un producto al pedido.
                         </div>
                       ) : (
-                        <div className="rounded-xl px-3" style={{ background: t.input }}>
+                        <div className="rounded-xl px-3 lg:max-h-[55%] lg:flex-none lg:overflow-y-auto" style={{ background: t.input, scrollbarWidth: "thin" }}>
                           {(() => {
                             const additionProducts = (rows.producto || []).filter(
                               (product) =>
@@ -4289,10 +4826,17 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         <span className="mt-0.5 block text-xs leading-snug" style={{ color: t.muted }}>
                           {isClient
                             ? "Permite registrar el cliente sin correo ni dirección."
-                            : "Por ejemplo, una salsa de la casa. Se abrirá la ficha técnica y aparecerá en Productos como producto de insumo."}
+                            : sheetBeside
+                              ? "Su receta va en la ficha técnica."
+                              : "Por ejemplo, una salsa de la casa. Se abrirá la ficha técnica y aparecerá en Productos como producto de insumo."}
                         </span>
                       </span>
                     </button>
+                  ) : isPurchase && f.key === "0" && modal.mode === "edit" ? (
+                    // Editing a purchase: only its date changes
+                    <div className="rounded-xl px-3 py-2.5 text-sm" style={{ background: t.cardAlt, color: t.text, border: `1px solid ${t.border}` }} title="El proveedor no se puede cambiar">
+                      {val || "—"}
+                    </div>
                   ) : isPurchase && f.key === "0" ? (
                     <div className="relative">
                       <input
@@ -4563,9 +5107,91 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     <FieldError msg={shownFieldError(f.key) || fieldValidationError} />
                   )}
                 </div>
+                {/* Next to the minimum: how this insumo's stock moves (fills the half and answers «¿dónde pongo el stock?») */}
+                {isSupply && !isView && !sheetBeside && f.key === "5" && (
+                  <div
+                    className={`rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 ${modal.mode === "add" ? "lg:col-span-1 lg:col-start-4 lg:row-span-2" : "lg:col-span-1 lg:col-start-4"}`}
+                    style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}30`, color: t.text }}
+                  >
+                    <div className="mb-1 font-bold" style={{ color: C.mustard }}>¿Cómo se mueve el stock?</div>
+                    <ul className="flex flex-col gap-0.5" style={{ color: t.muted }}>
+                      <li><strong style={{ color: t.text }}>Entra</strong> con cada compra.</li>
+                      <li><strong style={{ color: t.text }}>Sale</strong> con la producción y las pérdidas.</li>
+                      <li>Siempre en números enteros de {String(formData["2"] || "g, ml o und")}.</li>
+                    </ul>
+                  </div>
+                )}
                 </Fragment>
               )
               })}
+              {isPurchase && !isView && (() => {
+                const items = parsePurchaseItems(formData["6"])
+                const total = items.reduce((sum, item) => sum + item.total, 0)
+                const line = (label: string, value: string) => (
+                  <div className="flex items-baseline justify-between gap-3 text-xs">
+                    <span style={{ color: t.muted }}>{label}</span>
+                    <span className="min-w-0 truncate text-right font-semibold" style={{ color: t.text }}>{value}</span>
+                  </div>
+                )
+                return (
+                  <aside
+                    className="flex flex-col gap-2.5 rounded-xl p-4 sm:col-span-2 lg:col-span-1 lg:col-start-1 lg:row-start-3"
+                    style={{ background: `${C.mustard}0d`, border: `1px solid ${C.mustard}30` }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                      <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        Resumen de la compra
+                      </h4>
+                    </div>
+                    {line("Proveedor", String(formData["0"] || "Sin elegir"))}
+                    {line("Fecha", formData["1"] ? formatDateLabel(String(formData["1"])) : "—")}
+                    {line("Insumos", `${items.length} ${items.length === 1 ? "insumo" : "insumos"}`)}
+                    <div className="flex items-baseline justify-between border-t pt-2.5" style={{ borderColor: `${C.mustard}30` }}>
+                      <span className="text-sm font-semibold" style={{ color: t.text }}>Total</span>
+                      <span className="text-xl font-bold tabular-nums" style={{ color: C.mustard }}>{fmt(total)}</span>
+                    </div>
+                    <p className="mt-auto text-[11px] leading-relaxed" style={{ color: t.muted }}>
+                      {modal.mode === "edit"
+                        ? "Al guardar solo cambia la fecha: el stock y el costo de los insumos quedan igual."
+                        : "Al guardar, el stock de cada insumo sube y su costo queda con el precio de esta compra."}
+                    </p>
+                  </aside>
+                )
+              })()}
+              {isProduction && !isView && (
+                <aside
+                  className="flex flex-col gap-3 rounded-xl p-4 sm:col-span-3 lg:col-span-1 lg:col-start-2 lg:row-start-2"
+                  style={{ background: `${C.mustard}0d`, border: `1px solid ${C.mustard}30` }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="h-4 w-1 rounded-full" style={{ background: C.mustard }} />
+                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                      Cómo avanza la orden
+                    </h4>
+                  </div>
+                  <ol className="flex flex-col gap-2 text-xs">
+                    {[
+                      ["Recibido · Confirmado", "Todavía puedes editar los productos."],
+                      ["En cocina", "Se descuentan los insumos de cada ficha técnica. Si falta stock, no deja avanzar."],
+                      ["Finalizada", "Lo preparado entra al inventario."],
+                    ].map(([state, what], index) => (
+                      <li key={state} className="flex gap-2.5 rounded-lg px-3 py-2" style={{ background: t.card }}>
+                        <span
+                          className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
+                          style={{ background: C.mustard, color: "#fff" }}
+                        >
+                          {index + 1}
+                        </span>
+                        <span>
+                          <span className="block font-semibold" style={{ color: t.text }}>{state}</span>
+                          <span style={{ color: t.muted }}>{what}</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                </aside>
+              )}
             </>
           )}
           {isClient && !isView && clientFormError && (
@@ -4919,6 +5545,9 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                         >
                           <span className="min-w-0">
                             <span className="block break-words">{item.name}</span>
+                            {item.pack && (
+                              <span className="block text-[11px]" style={{ color: C.mustard }}>Vino en: {item.pack}</span>
+                            )}
                             <span className="block text-[11px] sm:hidden" style={{ color: t.muted }}>
                               {Number(item.quantity).toLocaleString("es-CO")} {unit}
                             </span>
@@ -5112,6 +5741,33 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                               {item.note ? (
                                 <span className="block text-[11px] font-semibold" style={{ color: C.red }}>Nota: {item.note}</span>
                               ) : null}
+                              {(() => {
+                                // The cook reads the ficha técnica here, without leaving the order
+                                const product = rows.producto?.find((p) => p[0] === item.name)
+                                const recipe = getProductRecipe(product)
+                                const steps = String(product?.[8] ?? "").trim()
+                                if (!product || (!recipe.length && !steps)) return null
+                                return (
+                                  <details className="mt-1">
+                                    <summary className="cursor-pointer text-[11px] font-semibold" style={{ color: C.mustard }}>
+                                      Ver ficha técnica
+                                    </summary>
+                                    <div className="mt-1.5 rounded-lg px-2.5 py-2 text-[11px]" style={{ background: t.cardAlt, color: t.text }}>
+                                      {recipe.length > 0 && (
+                                        <ul className="mb-1.5 list-disc pl-4">
+                                          {recipe.map((ingredient: { name: string; quantity: number; unit: string }) => (
+                                            <li key={ingredient.name}>
+                                              {ingredient.name}: {ingredient.quantity.toLocaleString("es-CO")} {ingredient.unit}
+                                              {item.quantity > 1 ? ` (× ${item.quantity} = ${(ingredient.quantity * item.quantity).toLocaleString("es-CO")} ${ingredient.unit})` : ""}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      )}
+                                      {steps && <p className="whitespace-pre-wrap break-words" style={{ color: t.muted }}>{steps}</p>}
+                                    </div>
+                                  </details>
+                                )
+                              })()}
                               {item.parentId ? (
                                 <span className="block text-[11px]" style={{ color: t.muted }}>
                                   Adición de {items.find((parent) => parent.id === item.parentId)?.name ?? "producto"}
@@ -5136,7 +5792,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 </div>
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="grid grid-cols-2 gap-2">
-                    {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Entregado" ? "#2E7D60" : t.text)}
+                    {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Finalizada" ? "#2E7D60" : t.text)}
                     {info(orderCode ? "Pedido" : "Prioridad", orderCode || `#${String(row[3] ?? "—")}`)}
                     {info("Creada", `${shortDate(row[4])} · ${shortTime(row[5])}`)}
                     {info("Actualizada", `${shortDate(row[6])} · ${shortTime(row[7])}`)}
@@ -5199,7 +5855,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 const groups = orderDetails
                   .filter((line) => !line.parentId)
                   .map((line) => [line, ...orderDetails.filter((child) => child.parentId === line.id)])
-                const total = orderDetails.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0) || Number(row[6]) || 0
+                // The order's total includes its delivery; the products alone are the subtotal
+                const productsTotal = orderDetails.reduce((sum, line) => sum + line.quantity * line.unitPrice, 0)
+                const total = Math.max(Number(row[6]) || 0, productsTotal)
+                const delivery = productsTotal > 0 ? Math.max(0, total - productsTotal) : 0
                 const comment = String(row[12] ?? "").trim()
                 // Who changed what and when (store orders; the backend keeps it in historial_estados_pedido)
                 const history = loadOrders().find((order) => order.id === String(row[0]))?.history ?? []
@@ -5215,7 +5874,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {badge(String(row[7] || "Recibido"), ["Entregado"].includes(String(row[7])), String(row[7]) === "Cancelado")}
-                        {badge(`Pago: ${String(row[8] || "Pendiente")}`, String(row[8]) === "Pagado", String(row[8]) === "Rechazado")}
+                        {badge(`Pago: ${panelPaymentLabel(String(row[8] || "Pendiente"))}`, String(row[8]) === "Pagado", String(row[8]) === "Rechazado")}
                       </div>
                     </div>
                     {/* Modality isn't shown: it follows the type and payment method by itself */}
@@ -5224,7 +5883,32 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       {info("Método de pago", String(row[4] ?? ""))}
                       {info("Producción", String(row[9] ?? ""))}
                     </div>
-                    <div className="rounded-2xl px-4 py-3 md:col-start-1 md:row-start-3 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
+                    {(() => {
+                      // Who receives it: may be someone other than the account that ordered
+                      const o = loadOrders().find((order) => order.id === String(row[0]))
+                      if (!o || !(o.nombre || o.telefono || o.direccion)) return null
+                      const other = !!o.nombre && o.nombre.trim().toLowerCase() !== String(row[1] ?? "").trim().toLowerCase()
+                      return (
+                        <div className="rounded-2xl px-4 py-3 md:col-span-2 md:row-start-3" style={{ border: `1px solid ${t.border}` }}>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {title("Recibe el pedido")}
+                            {other && (
+                              <span className="mb-2 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                                Otra persona · pidió {String(row[1] || "el cliente")}
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            {info("Nombre", o.nombre || "")}
+                            {info("Teléfono", o.telefono || "")}
+                            {o.tipoEntrega === "domicilio"
+                              ? info("Dirección", [o.direccion, o.barrio].filter(Boolean).join(" · "))
+                              : info("Entrega", "Recoge en el local")}
+                          </div>
+                        </div>
+                      )
+                    })()}
+                    <div className="rounded-2xl px-4 py-3 md:col-start-1 md:row-start-4 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
                       {title(`Productos (${groups.length})`)}
                       {groups.length ? (
                         <div className={`gap-x-6 ${groups.length > 4 ? "sm:columns-2" : ""}`}>
@@ -5285,6 +5969,18 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       ) : (
                         <p className="text-sm" style={{ color: t.muted }}>No hay detalle de productos disponible.</p>
                       )}
+                      {delivery > 0 && (
+                        <div className="mt-2 space-y-0.5 border-t pt-2 text-sm" style={{ borderColor: t.border }}>
+                          <div className="flex justify-between gap-3" style={{ color: t.muted }}>
+                            <span>Productos</span>
+                            <span>{fmt(productsTotal)}</span>
+                          </div>
+                          <div className="flex justify-between gap-3" style={{ color: t.muted }}>
+                            <span>Domicilio</span>
+                            <span>{fmt(delivery)}</span>
+                          </div>
+                        </div>
+                      )}
                       <div className="mt-2 flex items-center justify-between border-t pt-2.5" style={{ borderColor: t.border }}>
                         <span className="text-sm" style={{ color: t.muted }}>Total</span>
                         <span className="text-lg font-semibold" style={{ color: C.mustard }}>{fmt(total)}</span>
@@ -5325,7 +6021,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             {productionOrders.map((order) => (
                               <div key={String(order[0])} className="flex items-center justify-between gap-2 text-sm">
                                 <span style={{ color: t.text }}>{String(order[0])}</span>
-                                {badge(String(order[8] || "Recibido"), String(order[8]) === "Entregado", String(order[8]) === "Producto no conforme")}
+                                {badge(String(order[8] || "Recibido"), String(order[8]) === "Finalizada", String(order[8]) === "Producto no conforme")}
                               </div>
                             ))}
                           </div>
@@ -5335,22 +6031,70 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   </>
                 )
               })()}
-              {(paymentProofs[modal.idx!] || paymentProofDraft) && (
+              {(proofOf(modal.idx!) || paymentProofDraft) && (
                 <div className="rounded-2xl px-4 py-3 md:col-start-2 self-start" style={{ border: `1px solid ${t.border}` }}>
                   <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
                     Comprobante de transferencia
                   </h4>
-                  <img
-                    src={paymentProofs[modal.idx!] || paymentProofDraft}
+                  {/* Click it to see it big (another click closes it) */}
+                  <ZoomableImage
+                    src={proofOf(modal.idx!) || paymentProofDraft}
                     alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
-                    className="max-h-48 w-full rounded-xl object-contain"
-                    style={{ background: t.card, border: `1px solid ${t.border}` }}
+                    className="max-h-80 w-full rounded-xl object-contain"
+                    zoomClassName={PROOF_ZOOM}
                   />
+                  {(() => {
+                    // Validator: what the system already checked when the client sent it, and what's left for you
+                    const shopOrder = loadOrders().find((order) => order.id === row?.[0])
+                    const proofs = shopOrder?.proofs ?? []
+                    const last = proofs[proofs.length - 1]
+                    const total = Number(row?.[6]) || shopOrder?.total || 0
+                    const deposit = shopOrder?.deposit
+                    const owed = deposit ? (String(row?.[8]) === "Abonado" ? total - deposit : deposit) : total
+                    const check = (ok: boolean | null, text: string) => (
+                      <li className="flex items-start gap-1.5">
+                        <span className="mt-px font-bold" style={{ color: ok === null ? t.muted : ok ? "#2E7D60" : C.red }}>{ok === null ? "•" : ok ? "✓" : "✗"}</span>
+                        <span style={{ color: t.text }}>{text}</span>
+                      </li>
+                    )
+                    return (
+                      <>
+                        {last && (
+                          <div className="mt-2 rounded-xl px-3 py-2.5 text-xs" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Validador de la transferencia</div>
+                            {last.reference || last.amount ? (
+                              <ul className="flex flex-col gap-1">
+                                {check(true, `Referencia ${last.reference ?? "—"}: no se ha usado en otro pedido`)}
+                                {check(true, "La imagen no se repite en otro pedido")}
+                                {check((last.amount ?? 0) >= owed, `Valor transferido ${fmt(last.amount ?? 0)} · debe ${fmt(owed)}${deposit ? (String(row?.[8]) === "Abonado" ? " (saldo)" : " (abono 50%)") : ""}`)}
+                                {check(null, "Confírmalo en la app del banco (referencia y valor) antes de aprobar")}
+                              </ul>
+                            ) : (
+                              <p style={{ color: t.muted }}>Comprobante enviado antes del validador: sin referencia ni valor. Revísalo en la app del banco.</p>
+                            )}
+                          </div>
+                        )}
+                        {proofs.length > 1 && (
+                          <div className="mt-2">
+                            <div className="mb-1 text-[11px] font-semibold" style={{ color: t.muted }}>Todos los comprobantes ({proofs.length}) · toca uno para verlo grande</div>
+                            <div className="grid grid-cols-4 gap-1.5">
+                              {proofs.map((proof, index) => (
+                                <div key={index} className="overflow-hidden rounded-lg" style={{ border: `1px solid ${t.border}` }}>
+                                  <ZoomableImage src={proof.image} alt={`Comprobante ${index + 1}${proof.reference ? ` · ref. ${proof.reference}` : ""}`} className="h-20 w-full object-cover" zoomClassName={PROOF_ZOOM} />
+                                  {proof.amount ? <div className="truncate px-1 text-[10px]" style={{ color: t.muted }}>{fmt(proof.amount)}</div> : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               )}
               {(() => {
                 const current = String(row?.[8] || "Pendiente")
-                const next = PAYMENT_NEXT[current]
+                const next = nextPaymentStatus(current, String(row?.[5] ?? ""))
                 return (
                   <label className="md:col-start-2 flex flex-col gap-1.5 text-xs font-semibold" style={{ color: t.text }}>
                     Estado de pago
@@ -5384,13 +6128,22 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     className="w-full rounded-lg px-3 py-2 text-sm"
                     style={{ background: t.card, color: t.text, border: `1px solid ${t.border}` }}
                   >
-                    {[...new Set([String(row?.[7] ?? ""), "Por confirmar", ...ORDER_STEPS, "Cancelado"])]
-                      .filter(Boolean)
-                      .map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
+                    {(() => {
+                      // Every status is listed; the ones already passed show in grey and can't be chosen (it only
+                      // moves forward). Entregado and Cancelado are final.
+                      const flow = ["Por confirmar", ...ORDER_STEPS]
+                      const current = String(row?.[7] ?? "")
+                      const at = flow.indexOf(current)
+                      const final = ["Entregado", "Cancelado"].includes(current)
+                      return [...new Set([current, ...flow, "Cancelado"])].filter(Boolean).map((status) => {
+                        const passed = status !== current && (final || (status !== "Cancelado" && flow.indexOf(status) < at))
+                        return (
+                          <option key={status} value={status} disabled={passed} style={passed ? { color: "#9a958c" } : undefined}>
+                            {status}
+                          </option>
+                        )
+                      })
+                    })()}
                   </select>
                 </label>
               )}
@@ -5406,10 +6159,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               )}
               {String(row?.[8]) === "Rechazado" && (
                 <p className="md:col-start-2 rounded-xl px-3 py-2.5 text-xs" style={{ background: `${C.red}10`, color: C.red }}>
-                  Transferencia rechazada: {String(row?.[11] || "Sin motivo registrado.")}
+                  Comprobante rechazado: {String(row?.[11] || "Sin motivo registrado.")}
                 </p>
               )}
-              {isTransferPaymentMethod(String(row?.[4] ?? "")) &&
+              {(isTransferPaymentMethod(String(row?.[4] ?? "")) || proofOf(modal.idx!)) &&
               String(row?.[8]) === "Pendiente de verificación" ? (
                 <div className="md:col-start-2 flex flex-col gap-2">
                   <button
@@ -5422,16 +6175,16 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                     className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold"
                     style={{ background: `${C.red}12`, color: C.red }}
                   >
-                    Rechazar transferencia
+                    Rechazar comprobante
                   </button>
                   <button
                     type="button"
-                    disabled={!paymentProofs[modal.idx!]}
+                    disabled={!proofOf(modal.idx!)}
                     onClick={() => approveOrderForProduction(modal.idx!)}
                     className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ background: C.mustard, color: "#fff" }}
                   >
-                    Aprobar transferencia y enviar a producción
+                    Aprobar comprobante y enviar a producción
                   </button>
                 </div>
               ) : String(row?.[9]) === "Autorizada" ? (
@@ -5447,7 +6200,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                   type="button"
                   disabled={
                     (String(row?.[5]) !== "Contraentrega" &&
-                      (String(row?.[8]) !== "Pagado" || !paymentProofs[modal.idx!])) ||
+                      (String(row?.[8]) !== "Pagado" || !proofOf(modal.idx!))) ||
                     ["Autorizada", "Enviada a producción"].includes(String(row?.[9]))
                   }
                   onClick={() => approveOrderForProduction(modal.idx!)}
@@ -5475,8 +6228,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             const date = new Date(`${String(row[3] ?? "").slice(0, 10)}T00:00:00`)
             const dateText = Number.isNaN(date.getTime())
               ? String(row[3] ?? "—")
-              : date.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" })
-            const proof = saleOrderIndex >= 0 ? paymentProofs[saleOrderIndex] : ""
+              : formatDateLabel(String(row[3]).slice(0, 10))
+            const proof = saleOrderIndex >= 0 ? proofOf(saleOrderIndex) : ""
             return (
               <div className="grid min-w-0 gap-3 sm:col-span-2 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
                 <div className="flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3 md:col-span-2" style={{ background: t.cardAlt }}>
@@ -5585,7 +6338,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 {proof && (
                   <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
                     {title("Comprobante de pago")}
-                    <img src={proof} alt="Comprobante de pago" className="max-h-44 w-full rounded-lg object-contain" style={{ background: t.card }} />
+                    <ZoomableImage src={proof} alt="Comprobante de pago" className="max-h-72 w-full rounded-lg object-contain" zoomClassName={PROOF_ZOOM} />
                   </div>
                 )}
               </div>
@@ -5596,11 +6349,8 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             <div className="sm:col-span-2">
               <RolesPermMatrix
                 roleName={formData["0"] || ""}
-                permissionKey={
-                  modal.mode === "edit" && row
-                    ? String(row[0] ?? "")
-                    : formData["0"] || ""
-                }
+                // A new role keeps its checks under a fixed draft key, so typing the name never loses them
+                permissionKey={modal.mode === "edit" && row ? String(row[0] ?? "") : "__nuevo_rol__"}
               />
             </div>
           )}
@@ -5617,8 +6367,33 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
             {saveError} Lo que escribiste sigue aquí: corrige y vuelve a guardar.
           </p>
         )}
+        <div className={inline ? `sticky bottom-0 z-10 rounded-b-2xl ${isPedido && !isView ? "lg:flex" : ""}` : "contents"} style={inline ? { background: t.card } : undefined}>
+        {isPedido && !isView && (() => {
+          // Always in sight while picking products: how many and how much so far (and the 50% deposit if it applies)
+          const units = pedidoOrderLines.filter((line) => !line.parentId).reduce((sum, line) => sum + line.quantity, 0)
+          const total = pedidoOrderLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0)
+          const payment = derivePedidoPayment(String(formData["3"] ?? ""), !!paymentProofDraft, String(formData["2"] ?? ""), total)
+          return (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-5 py-2.5 lg:flex-1"
+              style={{ borderTop: `1px solid ${t.border}`, background: `${C.mustard}10` }}
+            >
+              <span className="text-sm" style={{ color: t.muted }}>
+                {units ? `${units} ${units === 1 ? "producto" : "productos"} en el pedido` : "Aún no hay productos"}
+                {payment.modalidad === "Abono 50%" && (
+                  <span className="ml-2 font-semibold" style={{ color: C.mustard }}>· abono 50%: {fmt(Math.ceil(total / 2))}</span>
+                )}
+              </span>
+              <span className="text-lg font-bold tabular-nums" style={{ color: t.text }}>
+                Total <span style={{ color: C.mustard }}>{fmt(total)}</span>
+              </span>
+            </div>
+          )
+        })()}
         <div
-          className={`px-5 flex gap-3 ${isUser || isRoles ? "py-3" : "py-4"}`}
+          className={`px-5 flex gap-3 ${isUser || isRoles ? "py-3" : "py-4"} ${isPedido && !isView ? "lg:w-[28rem] lg:flex-none" : ""}`}
           style={{ borderTop: `1px solid ${t.border}` }}
         >
           <button
@@ -5653,7 +6428,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               {Ico.undo} Registrar devolución
             </button>
           )}
-          {isView && (isPurchaseModule || isProduct) && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
+          {isView && (isPurchaseModule || isProduct) && !isSupplyProductView && !isSales && !isReturns && modal.idx !== null && !anulled[modal.section]?.has(modal.idx) && statusValue !== "Anulado" && modal.section !== "roles" && canDo(modal.section, "EDITAR") && !(modal.section === "perdidas" && isReturnedLoss(row ?? undefined)) && (
             <button
               onClick={() => openEdit(modal.section, modal.idx!)}
               className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
@@ -5662,6 +6437,69 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               Editar
             </button>
           )}
+          {isView && isPurchase && row && statusValue !== "Anulado" && canDo("perdidas", "CREAR") && (() => {
+            // «Enviar a pérdida» from the purchase detail: pick which bought insumo was lost (up to what's left)
+            const lostSoFar = (name: string) =>
+              (rows.perdidas || [])
+                .filter((l) => !isReturnedLoss(l) && isLossOfPurchase(l, row) && String(l[0]) === name)
+                .reduce((sum, l) => sum + (parseFloat(String(l[1])) || 0), 0)
+            const items = [...new Set(parsePurchaseItems(row[6]).map((i) => i.name))].map((name) => ({
+              name,
+              left: parsePurchaseItems(row[6]).filter((i) => i.name === name).reduce((sum, i) => sum + Number(i.quantity || 0), 0) - lostSoFar(name),
+            }))
+            const open = (name: string, max: number) => {
+              const now = new Date()
+              setLossError("")
+              setLossDraft({
+                insumo: name,
+                unit: String(supplyInfo(name)?.[2] ?? "und"),
+                max,
+                qty: "",
+                motivo: "",
+                responsable: user?.name ?? "",
+                fecha: [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-"),
+                origin: purchaseLabel(row),
+                purchaseId: String(row[DB_SYNC.compras.idIndex] ?? ""),
+              })
+            }
+            const style = { background: `${C.red}12`, color: C.red, border: `1.5px solid ${C.red}40` }
+            const cls = "flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl py-2.5 text-sm font-bold hover:opacity-90"
+            if (items.length === 1)
+              return (
+                <button type="button" disabled={!(items[0].left > 0)} onClick={() => open(items[0].name, items[0].left)} className={`${cls} disabled:cursor-not-allowed disabled:opacity-40`} style={style}>
+                  {Ico.alert} Enviar a pérdida
+                </button>
+              )
+            return (
+              // Several insumos: a small list opens above the button
+              <details className="relative flex-1">
+                <summary className={`${cls} list-none [&::-webkit-details-marker]:hidden`} style={style}>
+                  {Ico.alert} Enviar a pérdida
+                </summary>
+                <div className="absolute bottom-full left-0 right-0 z-20 mb-2 max-h-60 overflow-y-auto rounded-xl py-1 shadow-lg" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                  <p className="px-3 py-1.5 text-[11px] font-semibold" style={{ color: t.muted }}>¿Qué insumo se perdió?</p>
+                  {items.map((item) => (
+                    <button
+                      key={item.name}
+                      type="button"
+                      disabled={!(item.left > 0)}
+                      onClick={(e) => {
+                        e.currentTarget.closest("details")?.removeAttribute("open")
+                        open(item.name, item.left)
+                      }}
+                      className="flex w-full cursor-pointer items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
+                      style={{ color: t.text }}
+                    >
+                      <span className="min-w-0 truncate">{item.name}</span>
+                      <span className="flex-shrink-0 text-[11px]" style={{ color: t.muted }}>
+                        {item.left > 0 ? `quedan ${item.left.toLocaleString("es-CO")} ${String(supplyInfo(item.name)?.[2] ?? "")}` : "ya todo en pérdida"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </details>
+            )
+          })()}
           {modal.section === "perdidas" && modal.mode !== "add" && canDo("perdidas", "EDITAR") && String(row?.[5] ?? "").startsWith("Compra a ") && !isReturnedLoss(row ?? undefined) && !isLossPurchaseAnnulled(row ?? undefined) && (
             <button
               type="button"
@@ -5676,7 +6514,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               {Ico.undo} Devolver a compra
             </button>
           )}
-          {!isView && !(isPnc && modal.mode === "add" && !pncManual) && (
+          {!isView && !(isPnc && modal.mode === "add" && !pncManual) && !choosingSupplierType && (
             <button
               onClick={() =>
                 // New purchase: summary + confirmation first (if it's incomplete, saveModal shows what's missing)
@@ -5691,6 +6529,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
               {saving ? "Guardando…" : "Guardar"}
             </button>
           )}
+        </div>
         </div>
       </div>
       {lossReturnReason !== null && modal.section === "perdidas" && row && (
@@ -6082,6 +6921,7 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                             min="0.001"
                             step="any"
                             value={technicalIngredientQuantity}
+                            onKeyDown={(event) => ["-", "+", "e", "E"].includes(event.key) && event.preventDefault()}
                             onChange={(event) => setTechnicalIngredientQuantity(event.target.value)}
                             className="w-full rounded-lg px-3 py-2 text-sm outline-none"
                             style={controlSt}
@@ -6149,9 +6989,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                                   min="0.001"
                                   step="any"
                                   value={ingredient.quantity}
+                                  onKeyDown={(event) => ["-", "+", "e", "E"].includes(event.key) && event.preventDefault()}
                                   onChange={(event) => updateIngredient(index, { quantity: Number(event.target.value) })}
                                   className="w-full rounded-lg px-2 py-1.5 text-sm outline-none"
-                                  style={controlSt}
+                                  style={{ ...controlSt, ...(ingredient.quantity > 0 ? {} : { border: `1.5px solid ${C.red}` }) }}
                                 />
                                 <select
                                   aria-label={`Unidad de ${ingredient.name}`}
@@ -6386,23 +7227,32 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
           setLossError("")
           setLossDraft((current) => (current ? { ...current, ...patch } : current))
         }
+        // The loss can't be dated before its purchase
+        const purchaseDate = String(
+          (rows.compras || []).find((c) => String(c[DB_SYNC.compras.idIndex] ?? "") === lossDraft.purchaseId)?.[1] ?? "",
+        ).slice(0, 10)
         const confirmLoss = () => {
           const qty = toDecimal(lossDraft.qty)
           if (!(qty > 0)) return setLossError("Escribe cuánto se perdió.")
+          if (!Number.isInteger(qty)) return setLossError(`Va en números enteros de ${lossDraft.unit}.`)
           if (qty > lossDraft.max)
             return setLossError(
               `No puede ser más de lo comprado: máximo ${lossDraft.max.toLocaleString("es-CO")} ${lossDraft.unit}.`,
             )
           if (!lossDraft.motivo) return setLossError("Selecciona el motivo de la pérdida.")
-          if (!lossDraft.responsable.trim()) return setLossError("Selecciona quién es el responsable.")
+          // The person sending it to loss is whoever is using this account
+          const responsable = (user?.name ?? "").trim()
+          if (!responsable) return setLossError("No se pudo identificar tu usuario; vuelve a iniciar sesión.")
           if (!lossDraft.fecha) return setLossError("Selecciona la fecha.")
           if (lossDraft.fecha > getCurrentDateTimeParts().date)
             return setLossError("La fecha de la pérdida no puede ser posterior a hoy.")
+          if (purchaseDate && lossDraft.fecha < purchaseDate)
+            return setLossError("La fecha de la pérdida no puede ser anterior a la fecha de la compra.")
           const lossRow: Row = [
             lossDraft.insumo,
             `${qty} ${lossDraft.unit}`,
             lossDraft.motivo,
-            lossDraft.responsable.trim(),
+            responsable,
             lossDraft.fecha,
             lossDraft.origin,
             "", "", "", "", // estado, devolución, cantidad devuelta, id (the backend fills them)
@@ -6500,19 +7350,10 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                 <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
                   <label className={fieldLabel} style={{ color: t.muted }}>
                     Persona responsable
-                    <select
-                      value={lossDraft.responsable}
-                      onChange={(e) => updateLoss({ responsable: e.target.value })}
-                      className="min-w-0 cursor-pointer rounded-xl px-3 py-2.5 text-sm outline-none"
-                      style={{ ...controlSt, color: lossDraft.responsable ? t.text : t.muted }}
-                    >
-                      <option value="">Selecciona quién...</option>
-                      {staff.map((p) => (
-                        <option key={p.name} value={p.name}>
-                          {p.name}{p.rol && ` · ${p.rol}`}
-                        </option>
-                      ))}
-                    </select>
+                    {/* Always the person using this account: it can't be chosen */}
+                    <div className="min-w-0 truncate rounded-xl px-3 py-2.5 text-sm" style={{ ...controlSt, background: t.cardAlt }} title="Quien envía la pérdida es quien usa esta cuenta">
+                      {user?.name || "—"}
+                    </div>
                   </label>
                   <label className={fieldLabel} style={{ color: t.muted }}>
                     Fecha
@@ -6520,9 +7361,11 @@ export default function CRUDModal(adminState: AdminPanelState): ReactNode {
                       type="date"
                       value={lossDraft.fecha}
                       max={getCurrentDateTimeParts().date}
+                      min={purchaseDate || undefined}
                       onChange={(e) => {
                         const today = getCurrentDateTimeParts().date
-                        updateLoss({ fecha: e.target.value > today ? today : e.target.value })
+                        const v = e.target.value > today ? today : e.target.value
+                        updateLoss({ fecha: purchaseDate && v && v < purchaseDate ? purchaseDate : v })
                       }}
                       className="min-w-0 rounded-xl px-3 py-2.5 text-sm outline-none"
                       style={controlSt}

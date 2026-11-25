@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react"
 import { BELLO_NEIGHBORHOODS, normalizeNeighborhood } from "@/data/barrios"
-import qrImg from "@/imports/image-4.png"
+import PaymentAccounts from "@/features/checkout/components/PaymentAccounts"
 import logoImg from "@/imports/logo.png"
 import PinCodeField from "@/features/auth/components/PinCodeField"
 import { apiLogin, requestRegistrationCode, saveRegisteredClient, toUser, verifyRegistrationCode } from "@/features/auth/services/auth.service"
+import PasswordChecklist from "@/features/auth/components/PasswordChecklist"
+import useLiveErrors from "@/features/auth/utils/useLiveErrors"
 import { validateLogin, validateRegister } from "@/features/auth/utils/validation"
 import CartAddedNotice, { useCartNotice } from "@/features/checkout/components/CartAddedNotice"
 import CartSummary from "@/features/checkout/components/CartSummary"
@@ -13,7 +15,7 @@ import { addCartItem, cartTotal, itemTotal } from "@/features/checkout/utils/car
 import AddToCartModal from "@/features/menu/components/AddToCartModal"
 import ProductCatalog from "@/features/menu/components/ProductCatalog"
 import VoucherInput from "@/features/orders/components/VoucherInput"
-import { APPROVAL_MIN } from "@/features/orders/utils/orders"
+import { APPROVAL_MIN, depositOf } from "@/features/orders/utils/orders"
 import AddressLines from "@/shared/components/AddressLines"
 import DeliveryAddressSummary from "@/shared/components/DeliveryAddressSummary"
 import FieldError from "@/shared/components/FieldError"
@@ -51,6 +53,7 @@ export default function CheckoutPage({
   const [loginForm, setLoginForm] = useState({ email: "", pass: "" })
   const [regForm, setRegForm] = useState({
     name: "",
+    lastname: "",
     docType: "",
     docNum: "",
     email: "",
@@ -323,6 +326,9 @@ export default function CheckoutPage({
     setSaveAddress(!hasSavedAddress)
   }, [user])
   const [voucher, setVoucher] = useState("")
+  // What the validator checks: the bank's reference and the amount sent
+  const [voucherRef, setVoucherRef] = useState("")
+  const [voucherAmount, setVoucherAmount] = useState("")
   const [ordered, setOrdered] = useState(false)
   const [placedTotal, setPlacedTotal] = useState(0)
   // Everybody (guest, client, admin, employee) starts by reviewing the cart
@@ -339,7 +345,6 @@ export default function CheckoutPage({
   const [showOutOfRangeDialog, setShowOutOfRangeDialog] = useState(false)
   const placeOrder = async () => {
     setDeliveryTried(true)
-    if (subtotal + (displayedDeliveryCost ?? 0) >= APPROVAL_MIN) return
     if (placing || !user || !delivFilled || !deliveryCostConfigured || !payReady || cart.length === 0) return
     setOrderError("")
     setPlacing(true)
@@ -359,6 +364,8 @@ export default function CheckoutPage({
             : undefined,
           costoDomicilio: isDelivery ? displayedDeliveryCost : 0,
           voucher: needsVoucher ? voucher : undefined,
+          voucherRef: needsVoucher ? voucherRef.trim() : undefined,
+          voucherAmount: needsVoucher ? Number(voucherAmount) || undefined : undefined,
         },
         isDelivery && (saveAddress || !(user.addresses?.length)),
       )
@@ -387,7 +394,6 @@ export default function CheckoutPage({
   }
   // Nequi / Bancolombia must attach the payment receipt before continuing
   const needsVoucher = delivForm.pago !== "Efectivo"
-  const payReady = !needsVoucher || !!voucher
   const displayedDeliveryCost =
     !isDelivery
       ? null
@@ -398,6 +404,12 @@ export default function CheckoutPage({
     deliveryEstimate.status === "ready"
   )
   const orderTotal = subtotal + (displayedDeliveryCost ?? 0)
+  // $150.000 or more: 50% in advance by transfer (cash isn't accepted), the rest when it arrives
+  const deposit = orderTotal >= APPROVAL_MIN
+  const depositAmount = depositOf(orderTotal)
+  const toPay = deposit ? depositAmount : orderTotal
+  const voucherComplete = !!voucher && voucherRef.trim().length >= 3 && Number(voucherAmount) >= toPay
+  const payReady = (!needsVoucher || voucherComplete) && !(deposit && !needsVoucher)
   const neighborhoodOutOfRange =
     isDelivery &&
     !neighborhoodsLoading &&
@@ -444,14 +456,11 @@ export default function CheckoutPage({
   )
   const canOrder = user && delivFilled && deliveryCostConfigured
 
-  // Errors show after the first submit of each form and update while typing
-  const [loginTried, setLoginTried] = useState(false)
-  const [regTried, setRegTried] = useState(false)
   const [serverErr, setServerErr] = useState("")
   const [busy, setBusy] = useState(false)
   // Password, account existence and status are checked by the backend
-  const loginErrors = loginTried ? validateLogin(loginForm.email, loginForm.pass) : {}
-  const regErrors = regTried ? validateRegister(regForm) : {}
+  const { errors: loginErrors, touch: touchLogin, setTried: setLoginTried } = useLiveErrors(validateLogin(loginForm.email, loginForm.pass))
+  const { errors: regErrors, touch: touchReg, setTried: setRegTried } = useLiveErrors(validateRegister(regForm))
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoginTried(true)
@@ -473,7 +482,7 @@ export default function CheckoutPage({
     setServerErr("")
     if (busy || Object.keys(validateRegister(regForm)).length) return
     const u: User = {
-      name: regForm.name.trim(),
+      name: `${regForm.name.trim()} ${regForm.lastname.trim()}`.trim(),
       email: regForm.email.trim().toLowerCase(),
       role: "user",
       docType: regForm.docType,
@@ -500,7 +509,7 @@ export default function CheckoutPage({
     }
     if (busy) return
     const u: User = {
-      name: regForm.name.trim(),
+      name: `${regForm.name.trim()} ${regForm.lastname.trim()}`.trim(),
       email: regForm.email.trim().toLowerCase(),
       role: "user",
       docType: regForm.docType,
@@ -531,31 +540,30 @@ export default function CheckoutPage({
     { id: "Nequi", desc: "Transferencia con código QR" },
     { id: "Bancolombia", desc: "Transferencia con código QR" },
   ]
-  const overLimit = orderTotal >= APPROVAL_MIN
   const cta = !user
     ? showAuth
       ? null
       : {
           label: "Hacer pedido",
           onClick: () => setShowAuth(true),
-          disabled: !hasActiveItems || overLimit,
+          disabled: !hasActiveItems,
         }
     : checkoutStep === 1
       ? {
           label: "Hacer pedido",
           onClick: () => setCheckoutStep(2),
-          disabled: !hasActiveItems || overLimit,
+          disabled: !hasActiveItems,
         }
     : checkoutStep === 2
       ? {
           label: "Confirma tus datos",
           onClick: continueToReview,
-          disabled: cart.length === 0 || overLimit,
+          disabled: cart.length === 0,
         }
       : {
           label: placing ? "Enviando pedido..." : "Confirmar pedido",
           onClick: placeOrder,
-          disabled: placing || !hasActiveItems || !canOrder || !payReady || overLimit,
+          disabled: placing || !hasActiveItems || !canOrder || !payReady,
         }
 
   if (ordered)
@@ -614,7 +622,7 @@ export default function CheckoutPage({
                 {delivForm.pago !== "Efectivo"
                   ? "Recibimos tu comprobante. El pedido queda pendiente de verificación; cuando se apruebe, se enviará a producción."
                   : placedTotal >= APPROVAL_MIN
-                    ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche."
+                    ? "Por su valor, tu pedido quedó pendiente de confirmación por El Parche (abono del 50%)."
                     : "Recibimos tu pedido y pronto empezaremos a prepararlo."}{" "}
                 Puedes seguir su estado en &quot;Mis pedidos&quot;.
               </p>
@@ -854,6 +862,7 @@ export default function CheckoutPage({
                         setLoginForm((f) => ({ ...f, email: v }))
                       }
                       required
+                      onBlur={touchLogin("email")}
                       error={loginErrors.email}
                     />
                     <InputField
@@ -863,6 +872,7 @@ export default function CheckoutPage({
                       value={loginForm.pass}
                       onChange={(v) => setLoginForm((f) => ({ ...f, pass: v }))}
                       required
+                      onBlur={touchLogin("pass")}
                       error={loginErrors.pass}
                     />
                     <FieldError msg={serverErr} />
@@ -933,7 +943,9 @@ export default function CheckoutPage({
                             docType,
                             docNum: normalizeAccountDocumentInput(current.docNum, docType),
                           }))
+                          touchReg("docType")()
                         }}
+                        onBlur={touchReg("docType")}
                         aria-invalid={!!regErrors.docType}
                         className="w-full px-3.5 py-2.5 rounded-xl text-sm outline-none"
                         style={{
@@ -962,6 +974,7 @@ export default function CheckoutPage({
                         docNum: normalizeAccountDocumentInput(v, current.docType),
                       }))}
                       required
+                      onBlur={touchReg("docNum")}
                       error={regErrors.docNum}
                     />
                     </div>
@@ -971,7 +984,17 @@ export default function CheckoutPage({
                       value={regForm.name}
                       onChange={(v) => setRegForm((f) => ({ ...f, name: v }))}
                       required
+                      onBlur={touchReg("name")}
                       error={regErrors.name}
+                    />
+                    <InputField
+                      label="Apellido *"
+                      placeholder="Tu apellido"
+                      value={regForm.lastname}
+                      onChange={(v) => setRegForm((f) => ({ ...f, lastname: v }))}
+                      required
+                      onBlur={touchReg("lastname")}
+                      error={regErrors.lastname}
                     />
                     <InputField
                       label="Teléfono"
@@ -979,6 +1002,7 @@ export default function CheckoutPage({
                       placeholder="3XX XXX XXXX"
                       value={regForm.phone}
                       onChange={(v) => setRegForm((f) => ({ ...f, phone: digitsOnly(v).slice(0, 10) }))}
+                      onBlur={touchReg("phone")}
                       error={regErrors.phone}
                     />
                     <InputField
@@ -988,6 +1012,7 @@ export default function CheckoutPage({
                       value={regForm.email}
                       onChange={(v) => setRegForm((f) => ({ ...f, email: v }))}
                       required
+                      onBlur={touchReg("email")}
                       error={regErrors.email}
                     />
                     <InputField
@@ -997,13 +1022,12 @@ export default function CheckoutPage({
                       value={regForm.pass}
                       onChange={(v) => setRegForm((f) => ({ ...f, pass: v }))}
                       required
-                      error={regErrors.pass}
+                      onBlur={touchReg("pass")}
+                      error={regForm.pass ? undefined : regErrors.pass}
                     />
-                    {!regErrors.pass && (
-                      <p className="text-[11px] -mt-1" style={{ color: "rgba(30,30,30,0.45)" }}>
-                        Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
-                      </p>
-                    )}
+                    <div className="-mt-1">
+                      <PasswordChecklist pass={regForm.pass} pass2={regForm.pass2} strict={!!regErrors.pass} />
+                    </div>
                     <InputField
                       label="Confirmar *"
                       type="password"
@@ -1011,6 +1035,7 @@ export default function CheckoutPage({
                       value={regForm.pass2}
                       onChange={(v) => setRegForm((f) => ({ ...f, pass2: v }))}
                       required
+                      onBlur={touchReg("pass2")}
                       error={regErrors.pass2}
                     />
                     <FieldError msg={serverErr} />
@@ -1381,38 +1406,6 @@ export default function CheckoutPage({
                         ))}
                       </div>
                     )}
-                    {/* Map of the address and its distance from the shop */}
-                    {geo.status !== "idle" && (
-                      <div className="mt-3 overflow-hidden rounded-xl" style={{ border: `1px solid ${LINE}` }}>
-                        {geo.lat !== undefined && geo.lon !== undefined && (
-                          <iframe
-                            title="Ubicación de la dirección de entrega"
-                            className="block h-32 w-full"
-                            loading="lazy"
-                            src={`https://www.openstreetmap.org/export/embed.html?bbox=${geo.lon - 0.012}%2C${geo.lat - 0.008}%2C${geo.lon + 0.012}%2C${geo.lat + 0.008}&layer=mapnik&marker=${geo.lat}%2C${geo.lon}`}
-                          />
-                        )}
-                        {geo.status !== "ok" && (
-                        <p
-                          className="px-3 py-2 text-xs font-medium"
-                          role="status"
-                          style={{
-                            background: geo.status === "notfound" ? "rgba(30,30,30,0.04)" : `${C.red}12`,
-                            color: geo.status === "notfound" ? MUTED : C.red,
-                          }}
-                        >
-                          {geo.status === "loading" && "Ubicando la dirección en el mapa..."}
-                          {geo.status === "notfound" && "No pudimos ubicar automáticamente esta dirección. Si el barrio está habilitado, puedes continuar."}
-                          {geo.status === "error" && "No pudimos cargar el mapa en este momento. Reintenta o verifica que el barrio esté habilitado."}
-                        </p>
-                        )}
-                        {geo.status === "ok" && geo.approximate && (
-                          <p className="px-3 py-2 text-xs font-medium" role="status" style={{ background: "rgba(30,30,30,0.04)", color: MUTED }}>
-                            Mostramos una ubicación aproximada de {addressParts.barrio || geo.neighborhood || "este barrio"}; el punto exacto de la dirección no está disponible.
-                          </p>
-                        )}
-                      </div>
-                    )}
                     <label className="flex items-start gap-2 mt-2 text-xs cursor-pointer" style={{ color: MUTED }}>
                       <input
                         type="checkbox"
@@ -1455,14 +1448,16 @@ export default function CheckoutPage({
                   <div className="grid sm:grid-cols-3 gap-3">
                     {PAY_OPTS.map((m) => {
                       const sel = delivForm.pago === m.id
+                      const off = deposit && m.id === "Efectivo"
                       return (
                         <button
                           key={m.id}
+                          disabled={off}
                           onClick={() => setDelivForm((f) => ({ ...f, pago: m.id }))}
-                          className="text-left p-4 rounded-xl cursor-pointer"
+                          className="text-left p-4 rounded-xl cursor-pointer disabled:cursor-not-allowed disabled:opacity-45"
                           style={{
-                            border: `1.5px solid ${sel ? C.mustard : LINE}`,
-                            background: sel ? `${C.mustard}0D` : "#fff",
+                            border: `1.5px solid ${sel && !off ? C.mustard : LINE}`,
+                            background: sel && !off ? `${C.mustard}0D` : "#fff",
                           }}
                         >
                           <div className="flex items-center justify-between mb-1">
@@ -1478,45 +1473,41 @@ export default function CheckoutPage({
                             />
                           </div>
                           <div className="text-xs" style={{ color: MUTED }}>
-                            {m.desc}
+                            {off ? "No disponible: este pedido se abona por transferencia" : m.desc}
                           </div>
                         </button>
                       )
                     })}
                   </div>
+                  {deposit && deliveryCostConfigured && (
+                    <div role="note" className="mt-4 rounded-xl p-3 text-sm" style={{ background: `${C.mustard}12`, border: `1.5px solid ${C.mustard}55`, color: C.dark }}>
+                      <strong className="block">Pedido de {fmt(APPROVAL_MIN)} o más: abona el 50%</strong>
+                      Paga ahora {fmt(depositAmount)} por Nequi o Bancolombia y sube el comprobante. El saldo de {fmt(orderTotal - depositAmount)} lo pagas al recibir tu pedido.
+                      {delivForm.pago === "Efectivo" && <span className="mt-1 block font-semibold" style={{ color: C.red }}>Elige Nequi o Bancolombia para continuar.</span>}
+                    </div>
+                  )}
                   {needsVoucher && (
-                    <div
-                      className="mt-5 p-5 rounded-xl grid sm:grid-cols-[auto_1fr] gap-5 items-center"
-                      style={{ background: "rgba(30,30,30,0.03)", border: `1px solid ${LINE}` }}
-                    >
-                      <div className="flex flex-col items-center">
-                        <img
-                          src={qrImg}
-                          alt={`Código QR de ${delivForm.pago}`}
-                          className="rounded-xl object-contain p-2 bg-white"
-                          style={{ width: 160, height: 160, border: `1px solid ${LINE}` }}
-                        />
-                        <div className="text-xs mt-2" style={{ color: MUTED }}>
-                          Total a pagar
-                        </div>
-                        <div
-                          className="font-black text-xl"
-                          style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
-                        >
-                          {deliveryCostConfigured ? fmt(orderTotal) : "Por confirmar"}
-                        </div>
-                      </div>
+                    <div className="mt-5 flex flex-col gap-4 rounded-xl p-5" style={{ background: "rgba(30,30,30,0.03)", border: `1px solid ${LINE}` }}>
                       <div>
-                        <h3 className="font-semibold text-sm mb-1" style={{ color: C.dark }}>
+                        <h3 className="mb-1 text-sm font-semibold" style={{ color: C.dark }}>
                           Paga con {delivForm.pago} y sube el comprobante
                         </h3>
-                        <ol className="text-xs mb-4 space-y-1 list-decimal pl-4" style={{ color: MUTED }}>
-                          <li>Escanea el código QR desde tu app de {delivForm.pago}.</li>
-                          <li>Paga el total exacto.</li>
-                          <li>Sube la captura del comprobante aquí.</li>
+                        <ol className="list-decimal space-y-1 pl-4 text-xs" style={{ color: MUTED }}>
+                          <li>Escanea el QR o transfiere a la cuenta o a una de las llaves.</li>
+                          <li>{deposit ? `Paga el abono exacto (${fmt(depositAmount)}); el saldo (${fmt(orderTotal - depositAmount)}) al recibir.` : "Paga el total exacto."}</li>
+                          <li>Sube la captura del comprobante con su referencia.</li>
                         </ol>
-                        <VoucherInput value={voucher} onChange={setVoucher} />
                       </div>
+                      <PaymentAccounts amount={deliveryCostConfigured ? `${fmt(toPay)}${deposit ? " (abono 50%)" : ""}` : "Por confirmar"} />
+                      <VoucherInput
+                        value={voucher}
+                        onChange={(v) => {
+                          setVoucher(v)
+                          if (!voucherAmount && deliveryCostConfigured) setVoucherAmount(String(toPay))
+                        }}
+                        onRemove={() => setVoucher("")}
+                        reference={{ code: voucherRef, amount: voucherAmount, expected: deliveryCostConfigured ? toPay : undefined, onCode: setVoucherRef, onAmount: setVoucherAmount }}
+                      />
                     </div>
                   )}
                 </section>
@@ -1848,10 +1839,10 @@ export default function CheckoutPage({
               </span>
             </div>
             <FieldError msg={orderError} />
-            {overLimit && (
-              <div role="alert" className="mt-4 rounded-xl p-3 text-sm" style={{ background: `${C.red}10`, border: `1.5px solid ${C.red}`, color: C.red }}>
-                <strong className="block">No se puede realizar la compra</strong>
-                Tu pedido ({fmt(orderTotal)}) excede el precio permitido: debe ser menor a {fmt(APPROVAL_MIN)}. Quita productos o adiciones para continuar.
+            {deposit && deliveryCostConfigured && (
+              <div role="note" className="mt-4 rounded-xl p-3 text-sm" style={{ background: `${C.mustard}12`, border: `1.5px solid ${C.mustard}55`, color: C.dark }}>
+                <strong className="block">Abono del 50%: {fmt(depositAmount)}</strong>
+                Por ser de {fmt(APPROVAL_MIN)} o más, se paga la mitad por transferencia al pedir y el saldo ({fmt(orderTotal - depositAmount)}) al recibir.
               </div>
             )}
             {cta ? (
@@ -1989,9 +1980,10 @@ export default function CheckoutPage({
         <AddToCartModal
           product={addProduct}
           onClose={() => setAddProduct(null)}
-          onAdd={(product, qty, sauces, additions) => {
+          onAdd={(product, qty, sauces, additions, note) => {
             setCart((items) =>
               addCartItem(items, {
+                ...(note ? { note } : {}),
                 id: Date.now(),
                 productId: product.id,
                 name: product.name,

@@ -37,3 +37,15 @@ export const addDays = (d: Date, n: number) => new Date(d.getFullYear(), d.getMo
 // "Cebolla, Tomate" -> ["Cebolla", "Tomate"] (insumos a supplier sells)
 export const splitNames = (value: string | number | undefined) =>
   String(value ?? "").split(",").map((name) => name.trim()).filter(Boolean)
+
+// One date format in the whole panel: "20 nov 2026" (and the time when it has one: "20 nov 2026 · 3:15 p. m.").
+// Takes "2026-11-20", "2026-11-20 15:15" or an ISO date; anything else comes back as it was
+export const formatDateLabel = (value: string | number) => {
+  const text = String(value ?? "").trim()
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(text)
+  if (!m) return text
+  const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] ?? 0), Number(m[5] ?? 0))
+  if (Number.isNaN(date.getTime()) || date.getDate() !== Number(m[3])) return text
+  const day = `${date.getDate()} ${MONTHS_SHORT[date.getMonth()].toLowerCase()} ${date.getFullYear()}`
+  return m[4] !== undefined ? `${day} · ${date.toLocaleTimeString("es-CO", { hour: "numeric", minute: "2-digit" })}` : day
+}

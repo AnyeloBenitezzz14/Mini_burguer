@@ -302,12 +302,12 @@ export default function CartSummary({
         <AddToCartModal
           product={editingProduct}
           dark={dark}
-          initial={{ qty: editingItem.qty, sauces: editingItem.sauces, additions: editingItem.additions }}
+          initial={{ qty: editingItem.qty, sauces: editingItem.sauces, additions: editingItem.additions, note: editingItem.note }}
           onClose={() => setEditingItem(null)}
-          onAdd={(product, qty, sauces, additions) =>
+          onAdd={(product, qty, sauces, additions, note) =>
             setCart((c) =>
               c.map((i) =>
-                i.id === editingItem.id ? { ...i, price: product.price, qty, sauces, additions } : i,
+                i.id === editingItem.id ? { ...i, price: product.price, qty, sauces, additions, ...(note ? { note } : {}) } : i,
               ),
             )
           }

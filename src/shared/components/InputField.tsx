@@ -13,6 +13,7 @@ export default function InputField({
   required,
   error,
   disabled,
+  onBlur,
 }: {
   label: string
   type?: string
@@ -22,6 +23,7 @@ export default function InputField({
   required?: boolean
   error?: string
   disabled?: boolean
+  onBlur?: () => void
 }) {
   const baseBorder = error ? C.red : "rgba(30,30,30,0.12)"
   // Password fields get an eye button to show/hide what was typed
@@ -52,7 +54,10 @@ export default function InputField({
             color: "#1A1714",
           }}
           onFocus={(e) => (e.currentTarget.style.borderColor = error ? C.red : C.mustard)}
-          onBlur={(e) => (e.currentTarget.style.borderColor = baseBorder)}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = baseBorder
+            onBlur?.()
+          }}
         />
         {isPassword && (
           <button

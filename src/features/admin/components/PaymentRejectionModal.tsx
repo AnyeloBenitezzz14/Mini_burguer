@@ -33,10 +33,10 @@ export default function PaymentRejectionModal(adminState: AdminPanelState): Reac
         onClick={(event) => event.stopPropagation()}
       >
         <h3 id="payment-rejection-title" className="text-base font-bold" style={{ color: t.text }}>
-          Rechazar transferencia
+          Rechazar comprobante
         </h3>
         <p className="mt-2 text-sm" style={{ color: t.muted }}>
-          El pedido {String(order[0])} no se enviará a producción. Escribe el motivo para que quede guardado en el pedido.
+          El pedido {String(order[0])} no se enviará a producción. Escribe un mensaje para el cliente: lo verá en sus pedidos junto con el aviso para mandar otro comprobante.
         </p>
         <textarea
           autoFocus
@@ -46,8 +46,8 @@ export default function PaymentRejectionModal(adminState: AdminPanelState): Reac
             setPaymentRejectionReason(event.target.value)
             setPaymentRejectionError("")
           }}
-          placeholder="Ej.: comprobante no válido o pago no recibido"
-          aria-label="Motivo del rechazo"
+          placeholder="Ej.: el valor no coincide con el total del pedido"
+          aria-label="Mensaje para el cliente"
           className="mt-4 w-full resize-none rounded-xl px-3 py-2.5 text-sm outline-none"
           style={{
             background: t.input,

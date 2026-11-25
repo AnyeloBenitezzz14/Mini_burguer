@@ -1,21 +1,23 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useLayoutEffect, useRef } from "react"
 import { MOD_CFG, PRODUCTION_STATUSES, QUICK_FILTERS, TABLE_FILTERS } from "@/features/admin/config/modules"
-import { isNaturalSupplier, isReturnedLoss, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
+import { isNaturalSupplier, isProductionEditLocked, isReturnedLoss, isSupplyProductRow, parsePurchaseLines, isSuperAdminRow, supplierDocument, syncIdIndex } from "@/features/admin/utils/rows"
 import { isSodaName, sodaImage } from "@/features/menu/data/products"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { loadOrders } from "@/features/orders/services/orders.service"
-import { isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { isTransferPaymentMethod, panelPaymentLabel } from "@/features/orders/utils/orders"
 import { Ico } from "@/shared/components/icons"
 import PurchaseProjection from "@/features/admin/components/PurchaseProjection"
 import { C, badgeSt } from "@/shared/styles/theme"
 import type { Row } from "@/shared/types"
-import { fmt, normalizeName } from "@/shared/utils/format"
+import { fmt, formatDateLabel, normalizeName } from "@/shared/utils/format"
+import { packOf, qtyLabel } from "@/shared/utils/units"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
 
 export default function GenericTable(adminState: AdminPanelState): ReactNode {
   const {
     PAGE_SIZE,
+    shrinkPage,
     ProductionStatusSelect,
     anulled,
     canDo,
@@ -73,6 +75,11 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
       searchInputRef.current.setSelectionRange(currentValue.length, currentValue.length)
     }
   }, [search[section], pg[section]])
+  // A full page that makes the screen scroll shows one row less (down to 3), before it is painted
+  useLayoutEffect(() => {
+    const main = document.querySelector("main")
+    if (main && main.scrollHeight > main.clientHeight + 1 && PAGE_SIZE > 3 && pageRows.length === PAGE_SIZE) shrinkPage(PAGE_SIZE)
+  })
   const noDelete = !!cfg.noDelete
   const noExp = !!cfg.noExport
   const indexedRows = (rows[section] || []).map((row, index) => ({ row, index }))
@@ -191,7 +198,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     isPrincipalAdmin = false,
   ) => {
     const badge = badgeSt(cell)
-    const color = isLow ? C.red : primary ? t.text : t.muted
+    const color = isLow && primary ? C.red : primary ? t.text : t.muted
     if (badge) {
       return (
         <span
@@ -220,18 +227,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
   const formatSalesDate = (value: string | number) => {
     const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value))
     if (!match) return "—"
-    const [, year, month, day] = match
-    const date = new Date(Number(year), Number(month) - 1, Number(day))
-    if (
-      date.getFullYear() !== Number(year) ||
-      date.getMonth() !== Number(month) - 1 ||
-      date.getDate() !== Number(day)
-    ) return "—"
-    return date.toLocaleDateString("es-CO", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-    })
+    return formatDateLabel(String(value))
   }
 
   const formatDisplayCell = (
@@ -239,6 +235,16 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     rowCellIndex: number,
     row?: Row,
   ): string | number => {
+    // Every date in the panel reads the same: "20 nov 2026"
+    if (typeof cell === "string" && /^\d{4}-\d{2}-\d{2}(?:[ T]\d|$)/.test(cell.trim())) return formatDateLabel(cell)
+    // Every time reads the same, 24 h: "9:17:02 AM" and "09:17" both show "09:17"
+    const time = typeof cell === "string" ? cell.trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*([ap])\.?\s*m\.?$/i) : null
+    if (time) {
+      const hours = (Number(time[1]) % 12) + (time[3].toLowerCase() === "p" ? 12 : 0)
+      return `${String(hours).padStart(2, "0")}:${time[2]}`
+    }
+    // Payment status, shorter in the table ("Por verificar")
+    if (section === "pedidos" && rowCellIndex === 8 && typeof cell === "string") return panelPaymentLabel(cell)
     if (section === "proveedores" && rowCellIndex === 1 && row && isNaturalSupplier(row[15])) {
       return supplierDocument(row)
     }
@@ -275,9 +281,15 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     }
     // A package shows what it holds: "paq · 100 g"
     if (section === "insumos" && row && rowCellIndex === 2 && cell === "paq" && Number(row[6]) > 0) return `paq · ${Number(row[6]).toLocaleString("es-CO")} ${String(row[14] || "und")}`
+    // Its unit and how it comes: "und · paq. de 20", "g · caja de 250"
+    if (section === "insumos" && row && rowCellIndex === 2 && packOf(row)) {
+      const pack = packOf(row)!
+      return `${cell} · ${pack.kind === "Paquete" ? "paq." : pack.kind.toLowerCase()} de ${pack.size.toLocaleString("es-CO")}`
+    }
     if (section === "insumos" && row && rowCellIndex === 3) return Number(cell) > 0 ? fmt(Number(cell)) : "Sin compras"
-    if (section === "insumos" && row && rowCellIndex === 4) return `${Number(cell) || 0} ${String(row[2] ?? "")}`.trim()
+    if (section === "insumos" && row && rowCellIndex === 4) return qtyLabel(Number(cell) || 0, String(row[2] ?? ""), packOf(row))
     if (section === "pedidos" && rowCellIndex === 6) return Number.isFinite(Number(cell)) && cell !== "" ? fmt(Number(cell)) : "—"
+    if (section === "devoluciones" && rowCellIndex === 8) return Number(cell) > 0 ? fmt(Number(cell)) : "—"
     if (section !== "ventas") return cell
     if (rowCellIndex === 3) return formatSalesDate(cell)
     if (rowCellIndex === 7) {
@@ -333,6 +345,12 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         {(isSupplyProduct || isLocalClient || isSuperAdmin) && (
           <span className={chip} style={{ background: `${C.mustard}18`, color: C.mustard }}>
             {isSuperAdmin ? "Superadministrador" : isLocalClient ? "Cliente de local" : "Lo preparamos nosotros"}
+          </span>
+        )}
+        {section === "producto" && isSupplyProductRow(row) && (
+          // What was prepared in production and is in stock (the same stock as in Insumos)
+          <span className={chip} style={{ background: t.input, color: t.text }}>
+            Stock: {Number(row[12]) || 0}
           </span>
         )}
         {isLow && (
@@ -428,8 +446,42 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
       </button>
     )
 
+    // A producto de insumo is managed in Insumos (ficha técnica, stock, status): here it is only seen
+    const fromSupply = section === "producto" && isSupplyProductRow(rows.producto?.[rowIndex])
+    const supplyOnly = (label: string, icon: ReactNode) => (
+      <button
+        type="button"
+        title={`${label}: se gestiona en el módulo Insumos`}
+        aria-label={`${label} no disponible: se gestiona en Insumos`}
+        disabled
+        className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded-lg opacity-40"
+        style={{ color: t.muted, background: t.input }}
+      >
+        {icon}
+      </button>
+    )
+    if (fromSupply)
+      return (
+        <div className="admin-row-actions flex flex-shrink-0 flex-nowrap items-center justify-end gap-1">
+          {canDo(section, "VER") ? (
+            <button
+              type="button"
+              title="Ver detalle"
+              aria-label="Ver detalle"
+              onClick={() => openView(section, rowIndex)}
+              className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg hover:opacity-80"
+              style={{ color: C.amber, background: `${C.amber}15` }}
+            >
+              {Ico.eye}
+            </button>
+          ) : disabledAction("Ver detalle", Ico.eye)}
+          {supplyOnly("Editar", Ico.edit)}
+          {supplyOnly("Anular", Ico.ban)}
+          {supplyOnly("Eliminar", Ico.trash)}
+        </div>
+      )
     return (
-      <div className="flex flex-shrink-0 flex-nowrap items-center justify-end gap-1.5">
+      <div className="admin-row-actions flex flex-shrink-0 flex-nowrap items-center justify-end gap-1">
         {canDo(section, "VER") ? (
           <button
             type="button"
@@ -442,15 +494,18 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
             {Ico.eye}
           </button>
         ) : disabledAction("Ver detalle", Ico.eye)}
-        {!isAnulled &&
+        {/* A sale comes from its order or is annulled; it isn't edited (no edit icon at all) */}
+        {section === "ventas" || section === "devoluciones" ? null : !isAnulled &&
         canDo(section, "EDITAR") &&
+        // Once its production order exists (from «Confirmado» on) the order can't change
+        !(section === "pedidos" && (rows.produccion || []).some((op) => String(op[15] ?? "") === String(orderRow?.[0] ?? ""))) &&
         !(section === "perdidas" && isReturnedLoss(rows.perdidas?.[rowIndex])) &&
         // An annulled purchase is history: not editable (its stock was already taken back)
         !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) &&
         // Once the kitchen has it, the order's products can't change
         !(section === "pedidos" && !["Por confirmar", "Pendiente", "Recibido"].includes(String(orderRow?.[7] ?? ""))) &&
-        // A production order is only editable while «Recibido»: from «Confirmado» on, the kitchen has it
-        !(section === "produccion" && !["", "Recibido"].includes(String(rows.produccion?.[rowIndex]?.[8] ?? ""))) ? (
+        // From a pedido: editable only while «Recibido»; made by hand: until it goes «En cocina»
+        !(section === "produccion" && isProductionEditLocked(rows.produccion?.[rowIndex])) ? (
           <button
             type="button"
             title="Editar"
@@ -500,6 +555,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           }
           // Protected (administrador role, superadmin): the window explains why
           const locked = !!statusRow && (isStatusLocked(section, statusRow) || isPrincipalAdmin)
+          // Audit rule: an annulled purchase or sale is never reactivated (a new one is created instead)
+          if (!active && !locked && ["compras", "ventas", "devoluciones"].includes(section)) return null
           return active || locked ? (
             <button
               type="button"
@@ -534,7 +591,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         {cfg.statusIndex !== undefined ? (
           section === "producto" ? (
             canDo(section, "ELIMINAR") ? deleteButton : disabledAction("Eliminar", Ico.trash)
-          ) : section === "ventas" ? null : (
+          ) : ["ventas", "compras", "devoluciones"].includes(section) ? null : (
             canDo(section, "ELIMINAR") &&
             !isPrincipalAdmin &&
             !noDelete &&
@@ -625,7 +682,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               setP(0)
             }}
             aria-label="Filtrar la lista"
-            className="cursor-pointer rounded-xl px-3 py-2 text-xs outline-none"
+            className="h-[38px] cursor-pointer rounded-xl px-3 text-xs outline-none"
             style={{
               background: filterValue ? `${C.mustard}18` : t.input,
               border: `1px solid ${filterValue ? C.mustard : t.inputB}`,
@@ -712,11 +769,11 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           <button
             type="button"
             onClick={exportRows}
-            className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs cursor-pointer"
+            className="flex h-[38px] items-center gap-1.5 rounded-xl px-3 text-xs font-medium cursor-pointer"
             style={{
-              background: t.input,
+              background: t.card,
               border: `1px solid ${t.inputB}`,
-              color: t.muted,
+              color: t.text,
             }}
           >
             {Ico.download} Exportar
@@ -726,7 +783,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           <button
             type="button"
             onClick={() => openAdd(section)}
-            className="flex items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold cursor-pointer hover:opacity-90"
+            className="flex h-[38px] items-center gap-1.5 rounded-xl px-4 text-xs font-semibold cursor-pointer hover:opacity-90"
             style={{ background: C.mustard, color: "#fff" }}
           >
             {Ico.plus} Nuevo
@@ -804,14 +861,14 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         style={{ background: t.card, border: `1px solid ${t.border}` }}
       >
         <div className="hidden min-[1180px]:block">
-          <table className="w-full table-fixed text-xs">
+          <table className="w-full table-auto text-xs tabular-nums">
             <colgroup>
               {isProducto && <col style={{ width: "60px" }} />}
               {Array.from({ length: columnCount }, (_, index) => (
                 <col key={index} />
               ))}
               {/* Ver, Editar, (Anular), Eliminar: 32 px per button so they fit in one row */}
-              <col style={{ width: cfg.statusIndex !== undefined && section !== "produccion" ? "152px" : "116px" }} />
+              <col style={{ width: cfg.statusIndex !== undefined && section !== "produccion" ? "140px" : "108px" }} />
             </colgroup>
             <thead>
               <tr
@@ -882,8 +939,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                   section === "insumos" &&
                   Number(row[4]) <= Number(row[5])
                 const isSupplyProduct =
-                  section === "insumos" &&
-                  String(row[7]).toLowerCase() === "sí"
+                  (section === "insumos" && String(row[7]).toLowerCase() === "sí") ||
+                  (section === "producto" && isSupplyProductRow(row))
                 const isLocalClient =
                   section === "clientes" &&
                   String(row[6]).toLowerCase() === "sí"
@@ -904,16 +961,17 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                           ? `1px solid ${t.border}`
                           : "none",
                       opacity: isAnulled ? 0.45 : 1,
-                      background: isLow ? "rgba(165,65,49,0.18)" : "transparent",
+                      background: isLow ? "rgba(165,65,49,0.06)" : "transparent",
+                      boxShadow: isLow ? `inset 3px 0 0 ${C.red}` : undefined,
                     }}
                     onMouseEnter={(event) =>
                       (event.currentTarget.style.background = isLow
-                        ? "rgba(165,65,49,0.28)"
+                        ? "rgba(165,65,49,0.12)"
                         : t.hover)
                     }
                     onMouseLeave={(event) =>
                       (event.currentTarget.style.background = isLow
-                        ? "rgba(165,65,49,0.18)"
+                        ? "rgba(165,65,49,0.06)"
                         : "transparent")
                     }
                   >
@@ -991,8 +1049,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                 section === "insumos" &&
                 Number(row[4]) <= Number(row[5])
               const isSupplyProduct =
-                section === "insumos" &&
-                String(row[7]).toLowerCase() === "sí"
+                (section === "insumos" && String(row[7]).toLowerCase() === "sí") ||
+                (section === "producto" && isSupplyProductRow(row))
               const isLocalClient =
                 section === "clientes" &&
                 String(row[6]).toLowerCase() === "sí"
@@ -1009,7 +1067,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                         ? `1px solid ${t.border}`
                         : "none",
                     opacity: isAnulled ? 0.45 : 1,
-                    background: isLow ? "rgba(165,65,49,0.18)" : "transparent",
+                    background: isLow ? "rgba(165,65,49,0.06)" : "transparent",
+                    boxShadow: isLow ? `inset 3px 0 0 ${C.red}` : undefined,
                   }}
                 >
                   <div className="flex min-w-0 items-start gap-2">
@@ -1076,15 +1135,15 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
           style={{ borderTop: `1px solid ${t.border}` }}
         >
-          <span className="text-xs" style={{ color: t.subtle }}>
-            {filtered.length} registros · Pág {cur + 1}/{totalPages}
+          <span className="text-xs" style={{ color: t.muted }}>
+            {filtered.length} {filtered.length === 1 ? "registro" : "registros"} · Página {cur + 1} de {totalPages}
           </span>
           <div className="flex flex-wrap justify-end gap-1">
             <button
               type="button"
               disabled={cur === 0}
               onClick={() => setP(cur - 1)}
-              className="pagination-control h-7 w-7 rounded text-xs cursor-pointer disabled:opacity-30"
+              className="pagination-control h-8 w-8 rounded-lg text-xs cursor-pointer disabled:cursor-default disabled:opacity-30"
               style={{ background: t.input, color: t.muted }}
             >
               ←
@@ -1094,7 +1153,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                 key={index}
                 type="button"
                 onClick={() => setP(index)}
-                className="pagination-control h-7 w-7 rounded text-xs font-semibold cursor-pointer"
+                className="pagination-control h-8 w-8 rounded-lg text-xs font-semibold cursor-pointer"
                 aria-current={index === cur ? "page" : undefined}
                 style={{
                   background: index === cur ? C.mustard : "transparent",
@@ -1108,7 +1167,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               type="button"
               disabled={cur >= totalPages - 1}
               onClick={() => setP(cur + 1)}
-              className="pagination-control h-7 w-7 rounded text-xs cursor-pointer disabled:opacity-30"
+              className="pagination-control h-8 w-8 rounded-lg text-xs cursor-pointer disabled:cursor-default disabled:opacity-30"
               style={{ background: t.input, color: t.muted }}
             >
               →

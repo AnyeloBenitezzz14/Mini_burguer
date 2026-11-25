@@ -4,8 +4,10 @@ import AccessBackButton from "@/features/auth/components/AccessBackButton"
 import AccessLogo from "@/features/auth/components/AccessLogo"
 import AuthLayout from "@/features/auth/components/AuthLayout"
 import AuthPhotoBackground from "@/features/auth/components/AuthPhotoBackground"
+import PasswordChecklist from "@/features/auth/components/PasswordChecklist"
 import PinCodeField from "@/features/auth/components/PinCodeField"
 import { requestRegistrationCode, verifyRegistrationCode } from "@/features/auth/services/auth.service"
+import useLiveErrors from "@/features/auth/utils/useLiveErrors"
 import { validateRegister } from "@/features/auth/utils/validation"
 import FieldError from "@/shared/components/FieldError"
 import InputField from "@/shared/components/InputField"
@@ -26,7 +28,6 @@ export default function RegisterPage({
     window.scrollTo(0, 0)
   }, [])
 
-  const [tried, setTried] = useState(false)
   const [verificationPending, setVerificationPending] = useState(false)
   const [verificationCode, setVerificationCode] = useState("")
   const [form, setForm] = useState({
@@ -39,7 +40,7 @@ export default function RegisterPage({
     pass: "",
     pass2: "",
   })
-  const errors = tried ? validateRegister(form) : {}
+  const { errors, touch, tried, setTried } = useLiveErrors(validateRegister(form))
   const upd = (k: keyof typeof form) => (v: string) =>
     setForm((current) => ({
       ...current,
@@ -219,7 +220,9 @@ export default function RegisterPage({
                       docType,
                       docNum: normalizeAccountDocumentInput(current.docNum, docType),
                     }))
+                    touch("docType")()
                   }}
+                  onBlur={touch("docType")}
                   aria-invalid={!!errors.docType}
                   className="w-full px-3 py-2 rounded-xl text-sm outline-none"
                   style={{
@@ -242,6 +245,7 @@ export default function RegisterPage({
                 placeholder="123456789"
                 value={form.docNum}
                 onChange={upd("docNum")}
+                onBlur={touch("docNum")}
                 required
                 error={errors.docNum}
               />
@@ -252,6 +256,7 @@ export default function RegisterPage({
                 placeholder="Tu nombre"
                 value={form.name}
                 onChange={upd("name")}
+                onBlur={touch("name")}
                 required
                 error={errors.name}
               />
@@ -260,6 +265,7 @@ export default function RegisterPage({
                 placeholder="Tu apellido"
                 value={form.lastname}
                 onChange={upd("lastname")}
+                onBlur={touch("lastname")}
                 required
                 error={errors.lastname}
               />
@@ -271,6 +277,7 @@ export default function RegisterPage({
                 placeholder="3XX XXX XXXX"
                 value={form.phone}
                 onChange={upd("phone")}
+                onBlur={touch("phone")}
                 required
                 error={errors.phone}
               />
@@ -280,6 +287,7 @@ export default function RegisterPage({
                 placeholder="tu@correo.com"
                 value={form.email}
                 onChange={upd("email")}
+                onBlur={touch("email")}
                 required
                 error={errors.email}
               />
@@ -291,8 +299,9 @@ export default function RegisterPage({
                 placeholder="••••••••"
                 value={form.pass}
                 onChange={upd("pass")}
+                onBlur={touch("pass")}
                 required
-                error={errors.pass}
+                error={form.pass ? undefined : errors.pass}
               />
               <InputField
                 label="Confirmar *"
@@ -300,15 +309,12 @@ export default function RegisterPage({
                 placeholder="••••••••"
                 value={form.pass2}
                 onChange={upd("pass2")}
+                onBlur={touch("pass2")}
                 required
                 error={errors.pass2}
               />
             </div>
-            {!errors.pass && (
-              <p className="text-[11px]" style={{ color: "rgba(30,30,30,0.45)" }}>
-                Mínimo 8 caracteres, con una mayúscula, una minúscula y un número.
-              </p>
-            )}
+            <PasswordChecklist pass={form.pass} pass2={form.pass2} strict={!!errors.pass} />
             <FieldError msg={serverErr} />
             <button
               type="submit"

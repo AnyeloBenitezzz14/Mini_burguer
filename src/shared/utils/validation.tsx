@@ -1,7 +1,7 @@
 import type { FieldErrors } from "@/shared/types"
 
 export const DOC_TYPES = ["Cédula de Ciudadanía", "Cédula Extranjería", "NIT", "Pasaporte"]
-export const PPT_DOC_TYPE = "PPT (Permiso por Protección Temporal)"
+export const PPT_DOC_TYPE = "PPT (Permiso Prot. Temporal)" // max 30 caracteres: es lo que admite la base
 export const USER_DOC_TYPES = [...DOC_TYPES, PPT_DOC_TYPE]
 
 // Shared document rules; PPT is offered only in the user form.
@@ -60,16 +60,19 @@ export function emailError(email: string) {
   return ""
 }
 
+// What a password needs (the live checklist and the error read the same rules)
+export const PASSWORD_RULES: [string, (pass: string) => boolean][] = [
+  ["mínimo 8 caracteres", (pass) => pass.length >= 8],
+  ["una mayúscula", (pass) => /[A-Z]/.test(pass)],
+  ["una minúscula", (pass) => /[a-z]/.test(pass)],
+  ["un número", (pass) => /\d/.test(pass)],
+]
+
 export function passwordErrors(pass: string, pass2: string): FieldErrors {
   const e: FieldErrors = {}
   if (!pass) e.pass = "Crea una contraseña."
   else {
-    const missing = [
-      pass.length < 8 && "mínimo 8 caracteres",
-      !/[A-Z]/.test(pass) && "una mayúscula",
-      !/[a-z]/.test(pass) && "una minúscula",
-      !/\d/.test(pass) && "un número",
-    ].filter(Boolean)
+    const missing = PASSWORD_RULES.filter(([, ok]) => !ok(pass)).map(([rule]) => rule)
     if (missing.length) e.pass = `La contraseña necesita ${missing.join(", ")}.`
   }
   if (!pass2) e.pass2 = "Confirma tu contraseña."

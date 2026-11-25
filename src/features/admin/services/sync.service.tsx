@@ -1,5 +1,5 @@
 import { MOD_CFG, RETURNED_LOSS } from "@/features/admin/config/modules"
-import { estadoOf, isActiveStatus, optionalEmail, parsePurchaseLines, roleLabel, text, withId } from "@/features/admin/utils/rows"
+import { estadoOf, isActiveStatus, isSupplyProductRow, optionalEmail, parseMainSupplies, parsePurchaseLines, roleLabel, text, withId } from "@/features/admin/utils/rows"
 import { SODA_LOW_STOCK, SODA_PRODUCT, currentCategory, isSodaName, isStockedExtra } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { api } from "@/shared/services/api"
@@ -123,7 +123,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       estado: estadoOf(row[4]),
       ...(row[1] === SODA_PRODUCT ? { minimo: text(row[14]) === "" ? SODA_LOW_STOCK : Number(row[14]) } : {}),
     }),
-    localOnly: (row) => row[1] === "Producto de insumo",
+    localOnly: (row) => isSupplyProductRow(row),
     afterSave: (id, row) => {
       // A soda has no ficha técnica
       if (row[1] === SODA_PRODUCT) return Promise.resolve()
@@ -212,7 +212,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
           i.ficha?.insumos_principales || "", i.ficha?.preparacion || "", i.estado === "ACTIVO" ? "Activo" : "Inactivo"],
         13,
         i.id_insumo_producto,
-      ).concat(i.contenido_unidad || "und"),
+      ).concat(i.contenido_unidad || "und", Number(i.precio) || 0, Number(i.porcion) || "", i.empaque || (Number(i.unidades_paquete) > 0 ? "Paquete" : "")),
     toBody: async (row) => ({
       nombre: text(row[0]),
       id_categoria: await categoryIdByName("/categorias-insumos", row[1]),
@@ -220,10 +220,16 @@ export const DB_SYNC: Record<string, SyncSpec> = {
       // Only on create: afterwards purchases, losses and production own cost and stock
       ...(row[13] ? {} : { costo: Number(row[3]) || 0, stock: 0 }),
       minimo: Number(row[5]) || 0,
-      unidades_paquete: text(row[2]) === "paq" && Number(row[6]) > 0 ? Number(row[6]) : null,
-      contenido_unidad: text(row[2]) === "paq" ? text(row[14]) || "und" : null,
+      // Its package, in its own unit (empty = it isn't bought by package)
+      unidades_paquete: Number(row[6]) > 0 ? Number(row[6]) : null,
+      contenido_unidad: Number(row[6]) > 0 ? text(row[2]) || "und" : null,
+      empaque: Number(row[6]) > 0 ? text(row[17]) || "Paquete" : null,
       tiene_ficha_tecnica: text(row[7]).toLowerCase() === "sí",
       estado: estadoOf(row[12]),
+      // Producto de insumo: its sale price (0 = cortesía) and the portion each serving takes from the stock
+      ...(text(row[7]).toLowerCase() === "sí"
+        ? { precio: Math.max(0, Number(row[15]) || 0), porcion: Number(row[16]) > 0 ? Number(row[16]) : null }
+        : {}),
     }),
     // Cost and stock come back from the backend (they don't change when editing);
     // producto: a new unit also reaches the fichas técnicas that use it (the backend aligns them)
@@ -235,7 +241,10 @@ export const DB_SYNC: Record<string, SyncSpec> = {
             version: text(row[9]),
             insumos_principales: text(row[10]),
             preparacion: text(row[11]),
-            // no recipe lines in the insumo form: the backend keeps the saved ones
+            // Its recipe: "Azúcar (50 g), Limón (2 und)" -> lines with amount (the stock is taken from these)
+            ingredientes: parseMainSupplies(row[10])
+              .filter((i) => Number(i.quantity) > 0)
+              .map((i) => ({ insumo: i.name, cantidad: Number(i.quantity), ...(i.unit ? { medida: i.unit } : {}) })),
           })
         : Promise.resolve(),
   },
@@ -249,10 +258,10 @@ export const DB_SYNC: Record<string, SyncSpec> = {
     toRow: (c) =>
       withId(
         [c.proveedor, c.fecha, c.fecha_registro, c.subtotal, c.total, c.estado === "REGISTRADA" ? "Activo" : "Anulado",
-          c.detalles.map((d: DbRecord) => `${d.insumo} | ${d.cantidad} | ${d.costo_unitario}`).join("\n")],
+          c.detalles.map((d: DbRecord) => `${d.insumo} | ${d.cantidad} | ${d.costo_unitario}${d.empaque ? ` | ${d.empaque}` : ""}`).join("\n")],
         7,
         c.id_compra,
-      ),
+      ).concat(c.motivo_anulacion ?? ""),
     toBody: async (row) => {
       const lines = parsePurchaseLines(row[6])
       // A soda is bought as its product of «Bebidas» (its stock goes there), the rest as insumos
@@ -270,7 +279,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
               ? `«${line.name}» no existe en Productos.`
               : `El insumo «${line.name}» no existe en la base de datos.`,
           )
-        return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice }
+        return { id_insumo_producto: insumo.id_insumo_producto, cantidad: line.quantity, costo_unitario: line.unitPrice, empaque: line.pack || null }
       })
       return {
         id_proveedor: await idByName("/proveedores", "nombre", "id_proveedor", row[0], "El proveedor"),
@@ -279,7 +288,7 @@ export const DB_SYNC: Record<string, SyncSpec> = {
         items,
       }
     },
-    setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", { estado: isActiveStatus(row[5]) ? "REGISTRADA" : "ANULADA" }),
+    setStatus: (id, row) => api(`/compras/${id}/estado`, "PATCH", isActiveStatus(row[5]) ? { estado: "REGISTRADA" } : { estado: "ANULADA", motivo: text(row[8]) }),
     // producto: a soda's stock and cost live in its product; proveedores: what it bought joins the supplier's list
     reloads: ["insumos", "producto", "proveedores"],
   },

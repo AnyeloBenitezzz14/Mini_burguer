@@ -14,7 +14,8 @@ export const STOCK_ORIGIN: Record<string, string> = {
   PERDIDA: "Pérdida",
   EDICION_PERDIDA: "Pérdida editada",
   DEVOLUCION_PERDIDA: "Devuelto a la compra",
-  PRODUCCION: "Producción",
+  PRODUCCION: "Producción (insumos usados)",
+  PRODUCCION_ENTRADA: "Producción (lo que se preparó)",
   AJUSTE: "Ajuste manual",
 }
 
@@ -41,8 +42,7 @@ export const PRODUCTION_STATUSES = [
   "Recibido",
   "Confirmado",
   "En cocina",
-  "En camino",
-  "Entregado",
+  "Finalizada",
   "Producto no conforme",
 ] as const
 
@@ -121,25 +121,31 @@ export const MOD_CFG: Record<string, ModConfig> = {
         key: "2",
         label: "Unidad de medida",
         type: "select",
-        options: ["kg", "g", "L", "ml", "und", "paq"],
+        // Always the smallest unit and whole numbers: 1.5 kg is 1500 g. Boxes and packs are bought in Compras
+        // («Viene en: Caja… trae N»), which turns them into this unit.
+        options: ["g", "ml", "und"],
       },
-      // Unit "paq": row[6] (old "Stock máximo") is how much one package holds and row[14] its unit
-      // (30 und of egg, 100 g of a sobre), so recipes can use what's inside
-      { key: "6", label: "Contenido de cada paquete", type: "number" },
-      { key: "14", label: "Medida del contenido", type: "select", options: ["und", "g", "ml"] },
       { key: "3", label: "Costo unitario", type: "number" },
       { key: "4", label: "Stock actual", type: "number" },
       { key: "5", label: "Stock mínimo", type: "number" },
+      // What it's bought in (form key «17»: Paquete, Caja, Bulto) and how much of its unit each one brings:
+      // Compras fills «Viene en: Caja, trae 25» with it
+      { key: "6", label: "Viene en", type: "number" },
       { key: "7", label: "Producto de insumo", type: "checkbox" },
       { key: "8", label: "Nombre de la ficha técnica", type: "text" },
       { key: "9", label: "Versión de la ficha", type: "text" },
       { key: "10", label: "Insumos principales", type: "textarea" },
       { key: "11", label: "Cómo se prepara", type: "textarea" },
+      // Producto de insumo offered in orders: 0 = cortesía (a free sauce), more = an addition that's charged;
+      // 16 = how much leaves its stock per serving, in its own unit
+      { key: "15", label: "Precio de venta", type: "number" },
+      { key: "16", label: "Porción por pedido", type: "number" },
     ],
     seed: [],
     // Deletable only while no other module has records of it (see getDeleteAssessment)
     statusIndex: 12,
-    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11, 14],
+    // 17: what it comes in (Paquete, Caja, Bulto): shown inside «Unidad», never as its own column
+    hiddenCellIndexes: [5, 6, 7, 8, 9, 10, 11, 14, 15, 16, 17],
   },
   proveedores: {
     columns: [
@@ -195,7 +201,8 @@ export const MOD_CFG: Record<string, ModConfig> = {
     noDelete: true,
     statusIndex: 5,
     inactiveStatus: "Anulado",
-    hiddenCellIndexes: [2, 6],
+    anulReasonIndex: 8,
+    hiddenCellIndexes: [2, 6, 8],
   },
   perdidas: {
     columns: ["Insumo", "Cantidad", "Motivo", "Responsable", "Fecha", "Estado"],
@@ -446,7 +453,8 @@ export const MOD_CFG: Record<string, ModConfig> = {
     // [8] estado: «Anulada» when it's voided (saved with the sale, so it stays after reloading)
     statusIndex: 8,
     inactiveStatus: "Anulada",
-    hiddenCellIndexes: [1, 4, 5, 6, 8, 9, 11, 12],
+    anulReasonIndex: 14,
+    hiddenCellIndexes: [1, 4, 5, 6, 8, 9, 11, 12, 14],
   },
   pedidos: {
     columns: [
@@ -480,7 +488,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
         key: "4",
         label: "Modalidad de pago",
         type: "select",
-        options: ["Anticipado", "Contraentrega"],
+        options: ["Anticipado", "Contraentrega", "Abono 50%"],
       },
       { key: "5", label: "Total (COP)", type: "number" },
       {
@@ -490,6 +498,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
         options: [
           "Pendiente",
           "Pendiente de verificación",
+          "Abonado",
           "Pagado",
           "Rechazado",
         ],
@@ -507,13 +516,14 @@ export const MOD_CFG: Record<string, ModConfig> = {
     hiddenCellIndexes: [2, 3, 4, 5, 10, 11, 12],
   },
   devoluciones: {
-    columns: ["Código", "Cliente", "Motivo", "Fecha"],
-    // [0 código (automático), 1 venta asociada, 2 cliente (de la venta), 3 comentario, 4 motivo, 5 fecha]
+    columns: ["Código", "Cliente", "Tipo", "Fecha", "Total devuelto", "Estado"],
+    // [0 código (automático), 1 venta asociada, 2 cliente (de la venta), 3 comentario, 4 tipo, 5 fecha (la del día, fija),
+    //  6 productos devueltos (JSON), 7 id, 8 total devuelto (todo lo vendido, con domicilio), 9 estado, 10 motivo de anulación]
     fields: [
       { key: "1", label: "Venta asociada", type: "text" },
       {
         key: "4",
-        label: "Motivo de devolución",
+        label: "Tipo de devolución",
         type: "select",
         options: ["Reembolso", "Reposición"],
       },
@@ -523,9 +533,12 @@ export const MOD_CFG: Record<string, ModConfig> = {
     ],
     seed: [],
     noDelete: true,
-    noExport: true,
+    // Not edited: annulled (with a reason) and never reactivated
+    statusIndex: 9,
+    inactiveStatus: "Anulada",
+    anulReasonIndex: 10,
     // 6 = returned products (JSON), shown in the detail
-    hiddenCellIndexes: [1, 3, 6],
+    hiddenCellIndexes: [1, 3, 6, 10],
   },
 }
 
@@ -556,8 +569,12 @@ export const STALE_ORDER_DAYS = 2
 export const PAYMENT_NEXT: Record<string, string> = {
   Pendiente: "Pagado",
   "Pendiente de verificación": "Pagado",
+  Abonado: "Pagado",
   Rechazado: "Pendiente de verificación",
 }
+// With a 50% deposit the payment goes Pendiente / por verificar → Abonado (the 50%) → Pagado (the rest, on delivery)
+export const nextPaymentStatus = (current: string, modality: string) =>
+  modality === "Abono 50%" && ["Pendiente", "Pendiente de verificación"].includes(current) ? "Abonado" : PAYMENT_NEXT[current]
 
 export const SIDEBAR_MENU = [
   {
@@ -615,14 +632,8 @@ export const SIDEBAR_MENU = [
       { key: "pedidos", label: "Pedidos" },
       { key: "ventas", label: "Ventas" },
       { key: "devoluciones", label: "Devoluciones" },
+      { key: "domicilios", label: "Domicilios" },
     ],
-    color: C.mustard,
-  },
-  {
-    key: "domicilios",
-    label: "Domicilios",
-    icon: Ico.mapPin,
-    children: [],
     color: C.mustard,
   },
 ]

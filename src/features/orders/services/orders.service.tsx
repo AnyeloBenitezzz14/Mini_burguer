@@ -39,6 +39,15 @@ export const orderFromDb = (p: DbRecord): Order => ({
   notas: p.observacion || "",
   pago: p.metodo_pago || "Efectivo",
   voucher: p.comprobante || undefined,
+  // Older proofs are just the image; newer ones carry the bank reference and the amount sent
+  proofs: (Array.isArray(p.comprobantes) ? p.comprobantes : p.comprobante ? [p.comprobante] : []).map((x: string | DbRecord) =>
+    typeof x === "string"
+      ? { image: x }
+      : { image: String(x.imagen ?? ""), reference: x.referencia || undefined, amount: Number(x.valor) || undefined, uploadedAt: x.subido_en || undefined },
+  ),
+  vouchers: (Array.isArray(p.comprobantes) ? p.comprobantes : p.comprobante ? [p.comprobante] : []).map((x: string | DbRecord) =>
+    typeof x === "string" ? x : String(x.imagen ?? ""),
+  ),
   items: p.items.map((it: DbRecord, i: number) => {
     const product = allMenuProducts().find((x) => x.name === it.producto)
     return {
@@ -56,6 +65,7 @@ export const orderFromDb = (p: DbRecord): Order => ({
   total: p.total,
   status: p.estado,
   paymentStatus: p.estado_pago,
+  deposit: Number(p.abono) || undefined,
   paymentRejectionReason: p.motivo_rechazo_pago || undefined,
   productionAuthorized: p.produccion_autorizada,
   productionRecords: p.registros_produccion,

@@ -52,7 +52,7 @@ return (
       </div>
       <div className="admin-dashboard-date relative z-10">
         <span className="admin-dashboard-date-dot" />
-        <p className="text-sm font-semibold capitalize" style={{ color: t.text }}>
+        <p className="text-sm font-semibold first-letter:uppercase" style={{ color: t.text }}>
           {new Date().toLocaleDateString("es-CO", {
             weekday: "long",
             year: "numeric",
@@ -162,8 +162,8 @@ return (
             {label}
           </div>
           {badge !== "—" && badge !== "Nuevo" && (
-            <div className="mt-0.5 text-xs" style={{ color: t.subtle }}>
-              {badge} vs {prevPeriodLabel}
+            <div className="mt-0.5 text-xs" style={{ color: t.muted }}>
+              vs {prevPeriodLabel}
             </div>
           )}
         </div>
@@ -215,9 +215,11 @@ return (
                   key={f}
                   onClick={() => setChartFilter(f)}
                   className="px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+                  aria-pressed={chartFilter === f}
                   style={{
-                    background: chartFilter === f ? "#F2C230" : "transparent",
-                    color: chartFilter === f ? "#36393F" : t.muted,
+                    background: chartFilter === f ? t.card : "transparent",
+                    color: chartFilter === f ? t.text : t.muted,
+                    boxShadow: chartFilter === f ? "0 1px 3px rgba(0,0,0,0.12)" : undefined,
                   }}
                 >
                   {label}
@@ -303,12 +305,12 @@ return (
                 type="button"
                 onClick={() => setChartAnchor(new Date())}
                 className="h-9 cursor-pointer rounded-lg px-3 text-sm font-semibold transition-colors"
-                style={{ background: "#FFF4CE", color: "#8D6910" }}
+                style={{ background: t.input, color: t.text, border: `1px solid ${t.border}` }}
               >
                 Hoy
               </button>
             </div>
-            <span className="text-[11px] font-semibold capitalize" style={{ color: t.muted }}>
+            <span className="text-[11px] font-semibold first-letter:uppercase" style={{ color: t.muted }}>
               {period.title}
             </span>
           </div>

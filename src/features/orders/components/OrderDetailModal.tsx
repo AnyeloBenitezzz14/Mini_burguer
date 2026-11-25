@@ -1,8 +1,11 @@
+import { useState } from "react"
 import { itemTotal } from "@/features/checkout/utils/cart"
 import { PRODUCTS, isSodaName, sodaPhoto } from "@/features/menu/data/products"
 import OrderItemPhoto from "@/features/orders/components/OrderItemPhoto"
+import PaymentAccounts from "@/features/checkout/components/PaymentAccounts"
 import VoucherInput from "@/features/orders/components/VoucherInput"
-import { ORDER_STEPS } from "@/features/orders/utils/orders"
+import { appConfirm } from "@/shared/components/AppDialog"
+import { ORDER_STEPS, clientPaymentLabel, clientStatusLabel } from "@/features/orders/utils/orders"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
 import type { Order } from "@/shared/types"
@@ -13,12 +16,20 @@ export default function OrderDetailModal({
   dark,
   onClose,
   onVoucher,
+  onRemoveVoucher,
 }: {
   order: Order
   dark: boolean
   onClose: () => void
-  onVoucher: (id: string, voucher: string) => void
+  onVoucher: (id: string, voucher: string, referencia: string, valor: number) => Promise<string>
+  onRemoveVoucher: (id: string, index: number) => Promise<string>
 }) {
+  // A new proof: its image, the bank's reference and the amount; sent with «Enviar comprobante»
+  const [draft, setDraft] = useState({ image: "", code: "", amount: "" })
+  const [proofError, setProofError] = useState("")
+  const [busy, setBusy] = useState(false)
+  // What's owed now: the 50% deposit until it's approved, then the rest; otherwise the total
+  const owed = order.deposit ? (order.paymentStatus === "Abonado" ? order.total - order.deposit : order.deposit) : order.total
   const TEXT = dark ? "#F4EEDC" : "#1A1714"
   const MUTED = dark ? "rgba(244,238,220,0.45)" : "rgba(30,30,30,0.45)"
   const BORDER = dark ? "rgba(244,238,220,0.08)" : "rgba(30,30,30,0.09)"
@@ -46,7 +57,7 @@ export default function OrderDetailModal({
             </div>
             <div className="flex items-center gap-2">
               <span className="rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: `${C.mustard}18`, color: C.mustard }}>
-                {order.status}
+                {clientStatusLabel(order.status)}
               </span>
               <button onClick={onClose} className="cursor-pointer" style={{ color: MUTED }} aria-label="Cerrar">
                 {Ico.x}
@@ -145,7 +156,19 @@ export default function OrderDetailModal({
               {order.paymentStatus && (
                 <div className="mt-2 flex items-center justify-between gap-3 border-t pt-2 text-sm" style={{ borderColor: BORDER }}>
                   <span style={{ color: MUTED }}>Estado</span>
-                  <span className="font-semibold">{order.paymentStatus}</span>
+                  <span className="font-semibold">{clientPaymentLabel(order.paymentStatus)}</span>
+                </div>
+              )}
+              {!!order.deposit && (
+                <div className="mt-2 border-t pt-2 text-sm" style={{ borderColor: BORDER }}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span style={{ color: MUTED }}>Abono (50%)</span>
+                    <span className="font-semibold">{fmt(order.deposit)}</span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span style={{ color: MUTED }}>Saldo al recibir</span>
+                    <span className="font-semibold">{fmt(order.total - order.deposit)}</span>
+                  </div>
                 </div>
               )}
             </section>
@@ -156,18 +179,117 @@ export default function OrderDetailModal({
                 <p className="text-sm leading-relaxed">{order.notas}</p>
               </section>
             )}
-            {order.paymentStatus === "Rechazado" && order.paymentRejectionReason && (
-              <div className="rounded-xl px-3 py-2 text-xs" style={{ background: `${C.red}12`, color: C.red }}>
-                <strong>Motivo de rechazo:</strong> {order.paymentRejectionReason}
+            {order.paymentStatus === "Rechazado" && (
+              <div role="alert" className="rounded-xl px-3 py-2 text-xs" style={{ background: `${C.red}12`, color: C.red }}>
+                <strong className="block">Comprobante rechazado, intenta mandar otro comprobante</strong>
+                {order.paymentRejectionReason && <span className="mt-1 block">{order.paymentRejectionReason}</span>}
               </div>
             )}
             <div className="flex items-center justify-between rounded-xl px-4 py-3.5" style={{ background: `${C.mustard}14` }}>
               <span className="text-sm font-bold">Total</span>
               <span className="text-xl font-black" style={{ color: C.mustard }}>{fmt(order.total)}</span>
             </div>
-            {order.pago !== "Efectivo" && (
-              <VoucherInput value={order.voucher} onChange={(v) => onVoucher(order.id, v)} />
-            )}
+            {(order.pago !== "Efectivo" || (order.proofs?.length ?? 0) > 0) && (() => {
+              // Every proof sent stays (deposit, rest, a new one after a rejected one...). One sent by mistake can be
+              // taken back while nobody has approved it; a new one goes through the validator
+              const sent = order.proofs?.length ? order.proofs : order.voucher ? [{ image: order.voucher }] : []
+              const open = !["Cancelado", "Entregado"].includes(order.status)
+              const canRemove = open && !["Abonado", "Pagado"].includes(String(order.paymentStatus))
+              const canAdd = open && order.paymentStatus !== "Pagado" && sent.length < 5
+              const send = async () => {
+                if (!draft.image) return setProofError("Sube la imagen del comprobante.")
+                if (draft.code.trim().length < 3) return setProofError("Escribe la referencia de la transferencia.")
+                if (!(Number(draft.amount) >= owed)) return setProofError(`El valor debe cubrir ${fmt(owed)}.`)
+                setBusy(true)
+                const error = await onVoucher(order.id, draft.image, draft.code.trim(), Number(draft.amount))
+                setBusy(false)
+                setProofError(error)
+                if (!error) setDraft({ image: "", code: "", amount: "" })
+              }
+              const remove = async (index: number) => {
+                if (!(await appConfirm("El comprobante se quitará de tu pedido. Si te equivocaste de imagen, puedes subir la correcta.", { title: "¿Quitar este comprobante?", confirmText: "Quitar", danger: true }))) return
+                setProofError(await onRemoveVoucher(order.id, index))
+              }
+              return (
+                <section className="rounded-xl px-3.5 py-3" style={{ background: cardBg }}>
+                  <h4 className="mb-2 text-xs font-bold uppercase tracking-wider" style={{ color: MUTED }}>
+                    Comprobantes enviados ({sent.length})
+                  </h4>
+                  {sent.length > 0 && (
+                    <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {sent.map((proof, index) => (
+                        <div key={index} className="relative overflow-hidden rounded-lg" style={{ border: `1px solid ${BORDER}`, background: dark ? "#1E1C18" : "#fff" }}>
+                          <a href={proof.image} target="_blank" rel="noreferrer" className="block">
+                            <img src={proof.image} alt={`Comprobante ${index + 1}`} className="h-24 w-full object-cover" />
+                          </a>
+                          <div className="px-2 py-1 text-[10px] leading-tight" style={{ color: MUTED }}>
+                            {proof.reference ? <span className="block truncate">Ref. {proof.reference}</span> : null}
+                            {proof.amount ? <span className="block">{fmt(proof.amount)}</span> : null}
+                          </div>
+                          {canRemove && (
+                            <button
+                              type="button"
+                              onClick={() => remove(index)}
+                              aria-label={`Quitar el comprobante ${index + 1}`}
+                              title="Quitar este comprobante"
+                              className="absolute right-1 top-1 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-xs font-bold shadow"
+                              style={{ background: "#fff", color: C.red }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {canAdd ? (
+                    <div className="flex flex-col gap-2">
+                      {/* Where to send it, right where the proof is uploaded */}
+                      <details className="rounded-xl px-3 py-2" style={{ background: dark ? "rgba(255,255,255,0.04)" : "#fff", border: `1px solid ${BORDER}` }} open={!sent.length}>
+                        <summary className="cursor-pointer text-xs font-bold" style={{ color: C.mustard }}>Datos para pagar ({fmt(owed)})</summary>
+                        <div className="mt-2"><PaymentAccounts compact amount={fmt(owed)} /></div>
+                      </details>
+                      <VoucherInput
+                        value={draft.image}
+                        label={draft.image ? "Cambiar imagen" : sent.length ? "📎 Enviar otro comprobante" : undefined}
+                        onChange={(v) => {
+                          setDraft((d) => ({ ...d, image: v, amount: d.amount || String(owed) }))
+                          setProofError("")
+                        }}
+                        onRemove={() => setDraft((d) => ({ ...d, image: "" }))}
+                        reference={draft.image ? {
+                          code: draft.code,
+                          amount: draft.amount,
+                          expected: owed,
+                          onCode: (v) => setDraft((d) => ({ ...d, code: v })),
+                          onAmount: (v) => setDraft((d) => ({ ...d, amount: v })),
+                        } : undefined}
+                      />
+                      {draft.image && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={send}
+                          className="cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:opacity-60"
+                          style={{ background: C.mustard, color: "#fff" }}
+                        >
+                          {busy ? "Enviando…" : "Enviar comprobante"}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-[11px]" style={{ color: MUTED }}>
+                      {sent.length >= 5 ? "Ya enviaste 5 comprobantes: quita uno para enviar otro." : "Este pedido ya no recibe comprobantes."}
+                    </p>
+                  )}
+                  {proofError && (
+                    <p role="alert" className="mt-2 rounded-lg px-2.5 py-1.5 text-xs font-semibold" style={{ background: `${C.red}12`, color: C.red }}>
+                      {proofError}
+                    </p>
+                  )}
+                </section>
+              )
+            })()}
           </div>
         </div>
       </div>

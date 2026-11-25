@@ -38,9 +38,11 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
     orderSound,
     toggleOrderSound,
     openView,
+    modal,
     rows,
     section,
     sectionLabel,
+    visibleMenu,
     setNotificationsOpen,
     setProfileOpen,
     setSection,
@@ -62,7 +64,16 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
     <div
       className="admin-panel flex h-screen overflow-hidden"
       data-theme={dark ? "dark" : "light"}
-      style={{ background: t.bg, fontFamily: "DM Sans, sans-serif" }}
+      // Theme colours for the panel-wide CSS rules (search box, row actions)
+      style={{
+        background: t.bg,
+        fontFamily: "DM Sans, sans-serif",
+        ["--admin-input" as string]: t.input,
+        ["--admin-input-b" as string]: t.inputB,
+        ["--admin-text" as string]: t.text,
+        ["--admin-muted" as string]: t.muted,
+        ["--admin-hover" as string]: t.hover,
+      }}
     >
       {sidebarOpen && (
         <div
@@ -109,6 +120,16 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
           >
             {Ico.menu}
           </button>
+          <div className="min-w-0">
+            {visibleMenu.find((group) => group.children.some((child) => child.key === section)) && (
+              <div className="truncate text-[11px] font-medium leading-tight" style={{ color: t.muted }}>
+                {visibleMenu.find((group) => group.children.some((child) => child.key === section))?.label}
+              </div>
+            )}
+            <h1 key={section} className="admin-title-enter truncate text-lg font-semibold leading-tight" style={{ color: t.text }}>
+              {sectionLabel}
+            </h1>
+          </div>
           <div className="ml-auto flex items-center gap-2">
             {/* Chime when a store order arrives */}
             <button
@@ -294,6 +315,8 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
               onClick={() =>
                 setTheme((th) => (th === "light" ? "dark" : "light"))
               }
+              aria-label={dark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+              title={dark ? "Modo claro" : "Modo oscuro"}
               className="w-8 h-8 flex items-center justify-center rounded-xl cursor-pointer"
               style={{
                 background: t.input,
@@ -374,15 +397,12 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
           </div>
         </header>
         <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6">
-          <div className="mb-5">
-            <h1 key={section} className="admin-title-enter font-semibold text-lg" style={{ color: t.text }}>
-              {sectionLabel}
-            </h1>
-          </div>
           {/* Keyed by section so each module fades in when it is opened */}
           <div key={section} className={section === "dashboard" ? "admin-section-enter" : undefined}>
             {section === "dashboard" && Dashboard()}
-            {section !== "dashboard" && <GenericTable />}
+            {/* A new / edited pedido is a page in its module (back arrow returns to the list) */}
+            {/* Only in its own module: going to another one shows that module's table, and coming back the draft is still there */}
+            {section !== "dashboard" && ((modal.section === section && CRUDModal(true)) || <GenericTable />)}
           </div>
         </main>
       </div>
@@ -477,10 +497,12 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
       )}
       {CRUDModal()}
       {ProductionPncModal()}
-      <QuickClientModal />
-      <AnulModal />
-      <PaymentRejectionModal />
-      <DelModal />
+      {/* Called, not mounted as <X />: these views are recreated on every render, and as components React would
+          remount them on each keystroke (the text box would lose what you're typing) */}
+      {QuickClientModal()}
+      {AnulModal()}
+      {PaymentRejectionModal()}
+      {DelModal()}
       {showAdminProfile && user && (
         <AdminProfilePage
           user={user}

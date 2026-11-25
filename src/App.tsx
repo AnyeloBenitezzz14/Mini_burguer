@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect, useState } from "react"
+import { appAlert } from "@/shared/components/AppDialog"
 const AdminPanel = lazy(() => import("@/features/admin/pages/AdminPanel"))
 const ChooseOwnPasswordPage = lazy(() => import("@/features/auth/pages/ChooseOwnPasswordPage"))
 const ForgotPage = lazy(() => import("@/features/auth/pages/ForgotPage"))
@@ -130,7 +131,7 @@ function AppRoutes() {
     saveUserLocally(u)
     // Name, document, phone and addresses live in the backend (the photo stays in this browser)
     if (getToken())
-      persistUserProfile(u).catch((err) => window.alert(`No se pudieron guardar tus datos: ${(err as Error).message}`))
+      persistUserProfile(u).catch((err) => appAlert(`No se pudieron guardar tus datos: ${(err as Error).message}`, "No se guardó"))
   }
   const login = (u: User, next: Page = "app") => {
     const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
@@ -179,7 +180,7 @@ function AppRoutes() {
       timer = window.setTimeout(() => {
         logout()
         setPage("login")
-        window.alert("Tu sesión se cerró por inactividad. Inicia sesión de nuevo.")
+        appAlert("Tu sesión se cerró por inactividad. Inicia sesión de nuevo.", "Sesión cerrada")
       }, 30 * 60 * 1000)
     }
     const events = ["mousemove", "mousedown", "keydown", "touchstart", "scroll"]
@@ -195,10 +196,21 @@ function AppRoutes() {
     setOrdersVersion((v) => v + 1)
   }
   // The backend puts a rejected payment back to "Pendiente de verificación"
-  const setVoucher = (id: string, voucher: string) =>
-    api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobante`, "PATCH", { comprobante: voucher })
-      .then((p) => updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o))))
-      .catch((err) => window.alert(`No se pudo subir el comprobante: ${(err as Error).message}`))
+  // Resolves to the error message (the detail shows it next to the form), or "" when saved
+  const setVoucher = (id: string, voucher: string, referencia: string, valor: number) =>
+    api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobante`, "PATCH", { comprobante: voucher, referencia, valor })
+      .then((p) => {
+        updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o)))
+        return ""
+      })
+      .catch((err) => (err as Error).message)
+  const removeVoucher = (id: string, index: number) =>
+    api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobantes/${index}`, "DELETE")
+      .then((p) => {
+        updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o)))
+        return ""
+      })
+      .catch((err) => (err as Error).message)
   const goCheckout = () => {
     setPage("checkout")
   }
@@ -311,6 +323,7 @@ function AppRoutes() {
             notas: info.notas,
             pago: info.pago,
             comprobante: info.voucher,
+            ...(info.voucher ? { referencia_pago: info.voucherRef, valor_pago: info.voucherAmount } : {}),
             items: cart
               .filter((item) => item.qty > 0)
               .map((item) => ({
@@ -345,6 +358,7 @@ function AppRoutes() {
         setCart={setCart}
         orders={orders}
         onVoucher={setVoucher}
+        onRemoveVoucher={removeVoucher}
         initialView={clientView}
       />
     )

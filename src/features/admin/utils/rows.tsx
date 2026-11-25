@@ -1,26 +1,49 @@
 import { COUNTER_CLIENT_DOC, DOC_SHORT, PERMISSION_MODULES, PERM_ACTION, PERM_MODULE, RETURNED_LOSS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
 import { DB_SYNC, PANEL_SYNC } from "@/features/admin/services/sync.service"
-import { APPROVAL_MIN, isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { APPROVAL_MIN, DEPOSIT_MODALITY, isTransferPaymentMethod, needsDeposit } from "@/features/orders/utils/orders"
 import type { AdminOrderLine, Order, RolePerms, Row } from "@/shared/types"
 import { splitNames } from "@/shared/utils/format"
 
-export const supplyAsProduct = (row: (string | number)[]): (string | number)[] => [
+// A producto de insumo shown in Productos: its own category, and its stock/minimum (prepared in production)
+export const SUPPLY_PRODUCT_MARK = "PRODUCTO_DE_INSUMO"
+export const isSupplyProductRow = (row?: Row) => row?.[15] === SUPPLY_PRODUCT_MARK
+export const supplyAsProduct = (row: (string | number)[]): (string | number)[] => withSupplyMark([
   String(row[0] ?? "Producto de insumo"),
-  "Producto de insumo",
-  Number(row[3] || 0),
+  String(row[1] || "Producto de insumo"),
+  // Its sale price (0 = cortesía), not its cost
+  Number(row[15] || 0),
   "Insumo configurado para comercializarse como producto.",
   String(row[12] ?? "Activo"),
   String(row[8] || `Ficha técnica - ${String(row[0] ?? "Producto de insumo")}`),
   String(row[9] || "v1.0"),
   String(row[10] || row[0] || "Insumo"),
   String(row[11] || "Insumo producto con ficha técnica y control de inventario."),
-]
+], row)
+const withSupplyMark = (product: (string | number)[], supply: (string | number)[]) => {
+  product[12] = Number(supply[4]) || 0
+  product[14] = Number(supply[5]) || 0
+  product[15] = SUPPLY_PRODUCT_MARK
+  return product
+}
+
+// A production order from a pedido is fixed once «Confirmado» (the pedido locks with it); one made by hand
+// (e.g. a house sauce) can still change until the kitchen starts it («En cocina» or later)
+// A pedido's production order keeps its code (PED-…) in [15]; one made by hand keeps its comment there
+export const isPedidoProduction = (row?: (string | number)[]) => /^PED-/i.test(String(row?.[15] ?? "").trim())
+
+export const isProductionEditLocked = (row?: (string | number)[]) => {
+  const status = String(row?.[8] || "Recibido")
+  return isPedidoProduction(row) ? status !== "Recibido" : !["Recibido", "Confirmado"].includes(status)
+}
 
 // ── Orders → production ───────────────────────────────────────────────────────
 // Pedido payment rules: the method decides the modality and whether it's paid,
 // so the admin doesn't pick them by hand. Cash in the shop is paid at the counter; cash for a delivery
 // or a pickup is paid on handover (it turns "Pagado" by itself when the order is "Entregado")
-export function derivePedidoPayment(method: string, hasProof: boolean, orderType = "") {
+export function derivePedidoPayment(method: string, hasProof: boolean, orderType = "", total = 0) {
+  // $150.000 or more (not paid at the counter): 50% in advance, the rest on delivery
+  if (needsDeposit(total, orderType))
+    return { modalidad: DEPOSIT_MODALITY, estadoPago: method === "Transferencia" && hasProof ? "Abonado" : "Pendiente" }
   if (method === "Transferencia")
     return { modalidad: "Anticipado", estadoPago: hasProof ? "Pagado" : "Pendiente" }
   if (method === "Efectivo" && orderType === "Local") return { modalidad: "Anticipado", estadoPago: "Pagado" }
@@ -80,7 +103,7 @@ export function clientOrderToPanelRow(order: Order, products: (string | number)[
     lines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${lines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
     "Domicilio",
     order.pago === "Efectivo" ? "Efectivo" : "Transferencia",
-    order.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
+    needsDeposit(order.total) ? DEPOSIT_MODALITY : order.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
     order.total,
     order.status,
     paymentStatus,
@@ -90,6 +113,9 @@ export function clientOrderToPanelRow(order: Order, products: (string | number)[
         ? "Pendiente de pago"
         : order.status === "Por confirmar"
           ? "Pendiente admin"
+          // Its production order is created when the order is moved to «Confirmado»
+          : ["Recibido", "Pendiente"].includes(order.status)
+            ? "Pendiente de confirmar"
           : order.total >= APPROVAL_MIN
             ? "Autorizada"
             : "Enviada a producción",
@@ -208,7 +234,7 @@ export const parsePurchaseLines = (value: string | number | undefined) =>
     .split(/\n|;/)
     .map((line) => line.split("|").map((part) => part.trim()))
     .filter(([name]) => name)
-    .map(([name, quantity, unitPrice]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0 }))
+    .map(([name, quantity, unitPrice, pack]) => ({ name, quantity: Number(quantity) || 0, unitPrice: Number(unitPrice) || 0, pack: pack || "" }))
 
 // Backend role names are uppercase (ADMINISTRADOR); the admin shows them as "Administrador"
 export const roleLabel = (name: string) => name.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase())
