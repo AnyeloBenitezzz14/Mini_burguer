@@ -27,11 +27,13 @@ export default function SidebarContent(adminState: AdminPanelState): ReactNode {
     user,
     visibleMenu,
   } = adminState
+const accent = dark ? C.amber : C.mustard
+
 return (
   <>
     <div
-      className="flex items-center justify-between px-3 py-4"
-      style={{ borderBottom: `1px solid ${t.sidebarBd}` }}
+      className="flex h-[var(--admin-header-height)] shrink-0 items-center justify-between px-3"
+      style={{ borderBottom: dark ? `1px solid ${t.sidebarBd}` : undefined }}
     >
       <button
         type="button"
@@ -47,7 +49,7 @@ return (
         <div className={`min-w-0 ${hideOnMini}`}>
           <div
             className="font-semibold text-sm truncate"
-            style={{ fontFamily: "League Spartan, sans-serif", color: t.sidebarAccent }}
+            style={{ fontFamily: "League Spartan, sans-serif", color: "var(--brand-gold)" }}
           >
             El Parche
           </div>
@@ -80,31 +82,27 @@ return (
           <div key={g.key} className="mb-0.5">
             <button
               onClick={() => {
+                const expandSidebar = sidebarCollapsed && window.innerWidth >= 1024
+                if (expandSidebar) setSidebarCollapsed(false)
+
                 if (leaf) {
                   setSection(g.key as AdminSection)
                   setSidebarOpen(false)
-                } else if (sidebarCollapsed && window.innerWidth >= 1024) {
-                  // Its modules need their names: open the menu with this group expanded
-                  setSidebarCollapsed(false)
-                  if (!open.includes(g.key)) toggleGrp(g.key)
-                } else toggleGrp(g.key)
+                } else if (!expandSidebar || !open.includes(g.key)) {
+                  toggleGrp(g.key)
+                }
               }}
               title={sidebarCollapsed ? g.label : undefined}
               aria-label={g.label}
-              className="admin-nav-item w-full flex items-center gap-2.5 px-[19px] py-2.5 rounded-xl cursor-pointer"
+              className="admin-nav-item w-full flex items-center gap-2.5 px-[19px] py-2 rounded-lg cursor-pointer"
               style={{
-                background: active
-                  ? `${t.sidebarAccent}18`
-                  : anyChild
-                    ? dark
-                      ? "rgba(255,255,255,0.04)"
-                      : "rgba(0,0,0,0.03)"
-                    : "transparent",
+                background: active ? (dark ? `${C.amber}18` : "#F7EDD5") : undefined,
+                boxShadow: !dark && active ? `inset 3px 0 ${accent}` : undefined,
               }}
             >
               <span
                 className="relative flex w-[18px] flex-shrink-0 justify-center"
-                style={{ color: active || anyChild ? t.sidebarAccent : t.sidebarMu }}
+                style={{ color: active || anyChild ? accent : t.sidebarMu }}
               >
                 {g.icon}
                 {/* Closed menu: a dot on Ventas when there are new orders */}
@@ -114,7 +112,7 @@ return (
               </span>
               <span
                 className={`flex-1 truncate text-left text-xs font-medium ${hideOnMini}`}
-                style={{ color: active ? t.sidebarAccent : t.sidebarTx, fontWeight: active ? 600 : undefined }}
+                style={{ color: active ? accent : t.sidebarTx, fontWeight: active ? 600 : undefined }}
               >
                 {g.label}
               </span>
@@ -150,17 +148,17 @@ return (
                       setSection(item.key as AdminSection)
                       setSidebarOpen(false)
                     }}
-                    className="admin-subnav-item w-full text-left pr-3 py-2 rounded-lg cursor-pointer"
+                    className="admin-subnav-item w-full text-left pr-3 py-1.5 rounded-lg cursor-pointer"
                     style={{
                       paddingLeft: "18.5px",
-                      background:
-                        section === item.key ? `${t.sidebarAccent}14` : "transparent",
+                      background: section === item.key ? (dark ? `${C.amber}14` : "#F7EDD5") : undefined,
+                      boxShadow: !dark && section === item.key ? `inset 3px 0 ${accent}` : undefined,
                     }}
                   >
                     <span
                       className="text-xs font-medium"
                       style={{
-                        color: section === item.key ? t.sidebarAccent : t.sidebarTx,
+                        color: section === item.key ? accent : t.sidebarTx,
                         fontWeight: section === item.key ? 600 : undefined,
                       }}
                     >
@@ -186,7 +184,7 @@ return (
     </nav>
     <div
       className="px-3 py-3"
-      style={{ borderTop: `1px solid ${t.sidebarBd}` }}
+      style={{ borderTop: dark ? `1px solid ${t.sidebarBd}` : undefined }}
     >
       <button
         onClick={onSwitchToClient}
@@ -201,7 +199,7 @@ return (
         onClick={onLogout}
         title={sidebarCollapsed ? "Cerrar sesión" : undefined}
         className={`mt-1 w-full flex items-center gap-2.5 overflow-hidden px-[15px] py-2.5 rounded-xl text-xs cursor-pointer hover:opacity-80`}
-        style={{ color: t.sidebarDanger }}
+        style={{ color: dark ? "#E3826F" : C.red }}
       >
         <span className="flex w-[18px] flex-shrink-0 justify-center">{Ico.logout}</span>
         <span className={hideOnMini}>Cerrar sesión</span>

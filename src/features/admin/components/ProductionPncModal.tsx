@@ -154,7 +154,7 @@ export default function ProductionPncModal(adminState: AdminPanelState): ReactNo
                 onClick={onClick}
                 disabled={disabled}
                 className="flex cursor-pointer items-center justify-center gap-1 rounded-xl px-4 py-2.5 text-xs font-bold disabled:cursor-default disabled:opacity-40"
-                style={{ background: C.mustard, color: "#fff" }}
+                style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
               >
                 {Ico.plus} {label}
               </button>

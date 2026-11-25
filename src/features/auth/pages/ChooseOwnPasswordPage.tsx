@@ -83,7 +83,7 @@ export default function ChooseOwnPasswordPage({
           type="submit"
           disabled={busy}
           className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
-          style={{ background: C.mustard, color: "#fff" }}
+          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
         >
           {busy ? "Guardando..." : "Guardar y continuar"}
         </button>

@@ -274,7 +274,7 @@ export default function OrderDetailModal({
                           disabled={busy}
                           onClick={send}
                           className="cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:opacity-60"
-                          style={{ background: C.mustard, color: "#fff" }}
+                          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                         >
                           {busy ? "Enviando…" : "Enviar comprobante"}
                         </button>

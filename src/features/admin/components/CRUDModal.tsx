@@ -456,7 +456,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 <div className="flex min-w-0 items-center gap-3">
                   <span
                     className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-                    style={{ background: C.mustard, color: "#fff" }}
+                    style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                   >
                     {contactInitials}
                   </span>
@@ -693,7 +693,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         >
           <label
             className="text-xs font-semibold"
-            style={{ color: shownFieldError(f.key) ? C.red : t.muted }}
+            style={{ color: shownFieldError(f.key) ? C.red : "var(--admin-heading-gold)" }}
           >
             {f.key === "0" && formData["1"] === SODA_PRODUCT && !isView ? "Nombre (sabor o marca si es gaseosa)" : f.label}
             {(isRequiredField(f.key) ||
@@ -955,7 +955,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
@@ -995,7 +995,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
             </button>
           )}
           <h3 className="font-semibold text-base" style={{ color: t.text }}>
-            {purchaseEntity
+            {isRoles
+              ? modal.mode === "add" ? "Nuevo rol" : modal.mode === "edit" ? "Editar rol" : "Detalle del rol"
+              : purchaseEntity
               ? modal.mode === "add"
                 ? `${purchaseEntity.fem ? "Nueva" : "Nuevo"} ${purchaseEntity.name}`
                 : modal.mode === "edit"
@@ -1012,7 +1014,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               className="ml-1 flex min-w-0 items-center gap-2 rounded-xl p-0.5"
               style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35` }}
             >
-              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: C.mustard, color: "#fff" }}>
+              <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}>
                 {chosenSupplierType.icon}
               </span>
               <span className="whitespace-nowrap text-xs font-semibold" style={{ color: t.text }}>{chosenSupplierType.value}</span>
@@ -1213,7 +1215,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                     style={{ background: t.input, border: `1px solid ${t.inputB}`, color: t.text }}
                                   />
                                   <button type="button" disabled={draft.saving} onClick={() => saveSupplySalePrice(name, draft.value)}
-                                    className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-bold disabled:opacity-60" style={{ background: C.mustard, color: "#fff" }}>
+                                    className="cursor-pointer rounded-lg px-2.5 py-1 text-xs font-bold disabled:opacity-60" style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}>
                                     {draft.saving ? "Guardando…" : "Guardar"}
                                   </button>
                                   <button type="button" onClick={() => setSupplyPriceDraft(null)}
@@ -1478,7 +1480,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             setTechnicalSheetOpen(true)
                           }}
                           className="flex cursor-pointer items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold"
-                          style={{ background: C.mustard, color: "#fff" }}
+                          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                         >
                           {recipe.length || steps.length ? <>{Ico.edit} Editar ficha técnica</> : <>{Ico.plus} Agregar ficha técnica</>}
                         </button>
@@ -1702,7 +1704,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                 setProductionFormError("")
                               }}
                               className="cursor-pointer rounded-full px-4 py-1.5 text-xs font-semibold"
-                              style={on ? { background: C.mustard, color: "#fff" } : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }}
+                              style={on ? { background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" } : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }}
                             >
                               {kind === "productos" ? "Productos" : kind === "adiciones" ? "Adiciones" : "Bebidas"}
                             </button>
@@ -1842,7 +1844,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         type="button"
                         onClick={add}
                         className="flex cursor-pointer items-center justify-center gap-1 rounded-xl px-4 py-2.5 text-xs font-bold"
-                        style={{ background: C.mustard, color: "#fff" }}
+                        style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                       >
                         {Ico.plus} Agregar
                       </button>
@@ -2013,7 +2015,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             openProductionPnc(index)
                           }}
                           className="flex cursor-pointer items-center justify-center gap-1.5 rounded-xl px-4 py-2.5 text-xs font-bold disabled:cursor-default disabled:opacity-50"
-                          style={{ background: C.mustard, color: "#fff" }}
+                          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                         >
                           Registrar desde esta orden
                         </button>
@@ -2032,7 +2034,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       className="group flex w-full cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-left transition hover:shadow-md"
                       style={{ background: t.card, border: `1.5px dashed ${C.mustard}` }}
                     >
-                      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: C.mustard, color: "#fff" }}>
+                      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}>
                         {Ico.plus}
                       </span>
                       <span className="min-w-0 flex-1">
@@ -2075,7 +2077,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 return (
                   <div className="flex min-w-0 flex-col gap-3 sm:col-span-2">
                     <div className="flex flex-wrap items-center gap-3 rounded-2xl px-4 py-3" style={{ background: t.cardAlt }}>
-                      <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold" style={{ background: C.mustard, color: "#fff" }}>
+                      <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold" style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}>
                         {initials}
                       </span>
                       <div className="min-w-0 flex-1">
@@ -2216,7 +2218,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                 setProductionFormError("")
                               }}
                               className="cursor-pointer rounded-full px-4 py-1.5 text-xs font-semibold"
-                              style={on ? { background: C.mustard, color: "#fff" } : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }}
+                              style={on ? { background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" } : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }}
                             >
                               {kind === "productos" ? "Productos" : kind === "adiciones" ? "Adiciones" : "Bebidas"}
                             </button>
@@ -2280,7 +2282,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         type="button"
                         onClick={add}
                         className="flex cursor-pointer items-center justify-center gap-1 rounded-xl px-4 py-2.5 text-xs font-bold"
-                        style={{ background: C.mustard, color: "#fff" }}
+                        style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                       >
                         {Ico.plus} Agregar
                       </button>
@@ -3170,7 +3172,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             type="button"
                             onClick={addItem}
                             className="cursor-pointer rounded-xl px-4 py-2.5 text-xs font-bold hover:opacity-90"
-                            style={{ background: C.mustard, color: "#fff" }}
+                            style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                           >
                             Agregar
                           </button>
@@ -4151,7 +4153,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   <div className={`flex items-center justify-between gap-2 ${(isPedido && !isView && f.key === "1") || (isSupply && sheetBeside && f.key === "7") ? "hidden" : ""}`}>
                     <label
                       className="text-xs font-semibold"
-                      style={{ color: !isView && shownFieldError(f.key) ? C.red : t.muted }}
+                      style={{ color: !isView && shownFieldError(f.key) ? C.red : "var(--admin-heading-gold)" }}
                     >
                       {fieldLabel}
                       {!isView && (isRequiredField(f.key) || requiredFormField) && " *"}
@@ -4555,7 +4557,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                     </span>
                                   </span>
                                   {inOrder > 0 && (
-                                    <span className="absolute right-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold" style={{ background: C.mustard, color: "#fff" }}>
+                                    <span className="absolute right-1.5 top-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-bold" style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}>
                                       ×{inOrder}
                                     </span>
                                   )}
@@ -5176,7 +5178,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       <li key={state} className="flex gap-2.5 rounded-lg px-3 py-2" style={{ background: t.card }}>
                         <span
                           className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-bold"
-                          style={{ background: C.mustard, color: "#fff" }}
+                          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                         >
                           {index + 1}
                         </span>
@@ -6191,7 +6193,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     disabled={!proofOf(modal.idx!)}
                     onClick={() => approveOrderForProduction(modal.idx!)}
                     className="flex-1 cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                    style={{ background: C.mustard, color: "#fff" }}
+                    style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                   >
                     Aprobar comprobante y enviar a producción
                   </button>
@@ -6214,7 +6216,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   }
                   onClick={() => approveOrderForProduction(modal.idx!)}
                   className="md:col-start-2 self-start w-full cursor-pointer rounded-xl py-2.5 text-sm font-bold disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ background: C.mustard, color: "#fff" }}
+                  style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                 >
                   Confirmar pedido y enviar a producción
                 </button>
@@ -6441,7 +6443,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
             <button
               onClick={() => openEdit(modal.section, modal.idx!)}
               className="flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90"
-              style={{ background: C.mustard, color: "#fff" }}
+              style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
             >
               Editar
             </button>
@@ -6533,7 +6535,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               }
               disabled={saving}
               className="admin-save-shine flex-1 py-2.5 rounded-xl text-sm font-bold cursor-pointer hover:opacity-90 disabled:cursor-wait disabled:opacity-70"
-              style={{ background: C.mustard, color: "#fff" }}
+              style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
             >
               {saving ? "Guardando…" : "Guardar"}
             </button>
@@ -6640,7 +6642,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 disabled={lossReturnSaving}
                 onClick={returnLossToPurchase}
                 className="flex-1 cursor-pointer rounded-xl py-3 text-sm font-bold hover:opacity-90 disabled:opacity-60"
-                style={{ background: C.mustard, color: "#fff" }}
+                style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
               >
                 {lossReturnSaving ? "Devolviendo..." : "Devolver a compra"}
               </button>
@@ -6748,7 +6750,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       saveModal()
                     }}
                     className="flex-1 cursor-pointer rounded-xl py-3 text-sm font-bold hover:opacity-90"
-                    style={{ background: C.mustard, color: "#fff" }}
+                    style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                   >
                     Sí, registrar compra
                   </button>
@@ -6965,7 +6967,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             setTechnicalSheetError("")
                           }}
                           className="flex cursor-pointer items-center justify-center gap-1 rounded-lg px-3 py-2 text-xs font-bold"
-                          style={{ background: C.mustard, color: "#fff" }}
+                          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                         >
                           {Ico.plus} Agregar
                         </button>
@@ -7183,7 +7185,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           onClick={addStep}
                           disabled={!technicalStepDraft.trim()}
                           className="flex cursor-pointer items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold disabled:cursor-default disabled:opacity-50"
-                          style={{ background: C.mustard, color: "#fff" }}
+                          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                         >
                           {Ico.plus} Agregar paso
                         </button>
@@ -7221,7 +7223,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   setTechnicalSheetError("")
                 }}
                 className="rounded-xl px-4 py-2.5 text-sm font-bold cursor-pointer"
-                style={{ background: C.mustard, color: "#fff" }}
+                style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
               >
                 Guardar ficha
               </button>

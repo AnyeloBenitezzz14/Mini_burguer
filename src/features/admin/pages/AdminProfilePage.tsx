@@ -431,7 +431,7 @@ export default function AdminProfilePage({
                     }
                   }}
                   className="px-4 py-2 rounded-xl text-sm font-bold cursor-pointer"
-                  style={{ background: C.mustard, color: "#fff" }}
+                  style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                 >
                   +
                 </button>

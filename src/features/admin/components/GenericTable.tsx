@@ -164,7 +164,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
           type="button"
           onClick={() => openAdd(section)}
           className="flex cursor-pointer items-center gap-1.5 rounded-xl px-4 py-2 text-sm font-semibold hover:opacity-90"
-          style={{ background: C.mustard, color: "#fff" }}
+          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
         >
           {Ico.plus} Crear el primer registro
         </button>
@@ -191,13 +191,15 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     URL.revokeObjectURL(url)
   }
 
+  const activeBadge = { bg: "rgb(212 175 55 / 15%)", color: "var(--admin-heading-gold)" }
+
   const renderCellValue = (
     cell: string | number,
     primary = false,
     isLow = false,
     isPrincipalAdmin = false,
   ) => {
-    const badge = badgeSt(cell)
+    const badge = cell === "Activo" || cell === "Activa" ? activeBadge : badgeSt(cell)
     const color = isLow && primary ? C.red : primary ? t.text : t.muted
     if (badge) {
       return (
@@ -382,7 +384,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     return (
       <span
         className="inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold"
-        style={active ? { background: "rgba(46,125,96,0.12)", color: "#2E7D60" } : { background: `${C.red}12`, color: C.red }}
+        style={active ? { background: activeBadge.bg, color: activeBadge.color } : { background: `${C.red}12`, color: C.red }}
       >
         {value}
       </span>
@@ -640,7 +642,6 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
       <div className="mb-4 flex min-w-0 flex-wrap items-center gap-2">
         <div
           className="search-control flex w-full min-w-0 items-center gap-2 rounded-full px-3 py-2 sm:w-72"
-          style={{ background: t.input, border: `1px solid ${t.inputB}` }}
         >
           <span className="flex-shrink-0">
             {Ico.search}
@@ -658,7 +659,6 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               setP(0)
             }}
             className="min-w-0 flex-1 bg-transparent text-xs outline-none"
-            style={{ color: t.text }}
           />
           {search[section] && (
             <button
@@ -682,12 +682,8 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               setP(0)
             }}
             aria-label="Filtrar la lista"
-            className="h-[38px] cursor-pointer rounded-xl px-3 text-xs outline-none"
-            style={{
-              background: filterValue ? `${C.mustard}18` : t.input,
-              border: `1px solid ${filterValue ? C.mustard : t.inputB}`,
-              color: filterValue ? C.mustard : t.muted,
-            }}
+            data-filtered={Boolean(filterValue)}
+            className="admin-filter-control h-[38px] cursor-pointer px-3 text-xs outline-none"
           >
             <option value="">Filtrar: todos</option>
             {section === "insumos" && <option value="low::1">⚠ Solo stock bajo</option>}
@@ -784,7 +780,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
             type="button"
             onClick={() => openAdd(section)}
             className="flex h-[38px] items-center gap-1.5 rounded-xl px-4 text-xs font-semibold cursor-pointer hover:opacity-90"
-            style={{ background: C.mustard, color: "#fff" }}
+            style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
           >
             {Ico.plus} Nuevo
           </button>
@@ -808,7 +804,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                 className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
                 style={
                   on
-                    ? { background: C.mustard, color: "#fff", border: `1px solid ${C.mustard}` }
+                    ? { background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)", border: `1px solid ${C.mustard}` }
                     : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }
                 }
               >
@@ -841,7 +837,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                 className="flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold"
                 style={
                   on
-                    ? { background: C.mustard, color: "#fff", border: `1px solid ${C.mustard}` }
+                    ? { background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)", border: `1px solid ${C.mustard}` }
                     : { background: t.input, color: t.muted, border: `1px solid ${t.inputB}` }
                 }
               >
@@ -870,7 +866,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               {/* Ver, Editar, (Anular), Eliminar: 32 px per button so they fit in one row */}
               <col style={{ width: cfg.statusIndex !== undefined && section !== "produccion" ? "140px" : "108px" }} />
             </colgroup>
-            <thead>
+            <thead style={{ color: "var(--admin-heading-gold)" }}>
               <tr
                 style={{
                   borderBottom: `1px solid ${t.border}`,
@@ -881,7 +877,6 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                   <th
                     scope="col"
                     className="px-2 py-3 text-left text-[10px] font-bold uppercase tracking-wide"
-                    style={{ color: t.muted }}
                   >
                     Img
                   </th>
@@ -891,7 +886,6 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                     key={index}
                     scope="col"
                     className="px-2 py-3 text-left align-top text-[10px] font-bold uppercase leading-tight tracking-wide break-words [overflow-wrap:anywhere]"
-                    style={{ color: t.muted }}
                   >
                     {visibleColumns[index] || `Dato ${index + 1}`}
                   </th>
@@ -899,7 +893,6 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                 <th
                   scope="col"
                   className="px-2 py-3 text-right text-[10px] font-bold uppercase tracking-wide"
-                  style={{ color: t.muted }}
                 >
                   Acciones
                 </th>
@@ -1143,7 +1136,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               type="button"
               disabled={cur === 0}
               onClick={() => setP(cur - 1)}
-              className="pagination-control h-8 w-8 rounded-lg text-xs cursor-pointer disabled:cursor-default disabled:opacity-30"
+              className="pagination-control h-8 w-8 rounded-full text-xs cursor-pointer disabled:cursor-default disabled:opacity-30"
               style={{ background: t.input, color: t.muted }}
             >
               ←
@@ -1153,11 +1146,11 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
                 key={index}
                 type="button"
                 onClick={() => setP(index)}
-                className="pagination-control h-8 w-8 rounded-lg text-xs font-semibold cursor-pointer"
+                className="pagination-control h-8 w-8 rounded-full text-xs font-semibold cursor-pointer"
                 aria-current={index === cur ? "page" : undefined}
                 style={{
-                  background: index === cur ? C.mustard : "transparent",
-                  color: index === cur ? "#fff" : t.muted,
+                  background: index === cur ? "var(--brand-gold-gradient)" : "transparent",
+                  color: index === cur ? "var(--brand-gold-ink)" : t.muted,
                 }}
               >
                 {index + 1}
@@ -1167,7 +1160,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
               type="button"
               disabled={cur >= totalPages - 1}
               onClick={() => setP(cur + 1)}
-              className="pagination-control h-8 w-8 rounded-lg text-xs cursor-pointer disabled:cursor-default disabled:opacity-30"
+              className="pagination-control h-8 w-8 rounded-full text-xs cursor-pointer disabled:cursor-default disabled:opacity-30"
               style={{ background: t.input, color: t.muted }}
             >
               →

@@ -32,7 +32,7 @@ export default function SiteFooter({ onLicenses }: { onLicenses: () => void }) {
                   className="font-black text-xl leading-tight"
                   style={{
                     fontFamily: "League Spartan, sans-serif",
-                    color: C.mustard,
+                    color: "var(--landing-gold)",
                   }}
                 >
                   El Parche
@@ -95,22 +95,22 @@ export default function SiteFooter({ onLicenses }: { onLicenses: () => void }) {
               </h4>
               <ul className="flex flex-col gap-3 text-base">
                 <li className="flex gap-2.5 items-start">
-                  <span className="mt-0.5" style={{ color: C.amber }}>{Ico.mapPin}</span>
+                  <span className="mt-0.5" style={{ color: "var(--landing-gold)" }}>{Ico.mapPin}</span>
                   <span style={{ color: "rgba(250,243,224,0.8)" }}>
                     051053, Cra. 58A #42c-28, Bello, Antioquia
                   </span>
                 </li>
                 <li className="flex gap-2.5 items-center">
-                  <span style={{ color: C.amber }}>{Ico.phone}</span>
-                  <a href="tel:+573206332670" style={{ color: C.amber }}>
+                  <span style={{ color: "var(--landing-gold)" }}>{Ico.phone}</span>
+                  <a href="tel:+573206332670" style={{ color: "var(--landing-gold)" }}>
                     320 633 2670
                   </a>
                 </li>
                 <li className="flex gap-2.5 items-center">
-                  <span style={{ color: C.amber }}>{Ico.mail}</span>
+                  <span style={{ color: "var(--landing-gold)" }}>{Ico.mail}</span>
                   <a
                     href="mailto:Elparchedelasminiburguers@gmail.com"
-                    style={{ color: C.amber }}
+                    style={{ color: "var(--landing-gold)" }}
                   >
                     Elparchedelasminiburguers@gmail.com
                   </a>
@@ -141,7 +141,7 @@ export default function SiteFooter({ onLicenses }: { onLicenses: () => void }) {
                   </span>
                   <span
                     className="text-base font-semibold"
-                    style={{ color: C.amber }}
+                    style={{ color: "var(--landing-gold)" }}
                   >
                     {STORE_HOURS_LABEL}
                   </span>

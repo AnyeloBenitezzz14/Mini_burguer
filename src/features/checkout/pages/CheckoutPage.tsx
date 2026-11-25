@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { BELLO_NEIGHBORHOODS, normalizeNeighborhood } from "@/data/barrios"
 import PaymentAccounts from "@/features/checkout/components/PaymentAccounts"
 import logoImg from "@/imports/logo.png"
@@ -109,13 +109,12 @@ export default function CheckoutPage({
   const [neighborhoods, setNeighborhoods] = useState<DeliveryNeighborhood[]>(fallbackNeighborhoods)
   const [neighborhoodsLoading, setNeighborhoodsLoading] = useState(true)
   const [neighborhoodsError, setNeighborhoodsError] = useState("")
-  const setAddressPart = (key: keyof CheckoutAddressParts, value: string) => {
-    markTouched(key)
-    return setAddressParts((current) => {
-      const next = { ...current, [key]: value }
-      setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(next) }))
-      return next
-    })
+  const setAddressPart = (key: keyof CheckoutAddressParts, value: string, edited = true) => {
+    if (edited) {
+      editedAddressKey.current = addressDraftKey
+      markTouched(key)
+    }
+    setAddressParts((current) => ({ ...current, [key]: value }))
   }
   // Where the address is on the map and whether it's inside the delivery zone
   const [geo, setGeo] = useState<{
@@ -210,7 +209,7 @@ export default function CheckoutPage({
           if (!point) return setGeo({ status: "notfound" })
           const km = distanceKm(SHOP_LOCATION, point)
           setGeo({ status: "ok", ...point, km })
-          if (point.neighborhood && !addressParts.barrio) setAddressPart("barrio", point.neighborhood)
+          if (point.neighborhood && !addressParts.barrio) setAddressPart("barrio", point.neighborhood, false)
         })
         .catch((err) => {
           if ((err as Error).name !== "AbortError") setGeo({ status: "error" })
@@ -339,13 +338,16 @@ export default function CheckoutPage({
   }
   // Prefill delivery data from the account as soon as there is one
   useEffect(() => {
-    if (!user) return
+    if (!user) {
+      initializedAddressKey.current = ""
+      editedAddressKey.current = ""
+      return
+    }
     const hasSavedAddress = !!user.addresses?.length
     setDelivForm((f) => ({
       ...f,
       nombre: f.nombre || user.name,
       telefono: f.telefono || user.phone || "",
-      direccion: f.direccion || user.addresses?.[0] || "",
     }))
     // After a reload the address the client was typing stays (not the saved one)
     if (draft.addressParts) return
@@ -439,6 +441,17 @@ export default function CheckoutPage({
           ? confirmedTotal
           : orderTotal,
       )
+      if (isDelivery && editingAddress && addressLabelsKey && (saveAddress || !user.addresses?.length)) {
+        saveLS(addressLabelsKey, {
+          ...loadLS<Record<string, string>>(addressLabelsKey, {}),
+          [addressLabelKey(delivForm.direccion)]: addressLabel === "Otra" ? customAddressLabel.trim() || "Otra" : addressLabel,
+        })
+      }
+      if (isDelivery && addressDraftKey && previousAddress && composeDeliveryAddress(previousAddress.parts) === delivForm.direccion) {
+        editedAddressKey.current = ""
+        saveLS(addressDraftKey, null)
+        setAddressDraft(null)
+      }
       setOrdered(true)
     } catch (err) {
       setOrderError((err as Error).message)
@@ -636,7 +649,7 @@ export default function CheckoutPage({
   if (ordered)
     return (
       <div
-        className="min-h-screen flex items-center justify-center px-4"
+        className="checkout-page min-h-screen flex items-center justify-center px-4"
         style={{ background: "#FAF5E8", fontFamily: "DM Sans, sans-serif" }}
       >
         <div className="relative w-full max-w-lg overflow-hidden rounded-3xl" style={CARD_ST}>
@@ -723,7 +736,7 @@ export default function CheckoutPage({
             <button
               onClick={onComplete}
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-3 font-bold text-sm shadow-sm transition hover:-translate-y-0.5 hover:shadow-md cursor-pointer"
-              style={{ background: C.mustard, color: "#fff" }}
+              style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
             >
               Ver mis pedidos <span aria-hidden="true">→</span>
             </button>
@@ -734,36 +747,36 @@ export default function CheckoutPage({
 
   return (
     <div
-      className="min-h-screen"
+      className="checkout-page min-h-screen"
       style={{ background: "#FAF5E8", fontFamily: "DM Sans, sans-serif" }}
     >
       <header
-        className="fixed inset-x-0 top-0 z-50"
+        className="sticky top-0 z-50"
         style={{
           background: "rgba(250,245,232,0.95)",
           borderBottom: `1px solid ${LINE}`,
           backdropFilter: "blur(12px)",
         }}
       >
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
+        <div className="mx-auto grid min-h-14 max-w-7xl grid-cols-[1fr_auto_1fr] items-center gap-2 px-4 sm:min-h-16 sm:gap-3 sm:px-6">
           <button
             onClick={onBack}
-            className="text-sm font-medium cursor-pointer hover:opacity-70"
+            className="justify-self-start text-left text-xs font-medium cursor-pointer hover:opacity-70 sm:text-sm"
             style={{ color: MUTED }}
           >
             ← Seguir comprando
           </button>
-          <div className="flex items-center gap-2">
-            <img src={logoImg} alt="El Parche" className="h-12 w-12 object-contain" />
+          <div className="flex items-center gap-2 sm:gap-3">
+            <img src={logoImg} alt="" className="h-12 w-14 object-contain sm:h-14 sm:w-[4.5rem]" />
             <span
-              className="font-black hidden sm:inline"
-              style={{ fontFamily: "League Spartan, sans-serif", color: C.mustard }}
+              className="landing-brand-title whitespace-nowrap text-lg leading-tight sm:text-xl"
+              style={{ color: "var(--brand-gold)" }}
             >
-              El Parche
+              EL PARCHE
             </span>
           </div>
           <span
-            className="flex items-center gap-1.5 text-xs font-semibold"
+            className="flex items-center gap-1.5 justify-self-end text-xs font-semibold"
             style={{ color: C.forest }}
           >
             {Ico.shield}
@@ -771,68 +784,68 @@ export default function CheckoutPage({
           </span>
         </div>
       </header>
-      <div className="h-16" aria-hidden="true" />
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-3 pb-8">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2">
+          <h1
+            className="font-black text-2xl sm:text-3xl"
+            style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
+          >
+            Finalizar mi pedido
+          </h1>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-        <h1
-          className="font-black text-2xl sm:text-3xl text-center mb-6"
-          style={{ fontFamily: "League Spartan, sans-serif", color: C.dark }}
-        >
-          Finalizar mi pedido
-        </h1>
-
-        {/* Stepper */}
-        <ol className="flex items-center max-w-xl mx-auto mb-10">
-          {["Identificación", "Entrega", "Revisión"].map((label, i) => {
-            const step = (i + 1) as 1 | 2 | 3
-            const done = checkoutStep > step
-            const active = checkoutStep === step && !done
-            const reachable =
-              (step === 1 && !user) ||
-              (step === 2 && !!user) ||
-              (step === 3 && !!user && !!delivFilled && deliveryCostConfigured && payReady)
-            return (
-              <li key={label} className={`flex items-center ${i < 2 ? "flex-1" : ""}`}>
-                <button
-                  onClick={() => {
-                    if (!reachable) return
-                    setCheckoutStep(step)
-                    if (step === 1) setShowAuth(true)
-                  }}
-                  className="flex items-center gap-2"
-                  style={{ cursor: reachable ? "pointer" : "default" }}
-                >
-                  <span
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                    style={{
-                      background: done || active ? C.mustard : "#fff",
-                      color: done || active ? "#fff" : MUTED,
-                      border: done || active ? "none" : "1.5px solid rgba(30,30,30,0.15)",
+          {/* Stepper */}
+          <ol className="flex w-full max-w-lg items-center justify-between gap-2 sm:w-auto sm:flex-1">
+            {["Identificación", "Entrega", "Revisión"].map((label, i) => {
+              const step = (i + 1) as 1 | 2 | 3
+              const done = checkoutStep > step
+              const active = checkoutStep === step && !done
+              const reachable =
+                (step === 1 && !user) ||
+                (step === 2 && !!user) ||
+                (step === 3 && !!user && !!delivFilled && deliveryCostConfigured && payReady)
+              return (
+                <li key={label} className={`flex items-center ${i < 2 ? "sm:flex-1" : ""}`}>
+                  <button
+                    onClick={() => {
+                      if (!reachable) return
+                      setCheckoutStep(step)
+                      if (step === 1) setShowAuth(true)
                     }}
+                    className="flex items-center gap-1 sm:gap-2"
+                    style={{ cursor: reachable ? "pointer" : "default" }}
                   >
-                    {done ? Ico.check : step}
-                  </span>
-                  <span
-                    className="text-sm font-semibold hidden sm:inline"
-                    style={{ color: done || active ? C.dark : MUTED }}
-                  >
-                    {label}
-                  </span>
-                </button>
-                {i < 2 && (
-                  <span
-                    className="flex-1 h-0.5 mx-3 rounded-full"
-                    style={{ background: done ? C.mustard : "rgba(30,30,30,0.12)" }}
-                  />
-                )}
-              </li>
-            )
-          })}
-        </ol>
+                    <span
+                      className="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-bold sm:size-8"
+                      style={{
+                        background: done || active ? "var(--brand-gold)" : "#fff",
+                        color: done || active ? "#fff" : MUTED,
+                        border: done || active ? "none" : "1.5px solid rgba(30,30,30,0.15)",
+                      }}
+                    >
+                      {done ? Ico.check : step}
+                    </span>
+                    <span
+                      className="text-xs font-semibold"
+                      style={{ color: done || active ? C.dark : MUTED }}
+                    >
+                      {label}
+                    </span>
+                  </button>
+                  {i < 2 && (
+                    <span
+                      className="mx-2 hidden h-0.5 flex-1 rounded-full sm:block"
+                      style={{ background: done ? "var(--brand-gold)" : "rgba(30,30,30,0.12)" }}
+                    />
+                  )}
+                </li>
+              )
+            })}
+          </ol>
+        </div>
 
-        <div className="grid min-w-0 grid-cols-1 gap-5 items-start xl:grid-cols-[minmax(0,1fr)_360px] xl:gap-6">
+        <div className="grid min-w-0 grid-cols-1 gap-4 items-start lg:grid-cols-[minmax(0,1fr)_minmax(17rem,30%)] xl:gap-5">
           {/* LEFT: current step */}
-          <div className="flex flex-col gap-6 min-w-0">
+          <div className="flex flex-col gap-4 min-w-0">
             {checkoutStep === 1 && !showAuth && (
               <section className="p-6 rounded-2xl" style={CARD_ST}>
                 <div className="flex items-center justify-between gap-3 mb-1">
@@ -955,7 +968,7 @@ export default function CheckoutPage({
                       type="submit"
                       disabled={busy}
                       className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90"
-                      style={{ background: C.mustard, color: "#fff" }}
+                      style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                     >
                       {busy ? "Ingresando..." : "Iniciar sesión"}
                     </button>
@@ -982,7 +995,7 @@ export default function CheckoutPage({
                           type="submit"
                           disabled={busy}
                           className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
-                          style={{ background: C.mustard, color: "#fff" }}
+                          style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                         >
                           {busy ? "Verificando..." : "Verificar y continuar"}
                         </button>
@@ -1118,7 +1131,7 @@ export default function CheckoutPage({
                       type="submit"
                       disabled={busy}
                       className="w-full py-3 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-60"
-                      style={{ background: C.mustard, color: "#fff" }}
+                      style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                     >
                       {busy ? "Enviando PIN..." : "Enviar PIN y continuar"}
                     </button>
@@ -1131,12 +1144,12 @@ export default function CheckoutPage({
 
             {user && checkoutStep === 2 && (
               <>
-                <section className="p-6 rounded-2xl" style={CARD_ST}>
+                <section className="rounded-2xl p-4 sm:p-5" style={CARD_ST}>
                   <h2 className="font-bold text-lg mb-3" style={{ color: C.dark }}>
                     Datos del pedido
                   </h2>
-                  <fieldset className="mb-5">
-                    <legend className="mb-2 text-xs font-semibold" style={{ color: MUTED }}>
+                  <fieldset className="mb-3">
+                    <legend className="checkout-delivery-question mb-2 text-xs font-semibold text-black">
                       ¿Cómo quieres recibir tu pedido?
                     </legend>
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -1151,11 +1164,11 @@ export default function CheckoutPage({
                             type="button"
                             aria-pressed={selected}
                             onClick={() => setDeliveryMethod(method)}
-                            className="rounded-xl border px-3 py-3 text-sm font-semibold transition-colors"
+                            className="rounded-xl border px-2 py-2 text-sm font-semibold transition-colors"
                             style={{
                               borderColor: selected ? C.mustard : LINE,
                               background: selected ? `${C.mustard}12` : "#fff",
-                              color: selected ? C.dark : MUTED,
+                              color: selected ? "var(--checkout-heading-gold)" : MUTED,
                             }}
                           >
                             {label}
@@ -1177,7 +1190,7 @@ export default function CheckoutPage({
                     }}
                   >
                     <span className="min-w-0">
-                      <strong className="block text-sm" style={{ color: C.dark }}>
+                      <strong className="block text-sm text-black">
                         El pedido lo recibe otra persona
                       </strong>
                     </span>
@@ -1226,22 +1239,120 @@ export default function CheckoutPage({
                   </div>
                   {isDelivery && (
                     <div className="mt-3">
-                    <div className="flex items-center justify-between gap-3 mb-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!editingAddress) {
-                            const parts = addressPartsFromAddress(delivForm.direccion)
-                            setAddressParts(parts)
-                          }
-                          setEditingAddress((editing) => !editing)
-                        }}
-                        className="text-xs font-bold cursor-pointer"
-                        style={{ color: C.mustard }}
-                      >
-                        {editingAddress ? "Usar dirección seleccionada" : "Cambiar dirección"}
-                      </button>
-                    </div>
+                    <section className="mb-3 rounded-2xl border px-3 py-2.5" style={{ background: "#FFFCF5", borderColor: LINE }}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-sm font-bold">Direcciones guardadas</h3>
+                        {(!!user.addresses?.length || previousAddress) && (
+                          <button
+                            type="button"
+                            onClick={() => chooseAddress(EMPTY_CHECKOUT_ADDRESS_PARTS, true)}
+                            className="cursor-pointer px-2 py-1 text-xs font-bold hover:underline"
+                            style={{ color: C.mustard }}
+                          >
+                            Escribir otra dirección
+                          </button>
+                        )}
+                      </div>
+                      {!user.addresses?.length && !previousAddress && (
+                        <p className="mt-1 text-xs" style={{ color: MUTED }}>Aún no tienes direcciones guardadas.</p>
+                      )}
+                      {(!!user.addresses?.length || previousAddress) && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {[...new Set(user.addresses ?? [])].map((address) => {
+                            const parts = addressPartsFromAddress(address)
+                            const label = savedAddressLabels[addressLabelKey(address)]
+                            const selected = !editingAddress && delivForm.direccion === composeDeliveryAddress(parts)
+                            return (
+                              <button
+                                key={address}
+                                type="button"
+                                aria-pressed={selected}
+                                onClick={() => chooseAddress(parts, false, null, label)}
+                                className="flex max-w-full cursor-pointer items-center gap-1.5 border bg-white px-3 py-1.5 text-left text-xs font-semibold"
+                                style={{ borderColor: selected ? C.mustard : LINE, color: selected ? C.mustard : C.dark }}
+                              >
+                                <span className="shrink-0" aria-hidden="true">{Ico.mapPin}</span>
+                                <span className="min-w-0 break-words">
+                                  {label && <strong className="mr-1.5" style={{ color: C.mustard }}>{label} ·</strong>}
+                                  {address}
+                                </span>
+                              </button>
+                            )
+                          })}
+                          {previousAddress && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                chooseAddress(previousAddress.parts, true, previousAddress.neighborhoodQuery, previousAddress.label)
+                                setCustomAddressLabel(previousAddress.customLabel ?? "")
+                              }}
+                              className="cursor-pointer border px-3 py-1.5 text-left text-xs font-bold"
+                              style={{ background: "#F7EDD5", borderColor: "#E9D8AD", color: C.mustard }}
+                            >
+                              Recuperar dirección anterior
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </section>
+                    {editingAddress && (
+                      <fieldset className="mb-3">
+                        <legend className="mb-1.5 text-xs font-semibold">Tipo de dirección</legend>
+                        <div className="flex flex-wrap gap-2">
+                          {addressLabels.map((label) => (
+                            <label
+                              key={label}
+                              className="flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold"
+                              style={{ borderColor: addressLabel === label ? C.mustard : LINE, background: addressLabel === label ? "#F7EDD5" : "#fff" }}
+                            >
+                              <input
+                                type="radio"
+                                name="checkout-address-label"
+                                value={label}
+                                checked={addressLabel === label}
+                                className="accent-black"
+                                onChange={() => {
+                                  editedAddressKey.current = addressDraftKey
+                                  setAddressLabel(label)
+                                  setSaveAddress(true)
+                                }}
+                              />
+                              {label}
+                            </label>
+                          ))}
+                        </div>
+                        {addressLabel === "Otra" && (
+                          <label className="mt-2 flex max-w-sm flex-col gap-1 text-xs font-semibold">
+                            Nombre de la dirección (opcional)
+                            <input
+                              type="text"
+                              value={customAddressLabel}
+                              maxLength={40}
+                              placeholder="Ej: Casa de mi mamá"
+                              className="w-full rounded-xl border bg-white px-3 py-2 text-sm font-normal text-black"
+                              style={{ borderColor: LINE }}
+                              onChange={(event) => {
+                                editedAddressKey.current = addressDraftKey
+                                setCustomAddressLabel(event.target.value)
+                                setSaveAddress(true)
+                              }}
+                            />
+                          </label>
+                        )}
+                      </fieldset>
+                    )}
+                    {!editingAddress && (
+                      <div className="mb-1 flex items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setEditingAddress(true)}
+                          className="cursor-pointer text-xs font-bold"
+                          style={{ color: C.mustard }}
+                        >
+                          Editar dirección seleccionada
+                        </button>
+                      </div>
+                    )}
                     <div className="mb-3">
                       <NeighborhoodSearch
                         value={addressParts.barrio}
@@ -1249,8 +1360,9 @@ export default function CheckoutPage({
                         neighborhoods={neighborhoods}
                         loading={neighborhoodsLoading}
                         loadError={neighborhoodsError}
-                        onQueryChange={(q) => {
-                          setNeighborhoodQuery(q)
+                        onQueryChange={(query) => {
+                          editedAddressKey.current = addressDraftKey
+                          setNeighborhoodQuery(query)
                           markTouched("barrio")
                         }}
                         onSelect={(n) => {
@@ -1324,7 +1436,7 @@ export default function CheckoutPage({
                       )}
                     </div>
                     {editingAddress ? (
-                      <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="grid gap-x-3 gap-y-2 grid-cols-2 sm:grid-cols-3">
                         <label className="flex min-w-0 flex-col gap-1 text-xs font-semibold" style={{ color: "rgba(30,30,30,0.5)" }}>
                           Tipo de vía *
                           <select
@@ -1332,7 +1444,7 @@ export default function CheckoutPage({
                             value={addressParts.tipoVia}
                             onChange={(event) => setAddressPart("tipoVia", event.target.value)}
                             aria-invalid={showErr("tipoVia") && !addressParts.tipoVia}
-                            className="w-full rounded-xl px-3.5 py-3 text-sm outline-none"
+                            className="w-full rounded-xl px-3 py-2 text-sm outline-none"
                             style={{
                               background: "rgba(30,30,30,0.05)",
                               border: `1.5px solid ${showErr("tipoVia") && !addressParts.tipoVia ? C.red : "rgba(30,30,30,0.12)"}`,
@@ -1376,7 +1488,7 @@ export default function CheckoutPage({
                             value={addressParts.tipoViaSecundaria}
                             onChange={(event) => setAddressPart("tipoViaSecundaria", event.target.value)}
                             aria-invalid={showErr("tipoViaSecundaria") && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria)}
-                            className="w-full rounded-xl px-3.5 py-3 text-sm outline-none"
+                            className="w-full rounded-xl px-3 py-2 text-sm outline-none"
                             style={{
                               background: "rgba(30,30,30,0.05)",
                               border: `1.5px solid ${showErr("tipoViaSecundaria") && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) ? C.red : "rgba(30,30,30,0.12)"}`,
@@ -1438,7 +1550,7 @@ export default function CheckoutPage({
                             ? "Ingresa una sola letra."
                             : undefined}
                         />
-                        <div className="sm:col-span-2">
+                        <div className="col-span-full">
                           <InputField
                             label="Complemento (opcional)"
                             placeholder="Ej: apartamento 301, torre 2, interior, piso o local"
@@ -1446,7 +1558,7 @@ export default function CheckoutPage({
                             onChange={(value) => setAddressPart("complemento", value)}
                           />
                         </div>
-                        <div className="sm:col-span-2 rounded-xl px-3.5 py-3 text-sm" style={{ background: "rgba(30,30,30,0.04)", color: C.dark }}>
+                        <div className="col-span-full rounded-xl px-3 py-2 text-sm" style={{ background: "rgba(30,30,30,0.04)", color: C.dark }}>
                           <span className="block text-xs font-semibold" style={{ color: MUTED }}>Dirección completa</span>
                           {composeDeliveryAddress(addressParts) || "Completa los campos para generar la dirección."}
                         </div>
@@ -1461,35 +1573,10 @@ export default function CheckoutPage({
                         </div>
                         {deliveryTried && !addressPartsValid && (
                           <p className="mt-1 text-xs" role="alert" style={{ color: C.red }}>
-                            Esta dirección guardada no tiene todos los datos requeridos. Pulsa «Cambiar dirección» para completarlos.
+                            Esta dirección guardada no tiene todos los datos requeridos. Pulsa «Editar dirección seleccionada» para completarlos.
                           </p>
                         )}
                       </>
-                    )}
-                    {editingAddress && (user.addresses?.length ?? 0) > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-3">
-                        {user.addresses!.map((address) => (
-                          <button
-                            key={address}
-                            type="button"
-                            onClick={() => {
-                              const parts = addressPartsFromAddress(address)
-                              setAddressParts(parts)
-                              setDelivForm((form) => ({ ...form, direccion: composeDeliveryAddress(parts) }))
-                              setEditingAddress(false)
-                              setSaveAddress(false)
-                            }}
-                            className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-medium cursor-pointer"
-                            style={{
-                              border: `1px solid ${delivForm.direccion === address ? C.mustard : LINE}`,
-                              background: delivForm.direccion === address ? `${C.mustard}12` : "#fff",
-                              color: delivForm.direccion === address ? C.mustard : MUTED,
-                            }}
-                          >
-                            {Ico.mapPin} {address}
-                          </button>
-                        ))}
-                      </div>
                     )}
                     <label className="flex items-start gap-2 mt-2 text-xs cursor-pointer" style={{ color: MUTED }}>
                       <input
@@ -1509,7 +1596,7 @@ export default function CheckoutPage({
                   )}
                   <label className="mt-5 block">
                     <span className="mb-1.5 flex items-baseline justify-between gap-2">
-                      <span className="text-xs font-semibold" style={{ color: C.dark }}>
+                      <span className="text-xs font-semibold" style={{ color: "var(--checkout-heading-gold)" }}>
                         {isDelivery ? "Indicaciones adicionales" : "Notas para el pedido"} <span className="font-normal" style={{ color: MUTED }}>(opcional)</span>
                       </span>
                       <span className="text-[10px]" style={{ color: MUTED }}>{delivForm.notas.length}/200</span>
@@ -1526,8 +1613,8 @@ export default function CheckoutPage({
                     />
                   </label>
                 </section>
-                <section className="p-6 rounded-2xl" style={CARD_ST}>
-                  <h2 className="font-bold text-lg mb-5" style={{ color: C.dark }}>
+                <section className="rounded-2xl p-4 sm:p-5" style={CARD_ST}>
+                  <h2 className="font-bold text-lg mb-3" style={{ color: C.dark }}>
                     Método de pago
                   </h2>
                   <div className="grid sm:grid-cols-3 gap-3">
@@ -1539,27 +1626,29 @@ export default function CheckoutPage({
                           key={m.id}
                           disabled={off}
                           onClick={() => setDelivForm((f) => ({ ...f, pago: m.id }))}
-                          className="text-left p-4 rounded-xl cursor-pointer disabled:cursor-not-allowed disabled:opacity-45"
+                          className="flex min-w-0 items-center gap-2.5 px-4 py-3 text-left cursor-pointer disabled:cursor-not-allowed disabled:opacity-45"
                           style={{
                             border: `1.5px solid ${sel && !off ? C.mustard : LINE}`,
                             background: sel && !off ? `${C.mustard}0D` : "#fff",
                           }}
                         >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-semibold text-sm" style={{ color: C.dark }}>
+                          <PaymentMethodIcon method={m.id} />
+                          <div className="min-w-0 flex-1">
+                            <span className="block font-semibold text-sm" style={{ color: C.dark }}>
                               {m.id}
                             </span>
-                            <span
-                              className="w-4 h-4 rounded-full flex-shrink-0"
-                              style={{
-                                border: `1.5px solid ${sel ? C.mustard : "rgba(30,30,30,0.25)"}`,
-                                boxShadow: sel ? `inset 0 0 0 3px #fff, inset 0 0 0 8px ${C.mustard}` : "none",
-                              }}
-                            />
+                            <span className="mt-0.5 block text-xs" style={{ color: MUTED }}>
+                              {off ? "No disponible: este pedido se abona por transferencia" : m.desc}
+                            </span>
                           </div>
-                          <div className="text-xs" style={{ color: MUTED }}>
-                            {off ? "No disponible: este pedido se abona por transferencia" : m.desc}
-                          </div>
+                          <span
+                            aria-hidden="true"
+                            className="size-4 shrink-0 rounded-full"
+                            style={{
+                              border: `1.5px solid ${sel ? C.mustard : "rgba(30,30,30,0.25)"}`,
+                              boxShadow: sel ? `inset 0 0 0 3px #fff, inset 0 0 0 8px ${C.mustard}` : "none",
+                            }}
+                          />
                         </button>
                       )
                     })}
@@ -1602,32 +1691,33 @@ export default function CheckoutPage({
             {user && checkoutStep === 3 && (
               <section className="min-w-0 space-y-4">
                 <div
-                  className="relative isolate overflow-hidden rounded-2xl p-4 text-white shadow-sm sm:p-5"
+                  className="relative isolate overflow-hidden rounded-3xl border p-4 shadow-sm sm:p-5"
                   style={{
-                    background: `linear-gradient(120deg, ${C.mustard} 0%, #C99C31 58%, #D6AD4A 100%)`,
+                    background: "var(--brand-cream-gradient)",
+                    borderColor: "#E9D8AD",
                   }}
                 >
                   <div
-                    className="pointer-events-none absolute -right-8 -top-12 h-36 w-36 rounded-full border-[18px]"
-                    style={{ borderColor: "rgba(255,255,255,0.12)" }}
+                    className="pointer-events-none absolute -right-8 -top-12 size-36 rounded-full border-[18px]"
+                    style={{ borderColor: "rgb(182 140 28 / 9%)" }}
                     aria-hidden="true"
                   />
-                  <div className="relative flex items-start justify-between gap-4">
+                  <div className="relative flex items-start justify-between gap-4 text-black">
                     <div>
                       <span className="mb-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider"
-                        style={{ background: "rgba(255,255,255,0.18)" }}>
+                        style={{ background: "rgb(212 175 55 / 18%)" }}>
                         {Ico.check} Paso final
                       </span>
-                      <h2 className="text-xl font-black leading-tight sm:text-2xl" style={{ fontFamily: "League Spartan, sans-serif" }}>
+                      <h2 className="checkout-review-title text-xl font-black leading-tight sm:text-2xl" style={{ fontFamily: "League Spartan, sans-serif" }}>
                         ¡Tu pedido está casi listo!
                       </h2>
-                      <p className="mt-1 max-w-lg text-xs leading-relaxed text-white/90 sm:text-sm">
+                      <p className="mt-1 max-w-lg text-xs leading-relaxed sm:text-sm">
                         Revisa que todo esté correcto. Puedes editar tus datos antes de confirmar.
                       </p>
                     </div>
                     <div
-                      className="hidden h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl text-white sm:flex"
-                      style={{ background: "rgba(255,255,255,0.18)" }}
+                      className="hidden size-10 shrink-0 items-center justify-center rounded-full sm:flex"
+                      style={{ background: "rgb(212 175 55 / 18%)" }}
                       aria-hidden="true"
                     >
                       {Ico.check}
@@ -1732,9 +1822,7 @@ export default function CheckoutPage({
                 <div className="rounded-3xl border p-4 sm:p-6" style={{ ...CARD_ST, borderColor: LINE }}>
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 items-center justify-center rounded-xl" style={{ color: C.forest, background: `${C.forest}12` }}>
-                        {Ico.cash}
-                      </span>
+                      <PaymentMethodIcon method={delivForm.pago} />
                       <div>
                         <span className="block text-xs" style={{ color: MUTED }}>Método de pago</span>
                         <span className="block font-bold" style={{ color: C.dark }}>{delivForm.pago}</span>
@@ -1762,7 +1850,7 @@ export default function CheckoutPage({
           </div>
 
           {/* RIGHT: order summary */}
-          <aside className="min-w-0 rounded-2xl p-5 sm:p-6 xl:sticky xl:top-24" style={CARD_ST}>
+          <aside className="min-w-0 rounded-2xl p-4 sm:p-5 lg:sticky lg:top-20" style={CARD_ST}>
             <h2 className="font-bold text-lg mb-4" style={{ color: C.dark }}>
               Resumen del pedido
             </h2>
@@ -1935,7 +2023,7 @@ export default function CheckoutPage({
                 onClick={cta.onClick}
                 disabled={cta.disabled}
                 className="w-full mt-5 py-3.5 rounded-xl font-bold text-sm cursor-pointer hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ background: C.mustard, color: "#fff" }}
+                style={{ background: "var(--brand-gold-gradient)", color: "#fff" }}
               >
                 {cta.label} →
               </button>
@@ -2032,7 +2120,7 @@ export default function CheckoutPage({
                   setCheckoutStep(3)
                 }}
                 className="rounded-xl px-4 py-3 text-sm font-bold"
-                style={{ background: C.mustard, color: "#fff" }}
+                style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
               >
                 Continuar para recoger
               </button>

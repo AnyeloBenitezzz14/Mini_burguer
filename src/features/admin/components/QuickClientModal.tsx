@@ -88,7 +88,7 @@ export default function QuickClientModal(adminState: AdminPanelState): ReactNode
         </div>
         <div className="flex gap-3 px-5 py-4" style={{ borderTop: `1px solid ${t.border}` }}>
           <button type="button" onClick={() => setQuickClientOpen(false)} className="flex-1 rounded-xl py-2.5 text-sm font-semibold cursor-pointer" style={{ background: t.input, color: t.muted }}>Cancelar</button>
-          <button type="button" onClick={saveQuickClient} className="flex-1 rounded-xl py-2.5 text-sm font-bold cursor-pointer" style={{ background: C.mustard, color: "#fff" }}>Registrar cliente</button>
+          <button type="button" onClick={saveQuickClient} className="flex-1 rounded-xl py-2.5 text-sm font-bold cursor-pointer" style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}>Registrar cliente</button>
         </div>
       </div>
     </div>

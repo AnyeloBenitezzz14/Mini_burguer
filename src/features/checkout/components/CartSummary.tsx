@@ -146,7 +146,7 @@ export default function CartSummary({
                     onClick={() => updateQty(item.id, 1)}
                     type="button"
                     className="w-6 h-6 rounded-md flex items-center justify-center cursor-pointer text-sm font-bold"
-                    style={{ background: C.mustard, color: "#fff" }}
+                    style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                   >
                     +
                   </button>

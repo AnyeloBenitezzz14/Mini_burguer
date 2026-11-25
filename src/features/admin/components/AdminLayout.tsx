@@ -58,6 +58,9 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
     unreadNotifications,
     user,
   } = adminState
+  const headerButtonBg = dark ? "#30271C" : "#F1E5CF"
+  const headerButtonActiveBg = dark ? "#443524" : "#EAD8B6"
+
   return (
     <div
       className="admin-panel flex h-screen overflow-hidden"
@@ -71,9 +74,6 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
         ["--admin-text" as string]: t.text,
         ["--admin-muted" as string]: t.muted,
         ["--admin-hover" as string]: t.hover,
-        ["--sb-hover" as string]: t.sidebarHover,
-        ["--sb-accent" as string]: t.sidebarAccent,
-        ["--sb-hover-tx" as string]: t.sidebarHoverTx,
       }}
     >
       {sidebarOpen && (
@@ -94,7 +94,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
           sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
         } ${sidebarCollapsed ? "lg:w-[72px]" : ""}`}
         style={{
-          background: t.sidebarBg,
+          background: dark ? t.sidebarBg : `linear-gradient(180deg, ${t.sidebarBg} 0%, #fff 18%, #fff 79%, ${t.sidebarBg} 100%)`,
           borderRight: `1px solid ${t.sidebarBd}`,
           flexShrink: 0,
         }}
@@ -106,7 +106,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
         <header
-          className="admin-header flex items-center gap-3 px-4 py-3 flex-shrink-0"
+          className="admin-header flex h-[var(--admin-header-height)] shrink-0 items-center gap-3 px-4"
           style={{ background: t.hdrBg, borderBottom: `1px solid ${t.hdrBd}` }}
         >
           {/* Phones: slides the menu in; desktop: shows or hides the menu's labels */}
@@ -146,8 +146,8 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
                 }}
                 className="admin-header-icon relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl"
                 style={{
-                  background: notificationsOpen ? `${C.mustard}1A` : undefined,
-                  color: notificationsOpen ? C.mustard : t.muted,
+                  background: notificationsOpen ? headerButtonActiveBg : undefined,
+                  color: notificationsOpen ? "var(--admin-heading-gold)" : t.muted,
                 }}
               >
                 <span className={`flex ${unreadNotifications > 0 ? "admin-bell-ring" : ""}`}>{Ico.bell}</span>
@@ -329,7 +329,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
               >
                 <span
                   className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
-                  style={{ background: C.mustard, color: "#fff" }}
+                  style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
                 >
                   {(user?.name?.charAt(0) ?? "A").toUpperCase()}
                 </span>
@@ -469,7 +469,7 @@ export default function AdminLayout(adminState: AdminPanelState): ReactNode {
               setNewOrderToast(null)
             }}
             className="cursor-pointer rounded-xl px-3 py-1.5 text-xs font-bold"
-            style={{ background: C.mustard, color: "#fff" }}
+            style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
           >
             Ver
           </button>

@@ -24,8 +24,8 @@ export default function CartAddedNotice({ message, dark = false }: { message: st
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-6 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold shadow-lg"
-      style={{ background: dark ? "#2a2116" : "#2E7D60", color: "#fff" }}
+      className="fixed bottom-6 left-1/2 z-[100] flex w-max max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full border px-5 py-3 text-sm font-semibold shadow-lg"
+      style={{ background: dark ? "#E8D6B5" : "#F5E8CF", borderColor: "#DCC79D", color: "#3D2D16" }}
     >
       <span aria-hidden="true">✓</span>
       {message}
