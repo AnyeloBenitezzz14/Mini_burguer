@@ -916,125 +916,133 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     </div>
   ) : null
 
-  // Insumo detail, right column: its stock moves (newest first) and every purchase of it
-  const supplyHistory = (row: Row, withPurchases: boolean) => (
-    <>
-      {(() => {
-            // Stock history from the backend: every entry and exit with where it came from
-            const unit = String(row[2] ?? "und")
-            const moves = stockMoves?.id === String(row[DB_SYNC.insumos.idIndex]) ? stockMoves.rows : null
-            const stock = Number(row[4]) || 0
-            return (
-              <div className="flex min-h-0 flex-col rounded-xl px-4 py-3 text-sm" style={{ background: t.input }}>
-                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-xs font-semibold" style={{ color: t.muted }}>Movimientos de stock</span>
-                  {moves && moves.length > 0 && (
-                    // The newest movement leaves the stock it should have: a different value means something changed it outside the history
-                    Math.abs(Number(moves[0].stock_resultante) - stock) < 0.001 ? (
-                      <span className="text-xs font-semibold" style={{ color: "#2E7D60" }}>✓ El stock cuadra con sus movimientos</span>
-                    ) : (
-                      <span className="text-xs font-semibold" style={{ color: C.red }}>
-                        ⚠ Descuadre: el historial dice {Number(moves[0].stock_resultante).toLocaleString("es-CO")} {unit}
-                      </span>
-                    )
-                  )}
-                </div>
-                {moves === null ? (
-                  <div style={{ color: t.muted }}>{stockMoves?.error || "Cargando…"}</div>
-                ) : moves.length === 0 ? (
-                  <div style={{ color: t.text }}>Todavía no tiene movimientos.</div>
-                ) : (
-                  <div className={`${withPurchases ? "max-h-52" : "max-h-32"} overflow-y-auto pr-1`} style={{ scrollbarWidth: "thin" }}>
-                  {moves.slice(0, 30).map((m) => {
-                    const qty = Number(m.cantidad)
-                    return (
-                      <div
-                        key={String(m.id_movimiento)}
-                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
-                        style={{ borderColor: t.border }}
-                      >
-                        <span className="min-w-0" style={{ color: t.text }}>
-                          <strong>{STOCK_ORIGIN[String(m.origen)] ?? String(m.origen)}</strong>
-                          {m.referencia ? ` · ${String(m.referencia)}` : ""}
-                          <span style={{ color: t.muted }}> · {String(m.fecha)}</span>
-                        </span>
-                        <span style={{ color: t.muted }}>
-                          <strong style={{ color: qty >= 0 ? "#2E7D60" : C.red }}>
-                            {qty >= 0 ? "+" : "−"}{Math.abs(qty).toLocaleString("es-CO")} {unit}
-                          </strong>{" "}
-                          → {Number(m.stock_resultante).toLocaleString("es-CO")} {unit}
-                        </span>
-                      </div>
-                    )
-                  })}
-                  </div>
-                )}
-              </div>
-            )
-      })()}
-      {withPurchases && (() => {
-            // Every purchase line of this insumo: what was bought, how much and for how much
-            const name = normalizeName(row[0])
-            const unit = String(row[2] ?? "und")
-            const lines = (rows.compras || []).flatMap((purchase) =>
-              parsePurchaseItems(purchase[6])
-                .filter((item) => normalizeName(item.name) === name)
-                .map((item) => ({
-                  supplier: String(purchase[0] ?? ""),
-                  date: String(purchase[1] ?? ""),
-                  annulled: String(purchase[5]) === "Anulado",
-                  quantity: Number(item.quantity) || 0,
-                  unitPrice: Number(item.unitPrice) || 0,
-                  total: item.total,
-                })),
-            )
-            const active = lines.filter((l) => !l.annulled)
-            const boughtQty = active.reduce((s, l) => s + l.quantity, 0)
-            const boughtValue = active.reduce((s, l) => s + l.total, 0)
-            const dateField = MOD_CFG.compras.fields.find((field) => field.key === "1")!
-            return (
-              <div className="flex min-h-0 flex-col rounded-xl px-4 py-3 text-sm" style={{ background: t.input }}>
-                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                    Compras de este insumo
-                  </span>
-                  {active.length > 0 && (
-                    <span className="text-xs" style={{ color: t.muted }}>
-                      Total comprado:{" "}
-                      <strong style={{ color: t.text }}>
-                        {boughtQty.toLocaleString("es-CO")} {unit}
-                      </strong>{" "}
-                      · <strong style={{ color: C.mustard }}>{fmt(boughtValue)}</strong>
+  // Insumo detail, right column: its stock moves and its purchases as sections that open and close; each header
+  // sums up what's inside, so they stay usable when there are hundreds
+  const supplyHistory = (row: Row, withPurchases: boolean) => {
+    const unit = String(row[2] ?? "und")
+    const stock = Number(row[4]) || 0
+    const moves = stockMoves?.id === String(row[DB_SYNC.insumos.idIndex]) ? stockMoves.rows : null
+    const name = normalizeName(row[0])
+    const dateField = MOD_CFG.compras.fields.find((field) => field.key === "1")!
+    const lines = (rows.compras || [])
+      .flatMap((purchase) =>
+        parsePurchaseItems(purchase[6])
+          .filter((item) => normalizeName(item.name) === name)
+          .map((item) => ({
+            supplier: String(purchase[0] ?? ""),
+            date: String(purchase[1] ?? ""),
+            annulled: String(purchase[5]) === "Anulado",
+            quantity: Number(item.quantity) || 0,
+            unitPrice: Number(item.unitPrice) || 0,
+            total: item.total,
+          })),
+      )
+      .sort((x, y) => y.date.localeCompare(x.date))
+    const bought = lines.filter((l) => !l.annulled)
+    const n = (value: number) => value.toLocaleString("es-CO")
+    const inQty = (moves ?? []).filter((m) => Number(m.cantidad) > 0).reduce((sum, m) => sum + Number(m.cantidad), 0)
+    const outQty = (moves ?? []).filter((m) => Number(m.cantidad) < 0).reduce((sum, m) => sum + Math.abs(Number(m.cantidad)), 0)
+    const balanced = !moves?.length || Math.abs(Number(moves[0].stock_resultante) - stock) < 0.001
+    const section = (open: boolean, title: string, summary: ReactNode, badge: ReactNode, list: ReactNode) => (
+      <details open={open} className="group overflow-hidden rounded-xl" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold" style={{ color: t.text }}>{title}</span>
+            <span className="block truncate text-xs" style={{ color: t.muted }}>{summary}</span>
+          </span>
+          {badge}
+          <span className="flex-shrink-0 transition-transform group-open:rotate-180" style={{ color: t.muted }}>{Ico.chevDown}</span>
+        </summary>
+        <div className="border-t" style={{ borderColor: t.border }}>{list}</div>
+      </details>
+    )
+    const scroller = "max-h-72 overflow-y-auto px-4"
+    return (
+      <>
+        {section(
+          // Open for a bought insumo; closed under the recipe of one made here (the header already sums it up)
+          withPurchases,
+          "Movimientos de stock",
+          moves === null
+            ? stockMoves?.error || "Cargando…"
+            : moves.length === 0
+              ? "Todavía no tiene movimientos"
+              : `${n(moves.length)} ${moves.length === 1 ? "movimiento" : "movimientos"} · entró +${n(inQty)} ${unit} · salió −${n(outQty)} ${unit} · último ${String(moves[0].fecha).slice(0, 10)}`,
+          moves && moves.length > 0 ? (
+            <span
+              className="flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold"
+              title={balanced ? "El último movimiento deja el stock que tiene" : `El historial dice ${n(Number(moves[0].stock_resultante))} ${unit}`}
+              style={balanced ? { background: "rgba(46,125,96,0.12)", color: "#2E7D60" } : { background: `${C.red}14`, color: C.red }}
+            >
+              {balanced ? "✓ Cuadra" : "⚠ Descuadre"}
+            </span>
+          ) : null,
+          moves && moves.length > 0 ? (
+            <div className={scroller} style={{ scrollbarWidth: "thin" }}>
+              {moves.map((m, i) => {
+                const qty = Number(m.cantidad)
+                return (
+                  <div
+                    key={String(m.id_movimiento)}
+                    className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-2 text-xs ${i ? "border-t" : ""}`}
+                    style={{ borderColor: t.border }}
+                  >
+                    <span className="min-w-0" style={{ color: t.text }}>
+                      <strong>{STOCK_ORIGIN[String(m.origen)] ?? String(m.origen)}</strong>
+                      {m.referencia ? ` · ${String(m.referencia)}` : ""}
+                      <span style={{ color: t.muted }}> · {String(m.fecha)}</span>
                     </span>
-                  )}
-                </div>
-                {lines.length === 0 ? (
-                  <div style={{ color: t.text }}>Aún no hay compras registradas de este insumo.</div>
-                ) : (
-                  <div className="max-h-44 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
-                  {lines.map((l, i) => (
-                    <div
-                      key={i}
-                      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
-                      style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
-                    >
-                      <span className="min-w-0" style={{ color: t.text }}>
-                        <strong>{formatViewValue(dateField, l.date)}</strong> · {l.supplier}
-                        {l.annulled && <span style={{ color: C.red }}> · Anulada</span>}
-                      </span>
-                      <span style={{ color: t.muted }}>
-                        {l.quantity.toLocaleString("es-CO")} {unit} × {fmt(l.unitPrice)} ={" "}
-                        <strong style={{ color: C.mustard }}>{fmt(l.total)}</strong>
-                      </span>
-                    </div>
-                  ))}
+                    <span className="tabular-nums" style={{ color: t.muted }}>
+                      <strong style={{ color: qty >= 0 ? "#2E7D60" : C.red }}>
+                        {qty >= 0 ? "+" : "−"}{n(Math.abs(qty))} {unit}
+                      </strong>{" "}
+                      → {n(Number(m.stock_resultante))} {unit}
+                    </span>
                   </div>
-                )}
+                )
+              })}
+            </div>
+          ) : (
+            <p className="px-4 py-3 text-xs" style={{ color: t.muted }}>{moves === null ? stockMoves?.error || "Cargando…" : "Todavía no tiene movimientos."}</p>
+          ),
+        )}
+        {withPurchases &&
+          section(
+            false,
+            "Compras de este insumo",
+            bought.length
+              ? `${n(bought.length)} ${bought.length === 1 ? "compra" : "compras"} · ${n(bought.reduce((sum, l) => sum + l.quantity, 0))} ${unit} · última ${formatViewValue(dateField, bought[0].date)}`
+              : "Aún no hay compras registradas",
+            bought.length ? (
+              <span className="flex-shrink-0 text-sm font-bold tabular-nums" style={{ color: "var(--admin-heading-gold)" }}>
+                {fmt(bought.reduce((sum, l) => sum + l.total, 0))}
+              </span>
+            ) : null,
+            lines.length ? (
+              <div className={scroller} style={{ scrollbarWidth: "thin" }}>
+                {lines.map((l, i) => (
+                  <div
+                    key={i}
+                    className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-2 text-xs ${i ? "border-t" : ""}`}
+                    style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
+                  >
+                    <span className="min-w-0" style={{ color: t.text }}>
+                      <strong>{formatViewValue(dateField, l.date)}</strong> · {l.supplier}
+                      {l.annulled && <span style={{ color: C.red }}> · Anulada</span>}
+                    </span>
+                    <span className="tabular-nums" style={{ color: t.muted }}>
+                      {n(l.quantity)} {unit} × {fmt(l.unitPrice)} = <strong style={{ color: "var(--admin-heading-gold)" }}>{fmt(l.total)}</strong>
+                    </span>
+                  </div>
+                ))}
               </div>
-            )
-      })()}
-    </>
-  )
+            ) : (
+              <p className="px-4 py-3 text-xs" style={{ color: t.muted }}>Aún no hay compras registradas de este insumo.</p>
+            ),
+          )}
+      </>
+    )
+  }
 
   return (
     <div
@@ -1077,7 +1085,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-6xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : modal.section === "cat-insumos" && isView ? "max-w-4xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isSupply && isView ? "max-w-6xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-[1400px]" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : modal.section === "cat-insumos" && isView ? "max-w-4xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isSupply && isView ? (String(row?.[7]).toLowerCase() === "sí" ? "max-w-[1400px]" : "max-w-6xl") : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,

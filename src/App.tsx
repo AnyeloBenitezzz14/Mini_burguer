@@ -147,7 +147,8 @@ function AppRoutes() {
     if (getToken())
       persistUserProfile(u).catch((err) => appAlert(`No se pudieron guardar tus datos: ${(err as Error).message}`, "No se guardó"))
   }
-  const login = (u: User, next: Page = "app") => {
+  // `next`: where to go; without it (the session check on load) the user stays where they are
+  const login = (u: User, next?: Page) => {
     const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
     // What the backend has wins; the browser copy only fills the gaps (e.g. the photo)
     const fromBackend = Object.fromEntries(Object.entries(u).filter(([, v]) => v !== undefined)) as User
@@ -159,18 +160,26 @@ function AppRoutes() {
     if (authenticatedUser.mustChangePassword) setUser(authenticatedUser)
     // Only kept in this browser: logging in must not write the profile back (the backend copy is the newest)
     else saveUserLocally(authenticatedUser)
+    if (next === undefined) return
     setClientView("menu")
     setPage(next)
   }
-  // The tab's last page (or /licencias when that's the address), read once before any effect saves the current one
+  // The tab's last page (or /licencias when that's the address), read once before any effect saves the current one,
+  // and the page this load opened on
   const [lastPage] = useState(() => (window.location.pathname === LICENSES_PATH ? "licenses" : sessionStorage.getItem("page") || "app") as Page)
+  const [bootPage] = useState(page)
   // Checks the saved token with the backend: refreshes the account, or signs out if the session expired
   useEffect(() => {
     if (!getToken()) return
     api<Omit<AuthData, "token">>("/auth/me")
-      .then((data) => login(toUser({ ...data, token: getToken() } as AuthData), lastPage))
-      // No connection: stay in the account; a rejected token (expired, deleted user) signs out
-      .catch((err: Error) => { if (!/conectar/i.test(err.message)) logout() })
+      .then((data) => {
+        login(toUser({ ...data, token: getToken() } as AuthData))
+        // Back to the tab's last page only if the person hasn't moved meanwhile (a slow answer mustn't pull
+        // them out of the cart or the checkout)
+        setPage((current) => (current === bootPage ? lastPage : current))
+      })
+      // Only a rejected token (expired, deleted user) signs out; no connection or a server error keeps the session
+      .catch((err: Error & { status?: number }) => { if (err.status === 401 || err.status === 403) logout() })
   }, [])
   useEffect(() => {
     sessionStorage.setItem("page", page)

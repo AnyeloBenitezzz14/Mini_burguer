@@ -25,7 +25,8 @@ export async function api<T>(path: string, method = "GET", body?: unknown, signa
     throw new Error("No se pudo conectar con el servidor. Intenta de nuevo.")
   }
   const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(json.detalles?.[0]?.mensaje || json.mensaje || "Ocurrió un error. Intenta de nuevo.")
+  // The HTTP status goes with the error: a rejected session (401/403) isn't the same as a server that's down
+  if (!res.ok) throw Object.assign(new Error(json.detalles?.[0]?.mensaje || json.mensaje || "Ocurrió un error. Intenta de nuevo."), { status: res.status })
   return json.data
 }
 
