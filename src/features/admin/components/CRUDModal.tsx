@@ -955,7 +955,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : modal.section === "cat-insumos" && isView ? "max-w-4xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
@@ -3881,7 +3881,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   : isSupply && f.key === "7"
                       ? "¿Lo preparan ustedes?"
                       : isSupply && f.key === "6" && !isView
-                        ? "Viene en · opcional"
+                        ? "Se compra · opcional"
                       : f.label
               const fieldRowIndex = Number(f.key) + rowOffset
               const val = isView
@@ -4020,10 +4020,10 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               return (
                 <Fragment key={f.key}>
                 {/* Insumo form in three parts: what it is, how much there is, who makes or sells it */}
-                {isSupply && !isView && (f.key === "0" || f.key === (modal.mode === "add" ? "5" : "4") || f.key === "7") && (
+                {isSupply && !isView && (f.key === "0" || f.key === (modal.mode === "add" ? "5" : "4") || (f.key === "7" && sheetBeside)) && (
                   <div
                     className={`sm:col-span-full ${f.key === "0" || (sheetBeside && f.key === "7") ? "" : "mt-1 border-t pt-4"} ${
-                      sheetBeside ? "" : f.key === "0" ? "lg:col-span-2 lg:col-start-1" : f.key === "7" ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-3 lg:mt-0 lg:border-t-0 lg:pt-0"
+                      sheetBeside ? "" : f.key === "0" ? "lg:col-span-2 lg:col-start-1 lg:row-start-1" : "lg:col-span-2 lg:col-start-3 lg:row-start-1 lg:mt-0 lg:border-t-0 lg:pt-0"
                     }`}
                     style={{ borderColor: t.border }}
                   >
@@ -4117,7 +4117,15 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     isSupply && !isView && sheetBeside
                       ? f.key === "7" || (modal.mode === "edit" && (f.key === "4" || f.key === "5")) ? "" : "sm:col-span-2"
                       : isSupply && !isView && !sheetBeside
-                      ? ({ "0": "sm:col-span-2 lg:col-start-1", "1": "lg:col-start-1", "2": "lg:col-start-2", "4": "lg:col-start-3", "5": modal.mode === "add" ? "lg:col-start-3" : "lg:col-start-4", "6": "lg:col-start-3", "7": "sm:col-span-2 lg:col-span-4" } as Record<string, string>)[f.key] ?? ""
+                      ? ({
+                          "0": "sm:col-span-2 lg:col-span-2 lg:col-start-1 lg:row-start-2",
+                          "1": "lg:col-start-1 lg:row-start-3",
+                          "2": "lg:col-start-2 lg:row-start-3",
+                          "6": "sm:col-span-2 lg:col-span-2 lg:col-start-1 lg:row-start-4",
+                          "4": "sm:col-span-2 lg:col-span-2 lg:col-start-3 lg:row-start-2 lg:row-span-2",
+                          "5": modal.mode === "add" ? "lg:col-span-2 lg:col-start-3 lg:row-start-2" : "lg:col-start-3 lg:row-start-4",
+                          "7": "mt-2 sm:col-span-2 lg:col-span-4 lg:row-start-5",
+                        } as Record<string, string>)[f.key] ?? ""
                       : isSupplier
                     ? naturalSupplier
                       ? f.key === "5" ? "lg:col-span-2" : "" // four fields per row, the address takes two
@@ -4150,7 +4158,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         : ""
                   }`}
                 >
-                  <div className={`flex items-center justify-between gap-2 ${(isPedido && !isView && f.key === "1") || (isSupply && sheetBeside && f.key === "7") ? "hidden" : ""}`}>
+                  <div className={`flex items-center justify-between gap-2 ${(isPedido && !isView && f.key === "1") || (isSupply && !isView && (f.key === "7" || (f.key === "4" && !sheetBeside))) ? "hidden" : ""}`}>
                     <label
                       className="text-xs font-semibold"
                       style={{ color: !isView && shownFieldError(f.key) ? C.red : "var(--admin-heading-gold)" }}
@@ -4214,7 +4222,43 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         </label>
                       )}
                     </div>
-                  ) : isSupply && !isView && modal.mode === "edit" && (f.key === "3" || f.key === "4") ? (
+                  ) : isSupply && !isView && !sheetBeside && modal.mode === "edit" && f.key === "4" ? (() => {
+                    const unit = String(formData["2"] || "und")
+                    const stock = Number(val || 0)
+                    const minimum = Number(formData["5"] || 0)
+                    const pack = Number(formData["6"]) > 0 ? { size: Number(formData["6"]), unit, kind: String(formData["17"] || "Paquete") } : undefined
+                    const status = stock <= 0 ? { text: "Agotado", color: C.red } : stock <= minimum ? { text: "Bajo el mínimo", color: C.red } : { text: "Bien", color: "#2E7D60" }
+                    const fill = minimum > 0 ? Math.min(100, Math.round((stock / (minimum * 2)) * 100)) : 100
+                    return (
+                      <div className="flex h-full min-h-[132px] flex-col justify-between rounded-2xl px-4 py-3.5" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: t.muted }}>Stock actual</div>
+                            <div className="mt-0.5 text-2xl font-bold leading-tight tabular-nums" style={{ color: t.text }}>
+                              {stock.toLocaleString("es-CO")} <span className="text-base font-semibold" style={{ color: t.muted }}>{unit}</span>
+                            </div>
+                            {pack && stock >= pack.size && (
+                              <div className="text-xs" style={{ color: t.muted }}>{qtyLabel(stock, unit, pack).replace(/\s*\(.*\)$/, "")}</div>
+                            )}
+                          </div>
+                          <span className="flex-shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: `${status.color}18`, color: status.color }}>
+                            {status.text}
+                          </span>
+                        </div>
+                        <div>
+                          {/* Full bar = twice the minimum; the mark is the minimum */}
+                          <div className="relative h-2 overflow-hidden rounded-full" style={{ background: t.input }}>
+                            <div className="h-full rounded-full transition-all" style={{ width: `${fill}%`, background: status.color }} />
+                            {minimum > 0 && <div className="absolute inset-y-0 left-1/2 w-0.5" style={{ background: t.muted }} />}
+                          </div>
+                          <div className="mt-1.5 flex justify-between gap-2 text-[11px]" style={{ color: t.muted }}>
+                            <span>Sube con compras · baja con producción y pérdidas</span>
+                            {minimum > 0 && <span className="flex-shrink-0">mín. {minimum.toLocaleString("es-CO")} {unit}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })() : isSupply && !isView && modal.mode === "edit" && (f.key === "3" || f.key === "4") ? (
                     <div
                       className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm"
                       style={{ background: t.cardAlt, border: `1.5px dashed ${t.inputB}`, color: t.text }}
@@ -4805,31 +4849,51 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           handleSupplyCheckboxToggle()
                         }
                       }}
-                      className="flex w-full min-w-0 cursor-pointer items-start gap-3 rounded-xl px-3.5 py-3 text-left"
+                      className={`flex w-full min-w-0 cursor-pointer gap-3 rounded-xl px-3.5 text-left ${isClient ? "items-start py-3" : `admin-prep-switch items-center ${sheetBeside ? "py-2.5" : "py-3"}`}`}
                       style={{ background: t.input, border: `1px solid ${t.inputB}` }}
                     >
-                      <span
-                        className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md"
-                        style={{
-                          background: String(val).toLowerCase() === "sí" ? C.mustard : "transparent",
-                          border: `1.5px solid ${String(val).toLowerCase() === "sí" ? C.mustard : t.inputB}`,
-                          color: "#fff",
-                        }}
-                      >
-                        {String(val).toLowerCase() === "sí" ? Ico.check : null}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-sm font-semibold" style={{ color: t.text }}>
-                          {isClient ? "Cliente de local" : "Sí, lo preparamos nosotros (tiene receta)"}
+                      {!isClient && !sheetBeside && (
+                        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.mustard}14`, color: "var(--admin-heading-gold)" }}>
+                          {Ico.chef}
                         </span>
-                        <span className="mt-0.5 block text-xs leading-snug" style={{ color: t.muted }}>
+                      )}
+                      {isClient && (
+                        <span
+                          className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md"
+                          style={{
+                            background: String(val).toLowerCase() === "sí" ? C.mustard : "transparent",
+                            border: `1.5px solid ${String(val).toLowerCase() === "sí" ? C.mustard : t.inputB}`,
+                            color: "#fff",
+                          }}
+                        >
+                          {String(val).toLowerCase() === "sí" ? Ico.check : null}
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold" style={{ color: t.text }}>
+                          {isClient ? "Cliente de local" : "Lo preparamos nosotros"}
+                        </span>
+                        <span className={`mt-0.5 text-xs leading-snug ${!isClient && sheetBeside ? "hidden" : "block"}`} style={{ color: t.muted }}>
                           {isClient
                             ? "Permite registrar el cliente sin correo ni dirección."
                             : sheetBeside
                               ? "Su receta va en la ficha técnica."
-                              : "Por ejemplo, una salsa de la casa. Se abrirá la ficha técnica y aparecerá en Productos como producto de insumo."}
+                              : "Como una salsa de la casa: tiene receta (ficha técnica) y sale en Productos como producto de insumo."}
                         </span>
                       </span>
+                      {!isClient && (
+                        // The switch on the right: on = it has a recipe
+                        <span
+                          aria-hidden="true"
+                          className="flex h-6 w-11 flex-shrink-0 items-center rounded-full px-0.5 transition-colors"
+                          style={{ background: String(val).toLowerCase() === "sí" ? C.mustard : t.inputB }}
+                        >
+                          <span
+                            className="h-5 w-5 rounded-full bg-white shadow transition-transform"
+                            style={{ transform: String(val).toLowerCase() === "sí" ? "translateX(20px)" : "translateX(0)" }}
+                          />
+                        </span>
+                      )}
                     </button>
                   ) : isPurchase && f.key === "0" && modal.mode === "edit" ? (
                     // Editing a purchase: only its date changes
@@ -5109,15 +5173,20 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 {/* Next to the minimum: how this insumo's stock moves (fills the half and answers «¿dónde pongo el stock?») */}
                 {isSupply && !isView && !sheetBeside && f.key === "5" && (
                   <div
-                    className={`rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 ${modal.mode === "add" ? "lg:col-span-1 lg:col-start-4 lg:row-span-2" : "lg:col-span-1 lg:col-start-4"}`}
-                    style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}30`, color: t.text }}
+                    className={`flex flex-col justify-center rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 ${
+                      modal.mode === "add" ? "lg:col-span-2 lg:col-start-3 lg:row-start-3 lg:row-span-2" : "lg:col-span-1 lg:col-start-4 lg:row-start-4"
+                    }`}
+                    style={{ background: `${C.mustard}0D`, border: `1px solid ${C.mustard}26`, color: t.muted }}
                   >
-                    <div className="mb-1 font-bold" style={{ color: C.mustard }}>¿Cómo se mueve el stock?</div>
-                    <ul className="flex flex-col gap-0.5" style={{ color: t.muted }}>
-                      <li><strong style={{ color: t.text }}>Entra</strong> con cada compra.</li>
-                      <li><strong style={{ color: t.text }}>Sale</strong> con la producción y las pérdidas.</li>
-                      <li>Siempre en números enteros de {String(formData["2"] || "g, ml o und")}.</li>
-                    </ul>
+                    {modal.mode === "add" ? (
+                      <>
+                        <div className="mb-1 font-bold" style={{ color: "var(--admin-heading-gold)" }}>Empieza en 0</div>
+                        <span><strong style={{ color: t.text }}>Sube</strong> con cada compra y <strong style={{ color: t.text }}>baja</strong> con la producción y las pérdidas, en números enteros de {String(formData["2"] || "g, ml o und")}.</span>
+                        <span className="mt-1.5">El mínimo es desde cuánto te avisamos que queda poco.</span>
+                      </>
+                    ) : (
+                      <span>Con <strong style={{ color: t.text }}>{Number(formData["5"] || 0).toLocaleString("es-CO")} {String(formData["2"] || "und")}</strong> o menos te avisamos que queda poco.</span>
+                    )}
                   </div>
                 )}
                 </Fragment>
@@ -5201,75 +5270,101 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
           {/* Section-specific view detail extras */}
           {/* Purchase module: real related data */}
           {isView && modal.section === "cat-insumos" && row && (() => {
-            // The category at a glance: what it is, how its insumos are doing and which they are
+            // The category at a glance: how its insumos are doing (the ones below their minimum first) and who sells them
             const supplies = (rows.insumos || []).filter((s) => normalizeName(s[1]) === normalizeName(row[0]))
-            const low = supplies.filter((s) => isActiveStatus(s[12]) && Number(s[4]) <= Number(s[5]))
+            const activeSupplies = supplies.filter((s) => isActiveStatus(s[12]))
+            const isLowRow = (s: (string | number)[]) => isActiveStatus(s[12]) && Number(s[4]) <= Number(s[5])
+            const low = supplies.filter(isLowRow)
             const value = supplies.reduce((sum, s) => sum + (Number(s[4]) || 0) * (Number(s[3]) || 0), 0)
+            const names = new Set(supplies.map((s) => normalizeName(s[0])))
+            const suppliers = (rows.proveedores || []).filter((p) => splitList(String(p[7] ?? "")).some((n) => names.has(normalizeName(n))))
             const active = isActiveStatus(row[2] || "Activa")
             const description = String(row[1] ?? "").trim()
+            const sorted = [...supplies].sort(
+              (a, b) => Number(isLowRow(b)) - Number(isLowRow(a)) || Number(isActiveStatus(b[12])) - Number(isActiveStatus(a[12])) || String(a[0]).localeCompare(String(b[0]), "es"),
+            )
+            const openSupply = (name: string) => {
+              const idx = (rows.insumos || []).findIndex((r) => String(r[0]) === name)
+              closeModal()
+              setSection("insumos")
+              if (idx >= 0) setTimeout(() => openView("insumos", idx), 0)
+            }
             return (
-              <div className="flex flex-col gap-3 sm:col-span-2">
-                <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                  <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+              <div className="flex flex-col gap-4 sm:col-span-2">
+                <div className="flex items-start gap-3 rounded-2xl px-4 py-3.5" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                  <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl" style={{ background: `${C.mustard}14`, color: "var(--admin-heading-gold)" }}>
                     {Ico.shopping}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-base font-bold break-words" style={{ color: t.text }}>{String(row[0])}</div>
-                    <p className="mt-0.5 text-xs leading-snug" style={{ color: description ? t.muted : t.subtle }}>
+                    <div className="text-lg font-bold leading-tight break-words" style={{ color: t.text }}>{String(row[0])}</div>
+                    <p className="mt-0.5 text-sm leading-snug" style={{ color: description ? t.muted : t.subtle }}>
                       {description || "Sin descripción."}
                     </p>
                   </div>
                   <span
-                    className="flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold"
+                    className="flex-shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold"
                     style={active ? { background: "rgba(58,109,94,0.14)", color: "#2E7D60" } : { background: `${C.red}14`, color: C.red }}
                   >
                     {String(row[2] || "Activa")}
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {[
-                    ["Insumos", String(supplies.length), t.text],
-                    ["Con stock bajo", String(low.length), low.length ? C.red : t.text],
-                    ["Valor en stock", fmt(Math.round(value)), C.mustard],
-                  ].map(([label, text, color]) => (
-                    <div key={label} className="rounded-xl px-3 py-2.5" style={{ background: t.input, border: `1px solid ${t.border}` }}>
-                      <div className="text-[10px] font-semibold" style={{ color: t.muted }}>{label}</div>
-                      <div className="mt-0.5 text-sm font-bold" style={{ color }}>{text}</div>
+                    ["Insumos", String(activeSupplies.length), supplies.length > activeSupplies.length ? `+ ${supplies.length - activeSupplies.length} inactivos` : "activos", t.text],
+                    ["Bajo el mínimo", String(low.length), low.length ? "por comprar" : "todo al día", low.length ? C.red : "#2E7D60"],
+                    ["Valor en stock", fmt(Math.round(value)), "a costo de compra", "var(--admin-heading-gold)"],
+                    ["Proveedores", String(suppliers.length), suppliers.length ? "la surten" : "sin proveedor", t.text],
+                  ].map(([label, text, note, color]) => (
+                    <div key={label} className="rounded-xl px-3.5 py-3" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: t.muted }}>{label}</div>
+                      <div className="mt-0.5 text-xl font-bold leading-tight tabular-nums" style={{ color }}>{text}</div>
+                      <div className="text-[11px]" style={{ color: t.muted }}>{note}</div>
                     </div>
                   ))}
                 </div>
-                <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
-                  <div className="px-3 py-2 text-[11px] font-semibold" style={{ background: t.cardAlt, color: t.muted }}>
-                    Insumos en esta categoría
+                <div>
+                  <div className="mb-2 flex items-baseline justify-between gap-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                      Insumos de la categoría
+                    </h4>
+                    {supplies.length > 0 && <span className="text-[11px]" style={{ color: t.muted }}>Toca uno para ver su detalle</span>}
                   </div>
                   {supplies.length === 0 ? (
-                    <p className="px-3 py-3 text-center text-xs" style={{ color: t.muted }}>Ningún insumo usa esta categoría todavía.</p>
+                    <p className="rounded-xl px-3 py-4 text-center text-sm" style={{ color: t.muted, background: t.input }}>Ningún insumo usa esta categoría todavía.</p>
                   ) : (
-                    // Its own scroll, so a big category doesn't stretch the window
-                    <div className="max-h-56 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-                      {supplies.map((s) => {
-                        const isLow = isActiveStatus(s[12]) && Number(s[4]) <= Number(s[5])
+                    // Two columns; only a very big category scrolls inside
+                    <div className="grid max-h-[46vh] gap-2 overflow-y-auto pr-0.5 sm:grid-cols-2 lg:grid-cols-3" style={{ scrollbarWidth: "thin" }}>
+                      {sorted.map((s) => {
+                        const isLow = isLowRow(s)
+                        const on = isActiveStatus(s[12])
+                        const unit = String(s[2] ?? "und")
+                        const stock = Number(s[4]) || 0
+                        const minimum = Number(s[5]) || 0
+                        const color = !on ? t.muted : stock <= 0 || isLow ? C.red : "#2E7D60"
+                        const fill = minimum > 0 ? Math.min(100, Math.round((stock / (minimum * 2)) * 100)) : 100
                         return (
-                          <div
+                          <button
                             key={String(s[0])}
-                            className="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs"
-                            style={{ borderColor: t.border, opacity: isActiveStatus(s[12]) ? 1 : 0.5 }}
+                            type="button"
+                            onClick={() => openSupply(String(s[0]))}
+                            className="flex min-w-0 cursor-pointer flex-col gap-1.5 px-3 py-2 text-left transition-colors hover:brightness-[0.98]"
+                            // A card, not one of the panel's pill buttons: its own corners and the body font
+                            style={{ borderRadius: 12, fontFamily: "Outfit, sans-serif", fontWeight: 400, background: isLow ? `${C.red}0A` : t.card, border: `1px solid ${isLow ? `${C.red}33` : t.border}`, opacity: on ? 1 : 0.55 }}
                           >
-                            <span className="min-w-0 truncate font-medium" style={{ color: t.text }}>
-                              {String(s[0])}
-                              {!isActiveStatus(s[12]) && <span style={{ color: t.muted }}> · Inactivo</span>}
+                            <span className="flex min-w-0 items-center justify-between gap-2">
+                              <span className="min-w-0 truncate text-sm font-semibold" style={{ color: t.text }}>{String(s[0])}</span>
+                              <span className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: `${color}18`, color }}>
+                                {!on ? "Inactivo" : stock <= 0 ? "Agotado" : isLow ? "Bajo el mínimo" : "Bien"}
+                              </span>
                             </span>
-                            <span className="flex flex-shrink-0 items-center gap-2" style={{ color: t.muted }}>
-                              {isLow && (
-                                <span className="rounded-full px-1.5 py-0.5 text-[9px] font-bold" style={{ background: `${C.red}18`, color: C.red }}>
-                                  ⚠ Stock bajo
-                                </span>
-                              )}
-                              <strong style={{ color: isLow ? C.red : t.text }}>
-                                {(Number(s[4]) || 0).toLocaleString("es-CO")} {String(s[2] ?? "")}
-                              </strong>
+                            <span className="h-1.5 overflow-hidden rounded-full" style={{ background: t.input }}>
+                              <span className="block h-full rounded-full" style={{ width: `${fill}%`, background: color }} />
                             </span>
-                          </div>
+                            <span className="flex justify-between gap-2 text-[11px] tabular-nums" style={{ color: t.muted }}>
+                              <span className="min-w-0 truncate" style={{ color: isLow ? C.red : t.text }}>{qtyLabel(stock, unit, packOf(s))}</span>
+                              <span className="flex-shrink-0">mín. {minimum.toLocaleString("es-CO")} {unit}</span>
+                            </span>
+                          </button>
                         )
                       })}
                     </div>
