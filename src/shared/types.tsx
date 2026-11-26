@@ -55,6 +55,10 @@ export type DeliveryInfo = {
   voucher?: string
   // The bank's reference and the amount sent, checked by the backend's validator
   voucherAmount?: number
+  // The image didn't look like a transfer receipt and the client kept it
+  voucherDoubtful?: boolean
+  // Mixed payment: how much goes by transfer (the rest is cash on delivery)
+  mixedTransfer?: number
 }
 
 export type DeliveryNeighborhood = {
@@ -95,11 +99,14 @@ export type Order = DeliveryInfo & {
   status: string
   estimacion?: DeliveryEstimate
   paymentStatus?: "Pendiente" | "Pendiente de verificación" | "Abonado" | "Pagado" | "Rechazado"
-  // Orders of $150.000 or more: the 50% paid in advance
+  // Orders of $150.000 or more: the 50% paid in advance; a mixed payment: what was transferred
   deposit?: number
+  // Mixed payment: `deposit` by transfer and the rest in cash on delivery
+  mixed?: boolean
   // Every payment proof the client sent (the last one is `voucher`), with what the validator checked
   vouchers?: string[]
-  proofs?: { image: string; reference?: string; amount?: number; uploadedAt?: string }[]
+  // doubtful: the app found no transfer data in the image and the client sent it anyway
+  proofs?: { image: string; reference?: string; amount?: number; uploadedAt?: string; doubtful?: boolean }[]
   paymentRejectionReason?: string
   productionAuthorized?: boolean
   productionRecords?: (string | number)[][]

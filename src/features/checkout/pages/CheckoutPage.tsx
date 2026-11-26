@@ -43,6 +43,9 @@ type CheckoutDraft = {
   deliverToOtherPerson?: boolean
   voucher?: string
   voucherAmount?: string
+  voucherDoubtful?: boolean
+  mixed?: boolean
+  mixedTransfer?: string
   // A new address being typed, whether to save it and what it's called
   editingAddress?: boolean
   saveAddress?: boolean
@@ -431,6 +434,11 @@ export default function CheckoutPage({
   const [voucher, setVoucher] = useState(draft.voucher ?? "")
   // What the validator checks: the amount sent
   const [voucherAmount, setVoucherAmount] = useState(draft.voucherAmount ?? "")
+  // The receipt check found no transfer data and the client kept the image: the panel is told
+  const [voucherDoubtful, setVoucherDoubtful] = useState(!!draft.voucherDoubtful)
+  // Mixed payment: a part by transfer now and the rest in cash on delivery
+  const [mixed, setMixed] = useState(!!draft.mixed)
+  const [mixedTransfer, setMixedTransfer] = useState(draft.mixedTransfer ?? "")
   const [ordered, setOrdered] = useState(false)
   const [placedTotal, setPlacedTotal] = useState(0)
   // Everybody (guest, client, admin, employee) starts by reviewing the cart
@@ -440,13 +448,13 @@ export default function CheckoutPage({
       if (ordered) sessionStorage.removeItem(DRAFT_KEY)
       else
         sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-          step: checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount,
+          step: checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount, voucherDoubtful, mixed, mixedTransfer,
           editingAddress, saveAddress, addressLabel, customAddressLabel,
         } satisfies CheckoutDraft))
     } catch {
       // Storage full or blocked: the checkout still works, it just won't survive a reload
     }
-  }, [ordered, checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount, editingAddress, saveAddress, addressLabel, customAddressLabel])
+  }, [ordered, checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount, voucherDoubtful, mixed, mixedTransfer, editingAddress, saveAddress, addressLabel, customAddressLabel])
   // Guests see only their cart until they press "Hacer pedido"
   const [showAuth, setShowAuth] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -471,6 +479,11 @@ export default function CheckoutPage({
     }
     if (deposit && !needsVoucher)
       r.push(`Tu pedido es de ${fmt(orderTotal)}: desde ${fmt(APPROVAL_MIN)} se paga el 50% por adelantado con transferencia. Elige Nequi o Bancolombia.`)
+    if (isMixed) {
+      if (!(mixedTransferAmount > 0)) r.push("Escribe cuánto vas a pagar por transferencia; el resto lo pagas en efectivo al recibir.")
+      else if (deliveryCostConfigured && mixedTransferAmount >= orderTotal) r.push(`Para pagar una parte en efectivo, la transferencia debe ser menor que el total (${fmt(orderTotal)}).`)
+      else if (deliveryCostConfigured && deposit && mixedTransferAmount < depositAmount) r.push(`Tu pedido es de ${fmt(APPROVAL_MIN)} o más: transfiere al menos la mitad (${fmt(depositAmount)}).`)
+    }
     if (needsVoucher) {
       if (!voucher) r.push(`Sube la captura del comprobante de tu pago por ${delivForm.pago}: sin él no podemos confirmar el pago.`)
       if (!(Number(voucherAmount) > 0)) r.push("Escribe el valor que transferiste.")
@@ -505,6 +518,8 @@ export default function CheckoutPage({
           costoDomicilio: isDelivery ? displayedDeliveryCost : 0,
           voucher: needsVoucher ? voucher : undefined,
           voucherAmount: needsVoucher ? Number(voucherAmount) || undefined : undefined,
+          voucherDoubtful: needsVoucher ? voucherDoubtful : undefined,
+          mixedTransfer: isMixed ? mixedTransferAmount : undefined,
         },
         isDelivery && (saveAddress || !(user.addresses?.length)),
       )
@@ -561,7 +576,11 @@ export default function CheckoutPage({
   // $150.000 or more: 50% in advance by transfer (cash isn't accepted), the rest when it arrives
   const deposit = orderTotal >= APPROVAL_MIN
   const depositAmount = depositOf(orderTotal)
-  const toPay = deposit ? depositAmount : orderTotal
+  // Mixed (only with a transfer method): what goes by transfer now; the rest is cash on delivery
+  const isMixed = mixed && needsVoucher
+  const mixedTransferAmount = Number(mixedTransfer) || 0
+  const mixedCash = Math.max(0, orderTotal - mixedTransferAmount)
+  const toPay = isMixed && mixedTransferAmount > 0 ? mixedTransferAmount : deposit ? depositAmount : orderTotal
   const voucherComplete = !!voucher && Number(voucherAmount) >= toPay
   const payReady = (!needsVoucher || voucherComplete) && !(deposit && !needsVoucher)
   const neighborhoodOutOfRange =
@@ -1728,7 +1747,58 @@ export default function CheckoutPage({
                       )
                     })}
                   </div>
-                  {deposit && deliveryCostConfigured && (
+                  {needsVoucher && (
+                    <div className="mt-4 rounded-xl p-3.5 text-sm" style={{ background: isMixed ? `${C.mustard}0D` : "rgba(30,30,30,0.03)", border: `1.5px solid ${isMixed ? `${C.mustard}55` : LINE}` }}>
+                      <label className="flex cursor-pointer items-start gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={mixed}
+                          onChange={(e) => {
+                            setMixed(e.target.checked)
+                            // A first split: half (or the deposit), the rest in cash
+                            if (e.target.checked && !mixedTransfer && deliveryCostConfigured) setMixedTransfer(String(deposit ? depositAmount : Math.ceil(orderTotal / 2)))
+                            setVoucherAmount("")
+                          }}
+                          className="mt-0.5 size-4 cursor-pointer accent-[#8F6C12]"
+                        />
+                        <span>
+                          <span className="block font-semibold" style={{ color: C.dark }}>Pagar una parte en efectivo al recibir</span>
+                          <span className="block text-xs" style={{ color: MUTED }}>Transfieres una parte ahora por {delivForm.pago} y el resto lo pagas en efectivo cuando te llegue.</span>
+                        </span>
+                      </label>
+                      {isMixed && (
+                        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                          <label className="flex flex-col gap-1 text-xs font-semibold" style={{ color: MUTED }}>
+                            Por {delivForm.pago} (ahora)
+                            <span className="flex items-center gap-2 rounded-xl bg-white px-3 py-2.5" style={{ border: `1.5px solid ${LINE}` }}>
+                              <span>$</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={mixedTransferAmount ? mixedTransferAmount.toLocaleString("es-CO") : ""}
+                                onChange={(e) => {
+                                  setMixedTransfer(e.target.value.replace(/\D/g, ""))
+                                  setVoucherAmount("")
+                                }}
+                                placeholder={String(Math.ceil(orderTotal / 2))}
+                                aria-label="Valor por transferencia"
+                                className="w-full bg-transparent text-sm font-semibold outline-none"
+                                style={{ color: C.dark }}
+                              />
+                            </span>
+                          </label>
+                          <div className="flex flex-col gap-1 text-xs font-semibold" style={{ color: MUTED }}>
+                            En efectivo (al recibir)
+                            <span className="rounded-xl px-3 py-2.5 text-sm font-bold" style={{ background: "rgba(30,30,30,0.04)", color: mixedTransferAmount > 0 && mixedTransferAmount < orderTotal ? C.dark : MUTED }}>
+                              {mixedTransferAmount > 0 && mixedTransferAmount < orderTotal ? fmt(mixedCash) : "—"}
+                            </span>
+                          </div>
+                          {deposit && <span className="text-[11px] sm:col-span-2" style={{ color: MUTED }}>Por ser de {fmt(APPROVAL_MIN)} o más, transfiere al menos la mitad ({fmt(depositAmount)}).</span>}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {deposit && deliveryCostConfigured && !isMixed && (
                     <div role="note" className="mt-4 rounded-xl p-3 text-sm" style={{ background: `${C.mustard}12`, border: `1.5px solid ${C.mustard}55`, color: C.dark }}>
                       <strong className="block">Pedido de {fmt(APPROVAL_MIN)} o más: abona el 50%</strong>
                       Paga ahora {fmt(depositAmount)} por Nequi o Bancolombia y sube el comprobante. El saldo de {fmt(orderTotal - depositAmount)} lo pagas al recibir tu pedido.
@@ -1743,18 +1813,22 @@ export default function CheckoutPage({
                         </h3>
                         <ol className="list-decimal space-y-1 pl-4 text-xs" style={{ color: MUTED }}>
                           <li>Escanea el QR o transfiere a la cuenta o a una de las llaves.</li>
-                          <li>{deposit ? `Paga el abono exacto (${fmt(depositAmount)}); el saldo (${fmt(orderTotal - depositAmount)}) al recibir.` : "Paga el total exacto."}</li>
+                          <li>{isMixed ? `Transfiere ${mixedTransferAmount ? fmt(mixedTransferAmount) : "la parte que elegiste"}; los ${fmt(mixedCash)} restantes los pagas en efectivo al recibir.` : deposit ? `Paga el abono exacto (${fmt(depositAmount)}); el saldo (${fmt(orderTotal - depositAmount)}) al recibir.` : "Paga el total exacto."}</li>
                           <li>Sube la captura del comprobante y escribe el valor que transferiste.</li>
                         </ol>
                       </div>
-                      <PaymentAccounts amount={deliveryCostConfigured ? `${fmt(toPay)}${deposit ? " (abono 50%)" : ""}` : "Por confirmar"} />
+                      <PaymentAccounts amount={deliveryCostConfigured ? `${fmt(toPay)}${isMixed ? " (por transferencia)" : deposit ? " (abono 50%)" : ""}` : "Por confirmar"} />
                       <VoucherInput
                         value={voucher}
-                        onChange={(v) => {
+                        onChange={(v, doubtful) => {
                           setVoucher(v)
+                          setVoucherDoubtful(!!doubtful)
                           if (!voucherAmount && deliveryCostConfigured) setVoucherAmount(String(toPay))
                         }}
-                        onRemove={() => setVoucher("")}
+                        onRemove={() => {
+                          setVoucher("")
+                          setVoucherDoubtful(false)
+                        }}
                         reference={{ amount: voucherAmount, expected: deliveryCostConfigured ? toPay : undefined, onAmount: setVoucherAmount }}
                       />
                     </div>
@@ -1900,7 +1974,9 @@ export default function CheckoutPage({
                       <PaymentMethodIcon method={delivForm.pago} />
                       <div>
                         <span className="block text-xs" style={{ color: MUTED }}>Método de pago</span>
-                        <span className="block font-bold" style={{ color: C.dark }}>{delivForm.pago}</span>
+                        <span className="block font-bold" style={{ color: C.dark }}>
+                          {isMixed ? `${delivForm.pago} ${fmt(mixedTransferAmount)} + efectivo ${fmt(mixedCash)}` : delivForm.pago}
+                        </span>
                       </div>
                     </div>
                     <button

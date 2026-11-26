@@ -14,7 +14,8 @@ export default function VoucherInput({
   reference,
 }: {
   value?: string
-  onChange: (v: string) => void
+  // doubtful: it didn't look like a receipt and the client chose to use it anyway
+  onChange: (v: string, doubtful?: boolean) => void
   onRemove?: () => void
   label?: string
   reference?: {
@@ -39,7 +40,7 @@ export default function VoucherInput({
       ))
     )
       return
-    onChange(image)
+    onChange(image, !ok)
   }
   const short = !!reference?.expected && Number(reference.amount) > 0 && Number(reference.amount) < reference.expected
   return (

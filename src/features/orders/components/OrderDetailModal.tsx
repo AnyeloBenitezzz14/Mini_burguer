@@ -22,7 +22,7 @@ export default function OrderDetailModal({
   order: Order
   dark: boolean
   onClose: () => void
-  onVoucher: (id: string, voucher: string, valor: number) => Promise<string>
+  onVoucher: (id: string, voucher: string, valor: number, doubtful?: boolean) => Promise<string>
   onRemoveVoucher: (id: string, index: number) => Promise<string>
   onReturn: (id: string, motivo: string) => Promise<string>
 }) {
@@ -31,7 +31,7 @@ export default function OrderDetailModal({
   const [returnError, setReturnError] = useState("")
   const returnDeadline = order.createdAt ? new Date(order.createdAt).getTime() + 24 * 60 * 60 * 1000 : 0
   // A new proof: its image, the bank's reference and the amount; sent with «Enviar comprobante»
-  const [draft, setDraft] = useState({ image: "", amount: "" })
+  const [draft, setDraft] = useState({ image: "", amount: "", doubtful: false })
   const [proofError, setProofError] = useState("")
   const [busy, setBusy] = useState(false)
   // What's owed now: the 50% deposit until it's approved, then the rest; otherwise the total
@@ -168,11 +168,11 @@ export default function OrderDetailModal({
               {!!order.deposit && (
                 <div className="mt-2 border-t pt-2 text-sm" style={{ borderColor: BORDER }}>
                   <div className="flex items-center justify-between gap-3">
-                    <span style={{ color: MUTED }}>Abono (50%)</span>
+                    <span style={{ color: MUTED }}>{order.mixed ? `Por ${order.pago}` : "Abono (50%)"}</span>
                     <span className="font-semibold">{fmt(order.deposit)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span style={{ color: MUTED }}>Saldo al recibir</span>
+                    <span style={{ color: MUTED }}>{order.mixed ? "En efectivo al recibir" : "Saldo al recibir"}</span>
                     <span className="font-semibold">{fmt(order.total - order.deposit)}</span>
                   </div>
                 </div>
@@ -206,10 +206,10 @@ export default function OrderDetailModal({
                 if (!draft.image) return setProofError("Sube la imagen del comprobante.")
                 if (!(Number(draft.amount) >= owed)) return setProofError(`El valor debe cubrir ${fmt(owed)}.`)
                 setBusy(true)
-                const error = await onVoucher(order.id, draft.image, Number(draft.amount))
+                const error = await onVoucher(order.id, draft.image, Number(draft.amount), draft.doubtful)
                 setBusy(false)
                 setProofError(error)
-                if (!error) setDraft({ image: "", amount: "" })
+                if (!error) setDraft({ image: "", amount: "", doubtful: false })
               }
               const remove = async (index: number) => {
                 if (!(await appConfirm("El comprobante se quitará de tu pedido. Si te equivocaste de imagen, puedes subir la correcta.", { title: "¿Quitar este comprobante?", confirmText: "Quitar", danger: true }))) return
@@ -257,8 +257,8 @@ export default function OrderDetailModal({
                       <VoucherInput
                         value={draft.image}
                         label={draft.image ? "Cambiar imagen" : sent.length ? "📎 Enviar otro comprobante" : undefined}
-                        onChange={(v) => {
-                          setDraft((d) => ({ ...d, image: v, amount: d.amount || String(owed) }))
+                        onChange={(v, doubtful) => {
+                          setDraft((d) => ({ ...d, image: v, amount: d.amount || String(owed), doubtful: !!doubtful }))
                           setProofError("")
                         }}
                         onRemove={() => setDraft((d) => ({ ...d, image: "" }))}

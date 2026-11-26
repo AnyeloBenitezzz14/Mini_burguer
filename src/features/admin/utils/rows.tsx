@@ -1,6 +1,6 @@
 import { COUNTER_CLIENT_DOC, DOC_SHORT, PERMISSION_MODULES, PERM_ACTION, PERM_MODULE, RETURNED_LOSS, SUPER_ADMIN_EMAIL } from "@/features/admin/config/modules"
 import { DB_SYNC, PANEL_SYNC } from "@/features/admin/services/sync.service"
-import { APPROVAL_MIN, DEPOSIT_MODALITY, isTransferPaymentMethod, needsDeposit } from "@/features/orders/utils/orders"
+import { APPROVAL_MIN, DEPOSIT_MODALITY, MIXED_MODALITY, isTransferPaymentMethod, needsDeposit } from "@/features/orders/utils/orders"
 import type { AdminOrderLine, Order, RolePerms, Row } from "@/shared/types"
 import { splitNames } from "@/shared/utils/format"
 
@@ -31,10 +31,8 @@ const withSupplyMark = (product: (string | number)[], supply: (string | number)[
 // A pedido's production order keeps its code (PED-…) in [15]; one made by hand keeps its comment there
 export const isPedidoProduction = (row?: (string | number)[]) => /^PED-/i.test(String(row?.[15] ?? "").trim())
 
-export const isProductionEditLocked = (row?: (string | number)[]) => {
-  const status = String(row?.[8] || "Recibido")
-  return isPedidoProduction(row) ? status !== "Recibido" : !["Recibido", "Confirmado"].includes(status)
-}
+// Its products can change until it goes into the kitchen
+export const isProductionEditLocked = (row?: (string | number)[]) => !["Recibido", "Confirmado"].includes(String(row?.[8] || "Recibido"))
 
 // ── Orders → production ───────────────────────────────────────────────────────
 // Pedido payment rules: the method decides the modality and whether it's paid,
@@ -103,7 +101,7 @@ export function clientOrderToPanelRow(order: Order, products: (string | number)[
     lines.map((line) => `${line.quantity} ${line.product}${line.parentId ? ` (adición de ${lines.find((parent) => parent.id === line.parentId)?.product ?? "producto"})` : ""}`).join(", "),
     "Domicilio",
     order.pago === "Efectivo" ? "Efectivo" : "Transferencia",
-    needsDeposit(order.total) ? DEPOSIT_MODALITY : order.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
+    order.mixed ? MIXED_MODALITY : needsDeposit(order.total) ? DEPOSIT_MODALITY : order.pago === "Efectivo" ? "Contraentrega" : "Anticipado",
     order.total,
     order.status,
     paymentStatus,
@@ -146,6 +144,8 @@ export function buildProductionRows(
   const date = [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-")
   const time = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`
   const priority = Math.max(0, ...productionRows.map((row) => Number(row[3]) || 0)) + 1
+  // An order's production order is born with the order already «Confirmado» (same status); one by hand, «Recibido»
+  const status = orderCode ? "Confirmado" : "Recibido"
   const lastCode = Math.max(0, ...productionRows.map((row) => Number(/^OP-(\d+)$/i.exec(String(row[0] ?? ""))?.[1] ?? 0)))
   return [
     [
@@ -157,11 +157,11 @@ export function buildProductionRows(
       time,
       date,
       time,
-      "Recibido",
+      status,
       "",
       0,
       "Sí",
-      JSON.stringify([{ status: "Recibido", date, time }]),
+      JSON.stringify([{ status, date, time }]),
       JSON.stringify(lines.map((line) => ({
         id: line.id,
         name: line.product,

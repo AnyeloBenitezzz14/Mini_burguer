@@ -13,6 +13,7 @@ import { fmt, formatDateLabel, normalizeName } from "@/shared/utils/format"
 import { packOf, qtyLabel } from "@/shared/utils/units"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
+import { downloadCsv } from "@/shared/utils/csv"
 
 export default function GenericTable(adminState: AdminPanelState): ReactNode {
   const {
@@ -172,24 +173,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
     </div>
   )
 
-  const exportRows = () => {
-    const csvCell = (value: string | number) =>
-      `"${String(value).replace(/"/g, '""')}"`
-    const exportData = filtered.map(({ row }) => getDisplayCells(row))
-    const csv = [visibleColumns, ...exportData]
-      // ";" because Excel in Spanish (Colombia) uses "," for decimals and ";" between columns
-      .map((line) => line.map(csvCell).join(";"))
-      .join("\r\n")
-    const blob = new Blob(["\ufeff" + csv], {
-      type: "text/csv;charset=utf-8;",
-    })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement("a")
-    link.href = url
-    link.download = `${section}.csv`
-    link.click()
-    URL.revokeObjectURL(url)
-  }
+  const exportRows = () => downloadCsv(`${section}.csv`, [visibleColumns, ...filtered.map(({ row }) => getDisplayCells(row))])
 
   const activeBadge = { bg: "rgb(212 175 55 / 15%)", color: "var(--admin-heading-gold)" }
 
@@ -506,7 +490,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) &&
         // Once the kitchen has it, the order's products can't change
         !(section === "pedidos" && !["Por confirmar", "Pendiente", "Recibido"].includes(String(orderRow?.[7] ?? ""))) &&
-        // From a pedido: editable only while «Recibido»; made by hand: until it goes «En cocina»
+        // Editable until it goes «En cocina»
         !(section === "produccion" && isProductionEditLocked(rows.produccion?.[rowIndex])) ? (
           <button
             type="button"

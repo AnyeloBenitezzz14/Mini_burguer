@@ -4,7 +4,7 @@ import { DB_SYNC } from "@/features/admin/services/sync.service"
 import { derivePedidoPayment, isActiveStatus, isSupplyProductRow, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
 import { ADDITION_PRODUCT, SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
-import { ORDER_STEPS, isTransferPaymentMethod, panelPaymentLabel } from "@/features/orders/utils/orders"
+import { APPROVAL_MIN, ORDER_STEPS, isSplitModality, isTransferPaymentMethod, panelPaymentLabel } from "@/features/orders/utils/orders"
 import FieldError from "@/shared/components/FieldError"
 import UserHistory from "@/features/admin/components/UserHistory"
 import SuggestInput from "@/features/admin/components/SuggestInput"
@@ -18,6 +18,7 @@ import type { AddressParts, AdminOrderLine, FieldType, ProductionItem, Row, Tech
 import { ADDRESS_VIAS, HOUSING, composeAddress } from "@/shared/utils/address"
 import { fmt, formatDateLabel, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
 import { convertQty, convertibleUnits, packOf, qtyLabel } from "@/shared/utils/units"
+import { downloadCsv } from "@/shared/utils/csv"
 import { normalizeDocumentInput, normalizePhoneInput } from "@/shared/utils/validation"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
@@ -84,6 +85,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     parseProductionHistory,
     parsePurchaseItems,
     paymentProofDraft,
+    receivedAmount,
+    setReceivedAmount,
     proofOf,
     pedidoAdditionsFor,
     pedidoOrderLines,
@@ -252,8 +255,10 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
   const isPnc = modal.section === "producto-no-conforme"
   const isSales = modal.section === "ventas"
   // Order and sale details open as a side panel: the list stays in view and ↑ ↓ go to the next one
-  const isSidePanel = modal.mode === "view" && (modal.section === "pedidos" || isSales)
-  const sideOrder = isSidePanel ? tableOrder.current[modal.section] ?? [] : []
+  const isSidePanel = modal.mode === "view" && isSales
+  // «1 de 8 ↑ ↓»: step through the list without closing (orders in their centered window, sales in the side panel)
+  const hasStepper = modal.mode === "view" && (modal.section === "pedidos" || isSales)
+  const sideOrder = hasStepper ? tableOrder.current[modal.section] ?? [] : []
   const sidePosition = modal.idx === null ? -1 : sideOrder.indexOf(modal.idx)
   const isReturns = modal.section === "devoluciones"
   const isClient = modal.section === "clientes"
@@ -606,6 +611,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
   // An addition (Queso, Tocineta...) is only name, category and price: no photo, description nor ficha técnica
   const isAdditionForm = isProduct && !isView && formData["1"] === ADDITION_PRODUCT
   const isSupplyProductView = isProduct && isView && isSupplyProductRow(row ?? undefined)
+  // The insumo behind a producto de insumo shown in Productos (same record, managed in Insumos)
+  const supplyRowOfProduct = isSupplyProductView ? (rows.insumos || []).find((r) => String(r[0]) === String(row?.[0])) : undefined
   const hideProductTechnicalSheet = isProduct && (productCategory === normalizeName(SODA_PRODUCT) || isAdditionForm || isSupplyProductView)
   const showSupplyTechnicalSheet =
     isSupply &&
@@ -914,6 +921,239 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     </div>
   ) : null
 
+  // How an order is paid (order and sale details): each part (transfer / cash) with its amount and state, how much is
+  // in and whether it's complete. A sale with no order was paid in full at the counter.
+  const paymentSummary = (order: Row | undefined, sale?: Row) => {
+    const shop = order ? loadOrders().find((o) => o.id === String(order[0])) : undefined
+    const total = Number(order?.[6] ?? sale?.[7]) || 0
+    const status = order ? String(order[8] || "Pendiente") : "Pagado"
+    const modality = String(order?.[5] ?? "")
+    const method = String(order?.[4] ?? sale?.[5] ?? "")
+    const split = isSplitModality(modality)
+    const mixed = modality === "Mixto" || String(sale?.[5]) === "Mixto"
+    const bank = shop?.pago && shop.pago !== "Efectivo" ? shop.pago : "Transferencia"
+    // What was really paid when it isn't the whole: the deposit, the transfer part, or what the client had paid when
+    // the panel changed the products (store order: abono; panel order: cell 14)
+    const deposited = Number(shop?.deposit) || Number(order?.[14]) || 0
+    const transfer = split
+      ? deposited || Math.ceil(total / 2)
+      : isTransferPaymentMethod(method) || mixed ? (status === "Abonado" && deposited ? Math.min(deposited, total) : total) : 0
+    const rest = Math.max(0, total - transfer)
+    const paid = status === "Pagado" ? Math.max(total, deposited) : status === "Abonado" ? deposited || transfer : 0
+    const stateColor = (state: string) => (["Verificada", "Cobrado"].includes(state) ? "#2E7D60" : state === "Rechazada" ? C.red : "var(--admin-heading-gold)")
+    const parts = [
+      ...(transfer > 0
+        ? [{ label: `Por ${bank}`, amount: transfer, state: ["Abonado", "Pagado"].includes(status) ? "Verificada" : status === "Rechazado" ? "Rechazada" : status === "Pendiente de verificación" ? "Por verificar" : "Pendiente" }]
+        : []),
+      ...(rest > 0 ? [{ label: mixed || method === "Efectivo" ? "En efectivo" : "Saldo al recibir", amount: rest, state: status === "Pagado" ? "Cobrado" : "Al recibir" }] : []),
+    ]
+    const fill = total > 0 ? Math.round((paid / total) * 100) : 0
+    return (
+      <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+        <div className="mb-2 flex items-baseline justify-between gap-2">
+          <h4 className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>Pago</h4>
+          <span className="text-xs font-semibold" style={{ color: t.text }}>
+            {mixed ? `Mixto: ${bank} + efectivo` : split ? `${bank} (abono 50%) + saldo` : method || "—"}
+          </span>
+        </div>
+        <div className="flex flex-col gap-1.5 text-sm">
+          {parts.map((part) => (
+            <div key={part.label} className="flex items-center justify-between gap-3">
+              <span style={{ color: t.muted }}>{part.label}</span>
+              <span className="flex items-center gap-2">
+                <span className="font-semibold tabular-nums" style={{ color: t.text }}>{fmt(part.amount)}</span>
+                <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: "color-mix(in srgb, currentColor 12%, transparent)", color: stateColor(part.state) }}>
+                  {part.state}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2.5 h-1.5 overflow-hidden rounded-full" style={{ background: t.input }}>
+          <div className="h-full rounded-full" style={{ width: `${Math.min(100, fill)}%`, background: paid >= total ? "#2E7D60" : "var(--admin-heading-gold)" }} />
+        </div>
+        <div className="mt-1.5 flex items-baseline justify-between gap-2 text-xs">
+          <span style={{ color: t.muted }}>Pagado {fmt(paid)} de {fmt(total)}</span>
+          <span className="font-bold" style={{ color: paid === total ? "#2E7D60" : C.red }}>
+            {paid > total ? `Devolver ${fmt(paid - total)} al cliente` : paid === total ? "✓ Pagado completo" : `Falta ${fmt(total - paid)}`}
+          </span>
+        </div>
+      </div>
+    )
+  }
+  // Insumo detail, right column: its stock moves and its purchases as sections that open and close; each header
+  // sums up everything, the detail lists the latest 15 moves (the only list that scrolls) and the latest 6
+  // purchases, and «Exportar historial» downloads all of them for Excel
+  const supplyHistory = (row: Row, withPurchases: boolean) => {
+    const unit = String(row[2] ?? "und")
+    const stock = Number(row[4]) || 0
+    const moves = stockMoves?.id === String(row[DB_SYNC.insumos.idIndex]) ? stockMoves.rows : null
+    const name = normalizeName(row[0])
+    const dateField = MOD_CFG.compras.fields.find((field) => field.key === "1")!
+    const lines = (rows.compras || [])
+      .flatMap((purchase) =>
+        parsePurchaseItems(purchase[6])
+          .filter((item) => normalizeName(item.name) === name)
+          .map((item) => ({
+            supplier: String(purchase[0] ?? ""),
+            date: String(purchase[1] ?? ""),
+            annulled: String(purchase[5]) === "Anulado",
+            quantity: Number(item.quantity) || 0,
+            unitPrice: Number(item.unitPrice) || 0,
+            total: item.total,
+          })),
+      )
+      .sort((x, y) => y.date.localeCompare(x.date))
+    const bought = lines.filter((l) => !l.annulled)
+    const n = (value: number) => value.toLocaleString("es-CO")
+    const inQty = (moves ?? []).filter((m) => Number(m.cantidad) > 0).reduce((sum, m) => sum + Number(m.cantidad), 0)
+    const outQty = (moves ?? []).filter((m) => Number(m.cantidad) < 0).reduce((sum, m) => sum + Math.abs(Number(m.cantidad)), 0)
+    const balanced = !moves?.length || Math.abs(Number(moves[0].stock_resultante) - stock) < 0.001
+    const section = (open: boolean, title: string, summary: ReactNode, badge: ReactNode, list: ReactNode) => (
+      <details open={open} className="group overflow-hidden rounded-xl" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+        <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold" style={{ color: t.text }}>{title}</span>
+            <span className="block truncate text-xs" style={{ color: t.muted }}>{summary}</span>
+          </span>
+          {badge}
+          <span className="flex-shrink-0 transition-transform group-open:rotate-180" style={{ color: t.muted }}>{Ico.chevDown}</span>
+        </summary>
+        <div className="border-t" style={{ borderColor: t.border }}>{list}</div>
+      </details>
+    )
+    const MOVES_SHOWN = 15
+    const PURCHASES_SHOWN = 6
+    const exportHistory = () =>
+      downloadCsv(`historial-${String(row[0]).trim().replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase()}.csv`, [
+        [`Historial de ${String(row[0])}`],
+        [],
+        ...(withPurchases
+          ? [
+              ["Compras"],
+              ["Fecha", "Proveedor", "Cantidad", "Unidad", "Precio unitario", "Total", "Estado"],
+              ...lines.map((l) => [l.date.slice(0, 10), l.supplier, l.quantity, unit, l.unitPrice, l.total, l.annulled ? "Anulada" : "Vigente"]),
+              [],
+            ]
+          : []),
+        ["Movimientos de stock"],
+        ["Fecha", "Origen", "Referencia", "Cantidad", "Unidad", "Stock resultante"],
+        ...(moves ?? []).map((m) => [String(m.fecha), STOCK_ORIGIN[String(m.origen)] ?? String(m.origen), String(m.referencia ?? ""), Number(m.cantidad), unit, Number(m.stock_resultante)]),
+      ])
+    // «compras» is feminine, «movimientos» masculine
+    const moreNote = (shown: number, total: number, what: string, fem: boolean) =>
+      total > shown ? (
+        <p className="border-t px-4 py-2 text-[11px]" style={{ borderColor: t.border, color: t.muted }}>
+          Se ven {fem ? "las" : "los"} {shown} más recientes de {n(total)} {what}.{" "}
+          {total - shown === 1 ? (fem ? "La otra está" : "El otro está") : `${fem ? "Las otras" : "Los otros"} ${n(total - shown)} están`} en «Exportar historial».
+        </p>
+      ) : null
+    return (
+      <>
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>Historial</h4>
+          <button
+            type="button"
+            onClick={exportHistory}
+            disabled={moves === null && !lines.length}
+            title="Descarga todas las compras y movimientos de este insumo para abrirlos en Excel"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ background: t.card, border: `1px solid ${t.inputB}`, color: t.text }}
+          >
+            {Ico.download} Exportar historial
+          </button>
+        </div>
+        {section(
+          // Open for a bought insumo; closed under the recipe of one made here (the header already sums it up)
+          withPurchases,
+          "Movimientos de stock",
+          moves === null
+            ? stockMoves?.error || "Cargando…"
+            : moves.length === 0
+              ? "Todavía no tiene movimientos"
+              : `${n(moves.length)} ${moves.length === 1 ? "movimiento" : "movimientos"} · entró +${n(inQty)} ${unit} · salió −${n(outQty)} ${unit} · último ${String(moves[0].fecha).slice(0, 10)}`,
+          moves && moves.length > 0 ? (
+            <span
+              className="flex-shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold"
+              title={balanced ? "El último movimiento deja el stock que tiene" : `El historial dice ${n(Number(moves[0].stock_resultante))} ${unit}`}
+              style={balanced ? { background: "rgba(46,125,96,0.12)", color: "#2E7D60" } : { background: `${C.red}14`, color: C.red }}
+            >
+              {balanced ? "✓ Cuadra" : "⚠ Descuadre"}
+            </span>
+          ) : null,
+          moves && moves.length > 0 ? (
+            <>
+            <div className="max-h-72 overflow-y-auto px-4" style={{ scrollbarWidth: "thin" }}>
+              {moves.slice(0, MOVES_SHOWN).map((m, i) => {
+                const qty = Number(m.cantidad)
+                return (
+                  <div
+                    key={String(m.id_movimiento)}
+                    className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-2 text-xs ${i ? "border-t" : ""}`}
+                    style={{ borderColor: t.border }}
+                  >
+                    <span className="min-w-0" style={{ color: t.text }}>
+                      <strong>{STOCK_ORIGIN[String(m.origen)] ?? String(m.origen)}</strong>
+                      {m.referencia ? ` · ${String(m.referencia)}` : ""}
+                      <span style={{ color: t.muted }}> · {String(m.fecha)}</span>
+                    </span>
+                    <span className="tabular-nums" style={{ color: t.muted }}>
+                      <strong style={{ color: qty >= 0 ? "#2E7D60" : C.red }}>
+                        {qty >= 0 ? "+" : "−"}{n(Math.abs(qty))} {unit}
+                      </strong>{" "}
+                      → {n(Number(m.stock_resultante))} {unit}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+            {moreNote(MOVES_SHOWN, moves.length, "movimientos", false)}
+            </>
+          ) : (
+            <p className="px-4 py-3 text-xs" style={{ color: t.muted }}>{moves === null ? stockMoves?.error || "Cargando…" : "Todavía no tiene movimientos."}</p>
+          ),
+        )}
+        {withPurchases &&
+          section(
+            false,
+            "Compras de este insumo",
+            bought.length
+              ? `${n(bought.length)} ${bought.length === 1 ? "compra" : "compras"} · ${n(bought.reduce((sum, l) => sum + l.quantity, 0))} ${unit} · última ${formatViewValue(dateField, bought[0].date)}`
+              : "Aún no hay compras registradas",
+            bought.length ? (
+              <span className="flex-shrink-0 text-sm font-bold tabular-nums" style={{ color: "var(--admin-heading-gold)" }}>
+                {fmt(bought.reduce((sum, l) => sum + l.total, 0))}
+              </span>
+            ) : null,
+            lines.length ? (
+              <>
+              <div className="px-4">
+                {lines.slice(0, PURCHASES_SHOWN).map((l, i) => (
+                  <div
+                    key={i}
+                    className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-1.5 text-xs ${i ? "border-t" : ""}`}
+                    style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
+                  >
+                    <span className="min-w-0" style={{ color: t.text }}>
+                      <strong>{formatViewValue(dateField, l.date)}</strong> · {l.supplier}
+                      {l.annulled && <span style={{ color: C.red }}> · Anulada</span>}
+                    </span>
+                    <span className="tabular-nums" style={{ color: t.muted }}>
+                      {n(l.quantity)} {unit} × {fmt(l.unitPrice)} = <strong style={{ color: "var(--admin-heading-gold)" }}>{fmt(l.total)}</strong>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {moreNote(PURCHASES_SHOWN, lines.length, "compras", true)}
+              </>
+            ) : (
+              <p className="px-4 py-3 text-xs" style={{ color: t.muted }}>Aún no hay compras registradas de este insumo.</p>
+            ),
+          )}
+      </>
+    )
+  }
+
   return (
     <div
       className={inline ? "min-w-0" : `fixed inset-0 z-[70] flex ${isSidePanel ? "justify-end" : "items-center justify-center px-4 py-3"} ${isUser ? "lg:left-[72px]" : ""}`}
@@ -955,7 +1195,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-[1400px]" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : modal.section === "cat-insumos" && isView ? "max-w-4xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-6xl" : "max-w-5xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isSupply && isView ? (String(row?.[7]).toLowerCase() === "sí" ? "max-w-[1400px]" : "max-w-6xl") : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
@@ -1031,7 +1271,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
           )}
           </div>
           <div className="flex items-center gap-1.5">
-          {isSidePanel && sidePosition >= 0 && (
+          {hasStepper && sidePosition >= 0 && (
             <>
               <span className="mr-1 text-xs tabular-nums" style={{ color: t.muted }}>
                 {sidePosition + 1} de {sideOrder.length}
@@ -1102,7 +1342,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   : "flex flex-col gap-3"
           }`}
           style={{
-            maxHeight: isPurchaseModule || isProduct || isSidePanel ? undefined : isRoles ? undefined : isUser ? "58vh" : "65vh",
+            maxHeight: isPurchaseModule || isProduct || isSidePanel || (isPedido && isView) ? undefined : isRoles ? undefined : isUser ? "58vh" : "65vh",
             // A visible (thin) scrollbar tells the user there are more fields below
             scrollbarWidth: "thin",
           }}
@@ -1148,58 +1388,22 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               )}
             </div>
           )}
-          {isProduct ? (
-            <div className={`grid grid-cols-1 gap-6 ${isAdditionForm || isSupplyProductView ? "" : "lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"}`}>
-              <div className="flex flex-col gap-3">
-                {isView && row && (
-                  <div className="flex flex-col gap-4">
-                    {imgPreview ? (
-                      <img
-                        src={imgPreview}
-                        alt={String(row[0] ?? "")}
-                        className="h-48 w-full rounded-2xl object-cover"
-                      />
-                    ) : null}
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full px-2.5 py-0.5 text-[11px]" style={{ background: `${C.mustard}14`, color: C.mustard }}>
-                          {String(row[1] || "Sin categoría")}
-                        </span>
-                        {statusValue && (
-                          <span
-                            className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-                            style={{ background: badgeSt(statusValue)?.bg ?? t.input, color: badgeSt(statusValue)?.color ?? t.muted }}
-                          >
-                            {statusValue}
-                          </span>
-                        )}
-                      </div>
-                      <h4 className="mt-2 break-words text-lg font-semibold" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
-                        {String(row[0] ?? "—")}
-                      </h4>
-                      <div className="text-xl font-semibold" style={{ color: C.mustard }}>
-                        {Number(row[2]) > 0 ? fmt(Number(row[2])) : isSupplyProductRow(row) ? "Cortesía ($0)" : "Sin precio"}
-                      </div>
-                    </div>
-                    {isSupplyProductRow(row) && (
-                      // Same record as in Insumos: its ficha técnica, stock and status are managed there
-                      <div className="rounded-xl px-4 py-3 text-xs" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35`, color: t.muted }}>
-                        <span className="font-bold" style={{ color: C.mustard }}>Producto de insumo.</span> Aquí solo se consulta: su ficha técnica, stock y estado se manejan en Insumos.
-                        {(() => {
-                          const supply = (rows.insumos || []).find((r) => String(r[0]) === String(row[0]))
-                          return supply ? (
-                            <span className="mt-1.5 block" style={{ color: t.text }}>
-                              Stock: <strong>{Number(supply[4]) || 0} {String(supply[2] ?? "")}</strong> · mínimo {Number(supply[5]) || 0} {String(supply[2] ?? "")}
-                              {Number(supply[4]) <= Number(supply[5]) && <strong style={{ color: C.red }}> · stock bajo</strong>}
-                            </span>
-                          ) : null
-                        })()}
+          {isSupplyProductView && row && supplyRowOfProduct ? (
+            <div className="flex flex-col gap-3">
+              <div
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 rounded-xl px-4 py-2 text-xs"
+                style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35`, color: t.muted }}
+              >
+                <span>
+                  <span className="font-bold" style={{ color: "var(--admin-heading-gold)" }}>Producto de insumo.</span> Aquí se consulta; su ficha técnica, stock y estado se manejan en Insumos.
+                </span>
+                <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
                         {canDo("insumos", "EDITAR") && (() => {
                           // Its sale price, right here: 0 = cortesía (free sauce), more = an addition that's charged
                           const name = String(row[0])
                           const draft = supplyPriceDraft?.name === name ? supplyPriceDraft : null
                           return (
-                            <span className="mt-2 flex flex-wrap items-center gap-2" style={{ color: t.text }}>
+                            <span className="flex flex-wrap items-center gap-2" style={{ color: t.text }}>
                               Precio de venta:
                               {draft ? (
                                 <>
@@ -1246,11 +1450,61 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             setSection("insumos")
                             if (idx >= 0) setTimeout(() => openView("insumos", idx), 0)
                           }}
-                          className="mt-2 block cursor-pointer font-bold underline"
+                          className="cursor-pointer font-bold underline"
                           style={{ color: C.mustard }}
                         >
                           Abrir en Insumos →
                         </button>
+                </span>
+              </div>
+              {supplyDetail(supplyRowOfProduct, supplyHistory(supplyRowOfProduct, false))}
+            </div>
+          ) : isProduct ? (
+            <div className={`grid grid-cols-1 gap-6 ${isAdditionForm || isSupplyProductView ? "" : "lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"}`}>
+              <div className="flex flex-col gap-3">
+                {isView && row && (
+                  <div className="flex flex-col gap-4">
+                    {imgPreview ? (
+                      <img
+                        src={imgPreview}
+                        alt={String(row[0] ?? "")}
+                        className="h-48 w-full rounded-2xl object-cover"
+                      />
+                    ) : null}
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full px-2.5 py-0.5 text-[11px]" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                          {String(row[1] || "Sin categoría")}
+                        </span>
+                        {statusValue && (
+                          <span
+                            className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                            style={{ background: badgeSt(statusValue)?.bg ?? t.input, color: badgeSt(statusValue)?.color ?? t.muted }}
+                          >
+                            {statusValue}
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="mt-2 break-words text-lg font-semibold" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        {String(row[0] ?? "—")}
+                      </h4>
+                      <div className="text-xl font-semibold" style={{ color: C.mustard }}>
+                        {Number(row[2]) > 0 ? fmt(Number(row[2])) : isSupplyProductRow(row) ? "Cortesía ($0)" : "Sin precio"}
+                      </div>
+                    </div>
+                    {isSupplyProductRow(row) && (
+                      // Same record as in Insumos: its ficha técnica, stock and status are managed there
+                      <div className="rounded-xl px-4 py-3 text-xs" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35`, color: t.muted }}>
+                        <span className="font-bold" style={{ color: C.mustard }}>Producto de insumo.</span> Aquí solo se consulta: su ficha técnica, stock y estado se manejan en Insumos.
+                        {(() => {
+                          const supply = (rows.insumos || []).find((r) => String(r[0]) === String(row[0]))
+                          return supply ? (
+                            <span className="mt-1.5 block" style={{ color: t.text }}>
+                              Stock: <strong>{Number(supply[4]) || 0} {String(supply[2] ?? "")}</strong> · mínimo {Number(supply[5]) || 0} {String(supply[2] ?? "")}
+                              {Number(supply[4]) <= Number(supply[5]) && <strong style={{ color: C.red }}> · stock bajo</strong>}
+                            </span>
+                          ) : null
+                        })()}
                       </div>
                     )}
                     <div className="rounded-xl px-4 py-3" style={{ background: t.cardAlt }}>
@@ -1498,11 +1752,12 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           </span>
                           <div>
                             <p className="text-sm font-semibold" style={{ color: t.text }}>Aún no tiene ficha técnica</p>
-                            <p className="mt-1 text-xs" style={{ color: t.muted }}>Es opcional, pero con ella el sistema sabe:</p>
+                            <p className="mt-1 text-xs" style={{ color: t.muted }}>Todos los productos la llevan: con ella el sistema sabe</p>
                           </div>
                           <ul className="flex w-full max-w-sm flex-col gap-1.5 text-left text-xs" style={{ color: t.text }}>
                             {[
                               "Qué insumos lleva y cuánto de cada uno",
+                              "Si hay stock para que el cliente lo pida",
                               "Cuánto cuesta hacer una unidad, frente a su precio",
                               "Qué descontar del inventario en cada orden de producción",
                               "Los pasos para prepararlo siempre igual",
@@ -2387,7 +2642,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   </section>
                 )
               })()}
-              {isView && isSupply && row && supplyDetail(row)}
+              {isView && isSupply && row && supplyDetail(row, supplyHistory(row, String(row[7]).toLowerCase() !== "sí"))}
               {isView && isSupplier && row && supplierDetail(row)}
               {isView && isUser && row && Number(row[7]) > 0 && <UserHistory id={Number(row[7])} t={t} />}
               {isUser && !isView && modal.mode === "add" && (
@@ -3881,7 +4136,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   : isSupply && f.key === "7"
                       ? "¿Lo preparan ustedes?"
                       : isSupply && f.key === "6" && !isView
-                        ? "Viene en · opcional"
+                        ? "Se compra · opcional"
                       : f.label
               const fieldRowIndex = Number(f.key) + rowOffset
               const val = isView
@@ -4020,10 +4275,10 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               return (
                 <Fragment key={f.key}>
                 {/* Insumo form in three parts: what it is, how much there is, who makes or sells it */}
-                {isSupply && !isView && (f.key === "0" || f.key === (modal.mode === "add" ? "5" : "4") || f.key === "7") && (
+                {isSupply && !isView && (f.key === "0" || f.key === (modal.mode === "add" ? "5" : "4") || (f.key === "7" && sheetBeside)) && (
                   <div
                     className={`sm:col-span-full ${f.key === "0" || (sheetBeside && f.key === "7") ? "" : "mt-1 border-t pt-4"} ${
-                      sheetBeside ? "" : f.key === "0" ? "lg:col-span-2 lg:col-start-1" : f.key === "7" ? "lg:col-span-4" : "lg:col-span-2 lg:col-start-3 lg:mt-0 lg:border-t-0 lg:pt-0"
+                      sheetBeside ? "" : f.key === "0" ? "lg:col-span-2 lg:col-start-1 lg:row-start-1" : "lg:col-span-2 lg:col-start-3 lg:row-start-1 lg:mt-0 lg:border-t-0 lg:pt-0"
                     }`}
                     style={{ borderColor: t.border }}
                   >
@@ -4117,7 +4372,15 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     isSupply && !isView && sheetBeside
                       ? f.key === "7" || (modal.mode === "edit" && (f.key === "4" || f.key === "5")) ? "" : "sm:col-span-2"
                       : isSupply && !isView && !sheetBeside
-                      ? ({ "0": "sm:col-span-2 lg:col-start-1", "1": "lg:col-start-1", "2": "lg:col-start-2", "4": "lg:col-start-3", "5": modal.mode === "add" ? "lg:col-start-3" : "lg:col-start-4", "6": "lg:col-start-3", "7": "sm:col-span-2 lg:col-span-4" } as Record<string, string>)[f.key] ?? ""
+                      ? ({
+                          "0": "sm:col-span-2 lg:col-span-2 lg:col-start-1 lg:row-start-2",
+                          "1": "lg:col-start-1 lg:row-start-3",
+                          "2": "lg:col-start-2 lg:row-start-3",
+                          "6": "sm:col-span-2 lg:col-span-2 lg:col-start-1 lg:row-start-4",
+                          "4": "sm:col-span-2 lg:col-span-2 lg:col-start-3 lg:row-start-2 lg:row-span-2",
+                          "5": modal.mode === "add" ? "lg:col-span-2 lg:col-start-3 lg:row-start-2" : "lg:col-start-3 lg:row-start-4",
+                          "7": "mt-2 sm:col-span-2 lg:col-span-4 lg:row-start-5",
+                        } as Record<string, string>)[f.key] ?? ""
                       : isSupplier
                     ? naturalSupplier
                       ? f.key === "5" ? "lg:col-span-2" : "" // four fields per row, the address takes two
@@ -4150,7 +4413,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         : ""
                   }`}
                 >
-                  <div className={`flex items-center justify-between gap-2 ${(isPedido && !isView && f.key === "1") || (isSupply && sheetBeside && f.key === "7") ? "hidden" : ""}`}>
+                  <div className={`flex items-center justify-between gap-2 ${(isPedido && !isView && f.key === "1") || (isSupply && !isView && (f.key === "7" || (f.key === "4" && !sheetBeside))) ? "hidden" : ""}`}>
                     <label
                       className="text-xs font-semibold"
                       style={{ color: !isView && shownFieldError(f.key) ? C.red : "var(--admin-heading-gold)" }}
@@ -4214,7 +4477,43 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         </label>
                       )}
                     </div>
-                  ) : isSupply && !isView && modal.mode === "edit" && (f.key === "3" || f.key === "4") ? (
+                  ) : isSupply && !isView && !sheetBeside && modal.mode === "edit" && f.key === "4" ? (() => {
+                    const unit = String(formData["2"] || "und")
+                    const stock = Number(val || 0)
+                    const minimum = Number(formData["5"] || 0)
+                    const pack = Number(formData["6"]) > 0 ? { size: Number(formData["6"]), unit, kind: String(formData["17"] || "Paquete") } : undefined
+                    const status = stock <= 0 ? { text: "Agotado", color: C.red } : stock <= minimum ? { text: "Bajo el mínimo", color: C.red } : { text: "Bien", color: "#2E7D60" }
+                    const fill = minimum > 0 ? Math.min(100, Math.round((stock / (minimum * 2)) * 100)) : 100
+                    return (
+                      <div className="flex h-full min-h-[132px] flex-col justify-between rounded-2xl px-4 py-3.5" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: t.muted }}>Stock actual</div>
+                            <div className="mt-0.5 text-2xl font-bold leading-tight tabular-nums" style={{ color: t.text }}>
+                              {stock.toLocaleString("es-CO")} <span className="text-base font-semibold" style={{ color: t.muted }}>{unit}</span>
+                            </div>
+                            {pack && stock >= pack.size && (
+                              <div className="text-xs" style={{ color: t.muted }}>{qtyLabel(stock, unit, pack).replace(/\s*\(.*\)$/, "")}</div>
+                            )}
+                          </div>
+                          <span className="flex-shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold" style={{ background: `${status.color}18`, color: status.color }}>
+                            {status.text}
+                          </span>
+                        </div>
+                        <div>
+                          {/* Full bar = twice the minimum; the mark is the minimum */}
+                          <div className="relative h-2 overflow-hidden rounded-full" style={{ background: t.input }}>
+                            <div className="h-full rounded-full transition-all" style={{ width: `${fill}%`, background: status.color }} />
+                            {minimum > 0 && <div className="absolute inset-y-0 left-1/2 w-0.5" style={{ background: t.muted }} />}
+                          </div>
+                          <div className="mt-1.5 flex justify-between gap-2 text-[11px]" style={{ color: t.muted }}>
+                            <span>Sube con compras · baja con producción y pérdidas</span>
+                            {minimum > 0 && <span className="flex-shrink-0">mín. {minimum.toLocaleString("es-CO")} {unit}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })() : isSupply && !isView && modal.mode === "edit" && (f.key === "3" || f.key === "4") ? (
                     <div
                       className="flex w-full min-w-0 items-center justify-between gap-2 rounded-xl px-3.5 py-2.5 text-sm"
                       style={{ background: t.cardAlt, border: `1.5px dashed ${t.inputB}`, color: t.text }}
@@ -4805,31 +5104,51 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           handleSupplyCheckboxToggle()
                         }
                       }}
-                      className="flex w-full min-w-0 cursor-pointer items-start gap-3 rounded-xl px-3.5 py-3 text-left"
+                      className={`flex w-full min-w-0 cursor-pointer gap-3 rounded-xl px-3.5 text-left ${isClient ? "items-start py-3" : `admin-prep-switch items-center ${sheetBeside ? "py-2.5" : "py-3"}`}`}
                       style={{ background: t.input, border: `1px solid ${t.inputB}` }}
                     >
-                      <span
-                        className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md"
-                        style={{
-                          background: String(val).toLowerCase() === "sí" ? C.mustard : "transparent",
-                          border: `1.5px solid ${String(val).toLowerCase() === "sí" ? C.mustard : t.inputB}`,
-                          color: "#fff",
-                        }}
-                      >
-                        {String(val).toLowerCase() === "sí" ? Ico.check : null}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block text-sm font-semibold" style={{ color: t.text }}>
-                          {isClient ? "Cliente de local" : "Sí, lo preparamos nosotros (tiene receta)"}
+                      {!isClient && !sheetBeside && (
+                        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.mustard}14`, color: "var(--admin-heading-gold)" }}>
+                          {Ico.chef}
                         </span>
-                        <span className="mt-0.5 block text-xs leading-snug" style={{ color: t.muted }}>
+                      )}
+                      {isClient && (
+                        <span
+                          className="mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md"
+                          style={{
+                            background: String(val).toLowerCase() === "sí" ? C.mustard : "transparent",
+                            border: `1.5px solid ${String(val).toLowerCase() === "sí" ? C.mustard : t.inputB}`,
+                            color: "#fff",
+                          }}
+                        >
+                          {String(val).toLowerCase() === "sí" ? Ico.check : null}
+                        </span>
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-semibold" style={{ color: t.text }}>
+                          {isClient ? "Cliente de local" : "Lo preparamos nosotros"}
+                        </span>
+                        <span className={`mt-0.5 text-xs leading-snug ${!isClient && sheetBeside ? "hidden" : "block"}`} style={{ color: t.muted }}>
                           {isClient
                             ? "Permite registrar el cliente sin correo ni dirección."
                             : sheetBeside
                               ? "Su receta va en la ficha técnica."
-                              : "Por ejemplo, una salsa de la casa. Se abrirá la ficha técnica y aparecerá en Productos como producto de insumo."}
+                              : "Como una salsa de la casa: tiene receta (ficha técnica) y sale en Productos como producto de insumo."}
                         </span>
                       </span>
+                      {!isClient && (
+                        // The switch on the right: on = it has a recipe
+                        <span
+                          aria-hidden="true"
+                          className="flex h-6 w-11 flex-shrink-0 items-center rounded-full px-0.5 transition-colors"
+                          style={{ background: String(val).toLowerCase() === "sí" ? C.mustard : t.inputB }}
+                        >
+                          <span
+                            className="h-5 w-5 rounded-full bg-white shadow transition-transform"
+                            style={{ transform: String(val).toLowerCase() === "sí" ? "translateX(20px)" : "translateX(0)" }}
+                          />
+                        </span>
+                      )}
                     </button>
                   ) : isPurchase && f.key === "0" && modal.mode === "edit" ? (
                     // Editing a purchase: only its date changes
@@ -5109,15 +5428,20 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 {/* Next to the minimum: how this insumo's stock moves (fills the half and answers «¿dónde pongo el stock?») */}
                 {isSupply && !isView && !sheetBeside && f.key === "5" && (
                   <div
-                    className={`rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 ${modal.mode === "add" ? "lg:col-span-1 lg:col-start-4 lg:row-span-2" : "lg:col-span-1 lg:col-start-4"}`}
-                    style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}30`, color: t.text }}
+                    className={`flex flex-col justify-center rounded-xl px-3.5 py-3 text-xs leading-relaxed sm:col-span-2 ${
+                      modal.mode === "add" ? "lg:col-span-2 lg:col-start-3 lg:row-start-3 lg:row-span-2" : "lg:col-span-1 lg:col-start-4 lg:row-start-4"
+                    }`}
+                    style={{ background: `${C.mustard}0D`, border: `1px solid ${C.mustard}26`, color: t.muted }}
                   >
-                    <div className="mb-1 font-bold" style={{ color: C.mustard }}>¿Cómo se mueve el stock?</div>
-                    <ul className="flex flex-col gap-0.5" style={{ color: t.muted }}>
-                      <li><strong style={{ color: t.text }}>Entra</strong> con cada compra.</li>
-                      <li><strong style={{ color: t.text }}>Sale</strong> con la producción y las pérdidas.</li>
-                      <li>Siempre en números enteros de {String(formData["2"] || "g, ml o und")}.</li>
-                    </ul>
+                    {modal.mode === "add" ? (
+                      <>
+                        <div className="mb-1 font-bold" style={{ color: "var(--admin-heading-gold)" }}>Empieza en 0</div>
+                        <span><strong style={{ color: t.text }}>Sube</strong> con cada compra y <strong style={{ color: t.text }}>baja</strong> con la producción y las pérdidas, en números enteros de {String(formData["2"] || "g, ml o und")}.</span>
+                        <span className="mt-1.5">El mínimo es desde cuánto te avisamos que queda poco.</span>
+                      </>
+                    ) : (
+                      <span>Con <strong style={{ color: t.text }}>{Number(formData["5"] || 0).toLocaleString("es-CO")} {String(formData["2"] || "und")}</strong> o menos te avisamos que queda poco.</span>
+                    )}
                   </div>
                 )}
                 </Fragment>
@@ -5173,7 +5497,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     {[
                       ["Recibido · Confirmado", "Todavía puedes editar los productos."],
                       ["En cocina", "Se descuentan los insumos de cada ficha técnica. Si falta stock, no deja avanzar."],
-                      ["Finalizada", "Lo preparado entra al inventario."],
+                      ["En camino · Entregado", "Salió de cocina: lo preparado entra al inventario. Su pedido y su venta pasan al mismo estado."],
                     ].map(([state, what], index) => (
                       <li key={state} className="flex gap-2.5 rounded-lg px-3 py-2" style={{ background: t.card }}>
                         <span
@@ -5201,190 +5525,106 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
           {/* Section-specific view detail extras */}
           {/* Purchase module: real related data */}
           {isView && modal.section === "cat-insumos" && row && (() => {
-            // The category at a glance: what it is, how its insumos are doing and which they are
+            // The category at a glance: how its insumos are doing (the ones below their minimum first) and who sells them
             const supplies = (rows.insumos || []).filter((s) => normalizeName(s[1]) === normalizeName(row[0]))
-            const low = supplies.filter((s) => isActiveStatus(s[12]) && Number(s[4]) <= Number(s[5]))
+            const activeSupplies = supplies.filter((s) => isActiveStatus(s[12]))
+            const isLowRow = (s: (string | number)[]) => isActiveStatus(s[12]) && Number(s[4]) <= Number(s[5])
+            const low = supplies.filter(isLowRow)
             const value = supplies.reduce((sum, s) => sum + (Number(s[4]) || 0) * (Number(s[3]) || 0), 0)
+            const names = new Set(supplies.map((s) => normalizeName(s[0])))
+            const suppliers = (rows.proveedores || []).filter((p) => splitList(String(p[7] ?? "")).some((n) => names.has(normalizeName(n))))
             const active = isActiveStatus(row[2] || "Activa")
             const description = String(row[1] ?? "").trim()
+            const sorted = [...supplies].sort(
+              (a, b) => Number(isLowRow(b)) - Number(isLowRow(a)) || Number(isActiveStatus(b[12])) - Number(isActiveStatus(a[12])) || String(a[0]).localeCompare(String(b[0]), "es"),
+            )
+            const openSupply = (name: string) => {
+              const idx = (rows.insumos || []).findIndex((r) => String(r[0]) === name)
+              closeModal()
+              setSection("insumos")
+              if (idx >= 0) setTimeout(() => openView("insumos", idx), 0)
+            }
             return (
-              <div className="flex flex-col gap-3 sm:col-span-2">
-                <div className="flex items-start gap-3 rounded-xl px-4 py-3" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
-                  <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+              <div className="flex flex-col gap-4 sm:col-span-2">
+                <div className="flex items-start gap-3 rounded-2xl px-4 py-3.5" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
+                  <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl" style={{ background: `${C.mustard}14`, color: "var(--admin-heading-gold)" }}>
                     {Ico.shopping}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <div className="text-base font-bold break-words" style={{ color: t.text }}>{String(row[0])}</div>
-                    <p className="mt-0.5 text-xs leading-snug" style={{ color: description ? t.muted : t.subtle }}>
+                    <div className="text-lg font-bold leading-tight break-words" style={{ color: t.text }}>{String(row[0])}</div>
+                    <p className="mt-0.5 text-sm leading-snug" style={{ color: description ? t.muted : t.subtle }}>
                       {description || "Sin descripción."}
                     </p>
                   </div>
                   <span
-                    className="flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold"
+                    className="flex-shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold"
                     style={active ? { background: "rgba(58,109,94,0.14)", color: "#2E7D60" } : { background: `${C.red}14`, color: C.red }}
                   >
                     {String(row[2] || "Activa")}
                   </span>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {[
-                    ["Insumos", String(supplies.length), t.text],
-                    ["Con stock bajo", String(low.length), low.length ? C.red : t.text],
-                    ["Valor en stock", fmt(Math.round(value)), C.mustard],
-                  ].map(([label, text, color]) => (
-                    <div key={label} className="rounded-xl px-3 py-2.5" style={{ background: t.input, border: `1px solid ${t.border}` }}>
-                      <div className="text-[10px] font-semibold" style={{ color: t.muted }}>{label}</div>
-                      <div className="mt-0.5 text-sm font-bold" style={{ color }}>{text}</div>
+                    ["Insumos", String(activeSupplies.length), supplies.length > activeSupplies.length ? `+ ${supplies.length - activeSupplies.length} inactivos` : "activos", t.text],
+                    ["Bajo el mínimo", String(low.length), low.length ? "por comprar" : "todo al día", low.length ? C.red : "#2E7D60"],
+                    ["Valor en stock", fmt(Math.round(value)), "a costo de compra", "var(--admin-heading-gold)"],
+                    ["Proveedores", String(suppliers.length), suppliers.length ? "la surten" : "sin proveedor", t.text],
+                  ].map(([label, text, note, color]) => (
+                    <div key={label} className="rounded-xl px-3.5 py-3" style={{ background: t.input, border: `1px solid ${t.border}` }}>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: t.muted }}>{label}</div>
+                      <div className="mt-0.5 text-xl font-bold leading-tight tabular-nums" style={{ color }}>{text}</div>
+                      <div className="text-[11px]" style={{ color: t.muted }}>{note}</div>
                     </div>
                   ))}
                 </div>
-                <div className="overflow-hidden rounded-xl" style={{ border: `1px solid ${t.border}` }}>
-                  <div className="px-3 py-2 text-[11px] font-semibold" style={{ background: t.cardAlt, color: t.muted }}>
-                    Insumos en esta categoría
+                <div>
+                  <div className="mb-2 flex items-baseline justify-between gap-2">
+                    <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                      Insumos de la categoría
+                    </h4>
+                    {supplies.length > 0 && <span className="text-[11px]" style={{ color: t.muted }}>Toca uno para ver su detalle</span>}
                   </div>
                   {supplies.length === 0 ? (
-                    <p className="px-3 py-3 text-center text-xs" style={{ color: t.muted }}>Ningún insumo usa esta categoría todavía.</p>
+                    <p className="rounded-xl px-3 py-4 text-center text-sm" style={{ color: t.muted, background: t.input }}>Ningún insumo usa esta categoría todavía.</p>
                   ) : (
-                    // Its own scroll, so a big category doesn't stretch the window
-                    <div className="max-h-56 overflow-y-auto" style={{ scrollbarWidth: "thin" }}>
-                      {supplies.map((s) => {
-                        const isLow = isActiveStatus(s[12]) && Number(s[4]) <= Number(s[5])
+                    // Two columns; only a very big category scrolls inside
+                    <div className="grid max-h-[46vh] gap-2 overflow-y-auto pr-0.5 sm:grid-cols-2 lg:grid-cols-3" style={{ scrollbarWidth: "thin" }}>
+                      {sorted.map((s) => {
+                        const isLow = isLowRow(s)
+                        const on = isActiveStatus(s[12])
+                        const unit = String(s[2] ?? "und")
+                        const stock = Number(s[4]) || 0
+                        const minimum = Number(s[5]) || 0
+                        const color = !on ? t.muted : stock <= 0 || isLow ? C.red : "#2E7D60"
+                        const fill = minimum > 0 ? Math.min(100, Math.round((stock / (minimum * 2)) * 100)) : 100
                         return (
-                          <div
+                          <button
                             key={String(s[0])}
-                            className="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs"
-                            style={{ borderColor: t.border, opacity: isActiveStatus(s[12]) ? 1 : 0.5 }}
+                            type="button"
+                            onClick={() => openSupply(String(s[0]))}
+                            className="flex min-w-0 cursor-pointer flex-col gap-1.5 px-3 py-2 text-left transition-colors hover:brightness-[0.98]"
+                            // A card, not one of the panel's pill buttons: its own corners and the body font
+                            style={{ borderRadius: 12, fontFamily: "Outfit, sans-serif", fontWeight: 400, background: isLow ? `${C.red}0A` : t.card, border: `1px solid ${isLow ? `${C.red}33` : t.border}`, opacity: on ? 1 : 0.55 }}
                           >
-                            <span className="min-w-0 truncate font-medium" style={{ color: t.text }}>
-                              {String(s[0])}
-                              {!isActiveStatus(s[12]) && <span style={{ color: t.muted }}> · Inactivo</span>}
+                            <span className="flex min-w-0 items-center justify-between gap-2">
+                              <span className="min-w-0 truncate text-sm font-semibold" style={{ color: t.text }}>{String(s[0])}</span>
+                              <span className="flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: `${color}18`, color }}>
+                                {!on ? "Inactivo" : stock <= 0 ? "Agotado" : isLow ? "Bajo el mínimo" : "Bien"}
+                              </span>
                             </span>
-                            <span className="flex flex-shrink-0 items-center gap-2" style={{ color: t.muted }}>
-                              {isLow && (
-                                <span className="rounded-full px-1.5 py-0.5 text-[9px] font-bold" style={{ background: `${C.red}18`, color: C.red }}>
-                                  ⚠ Stock bajo
-                                </span>
-                              )}
-                              <strong style={{ color: isLow ? C.red : t.text }}>
-                                {(Number(s[4]) || 0).toLocaleString("es-CO")} {String(s[2] ?? "")}
-                              </strong>
+                            <span className="h-1.5 overflow-hidden rounded-full" style={{ background: t.input }}>
+                              <span className="block h-full rounded-full" style={{ width: `${fill}%`, background: color }} />
                             </span>
-                          </div>
+                            <span className="flex justify-between gap-2 text-[11px] tabular-nums" style={{ color: t.muted }}>
+                              <span className="min-w-0 truncate" style={{ color: isLow ? C.red : t.text }}>{qtyLabel(stock, unit, packOf(s))}</span>
+                              <span className="flex-shrink-0">mín. {minimum.toLocaleString("es-CO")} {unit}</span>
+                            </span>
+                          </button>
                         )
                       })}
                     </div>
                   )}
                 </div>
-              </div>
-            )
-          })()}
-          {isView && modal.section === "insumos" && row && (() => {
-            // Every purchase line of this insumo: what was bought, how much and for how much
-            const name = normalizeName(row[0])
-            const unit = String(row[2] ?? "und")
-            const lines = (rows.compras || []).flatMap((purchase) =>
-              parsePurchaseItems(purchase[6])
-                .filter((item) => normalizeName(item.name) === name)
-                .map((item) => ({
-                  supplier: String(purchase[0] ?? ""),
-                  date: String(purchase[1] ?? ""),
-                  annulled: String(purchase[5]) === "Anulado",
-                  quantity: Number(item.quantity) || 0,
-                  unitPrice: Number(item.unitPrice) || 0,
-                  total: item.total,
-                })),
-            )
-            const active = lines.filter((l) => !l.annulled)
-            const boughtQty = active.reduce((s, l) => s + l.quantity, 0)
-            const boughtValue = active.reduce((s, l) => s + l.total, 0)
-            const dateField = MOD_CFG.compras.fields.find((field) => field.key === "1")!
-            return (
-              <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                    Compras de este insumo
-                  </span>
-                  {active.length > 0 && (
-                    <span className="text-xs" style={{ color: t.muted }}>
-                      Total comprado:{" "}
-                      <strong style={{ color: t.text }}>
-                        {boughtQty.toLocaleString("es-CO")} {unit}
-                      </strong>{" "}
-                      · <strong style={{ color: C.mustard }}>{fmt(boughtValue)}</strong>
-                    </span>
-                  )}
-                </div>
-                {lines.length === 0 ? (
-                  <div style={{ color: t.text }}>Aún no hay compras registradas de este insumo.</div>
-                ) : (
-                  lines.map((l, i) => (
-                    <div
-                      key={i}
-                      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
-                      style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
-                    >
-                      <span className="min-w-0" style={{ color: t.text }}>
-                        <strong>{formatViewValue(dateField, l.date)}</strong> · {l.supplier}
-                        {l.annulled && <span style={{ color: C.red }}> · Anulada</span>}
-                      </span>
-                      <span style={{ color: t.muted }}>
-                        {l.quantity.toLocaleString("es-CO")} {unit} × {fmt(l.unitPrice)} ={" "}
-                        <strong style={{ color: C.mustard }}>{fmt(l.total)}</strong>
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            )
-          })()}
-          {isView && modal.section === "insumos" && row && (() => {
-            // Stock history from the backend: every entry and exit with where it came from
-            const unit = String(row[2] ?? "und")
-            const moves = stockMoves?.id === String(row[DB_SYNC.insumos.idIndex]) ? stockMoves.rows : null
-            const stock = Number(row[4]) || 0
-            return (
-              <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-xs font-semibold" style={{ color: t.muted }}>Movimientos de stock</span>
-                  {moves && moves.length > 0 && (
-                    // The newest movement leaves the stock it should have: a different value means something changed it outside the history
-                    Math.abs(Number(moves[0].stock_resultante) - stock) < 0.001 ? (
-                      <span className="text-xs font-semibold" style={{ color: "#2E7D60" }}>✓ El stock cuadra con sus movimientos</span>
-                    ) : (
-                      <span className="text-xs font-semibold" style={{ color: C.red }}>
-                        ⚠ Descuadre: el historial dice {Number(moves[0].stock_resultante).toLocaleString("es-CO")} {unit}
-                      </span>
-                    )
-                  )}
-                </div>
-                {moves === null ? (
-                  <div style={{ color: t.muted }}>{stockMoves?.error || "Cargando…"}</div>
-                ) : moves.length === 0 ? (
-                  <div style={{ color: t.text }}>Todavía no tiene movimientos.</div>
-                ) : (
-                  moves.slice(0, 15).map((m) => {
-                    const qty = Number(m.cantidad)
-                    return (
-                      <div
-                        key={String(m.id_movimiento)}
-                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
-                        style={{ borderColor: t.border }}
-                      >
-                        <span className="min-w-0" style={{ color: t.text }}>
-                          <strong>{STOCK_ORIGIN[String(m.origen)] ?? String(m.origen)}</strong>
-                          {m.referencia ? ` · ${String(m.referencia)}` : ""}
-                          <span style={{ color: t.muted }}> · {String(m.fecha)}</span>
-                        </span>
-                        <span style={{ color: t.muted }}>
-                          <strong style={{ color: qty >= 0 ? "#2E7D60" : C.red }}>
-                            {qty >= 0 ? "+" : "−"}{Math.abs(qty).toLocaleString("es-CO")} {unit}
-                          </strong>{" "}
-                          → {Number(m.stock_resultante).toLocaleString("es-CO")} {unit}
-                        </span>
-                      </div>
-                    )
-                  })
-                )}
               </div>
             )
           })()}
@@ -5791,7 +6031,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 </div>
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="grid grid-cols-2 gap-2">
-                    {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Finalizada" ? "#2E7D60" : t.text)}
+                    {info("Estado", status, status === "Producto no conforme" ? C.red : ["En camino", "Entregado"].includes(status) ? "#2E7D60" : t.text)}
                     {info(orderCode ? "Pedido" : "Prioridad", orderCode || `#${String(row[3] ?? "—")}`)}
                     {info("Creada", `${shortDate(row[4])} · ${shortTime(row[5])}`)}
                     {info("Actualizada", `${shortDate(row[6])} · ${shortTime(row[7])}`)}
@@ -5874,6 +6114,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       <div className="flex flex-wrap gap-1.5">
                         {badge(String(row[7] || "Recibido"), ["Entregado"].includes(String(row[7])), String(row[7]) === "Cancelado")}
                         {badge(`Pago: ${panelPaymentLabel(String(row[8] || "Pendiente"))}`, String(row[8]) === "Pagado", String(row[8]) === "Rechazado")}
+                        {/* The client sent a proof the app didn't recognize as a transfer: seen before scrolling to it */}
+                        {loadOrders().find((order) => order.id === String(row[0]))?.proofs?.at(-1)?.doubtful &&
+                          badge("⚠ Comprobante dudoso", false, true)}
                       </div>
                     </div>
                     {(() => {
@@ -5889,7 +6132,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       ) : null
                     })()}
                     {/* Modality isn't shown: it follows the type and payment method by itself */}
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:col-span-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:col-start-1">
                       {info("Tipo de pedido", String(row[3] ?? ""))}
                       {info("Método de pago", String(row[4] ?? ""))}
                       {info("Producción", String(row[9] ?? ""))}
@@ -5900,7 +6143,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       if (!o || !(o.nombre || o.telefono || o.direccion)) return null
                       const other = !!o.nombre && o.nombre.trim().toLowerCase() !== String(row[1] ?? "").trim().toLowerCase()
                       return (
-                        <div className="rounded-2xl px-4 py-3 md:col-span-2 md:row-start-3" style={{ border: `1px solid ${t.border}` }}>
+                        <div className="rounded-2xl px-4 py-3 md:col-start-1" style={{ border: `1px solid ${t.border}` }}>
                           <div className="flex flex-wrap items-center gap-2">
                             {title("Recibe el pedido")}
                             {other && (
@@ -5919,7 +6162,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         </div>
                       )
                     })()}
-                    <div className="rounded-2xl px-4 py-3 md:col-start-1 md:row-start-4 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
+                    <div className="rounded-2xl px-4 py-3 md:col-start-1 self-start" style={{ border: `1px solid ${t.border}` }}>
                       {title(`Productos (${groups.length})`)}
                       {groups.length ? (
                         <div className={`gap-x-6 ${groups.length > 4 ? "sm:columns-2" : ""}`}>
@@ -5998,7 +6241,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       </div>
                     </div>
                     {history.length > 0 && (
-                      <div className="rounded-2xl px-4 py-3 md:col-start-2 self-start" style={{ border: `1px solid ${t.border}` }}>
+                      <div className="rounded-2xl px-4 py-3 md:col-start-1 self-start" style={{ border: `1px solid ${t.border}` }}>
                         {title("Historial")}
                         <ol className="relative ml-1.5 border-l pl-4" style={{ borderColor: t.border }}>
                           {[...history].reverse().map((entry, i) => (
@@ -6019,7 +6262,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       </div>
                     )}
                     {(comment || productionOrders.length > 0) && (
-                      <div className="grid content-start gap-3 md:col-start-2 self-start">
+                      <div className="grid content-start gap-3 md:col-start-1 self-start">
                         {comment && (
                           <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
                             {title("Especificaciones")}
@@ -6032,7 +6275,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             {productionOrders.map((order) => (
                               <div key={String(order[0])} className="flex items-center justify-between gap-2 text-sm">
                                 <span style={{ color: t.text }}>{String(order[0])}</span>
-                                {badge(String(order[8] || "Recibido"), String(order[8]) === "Finalizada", String(order[8]) === "Producto no conforme")}
+                                {badge(String(order[8] || "Recibido"), ["En camino", "Entregado"].includes(String(order[8])), String(order[8]) === "Producto no conforme")}
                               </div>
                             ))}
                           </div>
@@ -6042,8 +6285,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   </>
                 )
               })()}
+              {row && <div className="md:col-start-2 self-start">{paymentSummary(row)}</div>}
               {(proofOf(modal.idx!) || paymentProofDraft) && (
-                <div className="rounded-2xl px-4 py-3 md:col-start-2 self-start" style={{ border: `1px solid ${t.border}` }}>
+                <div className="rounded-2xl px-4 py-3 md:col-start-2 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
                   <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
                     Comprobante de transferencia
                   </h4>
@@ -6051,7 +6295,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   <ZoomableImage
                     src={proofOf(modal.idx!) || paymentProofDraft}
                     alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
-                    className="max-h-80 w-full rounded-xl object-contain"
+                    className="max-h-48 w-full rounded-xl object-contain"
                     zoomClassName={PROOF_ZOOM}
                   />
                   {(() => {
@@ -6073,16 +6317,78 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         {last && (
                           <div className="mt-2 rounded-xl px-3 py-2.5 text-xs" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                             <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Validador de la transferencia</div>
+                            {last.doubtful && (
+                              <p role="alert" className="mb-2 rounded-lg px-2.5 py-2 font-semibold leading-snug" style={{ background: `${C.red}12`, color: C.red, border: `1px solid ${C.red}33` }}>
+                                ⚠ No parece un comprobante real: la app no encontró datos de una transferencia (banco, valor, «exitosa») en la imagen y el cliente la envió igual. Revísala con cuidado en la app del banco antes de aprobar.
+                              </p>
+                            )}
                             {last.reference || last.amount ? (
                               <ul className="flex flex-col gap-1">
                                 {last.reference && check(true, `Referencia ${last.reference}: no se ha usado en otro pedido`)}
                                 {check(true, "La imagen no se repite en otro pedido")}
-                                {check((last.amount ?? 0) >= owed, `Valor transferido ${fmt(last.amount ?? 0)} · debe ${fmt(owed)}${deposit ? (String(row?.[8]) === "Abonado" ? " (saldo)" : " (abono 50%)") : ""}`)}
-                                {check(null, "Confírmalo en la app del banco (referencia y valor) antes de aprobar")}
+                                {check(null, `El cliente dice que transfirió ${fmt(last.amount ?? 0)}: confírmalo en la app del banco`)}
                               </ul>
                             ) : (
                               <p style={{ color: t.muted }}>Comprobante enviado antes del validador: sin referencia ni valor. Revísalo en la app del banco.</p>
                             )}
+                            {(() => {
+                              // What the bank shows was received, and from it what the client still owes
+                              const status = String(row?.[8] || "Pendiente")
+                              const paidBefore = deposit && status === "Abonado" ? deposit : 0
+                              const typed = receivedAmount === "" ? String(last.amount ?? "") : receivedAmount
+                              const received = Number(typed) || 0
+                              const left = total - paidBefore - received
+                              const coversDeposit = !!deposit && !paidBefore && received >= deposit
+                              const suggestion = left <= 0 || coversDeposit
+                              const line = (label: string, value: string, color: string = t.text, strong = false) => (
+                                <div className="flex items-baseline justify-between gap-3">
+                                  <span style={{ color: t.muted }}>{label}</span>
+                                  <span className={`tabular-nums ${strong ? "text-sm font-bold" : "font-semibold"}`} style={{ color }}>{value}</span>
+                                </div>
+                              )
+                              return status === "Pagado" ? null : (
+                                <div className="mt-2.5 rounded-lg px-3 py-2.5" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                                  <label className="flex flex-col gap-1 font-semibold" style={{ color: t.text }}>
+                                    ¿Cuánto recibiste según el banco?
+                                    <span className="flex items-center gap-2 rounded-lg px-3 py-1.5" style={{ background: t.input, border: `1.5px solid ${t.inputB}` }}>
+                                      <span style={{ color: t.muted }}>$</span>
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={typed ? Number(typed).toLocaleString("es-CO") : ""}
+                                        onChange={(e) => setReceivedAmount(e.target.value.replace(/\D/g, ""))}
+                                        placeholder="0"
+                                        aria-label="Valor recibido"
+                                        className="w-full bg-transparent text-sm font-semibold tabular-nums outline-none"
+                                        style={{ color: t.text }}
+                                      />
+                                    </span>
+                                  </label>
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {line("Total del pedido", fmt(total))}
+                                    {paidBefore > 0 && line("Ya pagó (abono)", `− ${fmt(paidBefore)}`)}
+                                    {line("Recibido ahora", `− ${fmt(received)}`)}
+                                    <div className="mt-1 border-t pt-1.5" style={{ borderColor: t.border }}>
+                                      {left > 0
+                                        ? line(coversDeposit ? "Debe pagar al recibir" : "Le falta por pagar", fmt(left), coversDeposit ? "var(--admin-heading-gold)" : C.red, true)
+                                        : line(left < 0 ? `No debe nada · sobran ${fmt(-left)}` : "No debe nada más", "✓ Pagado completo", "#2E7D60", true)}
+                                    </div>
+                                    {received > 0 && received < owed && (
+                                      <p className="mt-1 font-semibold" style={{ color: C.red }}>
+                                        No alcanza para lo que debía transferir ahora ({fmt(owed)}{deposit && !paidBefore ? ", el abono del 50%" : ""}).
+                                      </p>
+                                    )}
+                                  </div>
+                                  {/* «Aprobar comprobante» (below) sets the payment and sends the order to production */}
+                                  {suggestion && received >= owed && status === "Pendiente de verificación" && (
+                                    <p className="mt-2 font-semibold" style={{ color: "#2E7D60" }}>
+                                      ✓ Cubre lo que debía: al aprobar el comprobante, el pago queda «{isSplitModality(String(row?.[5] ?? "")) ? "Abonado" : "Pagado"}».
+                                      {isSplitModality(String(row?.[5] ?? "")) && left <= 0 && " Como ya pagó todo, después pásalo a «Pagado» en «Estado de pago»."}
+                                    </p>
+                                  )}
+                                </div>
+                              )
+                            })()}
                           </div>
                         )}
                         {proofs.length > 1 && (
@@ -6093,6 +6399,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                 <div key={index} className="overflow-hidden rounded-lg" style={{ border: `1px solid ${t.border}` }}>
                                   <ZoomableImage src={proof.image} alt={`Comprobante ${index + 1}${proof.reference ? ` · ref. ${proof.reference}` : ""}`} className="h-20 w-full object-cover" zoomClassName={PROOF_ZOOM} />
                                   {proof.amount ? <div className="truncate px-1 text-[10px]" style={{ color: t.muted }}>{fmt(proof.amount)}</div> : null}
+                                  {proof.doubtful && <div className="truncate px-1 text-[10px] font-bold" style={{ color: C.red }} title="No parece un comprobante real">⚠ Dudoso</div>}
                                 </div>
                               ))}
                             </div>
@@ -6130,9 +6437,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   </label>
                 )
               })()}
-              {loadOrders().some((order) => order.id === row?.[0]) && (
+              {row && (
                 <label className="md:col-start-2 flex flex-col gap-1.5 text-xs font-semibold" style={{ color: t.text }}>
-                  Estado del pedido (lo ve el cliente)
+                  {loadOrders().some((order) => order.id === row?.[0]) ? "Estado del pedido (lo ve el cliente)" : "Estado del pedido"}
                   <select
                     value={String(row?.[7] ?? "")}
                     onChange={(e) => setClientOrderStatus(modal.idx!, e.target.value)}
@@ -6142,7 +6449,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     {(() => {
                       // Every status is listed; the ones already passed show in grey and can't be chosen (it only
                       // moves forward). Entregado and Cancelado are final.
-                      const flow = ["Por confirmar", ...ORDER_STEPS]
+                      const flow = [...((Number(row?.[6]) || 0) >= APPROVAL_MIN ? ["Por confirmar"] : []), ...ORDER_STEPS]
                       const current = String(row?.[7] ?? "")
                       const at = flow.indexOf(current)
                       const final = ["Entregado", "Cancelado"].includes(current)
@@ -6257,6 +6564,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     <div className="text-xl font-semibold" style={{ color: C.mustard }}>{fmt(Number(row[7]) || 0)}</div>
                   </div>
                 </div>
+                <div className="md:col-start-2">{paymentSummary(rows.pedidos?.find((order) => String(order[0]) === String(row[9])), row)}</div>
                 <div className="rounded-2xl px-4 py-3 md:row-span-2" style={{ border: `1px solid ${t.border}` }}>
                   {title(`Productos (${groups.length})`)}
                   {groups.length ? (

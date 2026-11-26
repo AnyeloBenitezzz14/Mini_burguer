@@ -1,4 +1,5 @@
 import { ADDITIONS, PRODUCTS, PRODUCT_CAT_LABEL } from "@/features/menu/data/products"
+import { isSplitModality } from "@/features/orders/utils/orders"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
@@ -39,11 +40,13 @@ export const PERMISSION_MODULES = [
   { name: "Devoluciones", finalAction: "Eliminar" },
 ] as const
 
+// The same steps as its order: an order and its production order are always in the same one
 export const PRODUCTION_STATUSES = [
   "Recibido",
   "Confirmado",
   "En cocina",
-  "Finalizada",
+  "En camino",
+  "Entregado",
   "Producto no conforme",
 ] as const
 
@@ -489,7 +492,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
         key: "4",
         label: "Modalidad de pago",
         type: "select",
-        options: ["Anticipado", "Contraentrega", "Abono 50%"],
+        options: ["Anticipado", "Contraentrega", "Abono 50%", "Mixto"],
       },
       { key: "5", label: "Total (COP)", type: "number" },
       {
@@ -514,7 +517,8 @@ export const MOD_CFG: Record<string, ModConfig> = {
     autoId: true,
     // 10 = order lines JSON saved by admin-created orders (was showing as "Dato 7")
     // 11 = payment rejection reason, 12 = comment (also goes to its production order)
-    hiddenCellIndexes: [2, 3, 4, 5, 10, 11, 12],
+    // 14 = what the client had paid when the panel changed its products
+    hiddenCellIndexes: [2, 3, 4, 5, 10, 11, 12, 14],
   },
   devoluciones: {
     columns: ["Código", "Cliente", "Tipo", "Fecha", "Total devuelto", "Estado"],
@@ -575,9 +579,10 @@ export const PAYMENT_NEXT: Record<string, string> = {
   Abonado: "Pagado",
   Rechazado: "Pendiente de verificación",
 }
-// With a 50% deposit the payment goes Pendiente / por verificar → Abonado (the 50%) → Pagado (the rest, on delivery)
+// With a 50% deposit or a mixed payment it goes Pendiente / por verificar → Abonado (the transfer) → Pagado (the rest,
+// on delivery)
 export const nextPaymentStatus = (current: string, modality: string) =>
-  modality === "Abono 50%" && ["Pendiente", "Pendiente de verificación"].includes(current) ? "Abonado" : PAYMENT_NEXT[current]
+  isSplitModality(modality) && ["Pendiente", "Pendiente de verificación"].includes(current) ? "Abonado" : PAYMENT_NEXT[current]
 
 export const SIDEBAR_MENU = [
   {

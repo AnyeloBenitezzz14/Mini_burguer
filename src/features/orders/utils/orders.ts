@@ -31,6 +31,10 @@ export const panelPaymentLabel = (status: string) => PANEL_PAYMENT[status] ?? st
 // the rest is paid on delivery. Orders paid in full at the counter («Local») don't need it.
 export const APPROVAL_MIN = 150000
 export const DEPOSIT_MODALITY = "Abono 50%"
+// Part by transfer (checked like a deposit) and the rest in cash on delivery
+export const MIXED_MODALITY = "Mixto"
+// Paid in two parts: first a transfer («Abonado» once approved), the rest when it arrives («Pagado»)
+export const isSplitModality = (modality: string) => modality === DEPOSIT_MODALITY || modality === MIXED_MODALITY
 export const needsDeposit = (total: number, orderType = "") => total >= APPROVAL_MIN && orderType !== "Local"
 export const depositOf = (total: number) => Math.ceil(total / 2)
 
