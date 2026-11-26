@@ -38,7 +38,10 @@ export default function PaymentAccounts({ amount, compact = false }: { amount?: 
       </div>
       <ul className="flex flex-col gap-2">
         {PAYMENT_ACCOUNTS.map((a) => (
-          <li key={a.number} className="flex items-center justify-between gap-3 rounded-full px-5 py-2.5 sm:px-6" style={{ background: "#fff", border: "1px solid rgba(30,30,30,0.1)" }}>
+          <li
+            key={a.number}
+            className="flex items-center justify-between gap-3 rounded-full border border-black/10 bg-white px-5 py-2.5 hover:border-[#D4AF37] hover:shadow-sm focus-within:border-[#D4AF37] motion-safe:transition-[translate,box-shadow,border-color] motion-safe:duration-200 motion-safe:ease-out motion-safe:hover:-translate-y-0.5 sm:px-6"
+          >
             <span className="min-w-0">
               <span className="block text-[11px] font-semibold" style={{ color: "rgba(30,30,30,0.55)" }}>{a.label}</span>
               <span className="block font-mono text-base font-bold tracking-wide" style={{ color: C.dark }}>{a.number}</span>

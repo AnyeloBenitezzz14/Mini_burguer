@@ -1,8 +1,75 @@
-import traditionalBurgerImg from "@/imports/traditional-burger.jpg"
+import traditionalBurgerImg from "@/imports/burguer tradicional.jpg"
+import miniBurgerImg from "@/imports/hamburguesa mini.jpg"
+import superMiniBurgerImg from "@/imports/burguer-super-mini.png"
+import simpleBurgerImg from "@/imports/burguer-sencilla.png"
+import doubleBurgerImg from "@/imports/burguer-doble.png"
+import chickenBurgerImg from "@/imports/burguer-de-pollo.png"
+import mixedBurgerImg from "@/imports/burguer-mixta.png"
+import tripleBurgerImg from "@/imports/burguer-triple.png"
+import arepaGourmetImg from "@/imports/arepa rellena.jpg"
+import arepaSencillaImg from "@/imports/arepa-sencilla.png"
+import arepaEspecialImg from "@/imports/arepa-especial.png"
+import arepaDesmechadaImg from "@/imports/arepa-desmechada.png"
+import pataconMixtoImg from "@/imports/patacon-mixto.png"
+import pataconRancheroImg from "@/imports/patacon-ranchero.png"
+import chuzoDeCerdoImg from "@/imports/chuzo-de-cerdo.png"
+import chuzoDePolloImg from "@/imports/chuzo de pollo.jpg"
+import superPerroImg from "@/imports/super-perro.png"
+import specialSalchipapaImg from "@/imports/salchipapas especial.png"
+import simpleSalchipapaImg from "@/imports/salchipapa-sencilla.png"
+import specialGourmetImg from "@/imports/especial gourmet.png"
+import personalGourmetImg from "@/imports/gourmet-personal.png"
+import superGourmetImg from "@/imports/super gourmet.jpg"
+import megaTraditionalImg from "@/imports/megatradicional.jpg"
+import granPerroImg from "@/imports/perro.jpg"
+import mediumHotDogImg from "@/imports/perro-mediano.png"
+import granPerraImg from "@/imports/gran-perra.png"
+import perraPequenaImg from "@/imports/perra-pequena.png"
+import superPerraImg from "@/imports/perra.jpg"
 import { ADDITIONS, BEVERAGES, BEVERAGE_ORDER, BEVERAGE_SIZES, EXTRA_CATS, MENU_CAT_ID, MENU_EXTRAS, PRODUCTS, SAUCES, SODA_INFO, SODA_RE, allMenuProducts, beverageImage, currentCategory, sizeMl } from "@/features/menu/data/products"
 import { api, imageUrl } from "@/shared/services/api"
 import type { CartItem, CatalogItem } from "@/shared/types"
 import { fmt, normalizeName } from "@/shared/utils/format"
+
+const localProductImages = new Map([
+  ["tradicional", traditionalBurgerImg],
+  ["mini", miniBurgerImg],
+  ["super mini", superMiniBurgerImg],
+  ["sencilla", simpleBurgerImg],
+  ["doble", doubleBurgerImg],
+  ["pollo", chickenBurgerImg],
+  ["mixta", mixedBurgerImg],
+  ["triple", tripleBurgerImg],
+  ["super perro", superPerroImg],
+  ["salchipapa especial", specialSalchipapaImg],
+  ["salchipapa sencilla", simpleSalchipapaImg],
+  ["salchipapa gourmet personal", personalGourmetImg],
+  ["especial gourmet personal", personalGourmetImg],
+  ["salchipapa especial gourmet personal", personalGourmetImg],
+  ["especial gourmet", personalGourmetImg],
+  ["salchipapa especial gourmet", personalGourmetImg],
+  ["salchipapa super gourmet", superGourmetImg],
+  ["salchipapa mega gourmet", specialGourmetImg],
+  ["mega gourmet", specialGourmetImg],
+  ["salchipapa mega", megaTraditionalImg],
+  ["salchipapa mega tradicional", megaTraditionalImg],
+  ["mega tradicional", megaTraditionalImg],
+  ["gran perro", granPerroImg],
+  ["perro mediano", mediumHotDogImg],
+  ["gran perra", granPerraImg],
+  ["perra pequena", perraPequenaImg],
+  ["super perra", superPerraImg],
+  ["arepa gourmet", arepaGourmetImg],
+  ["arepa sencilla", arepaSencillaImg],
+  ["arepa especial", arepaEspecialImg],
+  ["arepa desmechada", arepaDesmechadaImg],
+  ["patacon mixto", pataconMixtoImg],
+  ["patacon ranchero", pataconRancheroImg],
+  ["chuzo de cerdo", chuzoDeCerdoImg],
+  ["chuzo de pollo", chuzoDePolloImg],
+])
+
+const retiredArepas = /^(?:arepa )?rellena (?:pollo\s*\/\s*res|q\s*\+\s*tocineta)$/
 
 // shortcut: replaces the menu arrays in place so every screen reading them shows the backend data;
 // move them into state/context when the admin panel edits them live.
@@ -13,6 +80,7 @@ export async function loadMenu() {
     .filter(
       (item) => !["INACTIVO", "INACTIVA", "ANULADO", "ANULADA"].includes(String(item.estado ?? "").trim().toUpperCase()),
     )
+    .filter((item) => !retiredArepas.test(normalizeName(item.nombre)))
   const inCat = (cat: string) => activeItems.filter((p) => p.categoria === cat)
   SAUCES.splice(0, SAUCES.length, ...inCat("Salsas").map((p) => p.nombre))
   const rank = (f: string) => (BEVERAGE_ORDER.indexOf(f) + 1 || 99)
@@ -72,16 +140,16 @@ export async function loadMenu() {
       const fallbackProduct =
         PRODUCTS.find((product) => product.id === p.id) ??
         PRODUCTS.find((product) => normalizeName(product.name) === normalizeName(p.nombre))
-      const isTraditionalBurger = normalizeName(p.nombre) === normalizeName("Tradicional")
+      const name = normalizeName(p.nombre) === "arepa rellena" ? "Arepa Gourmet" : p.nombre
+      const productName = normalizeName(name)
+      const localImage = localProductImages.get(productName)
       return {
         id: p.id,
-        name: p.nombre,
+        name,
         desc: p.descripcion || "",
         price: p.precio,
         priceStr: fmt(p.precio),
-        img: isTraditionalBurger
-          ? traditionalBurgerImg
-          : imageUrl(p.imagenes[0]) || fallbackProduct?.img || "",
+        img: localImage || imageUrl(p.imagenes[0]) || fallbackProduct?.img || "",
         cat: MENU_CAT_ID[currentCategory(p.categoria)] || p.categoria.toLowerCase(),
         badge: p.etiqueta || "",
         ingredients: p.ingredientes ?? [],

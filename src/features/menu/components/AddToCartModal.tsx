@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import BeverageArt from "@/features/menu/components/BeverageArt"
-import { ADDITIONS, BEVERAGES, BEVERAGE_SIZES, MENU_EXTRAS, SAUCES, SODA_INFO, SODA_RE, allMenuProducts, beverageLabel, sizeMl, sodaInfo, sodaPrice } from "@/features/menu/data/products"
+import { ADDITIONS, BEVERAGES, BEVERAGE_SIZES, MENU_EXTRAS, SAUCES, SODA_INFO, SODA_RE, allMenuProducts, beverageLabel, isMegaGourmetWithToppings, sizeMl, sodaInfo, sodaPrice } from "@/features/menu/data/products"
 import hitTropicalPhoto from "@/imports/bebidas/hit-frutas-tropicales.jpg"
 import hitMangoPhoto from "@/imports/bebidas/hit-mango.jpg"
 import hitMoraPhoto from "@/imports/bebidas/hit-mora.jpg"
@@ -10,7 +10,7 @@ import ZoomableImage from "@/shared/components/ZoomableImage"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
 import type { Product } from "@/shared/types"
-import { fmt } from "@/shared/utils/format"
+import { fmt, normalizeName } from "@/shared/utils/format"
 
 const HIT_PHOTOS = {
   Mora: hitMoraPhoto,
@@ -19,6 +19,7 @@ const HIT_PHOTOS = {
   "Naranja Piña": hitOrangePineapplePhoto,
 }
 const HIT_FLAVORS = Object.keys(HIT_PHOTOS) as (keyof typeof HIT_PHOTOS)[]
+const MEGA_GOURMET = /^(?:salchipapa )?mega gourmet$/
 
 export default function AddToCartModal({
   product: selectedProduct,
@@ -44,6 +45,9 @@ export default function AddToCartModal({
   initial?: { qty: number; sauces?: string[]; additions?: { name: string; qty: number }[]; note?: string }
 }) {
   const [product, setProduct] = useState(selectedProduct)
+  const [withCheeseAndBacon, setWithCheeseAndBacon] = useState(
+    () => isMegaGourmetWithToppings(selectedProduct),
+  )
   useEffect(() => {
     const refreshProduct = () => {
       const current = allMenuProducts().find((item) => item.id === selectedProduct.id) ??
@@ -96,9 +100,14 @@ export default function AddToCartModal({
   const changeAdd = (name: string, d: number) =>
     setAddQtys((p) => ({ ...p, [name]: Math.min(99, Math.max(0, (p[name] || 0) + d)) }))
   const setAdd = (name: string, n: number) => setAddQtys((p) => ({ ...p, [name]: n }))
+  const isMegaGourmet = product.cat === "salchipapas" &&
+    (MEGA_GOURMET.test(normalizeName(product.name)) || isMegaGourmetWithToppings(product))
+  const availableAdditions = isMegaGourmet
+    ? ADDITIONS.filter((addition) => !["queso", "tocineta"].includes(normalizeName(addition.name)))
+    : ADDITIONS
   // Each unit of the line carries these additions: never more in total than what was bought
   const addMax = (a: (typeof ADDITIONS)[number]) => (a.stock != null ? Math.floor(a.stock / Math.max(1, qty)) : 99)
-  const addTotal = ADDITIONS.reduce(
+  const addTotal = availableAdditions.reduce(
     (s, a) => s + (addQtys[a.name] || 0) * a.price,
     0,
   )
@@ -129,13 +138,20 @@ export default function AddToCartModal({
       ),
     0,
   )
-  const unitPrice = product.price + addTotal + beverageTotal
+  const salchipapas = isMegaGourmet ? allMenuProducts().filter((item) => item.cat === "salchipapas") : []
+  const megaGourmet = salchipapas.find((item) => MEGA_GOURMET.test(normalizeName(item.name)))
+  const megaGourmetWithToppings = salchipapas.find(isMegaGourmetWithToppings)
+  const hasToppingOption = megaGourmet && megaGourmetWithToppings && !megaGourmetWithToppings.soldOut
+  const orderProduct = hasToppingOption
+    ? (withCheeseAndBacon ? megaGourmetWithToppings : megaGourmet)
+    : product
+  const unitPrice = orderProduct.price + addTotal + beverageTotal
   const total = unitPrice * qty
   // «Agregar» turns into «✓ Agregado» while the photo flies to the cart, then the window closes
   const [added, setAdded] = useState(false)
   const photoRef = useRef<HTMLDivElement>(null)
   const addWithFeedback = () => {
-    if (product.soldOut || added) return
+    if (orderProduct.soldOut || added) return
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
     const cartButton = Array.from(document.querySelectorAll<HTMLElement>("[data-cart-target]")).find(
       (el) => el.getBoundingClientRect().width > 0,
@@ -146,8 +162,8 @@ export default function AddToCartModal({
     window.setTimeout(handleAdd, 550)
   }
   const handleAdd = () => {
-    if (product.soldOut) return
-    const adds = ADDITIONS.filter((a) => (addQtys[a.name] || 0) > 0).map(
+    if (orderProduct.soldOut) return
+    const adds = availableAdditions.filter((a) => (addQtys[a.name] || 0) > 0).map(
       // never more than its stock across every unit of the line
       (a) => ({ name: a.name, qty: Math.min(addQtys[a.name], addMax(a)), price: a.price }),
     ).filter((a) => a.qty > 0)
@@ -163,7 +179,7 @@ export default function AddToCartModal({
         price: sodaPrice(flavor, size),
       })).filter((b) => b.qty > 0),
     )
-    onAdd(product, qty, selSauces, [...adds, ...beverages], isHit ? `Sabor: ${hitFlavor}` : undefined)
+    onAdd(orderProduct, qty, selSauces, [...adds, ...beverages], isHit ? `Sabor: ${hitFlavor}` : undefined)
     close()
   }
   // Closing takes back this page's history step; the «popstate» then calls onClose
@@ -172,7 +188,7 @@ export default function AddToCartModal({
     else onClose()
   }
   const handleCheckout = () => {
-    if (product.soldOut) return
+    if (orderProduct.soldOut) return
     handleAdd()
     onCheckout?.()
   }
@@ -198,7 +214,7 @@ export default function AddToCartModal({
   }, [])
   const zoomOpenRef = useRef(false)
   zoomOpenRef.current = !!zoomBeverage
-  const additionsCount = ADDITIONS.reduce((total, item) => total + (addQtys[item.name] || 0), 0)
+  const additionsCount = availableAdditions.reduce((total, item) => total + (addQtys[item.name] || 0), 0)
   const PAGE = dark ? "#151310" : "#F6EFDF"
   const SOFT = dark ? "rgba(244,238,220,0.04)" : "#fff"
   // Collapsible sections (like the delivery apps). Closed, each one says what was chosen
@@ -263,7 +279,6 @@ export default function AddToCartModal({
       </section>
     )
   }, [BORDER, TEXT, MUTED, openSecs, dark])
-  const additionsMoney = ADDITIONS.reduce((t, a) => t + (addQtys[a.name] || 0) * a.price, 0)
 
   // Quantity next to «Agregar», then «Finalizar compra»
   const actions = (
@@ -310,13 +325,13 @@ export default function AddToCartModal({
         <button
           type="button"
           onClick={addWithFeedback}
-          disabled={product.soldOut}
+          disabled={orderProduct.soldOut}
           className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-4 whitespace-nowrap rounded-full py-2.5 pl-5 pr-5 text-sm font-bold transition-[opacity,background-color] duration-200 hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55 sm:text-base [&_svg]:h-4 [&_svg]:w-4"
           style={{ background: added ? "#F3E2B6" : C.mustard, color: added ? "#3D2D16" : "#fff", boxShadow: `0 6px 16px ${C.mustard}40` }}
         >
           <span key={added ? "added" : "add"} className={`flex items-center gap-1.5 ${added ? "cart-added-pop" : ""}`}>
             {Ico.check}
-            {product.soldOut ? "Agotado" : initial ? "Guardar cambios" : added ? "Agregado" : "Agregar"}
+            {orderProduct.soldOut ? "Agotado" : initial ? "Guardar cambios" : added ? "Agregado" : "Agregar"}
           </span>
           <span className="font-price font-black tabular-nums">{fmt(total)}</span>
         </button>
@@ -325,7 +340,7 @@ export default function AddToCartModal({
         <button
           type="button"
           onClick={handleCheckout}
-          disabled={product.soldOut}
+          disabled={orderProduct.soldOut}
           className="w-full cursor-pointer whitespace-nowrap rounded-full px-4 py-2 text-sm font-bold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-55"
           style={{ border: `1.5px solid ${C.mustard}`, color: C.mustard, background: "transparent" }}
         >
@@ -396,7 +411,7 @@ export default function AddToCartModal({
               <h1 className="text-2xl font-black leading-tight tracking-tight sm:text-[1.8rem]" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>
                 {product.name}
               </h1>
-              <div className="font-price mt-1 text-2xl font-black tabular-nums" style={{ color: C.mustard }}>{product.priceStr}</div>
+              <div className="font-price mt-1 text-2xl font-black tabular-nums" style={{ color: C.mustard }}>{orderProduct.priceStr}</div>
               {product.desc && (
                 <p className="mt-2 text-sm leading-relaxed" style={{ color: dark ? "rgba(244,238,220,0.7)" : "rgba(30,30,30,0.65)" }}>
                   {product.desc}
@@ -422,6 +437,19 @@ export default function AddToCartModal({
               <div className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: C.mustard }}>Hazlo a tu gusto</div>
               <h2 className="mt-1 text-xl font-black leading-tight sm:text-2xl" style={{ color: TEXT, fontFamily: "League Spartan, sans-serif" }}>Personaliza tu pedido</h2>
             </div>
+            {megaGourmet && megaGourmetWithToppings && hasToppingOption && (
+              <label className="flex cursor-pointer items-center gap-3 border-t px-5 py-4 text-sm font-bold sm:px-6" style={{ borderColor: BORDER, color: TEXT }}>
+                <input
+                  type="checkbox"
+                  checked={withCheeseAndBacon}
+                  onChange={(event) => setWithCheeseAndBacon(event.target.checked)}
+                  className="size-4"
+                  style={{ accentColor: C.mustard }}
+                />
+                <span className="flex-1">Queso y tocineta</span>
+                <span style={{ color: C.mustard }}>+{fmt(megaGourmetWithToppings.price - megaGourmet.price)} por unidad</span>
+              </label>
+            )}
             {sodaParts && (() => {
               // A soda opened from the menu is already a flavour («Coca-Cola»): only its size is chosen here
               const [, flavor] = sodaParts
@@ -531,9 +559,9 @@ export default function AddToCartModal({
             )}
 
             {!isMenuExtra && (
-              <Section id="sec-additions" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5" /><path d="m3 17 9 5 9-5" /></svg>} title="Adiciones" hint={ADDITIONS.length ? `${ADDITIONS.length} opciones · desde +${fmt(Math.min(...ADDITIONS.map((a) => a.price)))}` : "Agrégale lo que quieras"} summary={additionsCount ? `${additionsCount} ${additionsCount === 1 ? "adición" : "adiciones"} · +${fmt(additionsMoney)}` : undefined} count={additionsCount ? `${additionsCount}` : undefined}>
+              <Section id="sec-additions" icon={<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m12 2 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5" /><path d="m3 17 9 5 9-5" /></svg>} title="Adiciones" hint={availableAdditions.length ? `${availableAdditions.length} opciones · desde +${fmt(Math.min(...availableAdditions.map((a) => a.price)))}` : "Agrégale lo que quieras"} summary={additionsCount ? `${additionsCount} ${additionsCount === 1 ? "adición" : "adiciones"} · +${fmt(addTotal)}` : undefined} count={additionsCount ? `${additionsCount}` : undefined}>
                 <div className="grid grid-cols-1 gap-1.5 min-[420px]:grid-cols-2 xl:grid-cols-3">
-                  {ADDITIONS.map((a) => {
+                  {availableAdditions.map((a) => {
                     const q = addQtys[a.name] || 0
                     const soldOut = a.stock != null && a.stock <= 0
                     return (
@@ -644,8 +672,8 @@ export default function AddToCartModal({
               <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.14em]" style={{ color: C.mustard }}>Tu pedido</div>
               <div className="space-y-1.5 text-sm" style={{ color: TEXT }}>
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="min-w-0 truncate font-semibold">{qty} × {product.name}</span>
-                  <span className="font-price tabular-nums">{fmt(product.price * qty)}</span>
+                  <span className="min-w-0 truncate font-semibold">{qty} × {orderProduct.name}</span>
+                  <span className="font-price tabular-nums">{fmt(orderProduct.price * qty)}</span>
                 </div>
                 {selSauces.length > 0 && (
                   <div className="flex items-baseline justify-between gap-3" style={{ color: MUTED }}>
@@ -656,7 +684,7 @@ export default function AddToCartModal({
                 {additionsCount > 0 && (
                   <div className="flex items-baseline justify-between gap-3" style={{ color: MUTED }}>
                     <span>{additionsCount} {additionsCount === 1 ? "adición" : "adiciones"}</span>
-                    <span className="tabular-nums">+{fmt(additionsMoney * qty)}</span>
+                    <span className="tabular-nums">+{fmt(addTotal * qty)}</span>
                   </div>
                 )}
                 {selectedBeverageCount > 0 && (

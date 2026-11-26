@@ -1,4 +1,31 @@
-import traditionalBurgerImg from "@/imports/traditional-burger.jpg"
+import traditionalBurgerImg from "@/imports/burguer tradicional.jpg"
+import miniBurgerImg from "@/imports/hamburguesa mini.jpg"
+import superMiniBurgerImg from "@/imports/burguer-super-mini.png"
+import simpleBurgerImg from "@/imports/burguer-sencilla.png"
+import doubleBurgerImg from "@/imports/burguer-doble.png"
+import chickenBurgerImg from "@/imports/burguer-de-pollo.png"
+import mixedBurgerImg from "@/imports/burguer-mixta.png"
+import tripleBurgerImg from "@/imports/burguer-triple.png"
+import arepaGourmetImg from "@/imports/arepa rellena.jpg"
+import arepaSencillaImg from "@/imports/arepa-sencilla.png"
+import arepaEspecialImg from "@/imports/arepa-especial.png"
+import arepaDesmechadaImg from "@/imports/arepa-desmechada.png"
+import pataconMixtoImg from "@/imports/patacon-mixto.png"
+import pataconRancheroImg from "@/imports/patacon-ranchero.png"
+import chuzoDeCerdoImg from "@/imports/chuzo-de-cerdo.png"
+import chuzoDePolloImg from "@/imports/chuzo de pollo.jpg"
+import superPerroImg from "@/imports/super-perro.png"
+import specialSalchipapaImg from "@/imports/salchipapas especial.png"
+import simpleSalchipapaImg from "@/imports/salchipapa-sencilla.png"
+import specialGourmetImg from "@/imports/especial gourmet.png"
+import personalGourmetImg from "@/imports/gourmet-personal.png"
+import superGourmetImg from "@/imports/super gourmet.jpg"
+import megaTraditionalImg from "@/imports/megatradicional.jpg"
+import granPerroImg from "@/imports/perro.jpg"
+import mediumHotDogImg from "@/imports/perro-mediano.png"
+import granPerraImg from "@/imports/gran-perra.png"
+import perraPequenaImg from "@/imports/perra-pequena.png"
+import superPerraImg from "@/imports/perra.jpg"
 import type { Product } from "@/shared/types"
 import { normalizeName } from "@/shared/utils/format"
 
@@ -103,7 +130,7 @@ export const PRODUCTS: Product[] = [
     desc: "Hamburguesa pequeña de la casa con salsa secreta.",
     price: 13000,
     priceStr: "$13.000",
-    img: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=500&h=400&fit=crop",
+    img: miniBurgerImg,
     cat: "hamburguesas",
     badge: "Favorita",
   },
@@ -113,7 +140,7 @@ export const PRODUCTS: Product[] = [
     desc: "Carne de la casa, vegetales frescos y salsas.",
     price: 14500,
     priceStr: "$14.500",
-    img: "https://images.unsplash.com/photo-1553979459-d2229ba7433b?w=500&h=400&fit=crop",
+    img: simpleBurgerImg,
     cat: "hamburguesas",
     badge: "",
   },
@@ -133,7 +160,7 @@ export const PRODUCTS: Product[] = [
     desc: "Porción mediana especial con carne y vegetales.",
     price: 15500,
     priceStr: "$15.500",
-    img: "https://images.unsplash.com/photo-1550547660-d9450f859349?w=500&h=400&fit=crop",
+    img: superMiniBurgerImg,
     cat: "hamburguesas",
     badge: "",
   },
@@ -143,7 +170,7 @@ export const PRODUCTS: Product[] = [
     desc: "Doble carne de la casa, queso y salsas especiales.",
     price: 18500,
     priceStr: "$18.500",
-    img: "https://images.unsplash.com/photo-1571091718767-18b5b1457add?w=500&h=400&fit=crop",
+    img: doubleBurgerImg,
     cat: "hamburguesas",
     badge: "Más Pedida",
   },
@@ -153,7 +180,7 @@ export const PRODUCTS: Product[] = [
     desc: "Triple carne de la casa, queso y salsas a elección.",
     price: 20500,
     priceStr: "$20.500",
-    img: "https://images.unsplash.com/photo-1586190848861-99aa4a171e90?w=500&h=400&fit=crop",
+    img: tripleBurgerImg,
     cat: "hamburguesas",
     badge: "",
   },
@@ -163,7 +190,7 @@ export const PRODUCTS: Product[] = [
     desc: "Pechuga de pollo jugosa, queso y salsas.",
     price: 17500,
     priceStr: "$17.500",
-    img: "https://images.unsplash.com/photo-1525059696034-4967a8e1dca2?w=500&h=400&fit=crop",
+    img: chickenBurgerImg,
     cat: "hamburguesas",
     badge: "",
   },
@@ -173,7 +200,7 @@ export const PRODUCTS: Product[] = [
     desc: "Combinación de carne y pollo con queso.",
     price: 20500,
     priceStr: "$20.500",
-    img: "https://images.unsplash.com/photo-1547584370-2cc98b8b8dc8?w=500&h=400&fit=crop",
+    img: mixedBurgerImg,
     cat: "hamburguesas",
     badge: "Nueva",
   },
@@ -183,7 +210,7 @@ export const PRODUCTS: Product[] = [
     desc: "Salchicha mediana, papitas fosforito y salsas.",
     price: 14500,
     priceStr: "$14.500",
-    img: "https://images.unsplash.com/photo-1619740455993-9e612b1af08a?w=500&h=400&fit=crop",
+    img: mediumHotDogImg,
     cat: "perros",
     badge: "",
   },
@@ -193,7 +220,7 @@ export const PRODUCTS: Product[] = [
     desc: "Salchicha grande, papitas y salsas variadas.",
     price: 15500,
     priceStr: "$15.500",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/45/Hot_dog_XXL.jpg/500px-Hot_dog_XXL.jpg",
+    img: granPerroImg,
     cat: "perros",
     badge: "",
   },
@@ -203,7 +230,7 @@ export const PRODUCTS: Product[] = [
     desc: "Salchicha especial, tocineta, queso y salsas.",
     price: 17500,
     priceStr: "$17.500",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b6/Hot_dog_gourmet.jpg/500px-Hot_dog_gourmet.jpg",
+    img: superPerroImg,
     cat: "perros",
     badge: "Favorito",
   },
@@ -213,7 +240,7 @@ export const PRODUCTS: Product[] = [
     desc: "Tocino/tocineta, queso y salsas.",
     price: 14500,
     priceStr: "$14.500",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/cb/Hot_dog_with_bacon_and_cheese_and_dressed_with_ketchup_and_mustard_from_Five_Guys_1.jpg/500px-Hot_dog_with_bacon_and_cheese_and_dressed_with_ketchup_and_mustard_from_Five_Guys_1.jpg",
+    img: perraPequenaImg,
     cat: "perras",
     badge: "",
   },
@@ -223,7 +250,7 @@ export const PRODUCTS: Product[] = [
     desc: "Porción grande de tocineta, queso y salsas.",
     price: 15500,
     priceStr: "$15.500",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/7/70/Texas_Tommy_from_Ishkabibble%27s%2C_Philadelphia.jpg/500px-Texas_Tommy_from_Ishkabibble%27s%2C_Philadelphia.jpg",
+    img: granPerraImg,
     cat: "perras",
     badge: "",
   },
@@ -233,7 +260,7 @@ export const PRODUCTS: Product[] = [
     desc: "Tocineta extra, queso gratinado y salsas de la casa.",
     price: 17600,
     priceStr: "$17.600",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/49/Chili_dog_topped_with_bacon.jpg/500px-Chili_dog_topped_with_bacon.jpg",
+    img: superPerraImg,
     cat: "perras",
     badge: "Especial",
   },
@@ -243,7 +270,7 @@ export const PRODUCTS: Product[] = [
     desc: "Papas a la francesa doradas y salchicha premium.",
     price: 13000,
     priceStr: "$13.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9e/Salchipapas_20220704_121159.jpg/500px-Salchipapas_20220704_121159.jpg",
+    img: simpleSalchipapaImg,
     cat: "salchipapas",
     badge: "",
   },
@@ -253,7 +280,7 @@ export const PRODUCTS: Product[] = [
     desc: "Papas, salchicha, queso fundido y tocineta crujiente.",
     price: 16000,
     priceStr: "$16.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/0/0c/Salchipapa_Jaime.jpg/500px-Salchipapa_Jaime.jpg",
+    img: specialSalchipapaImg,
     cat: "salchipapas",
     badge: "",
   },
@@ -263,7 +290,7 @@ export const PRODUCTS: Product[] = [
     desc: "Papas, salchicha, 3 huevos, 1 nugget, queso, carne y tocineta.",
     price: 20000,
     priceStr: "$20.000",
-    img: "https://upload.wikimedia.org/wikipedia/commons/8/81/Salchipapa_especial.jpg",
+    img: megaTraditionalImg,
     cat: "salchipapas",
     badge: "Mega",
   },
@@ -273,7 +300,7 @@ export const PRODUCTS: Product[] = [
     desc: "Papas, salchicha, 3 huevos, pollo, cerdo, jamón, maicitos y queso.",
     price: 23000,
     priceStr: "$23.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/e/ea/Salchipapa_Coste%C3%B1o.jpg/500px-Salchipapa_Coste%C3%B1o.jpg",
+    img: specialGourmetImg,
     cat: "salchipapas",
     badge: "Gourmet",
   },
@@ -293,7 +320,7 @@ export const PRODUCTS: Product[] = [
     desc: "Porción personal gourmet con carnes mixtas y maicitos.",
     price: 20500,
     priceStr: "$20.500",
-    img: "https://upload.wikimedia.org/wikipedia/commons/5/5c/Salchipapas_Plaza_de_Armas.jpg",
+    img: personalGourmetImg,
     cat: "salchipapas",
     badge: "",
   },
@@ -303,7 +330,7 @@ export const PRODUCTS: Product[] = [
     desc: "Papas, salchicha, pollo, jamón, maicitos, queso, tocineta y carne.",
     price: 33000,
     priceStr: "$33.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/65/Salchipapa_Coste%C3%B1o_4.jpg/500px-Salchipapa_Coste%C3%B1o_4.jpg",
+    img: superGourmetImg,
     cat: "salchipapas",
     badge: "Super",
   },
@@ -313,7 +340,7 @@ export const PRODUCTS: Product[] = [
     desc: "Pollo, arepa artesanal, ensalada fresca y papas.",
     price: 19000,
     priceStr: "$19.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/c/c2/Skewered_Chicken_Thighs.jpg/500px-Skewered_Chicken_Thighs.jpg",
+    img: chuzoDePolloImg,
     cat: "chuzos",
     badge: "",
   },
@@ -323,7 +350,7 @@ export const PRODUCTS: Product[] = [
     desc: "Cerdo a la parrilla, arepa, ensalada y papas.",
     price: 19000,
     priceStr: "$19.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/6/61/DFC_4715_Sizzling_skewers_of_grilled_pork_served_with_crispy_fries_and_a_cool_tzatziki_dip_-_comfort_food_done_right.jpg/500px-DFC_4715_Sizzling_skewers_of_grilled_pork_served_with_crispy_fries_and_a_cool_tzatziki_dip_-_comfort_food_done_right.jpg",
+    img: chuzoDeCerdoImg,
     cat: "chuzos",
     badge: "",
   },
@@ -333,7 +360,7 @@ export const PRODUCTS: Product[] = [
     desc: "Res, pollo, cerdo, queso, tocineta o salchicha.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/f/f5/Tostones_con_salami.jpg/500px-Tostones_con_salami.jpg",
+    img: pataconMixtoImg,
     cat: "patacones",
     badge: "",
   },
@@ -343,7 +370,7 @@ export const PRODUCTS: Product[] = [
     desc: "Estilo ranchero con todos los toppings de la casa.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a6/Tostones_rellenos_con_camarones.jpg/500px-Tostones_rellenos_con_camarones.jpg",
+    img: pataconRancheroImg,
     cat: "patacones",
     badge: "",
   },
@@ -353,7 +380,7 @@ export const PRODUCTS: Product[] = [
     desc: "Arepa artesanal con carne y salsas de la casa.",
     price: 14000,
     priceStr: "$14.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/48/Chorizo_Arepa.jpg/500px-Chorizo_Arepa.jpg",
+    img: arepaSencillaImg,
     cat: "arepa-rellena",
     badge: "",
   },
@@ -363,7 +390,7 @@ export const PRODUCTS: Product[] = [
     desc: "Arepa con carne, queso y adiciones seleccionadas.",
     price: 15000,
     priceStr: "$15.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a7/Bacon_%26_Fried_Onion_Arepa.jpg/500px-Bacon_%26_Fried_Onion_Arepa.jpg",
+    img: arepaEspecialImg,
     cat: "arepa-rellena",
     badge: "",
   },
@@ -373,7 +400,7 @@ export const PRODUCTS: Product[] = [
     desc: "Arepa con carne gourmet, queso especial y tocineta.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://upload.wikimedia.org/wikipedia/commons/d/d9/Colombian_Food%2C_Arepas.jpg",
+    img: arepaGourmetImg,
     cat: "arepa-rellena",
     badge: "Gourmet",
   },
@@ -383,27 +410,7 @@ export const PRODUCTS: Product[] = [
     desc: "Arepa con carne desmechada especial de la casa.",
     price: 18000,
     priceStr: "$18.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/d/d8/Arepa_de_carne_mechada.jpg/500px-Arepa_de_carne_mechada.jpg",
-    cat: "arepa-rellena",
-    badge: "",
-  },
-  {
-    id: 31,
-    name: "Rellena Pollo/Res",
-    desc: "Rellena de pollo, cerdo o res a elección.",
-    price: 18000,
-    priceStr: "$18.000",
-    img: "https://thumb.wikimedia.org/wikipedia/commons/thumb/4/45/El_Humero_-_arepa_rellena.jpg/500px-El_Humero_-_arepa_rellena.jpg",
-    cat: "arepa-rellena",
-    badge: "",
-  },
-  {
-    id: 32,
-    name: "Rellena Q+Tocineta",
-    desc: "Rellena de queso fundido y tocineta crujiente.",
-    price: 18000,
-    priceStr: "$18.000",
-    img: "https://upload.wikimedia.org/wikipedia/commons/f/fb/Tri-rellena.jpg",
+    img: arepaDesmechadaImg,
     cat: "arepa-rellena",
     badge: "",
   },
@@ -412,6 +419,10 @@ export const PRODUCTS: Product[] = [
 export const MENU_EXTRAS: Product[] = []
 
 export const allMenuProducts = () => [...PRODUCTS, ...MENU_EXTRAS]
+
+export const isMegaGourmetWithToppings = (product: Product) =>
+  product.cat === "salchipapas" &&
+  /^(?:salchipapa )?mega gourmet \(?(?:q\s*\+\s*t|queso y tocineta)\)?$/.test(normalizeName(product.name))
 
 // icon: the paths of a line icon (drawn with aboutIcon), no emojis
 // Category icons: line drawings on a 24×24 grid (stroke from aboutIcon), one per dish

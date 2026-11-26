@@ -69,15 +69,29 @@ type AddressDraft = { parts: CheckoutAddressParts; neighborhoodQuery: string | n
 
 // The payment method's mark: cash, or the bank app the transfer is made from
 function PaymentMethodIcon({ method }: { method: string }) {
-  const look: Record<string, { color: string; background: string; icon: React.ReactNode }> = {
-    Efectivo: { color: C.forest, background: `${C.forest}14`, icon: Ico.cash },
-    Nequi: { color: "#B5006B", background: "#DA008114", icon: Ico.phone },
-    Bancolombia: { color: "#2C2A29", background: "#FDDA2440", icon: Ico.phone },
-  }
-  const { color, background, icon } = look[method] ?? { color: C.mustard, background: `${C.mustard}14`, icon: Ico.cash }
   return (
-    <span aria-hidden="true" className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl" style={{ color, background }}>
-      {icon}
+    <span
+      className="flex size-10 shrink-0 items-center justify-center rounded-xl"
+      style={method === "Bancolombia" || method === "Nequi"
+        ? { color: "#292625", background: "#F5F5F5" }
+        : { color: "#B48208", background: "#FAF1D7" }}
+      aria-hidden="true"
+    >
+      {method === "Bancolombia" ? (
+        <svg viewBox="0 0 32 32" width="25" height="25" fill="currentColor">
+          <path d="M7.1 6.6c5-1.6 11.4-3 16-3.5.7-.1 1.3.3 1.5 1l1.1 3.2c.3.8-.1 1.3-.8 1.4-5.7 1-11.2 2.3-16.4 4-.7.2-1.2 0-1.4-.7L6 8.5c-.2-.8.2-1.6 1.1-1.9ZM3 17.4c7.3-3.1 15.3-5.3 24.4-6.8.8-.1 1.5.2 1.7 1l1 3.4c.2.7-.1 1.2-.9 1.4-8.7 1.5-16.9 4-24.4 7.2-.7.3-1.3 0-1.5-.7L2.2 19c-.2-.7.1-1.3.8-1.6Zm8.8 7c5.1-1.9 10.5-3.4 15.8-4.6.8-.2 1.3.1 1.5.9l1 3.4c.2.7-.2 1.2-.8 1.4-5.7 1.2-10.4 2.6-15.5 4.7-.8.3-1.4 0-1.6-.8L11 26c-.2-.7.1-1.3.8-1.6Z" />
+        </svg>
+      ) : method === "Nequi" ? (
+        <svg viewBox="0 0 32 32" width="25" height="25">
+          <rect x="2" y="5" width="5.5" height="5" rx="1" fill="#DA0081" />
+          <path d="M11 5h5.4a1 1 0 0 1 .85.48l7.35 12.1V6a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v21a1 1 0 0 1-1 1h-5.2a1 1 0 0 1-.85-.48L15 15.2V27a1 1 0 0 1-1 1h-3a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" fill="#240820" />
+        </svg>
+      ) : (
+        <svg viewBox="0 0 32 32" width="25" height="25" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+          <circle cx="16" cy="16" r="13" />
+          <path d="M20 11.5c-.6-1.4-2-2.3-4-2.3-2.3 0-4 1.3-4 3.1 0 4.4 8 2.4 8 6.8 0 1.8-1.7 3.1-4 3.1-2 0-3.5-.9-4.1-2.4M16 7.5v16.2" />
+        </svg>
+      )}
     </span>
   )
 }
@@ -1332,11 +1346,11 @@ export default function CheckoutPage({
                     ))}
                   </div>
                   {isDelivery && (
-                    <div className="mt-3">
-                    <section className="mb-3 rounded-2xl border px-3 py-2.5" style={{ background: "#FFFCF5", borderColor: LINE }}>
+                    <div className="mt-2">
+                    {(!!user.addresses?.length || previousAddress) && (
+                    <section className="mb-2 rounded-2xl border px-3 py-2" style={{ background: "#FFFCF5", borderColor: LINE }}>
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <h3 className="text-sm font-bold">Direcciones guardadas</h3>
-                        {(!!user.addresses?.length || previousAddress) && (
                           <button
                             type="button"
                             onClick={() => chooseAddress(EMPTY_CHECKOUT_ADDRESS_PARTS, true)}
@@ -1345,13 +1359,8 @@ export default function CheckoutPage({
                           >
                             Escribir otra dirección
                           </button>
-                        )}
                       </div>
-                      {!user.addresses?.length && !previousAddress && (
-                        <p className="mt-1 text-xs" style={{ color: MUTED }}>Aún no tienes direcciones guardadas.</p>
-                      )}
-                      {(!!user.addresses?.length || previousAddress) && (
-                        <div className="mt-2 flex flex-wrap gap-2">
+                        <div className="mt-1 flex flex-wrap gap-1.5">
                           {[...new Set(user.addresses ?? [])].map((address) => {
                             const parts = addressPartsFromAddress(address)
                             const label = savedAddressLabels[addressLabelKey(address)]
@@ -1387,12 +1396,12 @@ export default function CheckoutPage({
                             </button>
                           )}
                         </div>
-                      )}
                     </section>
+                    )}
                     {editingAddress && (
-                      <fieldset className="mb-3">
-                        <legend className="mb-1.5 text-xs font-semibold">Tipo de dirección</legend>
-                        <div className="flex flex-wrap gap-2">
+                      <div className="mb-2" role="group" aria-labelledby="checkout-address-type">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span id="checkout-address-type" className="text-xs font-semibold">Tipo de dirección</span>
                           {addressLabels.map((label) => (
                             <label
                               key={label}
@@ -1433,7 +1442,7 @@ export default function CheckoutPage({
                             />
                           </label>
                         )}
-                      </fieldset>
+                      </div>
                     )}
                     {!editingAddress && (
                       <div className="mb-1 flex items-center justify-between gap-3">

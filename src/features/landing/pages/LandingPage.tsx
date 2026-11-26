@@ -281,8 +281,8 @@ export default function LandingPage({
           />
           {cartCount > 0 && (
             <div
-              className="mt-6 flex items-center justify-between gap-3 rounded-[2rem] px-4 py-4 sm:rounded-full sm:px-6"
-              style={{ background: "var(--brand-gold)", color: "var(--brand-gold-ink)" }}
+              className="mt-6 flex w-fit max-w-full items-center justify-between gap-3 rounded-[2rem] px-4 py-4 text-black sm:gap-5 sm:rounded-full sm:px-6"
+              style={{ background: "var(--brand-gold)" }}
             >
               <div className="flex items-center gap-3">
                 <span className="inline-flex">{Ico.shopping}</span>

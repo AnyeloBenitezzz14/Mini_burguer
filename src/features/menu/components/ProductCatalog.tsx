@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState } from "react"
 import { aboutIcon } from "@/features/landing/utils/aboutIcons"
-import { MENU_CATS, SODA_RE, allMenuProducts, beverageImage, sizeMl } from "@/features/menu/data/products"
+import { MENU_CATS, SODA_RE, allMenuProducts, beverageImage, isMegaGourmetWithToppings, sizeMl } from "@/features/menu/data/products"
+import arepaGourmetImg from "@/imports/arepa rellena.jpg"
+import megaTraditionalImg from "@/imports/megatradicional.jpg"
+import personalGourmetImg from "@/imports/gourmet-personal.png"
+import simpleSalchipapaImg from "@/imports/salchipapa-sencilla.png"
+import specialSalchipapaImg from "@/imports/salchipapas especial.png"
+import superGourmetImg from "@/imports/super gourmet.jpg"
+import megaGourmetImg from "@/imports/especial gourmet.png"
+import pataconMixtoImg from "@/imports/patacon-mixto.png"
 import { visiblePaginationPages } from "@/features/menu/utils/pagination"
 import { Ico } from "@/shared/components/icons"
 import { ITEMS_PER_PAGE } from "@/shared/constants"
 import { C } from "@/shared/styles/theme"
 import type { Product } from "@/shared/types"
-import { fmt } from "@/shared/utils/format"
+import { fmt, normalizeName } from "@/shared/utils/format"
 import { STORE_HOURS_LABEL, isStoreOpen, nextOpeningLabel } from "@/shared/utils/storeHours"
 
 // ── Product Catalog Grid (shared, landing + client) ────────────────────────────
@@ -61,7 +69,9 @@ export default function ProductCatalog({
   // stock, and the window lets you pick the others
   const sodaCardOpens = new Map<Product, Product>()
   const catalogProducts = allMenuProducts()
-    .filter((product) => !["adiciones", "salsas"].includes(product.cat) && !product.soldOut)
+    .filter((product) =>
+      !["adiciones", "salsas"].includes(product.cat) && !product.soldOut && !isMegaGourmetWithToppings(product),
+    )
     .flatMap((product) => {
       const soda = SODA_RE.exec(product.name)
       if (!soda) return [product]
@@ -86,18 +96,34 @@ export default function ProductCatalog({
         p.name.toLowerCase().includes(search.toLowerCase()) ||
         p.desc.toLowerCase().includes(search.toLowerCase())),
   )
+  const sortedProducts = [...filtered]
+  const orderProducts = (category: Product["cat"], names: string[]) => {
+    const slots: number[] = []
+    const ranked: { product: Product; rank: number }[] = []
+    sortedProducts.forEach((product, index) => {
+      if (product.cat !== category) return
+      const rank = names.indexOf(normalizeName(product.name))
+      slots.push(index)
+      ranked.push({ product, rank: rank === -1 ? names.length : rank })
+    })
+    ranked.sort((a, b) => a.rank - b.rank).forEach(({ product }, index) => {
+      sortedProducts[slots[index]] = product
+    })
+  }
+  orderProducts("arepa-rellena", ["arepa sencilla", "arepa gourmet", "arepa especial", "arepa desmechada"])
+  orderProducts("perras", ["perra pequena", "super perra", "gran perra"])
   const showCategoryPreview = activeCat === "todos" && !search
   const representatives = new Map<Product["cat"], Product>()
   if (showCategoryPreview) {
-    for (const product of filtered) {
+    for (const product of sortedProducts) {
       const current = representatives.get(product.cat)
       if (!current || (!current.img && product.img)) representatives.set(product.cat, product)
     }
   }
   const featuredProducts = [...representatives.values()]
   const orderedProducts = showCategoryPreview
-    ? [...featuredProducts, ...filtered.filter((product) => representatives.get(product.cat) !== product)]
-    : filtered
+    ? [...featuredProducts, ...sortedProducts.filter((product) => representatives.get(product.cat) !== product)]
+    : sortedProducts
   const pageSize = Math.max(ITEMS_PER_PAGE, featuredProducts.length)
   const shouldPaginate = paginate && showCategoryPreview && orderedProducts.length > pageSize
   const totalPages = Math.ceil(orderedProducts.length / pageSize)
@@ -128,10 +154,12 @@ export default function ProductCatalog({
           for (const c of cats) {
             if (c.id === "todos") continue
             // Drinks are pictured by a Coca-Cola (the bundled personal bottle if its product has no photo)
-            const pick =
+            const categoryPhoto = c.id === "arepa-rellena" ? arepaGourmetImg : c.id === "salchipapas" ? megaTraditionalImg : undefined
+            const pick = categoryPhoto ?? (
               c.id === "bebidas"
                 ? catalogProducts.find((p) => p.cat === "bebidas" && /coca-cola/i.test(p.name) && p.img)?.img ?? beverageImage("Coca-Cola", "Personal")
                 : catalogProducts.find((p) => p.cat === c.id && p.img && !used.has(p.img))?.img
+            )
             if (pick) used.add(pick)
             if (c.id === cat.id) { photo = pick; break }
           }
@@ -267,13 +295,32 @@ export default function ProductCatalog({
             }}
               onClick={() => openProduct(p)}
           >
-            {p.img && (
+            {p.img && ([personalGourmetImg, simpleSalchipapaImg, specialSalchipapaImg, pataconMixtoImg].includes(p.img) ||
+              normalizeName(p.name) === "gran perra" ? (
+              <div className={`absolute inset-0 overflow-hidden ${p.img === specialSalchipapaImg ? "bg-[#E2BE99]" : "bg-[#2A2420]"}`}>
+                {p.img !== specialSalchipapaImg && (
+                  <img
+                    src={p.img}
+                    alt=""
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-70 blur-2xl"
+                  />
+                )}
+                <img
+                  src={p.img}
+                  alt={p.name}
+                  className={`relative block h-full w-full object-contain ${p.img === specialSalchipapaImg ? "" : "drop-shadow-[0_18px_24px_rgba(0,0,0,0.45)]"} ${compact ? "pb-7" : "pb-10"}`}
+                />
+              </div>
+            ) : (
               <img
                 src={p.img}
                 alt={p.name}
-                className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                className={`absolute inset-0 h-full w-full object-cover ${[superGourmetImg, megaGourmetImg].includes(p.img)
+                  ? "object-[center_88%]"
+                  : "transition-transform duration-500 group-hover:scale-105"}`}
               />
-            )}
+            ))}
             <div
               className={`absolute bottom-0 left-0 right-0 ${compact ? "px-2 py-1.5" : "px-3 py-2.5"}`}
               style={{ background: C.mustard, color: "#fff" }}
