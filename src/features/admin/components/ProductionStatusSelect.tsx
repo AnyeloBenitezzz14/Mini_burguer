@@ -19,7 +19,7 @@ export default function ProductionStatusSelect(adminState: AdminPanelState, { ro
   const statusColor =
     value === "Producto no conforme"
       ? C.red
-      : value === "Finalizada"
+      : value === "Entregado" || value === "En camino"
         ? "#2E7D60"
         : value === "En cocina"
           ? C.mustard
@@ -49,18 +49,18 @@ export default function ProductionStatusSelect(adminState: AdminPanelState, { ro
         }}
         className="h-9 w-full min-w-0 appearance-none rounded-xl py-2 pl-7 pr-7 text-xs font-semibold outline-none disabled:cursor-not-allowed disabled:opacity-60"
         style={{
-          background: value === "Producto no conforme" ? `${C.red}10` : value === "Finalizada" ? "rgba(58,109,94,0.10)" : t.input,
+          background: value === "Producto no conforme" ? `${C.red}10` : value === "Entregado" || value === "En camino" ? "rgba(58,109,94,0.10)" : t.input,
           border: `1px solid ${value === "Producto no conforme" ? `${C.red}30` : t.inputB}`,
           color: statusColor,
           fontFamily: "DM Sans, sans-serif",
         }}
       >
-        {/* Recibido → Confirmado → En cocina → Finalizada: the current one and every one ahead (never back) */}
+        {/* Recibido → Confirmado → En cocina → En camino → Entregado: the current one and every one ahead (never back) */}
         {(value === "Producto no conforme"
           ? [value]
           : [
               value,
-              ...(value === "Finalizada"
+              ...(value === "Entregado"
                 ? []
                 : PRODUCTION_STATUSES.slice(PRODUCTION_STATUSES.indexOf(value) + 1).filter((status) => status !== "Producto no conforme")),
               ...(value !== "Recibido" ? ["Producto no conforme" as const] : []),

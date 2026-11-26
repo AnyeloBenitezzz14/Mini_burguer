@@ -490,7 +490,7 @@ export default function GenericTable(adminState: AdminPanelState): ReactNode {
         !(section === "compras" && !isStatusActive(rows.compras?.[rowIndex]?.[5])) &&
         // Once the kitchen has it, the order's products can't change
         !(section === "pedidos" && !["Por confirmar", "Pendiente", "Recibido"].includes(String(orderRow?.[7] ?? ""))) &&
-        // From a pedido: editable only while «Recibido»; made by hand: until it goes «En cocina»
+        // Editable until it goes «En cocina»
         !(section === "produccion" && isProductionEditLocked(rows.produccion?.[rowIndex])) ? (
           <button
             type="button"

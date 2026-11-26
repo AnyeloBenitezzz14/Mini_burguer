@@ -5497,7 +5497,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     {[
                       ["Recibido · Confirmado", "Todavía puedes editar los productos."],
                       ["En cocina", "Se descuentan los insumos de cada ficha técnica. Si falta stock, no deja avanzar."],
-                      ["Finalizada", "Lo preparado entra al inventario."],
+                      ["En camino · Entregado", "Salió de cocina: lo preparado entra al inventario. Su pedido y su venta pasan al mismo estado."],
                     ].map(([state, what], index) => (
                       <li key={state} className="flex gap-2.5 rounded-lg px-3 py-2" style={{ background: t.card }}>
                         <span
@@ -6031,7 +6031,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 </div>
                 <div className="flex min-w-0 flex-col gap-3">
                   <div className="grid grid-cols-2 gap-2">
-                    {info("Estado", status, status === "Producto no conforme" ? C.red : status === "Finalizada" ? "#2E7D60" : t.text)}
+                    {info("Estado", status, status === "Producto no conforme" ? C.red : ["En camino", "Entregado"].includes(status) ? "#2E7D60" : t.text)}
                     {info(orderCode ? "Pedido" : "Prioridad", orderCode || `#${String(row[3] ?? "—")}`)}
                     {info("Creada", `${shortDate(row[4])} · ${shortTime(row[5])}`)}
                     {info("Actualizada", `${shortDate(row[6])} · ${shortTime(row[7])}`)}
@@ -6275,7 +6275,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             {productionOrders.map((order) => (
                               <div key={String(order[0])} className="flex items-center justify-between gap-2 text-sm">
                                 <span style={{ color: t.text }}>{String(order[0])}</span>
-                                {badge(String(order[8] || "Recibido"), String(order[8]) === "Finalizada", String(order[8]) === "Producto no conforme")}
+                                {badge(String(order[8] || "Recibido"), ["En camino", "Entregado"].includes(String(order[8])), String(order[8]) === "Producto no conforme")}
                               </div>
                             ))}
                           </div>

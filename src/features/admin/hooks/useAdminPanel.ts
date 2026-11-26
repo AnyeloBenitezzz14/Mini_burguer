@@ -324,6 +324,25 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     if (produccion !== rows.produccion) setRows((current) => ({ ...current, produccion }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedSections, rows.pedidos, rows.produccion, rows.producto])
+  // Another panel (or the server) changed production, orders or sales: reload that module at once (a burst of
+  // changes reloads once). The order's own rows come from the store orders App refreshes itself
+  useEffect(() => {
+    const timers: Record<string, number> = {}
+    const onChange = (event: Event) => {
+      const module = String((event as CustomEvent).detail)
+      const sections = module === "pedidos" ? ["pedidos", "ventas"] : module === "produccion" ? ["produccion"] : module === "ventas" ? ["ventas"] : []
+      for (const sec of sections) {
+        window.clearTimeout(timers[sec])
+        timers[sec] = window.setTimeout(() => { if (panelLoaded.current[sec]) loadPanel(sec) }, 400)
+      }
+    }
+    window.addEventListener("panel-change", onChange)
+    return () => {
+      window.removeEventListener("panel-change", onChange)
+      Object.values(timers).forEach((timer) => window.clearTimeout(timer))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // Real low-stock alerts from the active insumos, before the order ones
   const notifications: AdminNotification[] = [
     ...(rows.insumos || []).flatMap((r, i) =>
@@ -565,8 +584,12 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       .then((records) => {
         const dbRows = records.map((r) => {
           const row = withPanelId(sec === "ventas" ? fixShiftedSale(r.datos_panel) : r.datos_panel, spec.idIndex, r.id)
-          // Older production orders ended in «En camino»/«Entregado»: production now ends in «Finalizada»
-          if (sec === "produccion" && ["En camino", "Entregado"].includes(String(row[8]))) row[8] = "Finalizada"
+          // Orders left «Finalizada» (when production ended there) are out of the kitchen: their order's step, else delivered
+          if (sec === "produccion" && String(row[8]) === "Finalizada") {
+            const code = String(row[15] ?? "")
+            const orderStatus = String(loadOrders().find((o) => o.id === code)?.status ?? rows.pedidos?.find((o) => String(o[0]) === code)?.[7] ?? "")
+            row[8] = orderStatus === "En camino" ? "En camino" : "Entregado"
+          }
           // Returns saved before the total and the status existed: every cell in place (else the table shifts)
           if (sec === "devoluciones") {
             if (row[8] === undefined || row[8] === "") {
@@ -1373,9 +1396,9 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       (order) => String(order[15] ?? "") === orderCode && String(order[8]) !== "Producto no conforme",
     )
     if (!orders.length) return `El pedido ${orderCode} no tiene orden de producción terminada.`
-    const pending = orders.find((order) => String(order[8]) !== "Finalizada")
+    const pending = orders.find((order) => !["En camino", "Entregado"].includes(String(order[8])))
     return pending
-      ? `La orden de producción ${String(pending[0])} del pedido ${orderCode} está en «${String(pending[8] || "Recibido")}»: solo se puede devolver cuando esté «Finalizada».`
+      ? `La orden de producción ${String(pending[0])} del pedido ${orderCode} está en «${String(pending[8] || "Recibido")}»: solo se puede devolver cuando haya salido de cocina.`
       : ""
   }
   const getManagedFieldError = (
@@ -2512,7 +2535,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       newRow[6] = previousRow?.[6] ?? currentDateTime.date
       newRow[7] = previousRow?.[7] ?? currentDateTime.time
       newRow[8] = previousRow?.[8] ?? "Recibido"
-      if (String(newRow[8]) === "Finalizada") {
+      if (["En camino", "Entregado"].includes(String(newRow[8]))) {
         newRow[9] = previousRow?.[9] || `${currentDateTime.date} ${currentDateTime.time}`
         newRow[10] = previousRow?.[10] || 1
       } else {
@@ -2655,7 +2678,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         const produccion = (current.produccion || []).map((order) => {
           if (
             String(order[15] ?? "") !== String(newRow[0]) ||
-            ["En cocina", "Finalizada", "Producto no conforme"].includes(String(order[8]))
+            ["En cocina", "En camino", "Entregado", "Producto no conforme"].includes(String(order[8]))
           ) return order
           const updatedOrder = [...order]
           updatedOrder[1] = productionLabel(pedidoOrderLines)
@@ -3375,9 +3398,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   const ORDER_TO_PRODUCTION: Record<string, (typeof PRODUCTION_STATUSES)[number]> = {
     Confirmado: "Confirmado",
     "En cocina": "En cocina",
-    // Production ends when the kitchen finishes; delivery is the order's own business
-    "En camino": "Finalizada",
-    Entregado: "Finalizada",
+    "En camino": "En camino",
+    Entregado: "Entregado",
   }
   // Choosing the current status again still catches up production that fell behind
   const setOrderPayment = (orderIndex: number, status: string) => {
@@ -3419,12 +3441,12 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       return { ...current, pedidos, ventas }
     })
   }
-  const setClientOrderStatus = async (orderIndex: number, status: string) => {
+  const setClientOrderStatus = async (orderIndex: number, status: string, fromProduction = false) => {
     const order = rows.pedidos?.[orderIndex]
     if (!order) return
     const orderId = String(order[0])
     // Move the order's production first; "En cocina" takes the supplies out of the stock
-    const target = ORDER_TO_PRODUCTION[status]
+    const target = fromProduction ? undefined : ORDER_TO_PRODUCTION[status]
     const hasProductionOrder =
       (rows.produccion || []).some((r) => String(r[15] ?? "") === orderId) ||
       !!loadOrders().find((o) => o.id === orderId)?.productionRecords?.length
@@ -3475,7 +3497,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       for (const [index, row] of (rows.produccion || []).entries()) {
         if (!codes.has(String(row[0])) || rank(String(row[8])) >= rank(target) || row[8] === "Producto no conforme") continue
         // changeProductionStatus already told the admin why (stock, ficha técnica...)
-        if (!(await changeProductionStatus(index, target))) return
+        if (!(await changeProductionStatus(index, target, false))) return
       }
     }
     if (String(order[7]) === status) return
@@ -3907,13 +3929,15 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   const changeProductionStatus = async (
     rowIndex: number,
     nextStatus: (typeof PRODUCTION_STATUSES)[number],
+    // false when the order itself is changing (it moves its production order, not the other way round)
+    followOrder = true,
   ): Promise<boolean> => {
     if (!canDo("produccion", "EDITAR")) return false
     const sourceRow = rows.produccion?.[rowIndex]
     if (!sourceRow) return false
     if (String(sourceRow[8]) === nextStatus) return true
     // Supplies leave the stock once, when the order reaches «En cocina» (or jumps past it, e.g. straight to
-    // «Finalizada» when its pedido is sent); the backend refuses a second time for the same order
+    // «En camino»); the backend refuses a second time for the same order
     const rankOf = (status: string) => PRODUCTION_STATUSES.indexOf(status as (typeof PRODUCTION_STATUSES)[number])
     const consumeStock =
       nextStatus !== "Producto no conforme" && rankOf(nextStatus) >= rankOf("En cocina") && String(sourceRow[14]) !== "Sí"
@@ -3928,7 +3952,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const requiredSupplies = consumeStock ? (productionNeeds(sourceRow) as { needs: Map<string, { quantity: number; unit: string }> }).needs : new Map<string, { quantity: number; unit: string }>()
     // A producto de insumo (e.g. a house sauce) that's ready: what was prepared goes into its stock, once per order.
     // Only an order made to prepare it (not a pedido serving it) adds to its stock
-    const finishing = nextStatus === "Finalizada" && String(sourceRow[8]) !== "Finalizada" && !isPedidoProduction(sourceRow)
+    const outOfKitchen = (status: string) => ["En camino", "Entregado"].includes(status)
+    const finishing = outOfKitchen(nextStatus) && !outOfKitchen(String(sourceRow[8])) && !isPedidoProduction(sourceRow)
     const prepared = new Map<string, number>()
     if (finishing) {
       for (const item of getProductionOrderItems(sourceRow)) {
@@ -3956,8 +3981,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     updatedRow[12] = JSON.stringify(history)
     updatedRow[11] = nextStatus !== "Recibido" || String(sourceRow[11]).toLowerCase() === "sí" ? "Sí" : "No"
     if (consumeStock) updatedRow[14] = "Sí"
-    if (nextStatus === "Finalizada") {
-      if (String(sourceRow[8]) !== "Finalizada") {
+    if (outOfKitchen(nextStatus)) {
+      if (!outOfKitchen(String(sourceRow[8]))) {
         updatedRow[9] = `${currentDateTime.date} ${realTime}`
         updatedRow[10] = Math.max(0, ...(rows.produccion || []).map((row) => Number(row[10]) || 0)) + 1
       }
@@ -4033,20 +4058,19 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         productionRows.push(restartedOrder)
       }
 
-      const orderCode = String(sourceRow[15] ?? "")
-      const orderStatus = ({ Confirmado: "Confirmado", "En cocina": "En cocina" } as Record<string, string>)[nextStatus]
-      const orderFlow = ["Por confirmar", "Recibido", "Confirmado", "En cocina", "En camino", "Entregado"]
-      const pedidos = orderCode && orderStatus
-        ? (current.pedidos || []).map((order) => {
-            if (String(order[0]) !== orderCode || orderFlow.indexOf(String(order[7] || "Recibido")) >= orderFlow.indexOf(orderStatus) || String(order[7]) === "Cancelado")
-              return order
-            const updated = [...order]
-            updated[7] = orderStatus
-            return updated
-          })
-        : current.pedidos
-      return { ...current, produccion: productionRows, pedidos, ...(supplies ? { insumos: supplies } : {}) }
+      return { ...current, produccion: productionRows, ...(supplies ? { insumos: supplies } : {}) }
     })
+    // Its order (and the order's sale) goes to the same status, forward only: payment at delivery, the client's
+    // copy and the emails too, exactly as if the order had been changed
+    const orderCode = String(sourceRow[15] ?? "")
+    const orderIndex = (rows.pedidos || []).findIndex((order) => String(order[0]) === orderCode)
+    const orderFlow = ["Por confirmar", "Recibido", "Confirmado", "En cocina", "En camino", "Entregado"]
+    const order = rows.pedidos?.[orderIndex]
+    if (
+      followOrder && order && orderFlow.includes(nextStatus) && !["Cancelado", "Entregado"].includes(String(order[7])) &&
+      orderFlow.indexOf(nextStatus) > orderFlow.indexOf(String(order[7] || "Recibido"))
+    )
+      await setClientOrderStatus(orderIndex, nextStatus, true)
     return true
   }
   const doAnul = (sec: string, idx: number) => {
@@ -4387,7 +4411,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         m.key === "pedidos"
           ? list.filter((r) => !["Entregado", "Cancelado"].includes(String(r[7] ?? ""))).length
           : m.key === "produccion"
-            ? list.filter((r) => !["Finalizada", "Producto no conforme"].includes(String(r[8] ?? "Recibido"))).length
+            ? list.filter((r) => !["En camino", "Entregado", "Producto no conforme"].includes(String(r[8] ?? "Recibido"))).length
             : null
       return { key: m.key as AdminSection, label: m.label, total: list.length, pending }
     })

@@ -112,6 +112,7 @@ function AppRoutes() {
     if (user.role === "admin")
       listenEvents("/panel/eventos", (module) => {
         if (module === "pedidos") refresh()
+        window.dispatchEvent(new CustomEvent("panel-change", { detail: module }))
         if (module === "clientes") window.dispatchEvent(new Event("profile-updated"))
       }, live.signal)
     // Clients hear at once when the admin changes one of their orders

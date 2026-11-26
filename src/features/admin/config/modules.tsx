@@ -40,11 +40,13 @@ export const PERMISSION_MODULES = [
   { name: "Devoluciones", finalAction: "Eliminar" },
 ] as const
 
+// The same steps as its order: an order and its production order are always in the same one
 export const PRODUCTION_STATUSES = [
   "Recibido",
   "Confirmado",
   "En cocina",
-  "Finalizada",
+  "En camino",
+  "Entregado",
   "Producto no conforme",
 ] as const
 
