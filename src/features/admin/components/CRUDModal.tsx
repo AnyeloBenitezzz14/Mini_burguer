@@ -85,6 +85,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     parseProductionHistory,
     parsePurchaseItems,
     paymentProofDraft,
+    receivedAmount,
+    setReceivedAmount,
     proofOf,
     pedidoAdditionsFor,
     pedidoOrderLines,
@@ -253,8 +255,10 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
   const isPnc = modal.section === "producto-no-conforme"
   const isSales = modal.section === "ventas"
   // Order and sale details open as a side panel: the list stays in view and ↑ ↓ go to the next one
-  const isSidePanel = modal.mode === "view" && (modal.section === "pedidos" || isSales)
-  const sideOrder = isSidePanel ? tableOrder.current[modal.section] ?? [] : []
+  const isSidePanel = modal.mode === "view" && isSales
+  // «1 de 8 ↑ ↓»: step through the list without closing (orders in their centered window, sales in the side panel)
+  const hasStepper = modal.mode === "view" && (modal.section === "pedidos" || isSales)
+  const sideOrder = hasStepper ? tableOrder.current[modal.section] ?? [] : []
   const sidePosition = modal.idx === null ? -1 : sideOrder.indexOf(modal.idx)
   const isReturns = modal.section === "devoluciones"
   const isClient = modal.section === "clientes"
@@ -1131,7 +1135,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-[1400px]" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : modal.section === "cat-insumos" && isView ? "max-w-4xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isSupply && isView ? (String(row?.[7]).toLowerCase() === "sí" ? "max-w-[1400px]" : "max-w-6xl") : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-[1400px]" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : modal.section === "cat-insumos" && isView ? "max-w-4xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? (isView ? "max-w-6xl" : "max-w-5xl") : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isSupply && isView ? (String(row?.[7]).toLowerCase() === "sí" ? "max-w-[1400px]" : "max-w-6xl") : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
@@ -1207,7 +1211,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
           )}
           </div>
           <div className="flex items-center gap-1.5">
-          {isSidePanel && sidePosition >= 0 && (
+          {hasStepper && sidePosition >= 0 && (
             <>
               <span className="mr-1 text-xs tabular-nums" style={{ color: t.muted }}>
                 {sidePosition + 1} de {sideOrder.length}
@@ -1278,7 +1282,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   : "flex flex-col gap-3"
           }`}
           style={{
-            maxHeight: isPurchaseModule || isProduct || isSidePanel ? undefined : isRoles ? undefined : isUser ? "58vh" : "65vh",
+            maxHeight: isPurchaseModule || isProduct || isSidePanel || (isPedido && isView) ? undefined : isRoles ? undefined : isUser ? "58vh" : "65vh",
             // A visible (thin) scrollbar tells the user there are more fields below
             scrollbarWidth: "thin",
           }}
@@ -6067,7 +6071,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       ) : null
                     })()}
                     {/* Modality isn't shown: it follows the type and payment method by itself */}
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:col-span-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:col-start-1">
                       {info("Tipo de pedido", String(row[3] ?? ""))}
                       {info("Método de pago", String(row[4] ?? ""))}
                       {info("Producción", String(row[9] ?? ""))}
@@ -6078,7 +6082,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       if (!o || !(o.nombre || o.telefono || o.direccion)) return null
                       const other = !!o.nombre && o.nombre.trim().toLowerCase() !== String(row[1] ?? "").trim().toLowerCase()
                       return (
-                        <div className="rounded-2xl px-4 py-3 md:col-span-2 md:row-start-3" style={{ border: `1px solid ${t.border}` }}>
+                        <div className="rounded-2xl px-4 py-3 md:col-start-1" style={{ border: `1px solid ${t.border}` }}>
                           <div className="flex flex-wrap items-center gap-2">
                             {title("Recibe el pedido")}
                             {other && (
@@ -6097,7 +6101,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         </div>
                       )
                     })()}
-                    <div className="rounded-2xl px-4 py-3 md:col-start-1 md:row-start-4 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
+                    <div className="rounded-2xl px-4 py-3 md:col-start-1 self-start" style={{ border: `1px solid ${t.border}` }}>
                       {title(`Productos (${groups.length})`)}
                       {groups.length ? (
                         <div className={`gap-x-6 ${groups.length > 4 ? "sm:columns-2" : ""}`}>
@@ -6176,7 +6180,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       </div>
                     </div>
                     {history.length > 0 && (
-                      <div className="rounded-2xl px-4 py-3 md:col-start-2 self-start" style={{ border: `1px solid ${t.border}` }}>
+                      <div className="rounded-2xl px-4 py-3 md:col-start-1 self-start" style={{ border: `1px solid ${t.border}` }}>
                         {title("Historial")}
                         <ol className="relative ml-1.5 border-l pl-4" style={{ borderColor: t.border }}>
                           {[...history].reverse().map((entry, i) => (
@@ -6197,7 +6201,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       </div>
                     )}
                     {(comment || productionOrders.length > 0) && (
-                      <div className="grid content-start gap-3 md:col-start-2 self-start">
+                      <div className="grid content-start gap-3 md:col-start-1 self-start">
                         {comment && (
                           <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
                             {title("Especificaciones")}
@@ -6221,7 +6225,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 )
               })()}
               {(proofOf(modal.idx!) || paymentProofDraft) && (
-                <div className="rounded-2xl px-4 py-3 md:col-start-2 self-start" style={{ border: `1px solid ${t.border}` }}>
+                <div className="rounded-2xl px-4 py-3 md:col-start-2 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
                   <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
                     Comprobante de transferencia
                   </h4>
@@ -6229,7 +6233,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   <ZoomableImage
                     src={proofOf(modal.idx!) || paymentProofDraft}
                     alt={`Comprobante de pago de ${String(row?.[0] ?? "pedido")}`}
-                    className="max-h-80 w-full rounded-xl object-contain"
+                    className="max-h-48 w-full rounded-xl object-contain"
                     zoomClassName={PROOF_ZOOM}
                   />
                   {(() => {
@@ -6260,12 +6264,69 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                               <ul className="flex flex-col gap-1">
                                 {last.reference && check(true, `Referencia ${last.reference}: no se ha usado en otro pedido`)}
                                 {check(true, "La imagen no se repite en otro pedido")}
-                                {check((last.amount ?? 0) >= owed, `Valor transferido ${fmt(last.amount ?? 0)} · debe ${fmt(owed)}${deposit ? (String(row?.[8]) === "Abonado" ? " (saldo)" : " (abono 50%)") : ""}`)}
-                                {check(null, "Confírmalo en la app del banco (referencia y valor) antes de aprobar")}
+                                {check(null, `El cliente dice que transfirió ${fmt(last.amount ?? 0)}: confírmalo en la app del banco`)}
                               </ul>
                             ) : (
                               <p style={{ color: t.muted }}>Comprobante enviado antes del validador: sin referencia ni valor. Revísalo en la app del banco.</p>
                             )}
+                            {(() => {
+                              // What the bank shows was received, and from it what the client still owes
+                              const status = String(row?.[8] || "Pendiente")
+                              const paidBefore = deposit && status === "Abonado" ? deposit : 0
+                              const typed = receivedAmount === "" ? String(last.amount ?? "") : receivedAmount
+                              const received = Number(typed) || 0
+                              const left = total - paidBefore - received
+                              const coversDeposit = !!deposit && !paidBefore && received >= deposit
+                              const suggestion = left <= 0 || coversDeposit
+                              const line = (label: string, value: string, color: string = t.text, strong = false) => (
+                                <div className="flex items-baseline justify-between gap-3">
+                                  <span style={{ color: t.muted }}>{label}</span>
+                                  <span className={`tabular-nums ${strong ? "text-sm font-bold" : "font-semibold"}`} style={{ color }}>{value}</span>
+                                </div>
+                              )
+                              return status === "Pagado" ? null : (
+                                <div className="mt-2.5 rounded-lg px-3 py-2.5" style={{ background: t.card, border: `1px solid ${t.border}` }}>
+                                  <label className="flex flex-col gap-1 font-semibold" style={{ color: t.text }}>
+                                    ¿Cuánto recibiste según el banco?
+                                    <span className="flex items-center gap-2 rounded-lg px-3 py-1.5" style={{ background: t.input, border: `1.5px solid ${t.inputB}` }}>
+                                      <span style={{ color: t.muted }}>$</span>
+                                      <input
+                                        type="text"
+                                        inputMode="numeric"
+                                        value={typed ? Number(typed).toLocaleString("es-CO") : ""}
+                                        onChange={(e) => setReceivedAmount(e.target.value.replace(/\D/g, ""))}
+                                        placeholder="0"
+                                        aria-label="Valor recibido"
+                                        className="w-full bg-transparent text-sm font-semibold tabular-nums outline-none"
+                                        style={{ color: t.text }}
+                                      />
+                                    </span>
+                                  </label>
+                                  <div className="mt-2 flex flex-col gap-1">
+                                    {line("Total del pedido", fmt(total))}
+                                    {paidBefore > 0 && line("Ya pagó (abono)", `− ${fmt(paidBefore)}`)}
+                                    {line("Recibido ahora", `− ${fmt(received)}`)}
+                                    <div className="mt-1 border-t pt-1.5" style={{ borderColor: t.border }}>
+                                      {left > 0
+                                        ? line(coversDeposit ? "Debe pagar al recibir" : "Le falta por pagar", fmt(left), coversDeposit ? "var(--admin-heading-gold)" : C.red, true)
+                                        : line(left < 0 ? `No debe nada · sobran ${fmt(-left)}` : "No debe nada más", "✓ Pagado completo", "#2E7D60", true)}
+                                    </div>
+                                    {received > 0 && received < owed && (
+                                      <p className="mt-1 font-semibold" style={{ color: C.red }}>
+                                        No alcanza para lo que debía transferir ahora ({fmt(owed)}{deposit && !paidBefore ? ", el abono del 50%" : ""}).
+                                      </p>
+                                    )}
+                                  </div>
+                                  {/* «Aprobar comprobante» (below) sets the payment and sends the order to production */}
+                                  {suggestion && received >= owed && status === "Pendiente de verificación" && (
+                                    <p className="mt-2 font-semibold" style={{ color: "#2E7D60" }}>
+                                      ✓ Cubre lo que debía: al aprobar el comprobante, el pago queda «{String(row?.[5]) === "Abono 50%" ? "Abonado" : "Pagado"}».
+                                      {String(row?.[5]) === "Abono 50%" && left <= 0 && " Como ya pagó todo, después pásalo a «Pagado» en «Estado de pago»."}
+                                    </p>
+                                  )}
+                                </div>
+                              )
+                            })()}
                           </div>
                         )}
                         {proofs.length > 1 && (

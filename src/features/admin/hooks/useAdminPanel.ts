@@ -698,6 +698,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     return shop?.voucher || paymentProofs[orderIndex] || ""
   }
   const [paymentProofDraft, setPaymentProofDraft] = useState("")
+  // Order detail › validating a transfer: what the bank shows was received ("" = what the client said)
+  const [receivedAmount, setReceivedAmount] = useState("")
   const [search, setSearch] = useState<Record<string, string>>({})
   const [tableFilter, setTableFilter] = useState<Record<string, string>>({})
   // Órdenes de producción: filter by day ("YYYY-MM-DD") and by status ("" = all)
@@ -1846,6 +1848,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     }
     setImgPreview(sec === "producto" ? prodImgs[idx] || sodaImage(rows.producto?.[idx]?.[0]) || "" : "")
     setPaymentProofDraft(sec === "pedidos" ? proofOf(idx) : "")
+    setReceivedAmount("")
     if (sec === "producto") {
       setTechnicalIngredients(getProductRecipe(rows.producto?.[idx]))
       setTechnicalSteps(getPreparationSteps(rows.producto?.[idx]?.[8]))
@@ -4356,6 +4359,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     proofOf,
     paymentProofDraft,
     setPaymentProofDraft,
+    receivedAmount,
+    setReceivedAmount,
     search,
     setSearch,
     tableFilter,
