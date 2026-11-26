@@ -932,9 +932,14 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     const split = isSplitModality(modality)
     const mixed = modality === "Mixto" || String(sale?.[5]) === "Mixto"
     const bank = shop?.pago && shop.pago !== "Efectivo" ? shop.pago : "Transferencia"
-    const transfer = split ? Number(shop?.deposit) || Math.ceil(total / 2) : isTransferPaymentMethod(method) || mixed ? total : 0
+    // What was really paid when it isn't the whole: the deposit, the transfer part, or what the client had paid when
+    // the panel changed the products (store order: abono; panel order: cell 14)
+    const deposited = Number(shop?.deposit) || Number(order?.[14]) || 0
+    const transfer = split
+      ? deposited || Math.ceil(total / 2)
+      : isTransferPaymentMethod(method) || mixed ? (status === "Abonado" && deposited ? Math.min(deposited, total) : total) : 0
     const rest = Math.max(0, total - transfer)
-    const paid = status === "Pagado" ? total : status === "Abonado" ? transfer : 0
+    const paid = status === "Pagado" ? Math.max(total, deposited) : status === "Abonado" ? deposited || transfer : 0
     const stateColor = (state: string) => (["Verificada", "Cobrado"].includes(state) ? "#2E7D60" : state === "Rechazada" ? C.red : "var(--admin-heading-gold)")
     const parts = [
       ...(transfer > 0
@@ -965,11 +970,13 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
           ))}
         </div>
         <div className="mt-2.5 h-1.5 overflow-hidden rounded-full" style={{ background: t.input }}>
-          <div className="h-full rounded-full" style={{ width: `${fill}%`, background: paid >= total ? "#2E7D60" : "var(--admin-heading-gold)" }} />
+          <div className="h-full rounded-full" style={{ width: `${Math.min(100, fill)}%`, background: paid >= total ? "#2E7D60" : "var(--admin-heading-gold)" }} />
         </div>
         <div className="mt-1.5 flex items-baseline justify-between gap-2 text-xs">
           <span style={{ color: t.muted }}>Pagado {fmt(paid)} de {fmt(total)}</span>
-          <span className="font-bold" style={{ color: paid >= total ? "#2E7D60" : C.red }}>{paid >= total ? "✓ Pagado completo" : `Falta ${fmt(total - paid)}`}</span>
+          <span className="font-bold" style={{ color: paid === total ? "#2E7D60" : C.red }}>
+            {paid > total ? `Devolver ${fmt(paid - total)} al cliente` : paid === total ? "✓ Pagado completo" : `Falta ${fmt(total - paid)}`}
+          </span>
         </div>
       </div>
     )
@@ -1745,11 +1752,12 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                           </span>
                           <div>
                             <p className="text-sm font-semibold" style={{ color: t.text }}>Aún no tiene ficha técnica</p>
-                            <p className="mt-1 text-xs" style={{ color: t.muted }}>Es opcional, pero con ella el sistema sabe:</p>
+                            <p className="mt-1 text-xs" style={{ color: t.muted }}>Todos los productos la llevan: con ella el sistema sabe</p>
                           </div>
                           <ul className="flex w-full max-w-sm flex-col gap-1.5 text-left text-xs" style={{ color: t.text }}>
                             {[
                               "Qué insumos lleva y cuánto de cada uno",
+                              "Si hay stock para que el cliente lo pida",
                               "Cuánto cuesta hacer una unidad, frente a su precio",
                               "Qué descontar del inventario en cada orden de producción",
                               "Los pasos para prepararlo siempre igual",

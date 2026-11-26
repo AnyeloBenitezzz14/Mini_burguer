@@ -515,7 +515,8 @@ export const MOD_CFG: Record<string, ModConfig> = {
     autoId: true,
     // 10 = order lines JSON saved by admin-created orders (was showing as "Dato 7")
     // 11 = payment rejection reason, 12 = comment (also goes to its production order)
-    hiddenCellIndexes: [2, 3, 4, 5, 10, 11, 12],
+    // 14 = what the client had paid when the panel changed its products
+    hiddenCellIndexes: [2, 3, 4, 5, 10, 11, 12, 14],
   },
   devoluciones: {
     columns: ["Código", "Cliente", "Tipo", "Fecha", "Total devuelto", "Estado"],
