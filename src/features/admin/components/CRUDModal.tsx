@@ -18,6 +18,7 @@ import type { AddressParts, AdminOrderLine, FieldType, ProductionItem, Row, Tech
 import { ADDRESS_VIAS, HOUSING, composeAddress } from "@/shared/utils/address"
 import { fmt, formatDateLabel, normalizeName, splitNames, toDecimal } from "@/shared/utils/format"
 import { convertQty, convertibleUnits, packOf, qtyLabel } from "@/shared/utils/units"
+import { downloadCsv } from "@/shared/utils/csv"
 import { normalizeDocumentInput, normalizePhoneInput } from "@/shared/utils/validation"
 import type { AdminPanelState } from "@/features/admin/types"
 import type { ReactNode } from "react"
@@ -917,7 +918,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
   ) : null
 
   // Insumo detail, right column: its stock moves and its purchases as sections that open and close; each header
-  // sums up what's inside, so they stay usable when there are hundreds
+  // sums up everything, the detail lists the latest 15 moves (the only list that scrolls) and the latest 6
+  // purchases, and «Exportar historial» downloads all of them for Excel
   const supplyHistory = (row: Row, withPurchases: boolean) => {
     const unit = String(row[2] ?? "und")
     const stock = Number(row[4]) || 0
@@ -956,9 +958,47 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         <div className="border-t" style={{ borderColor: t.border }}>{list}</div>
       </details>
     )
-    const scroller = "max-h-72 overflow-y-auto px-4"
+    const MOVES_SHOWN = 15
+    const PURCHASES_SHOWN = 6
+    const exportHistory = () =>
+      downloadCsv(`historial-${String(row[0]).trim().replace(/[^\p{L}\p{N}]+/gu, "-").toLowerCase()}.csv`, [
+        [`Historial de ${String(row[0])}`],
+        [],
+        ...(withPurchases
+          ? [
+              ["Compras"],
+              ["Fecha", "Proveedor", "Cantidad", "Unidad", "Precio unitario", "Total", "Estado"],
+              ...lines.map((l) => [l.date.slice(0, 10), l.supplier, l.quantity, unit, l.unitPrice, l.total, l.annulled ? "Anulada" : "Vigente"]),
+              [],
+            ]
+          : []),
+        ["Movimientos de stock"],
+        ["Fecha", "Origen", "Referencia", "Cantidad", "Unidad", "Stock resultante"],
+        ...(moves ?? []).map((m) => [String(m.fecha), STOCK_ORIGIN[String(m.origen)] ?? String(m.origen), String(m.referencia ?? ""), Number(m.cantidad), unit, Number(m.stock_resultante)]),
+      ])
+    // «compras» is feminine, «movimientos» masculine
+    const moreNote = (shown: number, total: number, what: string, fem: boolean) =>
+      total > shown ? (
+        <p className="border-t px-4 py-2 text-[11px]" style={{ borderColor: t.border, color: t.muted }}>
+          Se ven {fem ? "las" : "los"} {shown} más recientes de {n(total)} {what}.{" "}
+          {total - shown === 1 ? (fem ? "La otra está" : "El otro está") : `${fem ? "Las otras" : "Los otros"} ${n(total - shown)} están`} en «Exportar historial».
+        </p>
+      ) : null
     return (
       <>
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-xs font-bold uppercase tracking-wider" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>Historial</h4>
+          <button
+            type="button"
+            onClick={exportHistory}
+            disabled={moves === null && !lines.length}
+            title="Descarga todas las compras y movimientos de este insumo para abrirlos en Excel"
+            className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ background: t.card, border: `1px solid ${t.inputB}`, color: t.text }}
+          >
+            {Ico.download} Exportar historial
+          </button>
+        </div>
         {section(
           // Open for a bought insumo; closed under the recipe of one made here (the header already sums it up)
           withPurchases,
@@ -978,8 +1018,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
             </span>
           ) : null,
           moves && moves.length > 0 ? (
-            <div className={scroller} style={{ scrollbarWidth: "thin" }}>
-              {moves.map((m, i) => {
+            <>
+            <div className="max-h-72 overflow-y-auto px-4" style={{ scrollbarWidth: "thin" }}>
+              {moves.slice(0, MOVES_SHOWN).map((m, i) => {
                 const qty = Number(m.cantidad)
                 return (
                   <div
@@ -1002,6 +1043,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                 )
               })}
             </div>
+            {moreNote(MOVES_SHOWN, moves.length, "movimientos", false)}
+            </>
           ) : (
             <p className="px-4 py-3 text-xs" style={{ color: t.muted }}>{moves === null ? stockMoves?.error || "Cargando…" : "Todavía no tiene movimientos."}</p>
           ),
@@ -1019,11 +1062,12 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               </span>
             ) : null,
             lines.length ? (
-              <div className={scroller} style={{ scrollbarWidth: "thin" }}>
-                {lines.map((l, i) => (
+              <>
+              <div className="px-4">
+                {lines.slice(0, PURCHASES_SHOWN).map((l, i) => (
                   <div
                     key={i}
-                    className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-2 text-xs ${i ? "border-t" : ""}`}
+                    className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-1.5 text-xs ${i ? "border-t" : ""}`}
                     style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
                   >
                     <span className="min-w-0" style={{ color: t.text }}>
@@ -1036,6 +1080,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   </div>
                 ))}
               </div>
+              {moreNote(PURCHASES_SHOWN, lines.length, "compras", true)}
+              </>
             ) : (
               <p className="px-4 py-3 text-xs" style={{ color: t.muted }}>Aún no hay compras registradas de este insumo.</p>
             ),
@@ -6003,6 +6049,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       <div className="flex flex-wrap gap-1.5">
                         {badge(String(row[7] || "Recibido"), ["Entregado"].includes(String(row[7])), String(row[7]) === "Cancelado")}
                         {badge(`Pago: ${panelPaymentLabel(String(row[8] || "Pendiente"))}`, String(row[8]) === "Pagado", String(row[8]) === "Rechazado")}
+                        {/* The client sent a proof the app didn't recognize as a transfer: seen before scrolling to it */}
+                        {loadOrders().find((order) => order.id === String(row[0]))?.proofs?.at(-1)?.doubtful &&
+                          badge("⚠ Comprobante dudoso", false, true)}
                       </div>
                     </div>
                     {(() => {
@@ -6202,6 +6251,11 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                         {last && (
                           <div className="mt-2 rounded-xl px-3 py-2.5 text-xs" style={{ background: t.cardAlt, border: `1px solid ${t.border}` }}>
                             <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wide" style={{ color: C.mustard }}>Validador de la transferencia</div>
+                            {last.doubtful && (
+                              <p role="alert" className="mb-2 rounded-lg px-2.5 py-2 font-semibold leading-snug" style={{ background: `${C.red}12`, color: C.red, border: `1px solid ${C.red}33` }}>
+                                ⚠ No parece un comprobante real: la app no encontró datos de una transferencia (banco, valor, «exitosa») en la imagen y el cliente la envió igual. Revísala con cuidado en la app del banco antes de aprobar.
+                              </p>
+                            )}
                             {last.reference || last.amount ? (
                               <ul className="flex flex-col gap-1">
                                 {last.reference && check(true, `Referencia ${last.reference}: no se ha usado en otro pedido`)}
@@ -6222,6 +6276,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                 <div key={index} className="overflow-hidden rounded-lg" style={{ border: `1px solid ${t.border}` }}>
                                   <ZoomableImage src={proof.image} alt={`Comprobante ${index + 1}${proof.reference ? ` · ref. ${proof.reference}` : ""}`} className="h-20 w-full object-cover" zoomClassName={PROOF_ZOOM} />
                                   {proof.amount ? <div className="truncate px-1 text-[10px]" style={{ color: t.muted }}>{fmt(proof.amount)}</div> : null}
+                                  {proof.doubtful && <div className="truncate px-1 text-[10px] font-bold" style={{ color: C.red }} title="No parece un comprobante real">⚠ Dudoso</div>}
                                 </div>
                               ))}
                             </div>

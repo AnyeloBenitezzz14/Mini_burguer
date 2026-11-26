@@ -1839,7 +1839,8 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const insumoId = String(supplyRow?.[DB_SYNC.insumos.idIndex] ?? "")
     if (insumoId) {
       setStockMoves({ id: insumoId, rows: null })
-      api<DbRecord[]>(`/movimientos-stock/${insumoId}`)
+      // The whole history: the detail shows the latest 15 and «Exportar historial» takes them all
+      api<DbRecord[]>(`/movimientos-stock/${insumoId}?limite=10000`)
         .then((list) => setStockMoves((cur) => (cur?.id === insumoId ? { id: insumoId, rows: list } : cur)))
         .catch((err) => setStockMoves((cur) => (cur?.id === insumoId ? { ...cur, error: `No se pudo cargar el historial: ${(err as Error).message}` } : cur)))
     }

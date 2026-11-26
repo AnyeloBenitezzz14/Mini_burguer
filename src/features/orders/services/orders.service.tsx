@@ -43,7 +43,7 @@ export const orderFromDb = (p: DbRecord): Order => ({
   proofs: (Array.isArray(p.comprobantes) ? p.comprobantes : p.comprobante ? [p.comprobante] : []).map((x: string | DbRecord) =>
     typeof x === "string"
       ? { image: x }
-      : { image: String(x.imagen ?? ""), reference: x.referencia || undefined, amount: Number(x.valor) || undefined, uploadedAt: x.subido_en || undefined },
+      : { image: String(x.imagen ?? ""), reference: x.referencia || undefined, amount: Number(x.valor) || undefined, uploadedAt: x.subido_en || undefined, doubtful: !!x.dudoso },
   ),
   vouchers: (Array.isArray(p.comprobantes) ? p.comprobantes : p.comprobante ? [p.comprobante] : []).map((x: string | DbRecord) =>
     typeof x === "string" ? x : String(x.imagen ?? ""),

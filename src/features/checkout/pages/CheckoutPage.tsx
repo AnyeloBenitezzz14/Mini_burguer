@@ -43,6 +43,7 @@ type CheckoutDraft = {
   deliverToOtherPerson?: boolean
   voucher?: string
   voucherAmount?: string
+  voucherDoubtful?: boolean
   // A new address being typed, whether to save it and what it's called
   editingAddress?: boolean
   saveAddress?: boolean
@@ -431,6 +432,8 @@ export default function CheckoutPage({
   const [voucher, setVoucher] = useState(draft.voucher ?? "")
   // What the validator checks: the amount sent
   const [voucherAmount, setVoucherAmount] = useState(draft.voucherAmount ?? "")
+  // The receipt check found no transfer data and the client kept the image: the panel is told
+  const [voucherDoubtful, setVoucherDoubtful] = useState(!!draft.voucherDoubtful)
   const [ordered, setOrdered] = useState(false)
   const [placedTotal, setPlacedTotal] = useState(0)
   // Everybody (guest, client, admin, employee) starts by reviewing the cart
@@ -440,13 +443,13 @@ export default function CheckoutPage({
       if (ordered) sessionStorage.removeItem(DRAFT_KEY)
       else
         sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
-          step: checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount,
+          step: checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount, voucherDoubtful,
           editingAddress, saveAddress, addressLabel, customAddressLabel,
         } satisfies CheckoutDraft))
     } catch {
       // Storage full or blocked: the checkout still works, it just won't survive a reload
     }
-  }, [ordered, checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount, editingAddress, saveAddress, addressLabel, customAddressLabel])
+  }, [ordered, checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount, voucherDoubtful, editingAddress, saveAddress, addressLabel, customAddressLabel])
   // Guests see only their cart until they press "Hacer pedido"
   const [showAuth, setShowAuth] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -505,6 +508,7 @@ export default function CheckoutPage({
           costoDomicilio: isDelivery ? displayedDeliveryCost : 0,
           voucher: needsVoucher ? voucher : undefined,
           voucherAmount: needsVoucher ? Number(voucherAmount) || undefined : undefined,
+          voucherDoubtful: needsVoucher ? voucherDoubtful : undefined,
         },
         isDelivery && (saveAddress || !(user.addresses?.length)),
       )
@@ -1750,11 +1754,15 @@ export default function CheckoutPage({
                       <PaymentAccounts amount={deliveryCostConfigured ? `${fmt(toPay)}${deposit ? " (abono 50%)" : ""}` : "Por confirmar"} />
                       <VoucherInput
                         value={voucher}
-                        onChange={(v) => {
+                        onChange={(v, doubtful) => {
                           setVoucher(v)
+                          setVoucherDoubtful(!!doubtful)
                           if (!voucherAmount && deliveryCostConfigured) setVoucherAmount(String(toPay))
                         }}
-                        onRemove={() => setVoucher("")}
+                        onRemove={() => {
+                          setVoucher("")
+                          setVoucherDoubtful(false)
+                        }}
                         reference={{ amount: voucherAmount, expected: deliveryCostConfigured ? toPay : undefined, onAmount: setVoucherAmount }}
                       />
                     </div>

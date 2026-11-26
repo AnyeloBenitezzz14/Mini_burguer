@@ -55,6 +55,8 @@ export type DeliveryInfo = {
   voucher?: string
   // The bank's reference and the amount sent, checked by the backend's validator
   voucherAmount?: number
+  // The image didn't look like a transfer receipt and the client kept it
+  voucherDoubtful?: boolean
 }
 
 export type DeliveryNeighborhood = {
@@ -99,7 +101,8 @@ export type Order = DeliveryInfo & {
   deposit?: number
   // Every payment proof the client sent (the last one is `voucher`), with what the validator checked
   vouchers?: string[]
-  proofs?: { image: string; reference?: string; amount?: number; uploadedAt?: string }[]
+  // doubtful: the app found no transfer data in the image and the client sent it anyway
+  proofs?: { image: string; reference?: string; amount?: number; uploadedAt?: string; doubtful?: boolean }[]
   paymentRejectionReason?: string
   productionAuthorized?: boolean
   productionRecords?: (string | number)[][]

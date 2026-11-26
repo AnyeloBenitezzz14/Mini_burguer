@@ -232,8 +232,8 @@ function AppRoutes() {
   }
   // The backend puts a rejected payment back to "Pendiente de verificación"
   // Resolves to the error message (the detail shows it next to the form), or "" when saved
-  const setVoucher = (id: string, voucher: string, valor: number) =>
-    api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobante`, "PATCH", { comprobante: voucher, valor })
+  const setVoucher = (id: string, voucher: string, valor: number, dudoso = false) =>
+    api<DbRecord>(`/pedidos/${orderDbId(id)}/comprobante`, "PATCH", { comprobante: voucher, valor, dudoso })
       .then((p) => {
         updateOrders((os) => os.map((o) => (o.id === id ? orderFromDb(p) : o)))
         return ""
@@ -366,7 +366,7 @@ function AppRoutes() {
             notas: info.notas,
             pago: info.pago,
             comprobante: info.voucher,
-            ...(info.voucher ? { valor_pago: info.voucherAmount } : {}),
+            ...(info.voucher ? { valor_pago: info.voucherAmount, comprobante_dudoso: !!info.voucherDoubtful } : {}),
             items: cart
               .filter((item) => item.qty > 0)
               .map((item) => ({
