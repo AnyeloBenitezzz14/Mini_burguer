@@ -606,6 +606,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
   // An addition (Queso, Tocineta...) is only name, category and price: no photo, description nor ficha técnica
   const isAdditionForm = isProduct && !isView && formData["1"] === ADDITION_PRODUCT
   const isSupplyProductView = isProduct && isView && isSupplyProductRow(row ?? undefined)
+  // The insumo behind a producto de insumo shown in Productos (same record, managed in Insumos)
+  const supplyRowOfProduct = isSupplyProductView ? (rows.insumos || []).find((r) => String(r[0]) === String(row?.[0])) : undefined
   const hideProductTechnicalSheet = isProduct && (productCategory === normalizeName(SODA_PRODUCT) || isAdditionForm || isSupplyProductView)
   const showSupplyTechnicalSheet =
     isSupply &&
@@ -914,6 +916,126 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     </div>
   ) : null
 
+  // Insumo detail, right column: its stock moves (newest first) and every purchase of it
+  const supplyHistory = (row: Row, withPurchases: boolean) => (
+    <>
+      {(() => {
+            // Stock history from the backend: every entry and exit with where it came from
+            const unit = String(row[2] ?? "und")
+            const moves = stockMoves?.id === String(row[DB_SYNC.insumos.idIndex]) ? stockMoves.rows : null
+            const stock = Number(row[4]) || 0
+            return (
+              <div className="flex min-h-0 flex-col rounded-xl px-4 py-3 text-sm" style={{ background: t.input }}>
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-xs font-semibold" style={{ color: t.muted }}>Movimientos de stock</span>
+                  {moves && moves.length > 0 && (
+                    // The newest movement leaves the stock it should have: a different value means something changed it outside the history
+                    Math.abs(Number(moves[0].stock_resultante) - stock) < 0.001 ? (
+                      <span className="text-xs font-semibold" style={{ color: "#2E7D60" }}>✓ El stock cuadra con sus movimientos</span>
+                    ) : (
+                      <span className="text-xs font-semibold" style={{ color: C.red }}>
+                        ⚠ Descuadre: el historial dice {Number(moves[0].stock_resultante).toLocaleString("es-CO")} {unit}
+                      </span>
+                    )
+                  )}
+                </div>
+                {moves === null ? (
+                  <div style={{ color: t.muted }}>{stockMoves?.error || "Cargando…"}</div>
+                ) : moves.length === 0 ? (
+                  <div style={{ color: t.text }}>Todavía no tiene movimientos.</div>
+                ) : (
+                  <div className={`${withPurchases ? "max-h-52" : "max-h-32"} overflow-y-auto pr-1`} style={{ scrollbarWidth: "thin" }}>
+                  {moves.slice(0, 30).map((m) => {
+                    const qty = Number(m.cantidad)
+                    return (
+                      <div
+                        key={String(m.id_movimiento)}
+                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
+                        style={{ borderColor: t.border }}
+                      >
+                        <span className="min-w-0" style={{ color: t.text }}>
+                          <strong>{STOCK_ORIGIN[String(m.origen)] ?? String(m.origen)}</strong>
+                          {m.referencia ? ` · ${String(m.referencia)}` : ""}
+                          <span style={{ color: t.muted }}> · {String(m.fecha)}</span>
+                        </span>
+                        <span style={{ color: t.muted }}>
+                          <strong style={{ color: qty >= 0 ? "#2E7D60" : C.red }}>
+                            {qty >= 0 ? "+" : "−"}{Math.abs(qty).toLocaleString("es-CO")} {unit}
+                          </strong>{" "}
+                          → {Number(m.stock_resultante).toLocaleString("es-CO")} {unit}
+                        </span>
+                      </div>
+                    )
+                  })}
+                  </div>
+                )}
+              </div>
+            )
+      })()}
+      {withPurchases && (() => {
+            // Every purchase line of this insumo: what was bought, how much and for how much
+            const name = normalizeName(row[0])
+            const unit = String(row[2] ?? "und")
+            const lines = (rows.compras || []).flatMap((purchase) =>
+              parsePurchaseItems(purchase[6])
+                .filter((item) => normalizeName(item.name) === name)
+                .map((item) => ({
+                  supplier: String(purchase[0] ?? ""),
+                  date: String(purchase[1] ?? ""),
+                  annulled: String(purchase[5]) === "Anulado",
+                  quantity: Number(item.quantity) || 0,
+                  unitPrice: Number(item.unitPrice) || 0,
+                  total: item.total,
+                })),
+            )
+            const active = lines.filter((l) => !l.annulled)
+            const boughtQty = active.reduce((s, l) => s + l.quantity, 0)
+            const boughtValue = active.reduce((s, l) => s + l.total, 0)
+            const dateField = MOD_CFG.compras.fields.find((field) => field.key === "1")!
+            return (
+              <div className="flex min-h-0 flex-col rounded-xl px-4 py-3 text-sm" style={{ background: t.input }}>
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+                  <span className="text-xs font-semibold" style={{ color: t.muted }}>
+                    Compras de este insumo
+                  </span>
+                  {active.length > 0 && (
+                    <span className="text-xs" style={{ color: t.muted }}>
+                      Total comprado:{" "}
+                      <strong style={{ color: t.text }}>
+                        {boughtQty.toLocaleString("es-CO")} {unit}
+                      </strong>{" "}
+                      · <strong style={{ color: C.mustard }}>{fmt(boughtValue)}</strong>
+                    </span>
+                  )}
+                </div>
+                {lines.length === 0 ? (
+                  <div style={{ color: t.text }}>Aún no hay compras registradas de este insumo.</div>
+                ) : (
+                  <div className="max-h-44 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
+                  {lines.map((l, i) => (
+                    <div
+                      key={i}
+                      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
+                      style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
+                    >
+                      <span className="min-w-0" style={{ color: t.text }}>
+                        <strong>{formatViewValue(dateField, l.date)}</strong> · {l.supplier}
+                        {l.annulled && <span style={{ color: C.red }}> · Anulada</span>}
+                      </span>
+                      <span style={{ color: t.muted }}>
+                        {l.quantity.toLocaleString("es-CO")} {unit} × {fmt(l.unitPrice)} ={" "}
+                        <strong style={{ color: C.mustard }}>{fmt(l.total)}</strong>
+                      </span>
+                    </div>
+                  ))}
+                  </div>
+                )}
+              </div>
+            )
+      })()}
+    </>
+  )
+
   return (
     <div
       className={inline ? "min-w-0" : `fixed inset-0 z-[70] flex ${isSidePanel ? "justify-end" : "items-center justify-center px-4 py-3"} ${isUser ? "lg:left-[72px]" : ""}`}
@@ -955,7 +1077,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         </div>
       )}
       <div
-        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : modal.section === "cat-insumos" && isView ? "max-w-4xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
+        className={isSidePanel ? "admin-side-panel flex h-full min-w-0 w-full max-w-3xl flex-col overflow-hidden rounded-l-2xl" : `flex min-w-0 w-full ${isRoles ? "max-w-4xl" : isPnc ? (modal.mode === "add" && !pncManual ? "max-w-xl" : "max-w-3xl") : isAdditionForm ? "max-w-md" : isSupplyProductView ? "max-w-6xl" : isDrinkForm || isDrinkView ? "max-w-4xl" : isProduct ? (isView ? "max-w-6xl" : "max-w-5xl") : isUser ? "max-w-2xl" : isSupplier ? (isView ? isNaturalSupplier(row?.[15]) : !formData["15"] || isNaturalSupplier(formData["15"])) ? "max-w-2xl" : "max-w-5xl" : modal.section === "cat-insumos" && isView ? "max-w-4xl" : isProductCategory || modal.section === "cat-insumos" ? "max-w-md" : isPedido ? "max-w-5xl" : isSales ? "max-w-4xl" : isProduction ? (isView ? "max-w-6xl" : productionItems.length > 8 ? "max-w-6xl" : productionItems.length > 4 ? "max-w-4xl" : "max-w-3xl") : sheetBeside ? "max-w-5xl" : isSupply && isView ? "max-w-6xl" : isPurchaseModule ? "max-w-2xl" : "max-w-5xl"} flex-col overflow-hidden rounded-2xl`}
         style={{
           background: t.card,
           border: `1px solid ${t.border}`,
@@ -1148,58 +1270,22 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
               )}
             </div>
           )}
-          {isProduct ? (
-            <div className={`grid grid-cols-1 gap-6 ${isAdditionForm || isSupplyProductView ? "" : "lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"}`}>
-              <div className="flex flex-col gap-3">
-                {isView && row && (
-                  <div className="flex flex-col gap-4">
-                    {imgPreview ? (
-                      <img
-                        src={imgPreview}
-                        alt={String(row[0] ?? "")}
-                        className="h-48 w-full rounded-2xl object-cover"
-                      />
-                    ) : null}
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full px-2.5 py-0.5 text-[11px]" style={{ background: `${C.mustard}14`, color: C.mustard }}>
-                          {String(row[1] || "Sin categoría")}
-                        </span>
-                        {statusValue && (
-                          <span
-                            className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-                            style={{ background: badgeSt(statusValue)?.bg ?? t.input, color: badgeSt(statusValue)?.color ?? t.muted }}
-                          >
-                            {statusValue}
-                          </span>
-                        )}
-                      </div>
-                      <h4 className="mt-2 break-words text-lg font-semibold" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
-                        {String(row[0] ?? "—")}
-                      </h4>
-                      <div className="text-xl font-semibold" style={{ color: C.mustard }}>
-                        {Number(row[2]) > 0 ? fmt(Number(row[2])) : isSupplyProductRow(row) ? "Cortesía ($0)" : "Sin precio"}
-                      </div>
-                    </div>
-                    {isSupplyProductRow(row) && (
-                      // Same record as in Insumos: its ficha técnica, stock and status are managed there
-                      <div className="rounded-xl px-4 py-3 text-xs" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35`, color: t.muted }}>
-                        <span className="font-bold" style={{ color: C.mustard }}>Producto de insumo.</span> Aquí solo se consulta: su ficha técnica, stock y estado se manejan en Insumos.
-                        {(() => {
-                          const supply = (rows.insumos || []).find((r) => String(r[0]) === String(row[0]))
-                          return supply ? (
-                            <span className="mt-1.5 block" style={{ color: t.text }}>
-                              Stock: <strong>{Number(supply[4]) || 0} {String(supply[2] ?? "")}</strong> · mínimo {Number(supply[5]) || 0} {String(supply[2] ?? "")}
-                              {Number(supply[4]) <= Number(supply[5]) && <strong style={{ color: C.red }}> · stock bajo</strong>}
-                            </span>
-                          ) : null
-                        })()}
+          {isSupplyProductView && row && supplyRowOfProduct ? (
+            <div className="flex flex-col gap-3">
+              <div
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 rounded-xl px-4 py-2 text-xs"
+                style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35`, color: t.muted }}
+              >
+                <span>
+                  <span className="font-bold" style={{ color: "var(--admin-heading-gold)" }}>Producto de insumo.</span> Aquí se consulta; su ficha técnica, stock y estado se manejan en Insumos.
+                </span>
+                <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
                         {canDo("insumos", "EDITAR") && (() => {
                           // Its sale price, right here: 0 = cortesía (free sauce), more = an addition that's charged
                           const name = String(row[0])
                           const draft = supplyPriceDraft?.name === name ? supplyPriceDraft : null
                           return (
-                            <span className="mt-2 flex flex-wrap items-center gap-2" style={{ color: t.text }}>
+                            <span className="flex flex-wrap items-center gap-2" style={{ color: t.text }}>
                               Precio de venta:
                               {draft ? (
                                 <>
@@ -1246,11 +1332,61 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                             setSection("insumos")
                             if (idx >= 0) setTimeout(() => openView("insumos", idx), 0)
                           }}
-                          className="mt-2 block cursor-pointer font-bold underline"
+                          className="cursor-pointer font-bold underline"
                           style={{ color: C.mustard }}
                         >
                           Abrir en Insumos →
                         </button>
+                </span>
+              </div>
+              {supplyDetail(supplyRowOfProduct, supplyHistory(supplyRowOfProduct, false))}
+            </div>
+          ) : isProduct ? (
+            <div className={`grid grid-cols-1 gap-6 ${isAdditionForm || isSupplyProductView ? "" : "lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]"}`}>
+              <div className="flex flex-col gap-3">
+                {isView && row && (
+                  <div className="flex flex-col gap-4">
+                    {imgPreview ? (
+                      <img
+                        src={imgPreview}
+                        alt={String(row[0] ?? "")}
+                        className="h-48 w-full rounded-2xl object-cover"
+                      />
+                    ) : null}
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full px-2.5 py-0.5 text-[11px]" style={{ background: `${C.mustard}14`, color: C.mustard }}>
+                          {String(row[1] || "Sin categoría")}
+                        </span>
+                        {statusValue && (
+                          <span
+                            className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
+                            style={{ background: badgeSt(statusValue)?.bg ?? t.input, color: badgeSt(statusValue)?.color ?? t.muted }}
+                          >
+                            {statusValue}
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="mt-2 break-words text-lg font-semibold" style={{ color: t.text, fontFamily: "League Spartan, sans-serif" }}>
+                        {String(row[0] ?? "—")}
+                      </h4>
+                      <div className="text-xl font-semibold" style={{ color: C.mustard }}>
+                        {Number(row[2]) > 0 ? fmt(Number(row[2])) : isSupplyProductRow(row) ? "Cortesía ($0)" : "Sin precio"}
+                      </div>
+                    </div>
+                    {isSupplyProductRow(row) && (
+                      // Same record as in Insumos: its ficha técnica, stock and status are managed there
+                      <div className="rounded-xl px-4 py-3 text-xs" style={{ background: `${C.mustard}10`, border: `1px solid ${C.mustard}35`, color: t.muted }}>
+                        <span className="font-bold" style={{ color: C.mustard }}>Producto de insumo.</span> Aquí solo se consulta: su ficha técnica, stock y estado se manejan en Insumos.
+                        {(() => {
+                          const supply = (rows.insumos || []).find((r) => String(r[0]) === String(row[0]))
+                          return supply ? (
+                            <span className="mt-1.5 block" style={{ color: t.text }}>
+                              Stock: <strong>{Number(supply[4]) || 0} {String(supply[2] ?? "")}</strong> · mínimo {Number(supply[5]) || 0} {String(supply[2] ?? "")}
+                              {Number(supply[4]) <= Number(supply[5]) && <strong style={{ color: C.red }}> · stock bajo</strong>}
+                            </span>
+                          ) : null
+                        })()}
                       </div>
                     )}
                     <div className="rounded-xl px-4 py-3" style={{ background: t.cardAlt }}>
@@ -2387,7 +2523,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   </section>
                 )
               })()}
-              {isView && isSupply && row && supplyDetail(row)}
+              {isView && isSupply && row && supplyDetail(row, supplyHistory(row, String(row[7]).toLowerCase() !== "sí"))}
               {isView && isSupplier && row && supplierDetail(row)}
               {isView && isUser && row && Number(row[7]) > 0 && <UserHistory id={Number(row[7])} t={t} />}
               {isUser && !isView && modal.mode === "add" && (
@@ -5370,116 +5506,6 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     </div>
                   )}
                 </div>
-              </div>
-            )
-          })()}
-          {isView && modal.section === "insumos" && row && (() => {
-            // Every purchase line of this insumo: what was bought, how much and for how much
-            const name = normalizeName(row[0])
-            const unit = String(row[2] ?? "und")
-            const lines = (rows.compras || []).flatMap((purchase) =>
-              parsePurchaseItems(purchase[6])
-                .filter((item) => normalizeName(item.name) === name)
-                .map((item) => ({
-                  supplier: String(purchase[0] ?? ""),
-                  date: String(purchase[1] ?? ""),
-                  annulled: String(purchase[5]) === "Anulado",
-                  quantity: Number(item.quantity) || 0,
-                  unitPrice: Number(item.unitPrice) || 0,
-                  total: item.total,
-                })),
-            )
-            const active = lines.filter((l) => !l.annulled)
-            const boughtQty = active.reduce((s, l) => s + l.quantity, 0)
-            const boughtValue = active.reduce((s, l) => s + l.total, 0)
-            const dateField = MOD_CFG.compras.fields.find((field) => field.key === "1")!
-            return (
-              <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-xs font-semibold" style={{ color: t.muted }}>
-                    Compras de este insumo
-                  </span>
-                  {active.length > 0 && (
-                    <span className="text-xs" style={{ color: t.muted }}>
-                      Total comprado:{" "}
-                      <strong style={{ color: t.text }}>
-                        {boughtQty.toLocaleString("es-CO")} {unit}
-                      </strong>{" "}
-                      · <strong style={{ color: C.mustard }}>{fmt(boughtValue)}</strong>
-                    </span>
-                  )}
-                </div>
-                {lines.length === 0 ? (
-                  <div style={{ color: t.text }}>Aún no hay compras registradas de este insumo.</div>
-                ) : (
-                  lines.map((l, i) => (
-                    <div
-                      key={i}
-                      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
-                      style={{ borderColor: t.border, opacity: l.annulled ? 0.55 : 1 }}
-                    >
-                      <span className="min-w-0" style={{ color: t.text }}>
-                        <strong>{formatViewValue(dateField, l.date)}</strong> · {l.supplier}
-                        {l.annulled && <span style={{ color: C.red }}> · Anulada</span>}
-                      </span>
-                      <span style={{ color: t.muted }}>
-                        {l.quantity.toLocaleString("es-CO")} {unit} × {fmt(l.unitPrice)} ={" "}
-                        <strong style={{ color: C.mustard }}>{fmt(l.total)}</strong>
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-            )
-          })()}
-          {isView && modal.section === "insumos" && row && (() => {
-            // Stock history from the backend: every entry and exit with where it came from
-            const unit = String(row[2] ?? "und")
-            const moves = stockMoves?.id === String(row[DB_SYNC.insumos.idIndex]) ? stockMoves.rows : null
-            const stock = Number(row[4]) || 0
-            return (
-              <div className="rounded-xl px-4 py-3 text-sm sm:col-span-2" style={{ background: t.input }}>
-                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
-                  <span className="text-xs font-semibold" style={{ color: t.muted }}>Movimientos de stock</span>
-                  {moves && moves.length > 0 && (
-                    // The newest movement leaves the stock it should have: a different value means something changed it outside the history
-                    Math.abs(Number(moves[0].stock_resultante) - stock) < 0.001 ? (
-                      <span className="text-xs font-semibold" style={{ color: "#2E7D60" }}>✓ El stock cuadra con sus movimientos</span>
-                    ) : (
-                      <span className="text-xs font-semibold" style={{ color: C.red }}>
-                        ⚠ Descuadre: el historial dice {Number(moves[0].stock_resultante).toLocaleString("es-CO")} {unit}
-                      </span>
-                    )
-                  )}
-                </div>
-                {moves === null ? (
-                  <div style={{ color: t.muted }}>{stockMoves?.error || "Cargando…"}</div>
-                ) : moves.length === 0 ? (
-                  <div style={{ color: t.text }}>Todavía no tiene movimientos.</div>
-                ) : (
-                  moves.slice(0, 15).map((m) => {
-                    const qty = Number(m.cantidad)
-                    return (
-                      <div
-                        key={String(m.id_movimiento)}
-                        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 border-t py-2 text-xs"
-                        style={{ borderColor: t.border }}
-                      >
-                        <span className="min-w-0" style={{ color: t.text }}>
-                          <strong>{STOCK_ORIGIN[String(m.origen)] ?? String(m.origen)}</strong>
-                          {m.referencia ? ` · ${String(m.referencia)}` : ""}
-                          <span style={{ color: t.muted }}> · {String(m.fecha)}</span>
-                        </span>
-                        <span style={{ color: t.muted }}>
-                          <strong style={{ color: qty >= 0 ? "#2E7D60" : C.red }}>
-                            {qty >= 0 ? "+" : "−"}{Math.abs(qty).toLocaleString("es-CO")} {unit}
-                          </strong>{" "}
-                          → {Number(m.stock_resultante).toLocaleString("es-CO")} {unit}
-                        </span>
-                      </div>
-                    )
-                  })
-                )}
               </div>
             )
           })()}

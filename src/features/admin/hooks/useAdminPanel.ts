@@ -1829,7 +1829,14 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
   // Stock history of the insumo open in "Ver detalle" (loaded when it opens)
   const [stockMoves, setStockMoves] = useState<{ id: string; rows: DbRecord[] | null; error?: string } | null>(null)
   const openView = (sec: string, idx: number) => {
-    const insumoId = sec === "insumos" ? String(rows.insumos?.[idx]?.[DB_SYNC.insumos.idIndex] ?? "") : ""
+    // A producto de insumo opened from Productos shows its insumo's history too
+    const supplyRow =
+      sec === "insumos"
+        ? rows.insumos?.[idx]
+        : sec === "producto" && isSupplyProductRow(rows.producto?.[idx])
+          ? rows.insumos?.find((r) => String(r[0]) === String(rows.producto?.[idx]?.[0]))
+          : undefined
+    const insumoId = String(supplyRow?.[DB_SYNC.insumos.idIndex] ?? "")
     if (insumoId) {
       setStockMoves({ id: insumoId, rows: null })
       api<DbRecord[]>(`/movimientos-stock/${insumoId}`)
