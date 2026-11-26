@@ -1,0 +1,522 @@
+import AdminProfilePage from "@/features/admin/pages/AdminProfilePage"
+import { saveProfile } from "@/features/profile/services/profile.service"
+import { Ico } from "@/shared/components/icons"
+import { fmt } from "@/shared/utils/format"
+import { C } from "@/shared/styles/theme"
+import type { User } from "@/shared/types"
+import { loadLS, saveLS } from "@/shared/utils/storage"
+import type { AdminPanelState } from "@/features/admin/types"
+import type { ReactNode } from "react"
+
+export default function AdminLayout(adminState: AdminPanelState): ReactNode {
+  const {
+    AnulModal,
+    CRUDModal,
+    Dashboard,
+    DelModal,
+    GenericTable,
+    PaymentRejectionModal,
+    ProductionPncModal,
+    QuickClientModal,
+    SidebarContent,
+    dark,
+    dropRef,
+    markAllNotificationsRead,
+    markNotificationRead,
+    notifications,
+    notificationsOpen,
+    notificationsRef,
+    onSwitchToClient,
+    profileOpen,
+    readNotifications,
+    errorToast,
+    setErrorToast,
+    notifyError,
+    saveToast,
+    newOrderToast,
+    setNewOrderToast,
+    openView,
+    modal,
+    rows,
+    section,
+    sectionLabel,
+    visibleMenu,
+    setNotificationsOpen,
+    setProfileOpen,
+    setSection,
+    setShowAdminProfile,
+    setSidebarCollapsed,
+    setSidebarOpen,
+    setTheme,
+    setUndoAnul,
+    showAdminProfile,
+    sidebarCollapsed,
+    sidebarOpen,
+    t,
+    toggleStatus,
+    undoAnul,
+    unreadNotifications,
+    user,
+  } = adminState
+  const headerButtonBg = dark ? "#30271C" : "#F1E5CF"
+  const headerButtonActiveBg = dark ? "#443524" : "#EAD8B6"
+
+  return (
+    <div
+      className="admin-panel flex h-screen overflow-hidden"
+      data-theme={dark ? "dark" : "light"}
+      // Theme colours for the panel-wide CSS rules (search box, row actions)
+      style={{
+        background: t.bg,
+        fontFamily: "DM Sans, sans-serif",
+        ["--admin-input" as string]: t.input,
+        ["--admin-input-b" as string]: t.inputB,
+        ["--admin-text" as string]: t.text,
+        ["--admin-muted" as string]: t.muted,
+        ["--admin-hover" as string]: t.hover,
+      }}
+    >
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 lg:hidden"
+          style={{ background: "rgba(0,0,0,0.55)" }}
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      {/* On desktop it keeps the icons' width; the open menu floats over the content */}
+      <div
+        className={`hidden flex-shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] lg:block ${
+          sidebarCollapsed ? "w-[72px]" : "w-[208px]"
+        }`}
+      />
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex w-[208px] flex-col overflow-hidden transition-[transform,width,box-shadow] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
+        } ${sidebarCollapsed ? "lg:w-[72px]" : ""}`}
+        style={{
+          background: dark ? t.sidebarBg : `linear-gradient(180deg, ${t.sidebarBg} 0%, #fff 18%, #fff 79%, ${t.sidebarBg} 100%)`,
+          borderRight: `1px solid ${t.sidebarBd}`,
+          flexShrink: 0,
+        }}
+      >
+        {/* Called, not mounted: as <SidebarContent /> it was a new component on every render and the menu
+            remounted (its submenu animation replayed) whenever anything in the panel changed */}
+        {SidebarContent()}
+      </aside>
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Header */}
+        <header
+          className="admin-header flex h-[var(--admin-header-height)] shrink-0 items-center gap-3 px-4"
+          style={{ background: t.hdrBg, borderBottom: `1px solid ${t.hdrBd}` }}
+        >
+          {/* Phones: slides the menu in; desktop: shows or hides the menu's labels */}
+          <button
+            onClick={() =>
+              window.innerWidth >= 1024 ? setSidebarCollapsed(!sidebarCollapsed) : setSidebarOpen(!sidebarOpen)
+            }
+            aria-label={sidebarCollapsed ? "Abrir el menú" : "Cerrar el menú"}
+            title={sidebarCollapsed ? "Abrir el menú" : "Cerrar el menú"}
+            className="p-2 rounded-xl cursor-pointer"
+            style={{ color: t.muted, background: t.input }}
+          >
+            {Ico.menu}
+          </button>
+          <div className="min-w-0">
+            {visibleMenu.find((group) => group.children.some((child) => child.key === section)) && (
+              <div className="truncate text-[11px] font-medium leading-tight" style={{ color: t.muted }}>
+                {visibleMenu.find((group) => group.children.some((child) => child.key === section))?.label}
+              </div>
+            )}
+            <h1 key={section} className="admin-title-enter truncate text-lg font-semibold leading-tight" style={{ color: t.text }}>
+              {sectionLabel}
+            </h1>
+          </div>
+          <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+            {/* Admin notifications */}
+            <div className="relative" ref={notificationsRef}>
+              <button
+                type="button"
+                title="Notificaciones"
+                aria-label={`Notificaciones, ${unreadNotifications} sin leer`}
+                aria-expanded={notificationsOpen}
+                aria-haspopup="dialog"
+                onClick={() => {
+                  setNotificationsOpen((open) => !open)
+                  setProfileOpen(false)
+                }}
+                className="admin-header-icon relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl"
+                style={{
+                  background: notificationsOpen ? headerButtonActiveBg : undefined,
+                  color: notificationsOpen ? "var(--admin-heading-gold)" : t.muted,
+                }}
+              >
+                <span className={`flex ${unreadNotifications > 0 ? "admin-bell-ring" : ""}`}>{Ico.bell}</span>
+                {unreadNotifications > 0 && (
+                  <span
+                    key={unreadNotifications}
+                    className="admin-badge-pop absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[9px] font-bold leading-none tabular-nums"
+                    // The ring in the header's colour separates it from the bell
+                    style={{ background: C.red, color: "#fff", boxShadow: `0 0 0 2px ${t.hdrBg}` }}
+                  >
+                    {unreadNotifications > 99 ? "99+" : unreadNotifications}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <div
+                  role="dialog"
+                  aria-label="Notificaciones del administrador"
+                  className="admin-pop fixed left-4 right-4 top-16 z-[60] min-w-0 overflow-hidden rounded-2xl sm:absolute sm:left-auto sm:right-0 sm:top-11 sm:w-[360px]"
+                  style={{
+                    background: t.card,
+                    boxShadow: "0 16px 48px rgba(0,0,0,0.22)",
+                    border: `1px solid ${t.border}`,
+                  }}
+                >
+                  <div
+                    className="flex min-w-0 items-center gap-2 px-4 py-3"
+                    style={{ borderBottom: `1px solid ${t.border}` }}
+                  >
+                    <span style={{ color: C.mustard }}>{Ico.bell}</span>
+                    <div className="min-w-0 flex-1">
+                      <h2
+                        className="text-sm font-semibold"
+                        style={{ color: t.text }}
+                      >
+                        Notificaciones
+                      </h2>
+                      <p className="text-[11px]" style={{ color: t.muted }}>
+                        {unreadNotifications > 0
+                          ? `${unreadNotifications} sin leer`
+                          : "Estás al día"}
+                      </p>
+                    </div>
+                    {unreadNotifications > 0 && (
+                      <button
+                        type="button"
+                        onClick={markAllNotificationsRead}
+                        className="flex flex-shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-semibold cursor-pointer"
+                        style={{
+                          color: C.mustard,
+                          background: `${C.mustard}12`,
+                        }}
+                      >
+                        {Ico.check} Marcar leídas
+                      </button>
+                    )}
+                  </div>
+
+                  <div
+                    className="min-w-0 overflow-y-auto"
+                    style={{ maxHeight: "min(420px, 58vh)" }}
+                  >
+                    {notifications.map((notification) => {
+                      const isRead = readNotifications.has(notification.id)
+                      const color =
+                        notification.type === "danger"
+                          ? C.red
+                          : notification.type === "warn"
+                            ? C.mustard
+                            : "#4FC3F7"
+                      return (
+                        <button
+                          key={notification.id}
+                          type="button"
+                          onClick={() => {
+                            markNotificationRead(notification.id)
+                            setSection(notification.target)
+                            setNotificationsOpen(false)
+                          }}
+                          className="flex w-full min-w-0 cursor-pointer items-start gap-3 px-4 py-3 text-left transition-colors"
+                          style={{
+                            background: isRead ? t.card : t.input,
+                            borderBottom: `1px solid ${t.border}`,
+                          }}
+                        >
+                          <span
+                            className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg"
+                            style={{ color, background: `${color}16` }}
+                          >
+                            {Ico.alert}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="flex min-w-0 items-start gap-2">
+                              <span
+                                className="min-w-0 flex-1 text-xs font-semibold break-words [overflow-wrap:anywhere]"
+                                style={{ color: t.text }}
+                              >
+                                {notification.title}
+                              </span>
+                              {!isRead && (
+                                <span
+                                  className="mt-1 h-2 w-2 flex-shrink-0 rounded-full"
+                                  style={{ background: C.red }}
+                                />
+                              )}
+                            </span>
+                            <span
+                              className="mt-0.5 block text-xs leading-snug break-words [overflow-wrap:anywhere]"
+                              style={{ color: t.muted }}
+                            >
+                              {notification.message}
+                            </span>
+                            <span
+                              className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px]"
+                              style={{ color: t.subtle }}
+                            >
+                              <span>{notification.module}</span>
+                              <span>·</span>
+                              <span>{notification.time}</span>
+                            </span>
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  <div className="px-4 py-3" style={{ background: t.cardAlt }}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSection("dashboard")
+                        setNotificationsOpen(false)
+                        setTimeout(() => {
+                          document.getElementById("admin-alerts-section")?.scrollIntoView({ behavior: "smooth", block: "start" })
+                        }, 100)
+                      }}
+                      className="w-full cursor-pointer text-center text-xs font-semibold"
+                      style={{ color: C.mustard }}
+                    >
+                      Ver todas en el Dashboard
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() =>
+                setTheme((th) => (th === "light" ? "dark" : "light"))
+              }
+              aria-label={dark ? "Cambiar a modo claro" : "Cambiar a modo oscuro"}
+              title={dark ? "Modo claro" : "Modo oscuro"}
+              className="admin-header-icon flex h-9 w-9 cursor-pointer items-center justify-center rounded-xl"
+              style={{ color: t.muted }}
+            >
+              <span key={dark ? "sun" : "moon"} className="admin-theme-spin flex">
+                {dark ? Ico.sun : Ico.moon}
+              </span>
+            </button>
+            <span aria-hidden="true" className="mx-1 hidden h-6 w-px sm:block" style={{ background: t.border }} />
+            <button
+              onClick={onSwitchToClient}
+              title="Abrir la tienda como la ven los clientes"
+              className="hidden h-9 items-center gap-2 rounded-xl px-3.5 text-sm font-semibold cursor-pointer sm:flex"
+              style={{ background: `${C.mustard}14`, color: dark ? C.amber : C.mustard, border: `1px solid ${C.mustard}${dark ? "55" : "33"}` }}
+            >
+              {Ico.globe} Ver tienda
+            </button>
+            <div className="relative" ref={dropRef}>
+              <button
+                onClick={() => {
+                  setProfileOpen((open) => !open)
+                  setNotificationsOpen(false)
+                }}
+                aria-label="Mi cuenta"
+                aria-expanded={profileOpen}
+                className="admin-header-icon flex h-9 cursor-pointer items-center gap-2 rounded-xl py-1 pl-1 pr-1 md:pr-2.5"
+                style={{ background: profileOpen ? `${C.mustard}1A` : undefined }}
+              >
+                <span
+                  className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                  style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
+                >
+                  {(user?.name?.charAt(0) ?? "A").toUpperCase()}
+                </span>
+                <span className="hidden min-w-0 max-w-[160px] text-left leading-tight md:block">
+                  <span className="block truncate text-[13px] font-semibold" style={{ color: t.text }}>
+                    {user?.name?.split(" ")[0] ?? "Administrador"}
+                  </span>
+                  <span className="block truncate text-[11px] font-medium" style={{ color: t.muted }}>
+                    {user?.email ?? ""}
+                  </span>
+                </span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="hidden transition-transform md:block" style={{ color: t.muted, transform: profileOpen ? "rotate(180deg)" : "none" }}>
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              {profileOpen && (
+                <div
+                  className="admin-pop absolute right-0 top-11 w-52 rounded-xl overflow-hidden z-50"
+                  style={{
+                    background: t.card,
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.15)",
+                    border: `1px solid ${t.border}`,
+                  }}
+                >
+                  <div
+                    className="px-4 py-3"
+                    style={{ borderBottom: `1px solid ${t.border}` }}
+                  >
+                    <div
+                      className="font-semibold text-xs"
+                      style={{ color: t.text }}
+                    >
+                      {user?.name ?? "Administrador"}
+                    </div>
+                    <div className="text-xs" style={{ color: t.muted }}>
+                      {user?.email ?? "admin@parche.co"}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false)
+                      setShowAdminProfile(true)
+                    }}
+                    className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-xs cursor-pointer"
+                    style={{ color: C.mustard }}
+                  >
+                    {Ico.user}
+                    <span>Mi perfil</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setProfileOpen(false)
+                      onSwitchToClient()
+                    }}
+                    className="w-full flex items-center gap-2 text-left px-4 py-2.5 text-xs cursor-pointer"
+                    style={{ color: C.red }}
+                  >
+                    {Ico.logout}
+                    <span>Cerrar sesión</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+        <main className="min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6">
+          {/* Keyed by section so each module fades in when it is opened */}
+          <div key={section} className={section === "dashboard" ? "admin-section-enter" : undefined}>
+            {section === "dashboard" && Dashboard()}
+            {/* A new / edited pedido is a page in its module (back arrow returns to the list) */}
+            {/* Only in its own module: going to another one shows that module's table, and coming back the draft is still there */}
+            {section !== "dashboard" && ((modal.section === section && CRUDModal(true)) || <GenericTable />)}
+          </div>
+        </main>
+      </div>
+      {undoAnul && (
+        <div
+          role="status"
+          className="admin-toast-enter fixed bottom-5 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-4 rounded-xl px-4 py-3 text-sm shadow-lg"
+          style={{ background: "#2a2116", color: "#FAF3E0" }}
+        >
+          <span>Se anuló «{undoAnul.name}».</span>
+          <button
+            type="button"
+            onClick={() => {
+              toggleStatus(undoAnul.sec, undoAnul.idx, undoAnul.statusIndex)
+              setUndoAnul(null)
+            }}
+            className="cursor-pointer font-bold underline"
+            style={{ color: C.mustard }}
+          >
+            Deshacer
+          </button>
+        </div>
+      )}
+      {errorToast && (
+        <div
+          key={errorToast.id}
+          role="alert"
+          className="admin-toast-enter fixed bottom-20 left-1/2 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-start gap-3 rounded-xl px-4 py-3 text-sm shadow-lg"
+          style={{ background: "#3a1712", color: "#FBE9E5", border: `1px solid ${C.red}` }}
+        >
+          <span className="mt-0.5 flex-shrink-0" style={{ color: "#F28B7A" }}>{Ico.alert}</span>
+          <span className="min-w-0 flex-1 break-words">{errorToast.message}</span>
+          <button
+            type="button"
+            onClick={() => setErrorToast(null)}
+            aria-label="Cerrar aviso"
+            className="flex-shrink-0 cursor-pointer opacity-70 hover:opacity-100"
+          >
+            {Ico.x}
+          </button>
+        </div>
+      )}
+      {newOrderToast && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="admin-toast-enter fixed right-4 top-16 z-[95] flex w-[calc(100%-2rem)] max-w-sm items-center gap-3 rounded-2xl px-4 py-3 shadow-lg"
+          style={{ background: t.card, border: `1px solid ${C.mustard}66` }}
+        >
+          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl" style={{ background: `${C.mustard}1f`, color: C.mustard }}>
+            {Ico.orders}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-bold" style={{ color: t.text }}>Pedido nuevo {newOrderToast.id}</div>
+            <div className="truncate text-xs" style={{ color: t.muted }}>
+              {newOrderToast.nombre || newOrderToast.cliente} · {fmt(newOrderToast.total)}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setSection("pedidos")
+              const idx = (rows.pedidos || []).findIndex((row) => String(row[0]) === newOrderToast.id)
+              if (idx >= 0) openView("pedidos", idx)
+              setNewOrderToast(null)
+            }}
+            className="cursor-pointer rounded-xl px-3 py-1.5 text-xs font-bold"
+            style={{ background: "var(--brand-gold-gradient)", color: "var(--brand-gold-ink)" }}
+          >
+            Ver
+          </button>
+          <button
+            type="button"
+            onClick={() => setNewOrderToast(null)}
+            aria-label="Cerrar aviso"
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg"
+            style={{ color: t.muted }}
+          >
+            {Ico.x}
+          </button>
+        </div>
+      )}
+      {saveToast && !undoAnul && (
+        <div
+          role="status"
+          className="admin-toast-enter fixed bottom-5 left-1/2 z-[90] flex -translate-x-1/2 items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold shadow-lg"
+          style={{ background: "#2a2116", color: "#FAF3E0" }}
+        >
+          <span style={{ color: C.mustard }}>{Ico.check}</span>
+          {saveToast}
+        </div>
+      )}
+      {CRUDModal()}
+      {ProductionPncModal()}
+      {/* Called, not mounted as <X />: these views are recreated on every render, and as components React would
+          remount them on each keystroke (the text box would lose what you're typing) */}
+      {QuickClientModal()}
+      {AnulModal()}
+      {PaymentRejectionModal()}
+      {DelModal()}
+      {showAdminProfile && user && (
+        <AdminProfilePage
+          user={user}
+          onClose={() => setShowAdminProfile(false)}
+          onUpdateUser={(u) => {
+            // What was just typed wins over the copy in this browser (it keeps the photo)
+            const saved = loadLS<User | null>(`profile:${u.email.toLowerCase()}`, null)
+            const updatedUser = saved ? { ...saved, ...u, role: u.role } : u
+            saveLS(`profile:${u.email.toLowerCase()}`, updatedUser)
+            window.dispatchEvent(new CustomEvent("admin-user-updated", { detail: updatedUser }))
+            // And in the backend, so Usuarios / Clientes show it
+            saveProfile(updatedUser).catch((err) => notifyError(`No se pudieron guardar tus datos: ${(err as Error).message}`))
+          }}
+        />
+      )}
+    </div>
+  )
+}
