@@ -7,7 +7,7 @@ import { buildProductionRows, clientOrderToPanelRow, isPedidoProduction, isProdu
 import { loadRegisteredClients } from "@/features/auth/services/auth.service"
 import { ADDITION_PRODUCT, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders, pushOrder, readVoucher, saveOrders } from "@/features/orders/services/orders.service"
-import { isTransferPaymentMethod } from "@/features/orders/utils/orders"
+import { isSplitModality, isTransferPaymentMethod } from "@/features/orders/utils/orders"
 import { appAlert } from "@/shared/components/AppDialog"
 import { Ico } from "@/shared/components/icons"
 import { FIRST_DAY } from "@/shared/constants"
@@ -3213,7 +3213,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const transferPayment = isTransferPaymentMethod(String(order?.[4] ?? "")) || !!proof
     const payOnDelivery = String(order?.[5]) === "Contraentrega"
     // $150.000 or more: the approved proof is the 50% deposit; the rest is collected on delivery
-    const deposit = String(order?.[5]) === "Abono 50%"
+    const deposit = isSplitModality(String(order?.[5] ?? ""))
     const approvedPayment = deposit ? "Abonado" : "Pagado"
     if (
       !order ||
@@ -3411,7 +3411,7 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     }))
     // Cash on delivery / on pickup: handing it over means it was paid (this also records its sale)
     // Delivered: cash on delivery, or the rest after a 50% deposit, was collected at the door
-    if (status === "Entregado" && ["Contraentrega", "Abono 50%"].includes(String(order[5])) && nextPaymentStatus(String(order[8] || "Pendiente"), String(order[5])) === "Pagado")
+    if (status === "Entregado" && (String(order[5]) === "Contraentrega" || isSplitModality(String(order[5]))) && nextPaymentStatus(String(order[8] || "Pendiente"), String(order[5])) === "Pagado")
       setOrderPayment(orderIndex, "Pagado")
   }
   const rejectTransferPayment = () => {
@@ -3945,7 +3945,19 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         productionRows.push(restartedOrder)
       }
 
-      return { ...current, produccion: productionRows, ...(supplies ? { insumos: supplies } : {}) }
+      const orderCode = String(sourceRow[15] ?? "")
+      const orderStatus = ({ Confirmado: "Confirmado", "En cocina": "En cocina" } as Record<string, string>)[nextStatus]
+      const orderFlow = ["Por confirmar", "Recibido", "Confirmado", "En cocina", "En camino", "Entregado"]
+      const pedidos = orderCode && orderStatus
+        ? (current.pedidos || []).map((order) => {
+            if (String(order[0]) !== orderCode || orderFlow.indexOf(String(order[7] || "Recibido")) >= orderFlow.indexOf(orderStatus) || String(order[7]) === "Cancelado")
+              return order
+            const updated = [...order]
+            updated[7] = orderStatus
+            return updated
+          })
+        : current.pedidos
+      return { ...current, produccion: productionRows, pedidos, ...(supplies ? { insumos: supplies } : {}) }
     })
     return true
   }

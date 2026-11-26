@@ -367,6 +367,7 @@ function AppRoutes() {
             pago: info.pago,
             comprobante: info.voucher,
             ...(info.voucher ? { valor_pago: info.voucherAmount, comprobante_dudoso: !!info.voucherDoubtful } : {}),
+            ...(info.mixedTransfer ? { pago_mixto: { transferencia: info.mixedTransfer } } : {}),
             items: cart
               .filter((item) => item.qty > 0)
               .map((item) => ({

@@ -55,14 +55,14 @@ export default function ProductionStatusSelect(adminState: AdminPanelState, { ro
           fontFamily: "DM Sans, sans-serif",
         }}
       >
-        {/* Recibido → Confirmado → En cocina → Finalizada: the current one and the next (the earlier ones are gone) */}
+        {/* Recibido → Confirmado → En cocina → Finalizada: the current one and every one ahead (never back) */}
         {(value === "Producto no conforme"
           ? [value]
           : [
               value,
-              ...(PRODUCTION_STATUSES[PRODUCTION_STATUSES.indexOf(value) + 1] && value !== "Finalizada"
-                ? [PRODUCTION_STATUSES[PRODUCTION_STATUSES.indexOf(value) + 1]]
-                : []),
+              ...(value === "Finalizada"
+                ? []
+                : PRODUCTION_STATUSES.slice(PRODUCTION_STATUSES.indexOf(value) + 1).filter((status) => status !== "Producto no conforme")),
               ...(value !== "Recibido" ? ["Producto no conforme" as const] : []),
             ]
         ).map((status) => (

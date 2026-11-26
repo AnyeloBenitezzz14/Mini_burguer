@@ -1,4 +1,5 @@
 import { ADDITIONS, PRODUCTS, PRODUCT_CAT_LABEL } from "@/features/menu/data/products"
+import { isSplitModality } from "@/features/orders/utils/orders"
 import { loadOrders } from "@/features/orders/services/orders.service"
 import { Ico } from "@/shared/components/icons"
 import { C } from "@/shared/styles/theme"
@@ -489,7 +490,7 @@ export const MOD_CFG: Record<string, ModConfig> = {
         key: "4",
         label: "Modalidad de pago",
         type: "select",
-        options: ["Anticipado", "Contraentrega", "Abono 50%"],
+        options: ["Anticipado", "Contraentrega", "Abono 50%", "Mixto"],
       },
       { key: "5", label: "Total (COP)", type: "number" },
       {
@@ -575,9 +576,10 @@ export const PAYMENT_NEXT: Record<string, string> = {
   Abonado: "Pagado",
   Rechazado: "Pendiente de verificación",
 }
-// With a 50% deposit the payment goes Pendiente / por verificar → Abonado (the 50%) → Pagado (the rest, on delivery)
+// With a 50% deposit or a mixed payment it goes Pendiente / por verificar → Abonado (the transfer) → Pagado (the rest,
+// on delivery)
 export const nextPaymentStatus = (current: string, modality: string) =>
-  modality === "Abono 50%" && ["Pendiente", "Pendiente de verificación"].includes(current) ? "Abonado" : PAYMENT_NEXT[current]
+  isSplitModality(modality) && ["Pendiente", "Pendiente de verificación"].includes(current) ? "Abonado" : PAYMENT_NEXT[current]
 
 export const SIDEBAR_MENU = [
   {

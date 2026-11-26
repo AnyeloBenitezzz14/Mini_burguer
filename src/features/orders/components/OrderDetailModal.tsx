@@ -168,11 +168,11 @@ export default function OrderDetailModal({
               {!!order.deposit && (
                 <div className="mt-2 border-t pt-2 text-sm" style={{ borderColor: BORDER }}>
                   <div className="flex items-center justify-between gap-3">
-                    <span style={{ color: MUTED }}>Abono (50%)</span>
+                    <span style={{ color: MUTED }}>{order.mixed ? `Por ${order.pago}` : "Abono (50%)"}</span>
                     <span className="font-semibold">{fmt(order.deposit)}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span style={{ color: MUTED }}>Saldo al recibir</span>
+                    <span style={{ color: MUTED }}>{order.mixed ? "En efectivo al recibir" : "Saldo al recibir"}</span>
                     <span className="font-semibold">{fmt(order.total - order.deposit)}</span>
                   </div>
                 </div>

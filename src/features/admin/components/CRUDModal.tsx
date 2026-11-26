@@ -4,7 +4,7 @@ import { DB_SYNC } from "@/features/admin/services/sync.service"
 import { derivePedidoPayment, isActiveStatus, isSupplyProductRow, isCounterClientRow, isNaturalSupplier, isReturnedLoss, isStaffRole, parseMainSupplies, parsePurchaseLines, saleTypeOf, supplierDocument } from "@/features/admin/utils/rows"
 import { ADDITION_PRODUCT, SAUCES, SODA_PRODUCT, SODA_RE, currentCategory, isSodaName, isStockedExtra, sodaImage } from "@/features/menu/data/products"
 import { loadOrders } from "@/features/orders/services/orders.service"
-import { ORDER_STEPS, isTransferPaymentMethod, panelPaymentLabel } from "@/features/orders/utils/orders"
+import { APPROVAL_MIN, ORDER_STEPS, isSplitModality, isTransferPaymentMethod, panelPaymentLabel } from "@/features/orders/utils/orders"
 import FieldError from "@/shared/components/FieldError"
 import UserHistory from "@/features/admin/components/UserHistory"
 import SuggestInput from "@/features/admin/components/SuggestInput"
@@ -921,6 +921,59 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     </div>
   ) : null
 
+  // How an order is paid (order and sale details): each part (transfer / cash) with its amount and state, how much is
+  // in and whether it's complete. A sale with no order was paid in full at the counter.
+  const paymentSummary = (order: Row | undefined, sale?: Row) => {
+    const shop = order ? loadOrders().find((o) => o.id === String(order[0])) : undefined
+    const total = Number(order?.[6] ?? sale?.[7]) || 0
+    const status = order ? String(order[8] || "Pendiente") : "Pagado"
+    const modality = String(order?.[5] ?? "")
+    const method = String(order?.[4] ?? sale?.[5] ?? "")
+    const split = isSplitModality(modality)
+    const mixed = modality === "Mixto" || String(sale?.[5]) === "Mixto"
+    const bank = shop?.pago && shop.pago !== "Efectivo" ? shop.pago : "Transferencia"
+    const transfer = split ? Number(shop?.deposit) || Math.ceil(total / 2) : isTransferPaymentMethod(method) || mixed ? total : 0
+    const rest = Math.max(0, total - transfer)
+    const paid = status === "Pagado" ? total : status === "Abonado" ? transfer : 0
+    const stateColor = (state: string) => (["Verificada", "Cobrado"].includes(state) ? "#2E7D60" : state === "Rechazada" ? C.red : "var(--admin-heading-gold)")
+    const parts = [
+      ...(transfer > 0
+        ? [{ label: `Por ${bank}`, amount: transfer, state: ["Abonado", "Pagado"].includes(status) ? "Verificada" : status === "Rechazado" ? "Rechazada" : status === "Pendiente de verificación" ? "Por verificar" : "Pendiente" }]
+        : []),
+      ...(rest > 0 ? [{ label: mixed || method === "Efectivo" ? "En efectivo" : "Saldo al recibir", amount: rest, state: status === "Pagado" ? "Cobrado" : "Al recibir" }] : []),
+    ]
+    const fill = total > 0 ? Math.round((paid / total) * 100) : 0
+    return (
+      <div className="rounded-2xl px-4 py-3" style={{ border: `1px solid ${t.border}` }}>
+        <div className="mb-2 flex items-baseline justify-between gap-2">
+          <h4 className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>Pago</h4>
+          <span className="text-xs font-semibold" style={{ color: t.text }}>
+            {mixed ? `Mixto: ${bank} + efectivo` : split ? `${bank} (abono 50%) + saldo` : method || "—"}
+          </span>
+        </div>
+        <div className="flex flex-col gap-1.5 text-sm">
+          {parts.map((part) => (
+            <div key={part.label} className="flex items-center justify-between gap-3">
+              <span style={{ color: t.muted }}>{part.label}</span>
+              <span className="flex items-center gap-2">
+                <span className="font-semibold tabular-nums" style={{ color: t.text }}>{fmt(part.amount)}</span>
+                <span className="rounded-full px-2 py-0.5 text-[10px] font-bold" style={{ background: "color-mix(in srgb, currentColor 12%, transparent)", color: stateColor(part.state) }}>
+                  {part.state}
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2.5 h-1.5 overflow-hidden rounded-full" style={{ background: t.input }}>
+          <div className="h-full rounded-full" style={{ width: `${fill}%`, background: paid >= total ? "#2E7D60" : "var(--admin-heading-gold)" }} />
+        </div>
+        <div className="mt-1.5 flex items-baseline justify-between gap-2 text-xs">
+          <span style={{ color: t.muted }}>Pagado {fmt(paid)} de {fmt(total)}</span>
+          <span className="font-bold" style={{ color: paid >= total ? "#2E7D60" : C.red }}>{paid >= total ? "✓ Pagado completo" : `Falta ${fmt(total - paid)}`}</span>
+        </div>
+      </div>
+    )
+  }
   // Insumo detail, right column: its stock moves and its purchases as sections that open and close; each header
   // sums up everything, the detail lists the latest 15 moves (the only list that scrolls) and the latest 6
   // purchases, and «Exportar historial» downloads all of them for Excel
@@ -6224,6 +6277,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   </>
                 )
               })()}
+              {row && <div className="md:col-start-2 self-start">{paymentSummary(row)}</div>}
               {(proofOf(modal.idx!) || paymentProofDraft) && (
                 <div className="rounded-2xl px-4 py-3 md:col-start-2 md:row-span-6 self-start" style={{ border: `1px solid ${t.border}` }}>
                   <h4 className="mb-2 text-xs font-bold uppercase tracking-wide" style={{ color: t.text }}>
@@ -6320,8 +6374,8 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                   {/* «Aprobar comprobante» (below) sets the payment and sends the order to production */}
                                   {suggestion && received >= owed && status === "Pendiente de verificación" && (
                                     <p className="mt-2 font-semibold" style={{ color: "#2E7D60" }}>
-                                      ✓ Cubre lo que debía: al aprobar el comprobante, el pago queda «{String(row?.[5]) === "Abono 50%" ? "Abonado" : "Pagado"}».
-                                      {String(row?.[5]) === "Abono 50%" && left <= 0 && " Como ya pagó todo, después pásalo a «Pagado» en «Estado de pago»."}
+                                      ✓ Cubre lo que debía: al aprobar el comprobante, el pago queda «{isSplitModality(String(row?.[5] ?? "")) ? "Abonado" : "Pagado"}».
+                                      {isSplitModality(String(row?.[5] ?? "")) && left <= 0 && " Como ya pagó todo, después pásalo a «Pagado» en «Estado de pago»."}
                                     </p>
                                   )}
                                 </div>
@@ -6375,9 +6429,9 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                   </label>
                 )
               })()}
-              {loadOrders().some((order) => order.id === row?.[0]) && (
+              {row && (
                 <label className="md:col-start-2 flex flex-col gap-1.5 text-xs font-semibold" style={{ color: t.text }}>
-                  Estado del pedido (lo ve el cliente)
+                  {loadOrders().some((order) => order.id === row?.[0]) ? "Estado del pedido (lo ve el cliente)" : "Estado del pedido"}
                   <select
                     value={String(row?.[7] ?? "")}
                     onChange={(e) => setClientOrderStatus(modal.idx!, e.target.value)}
@@ -6387,7 +6441,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     {(() => {
                       // Every status is listed; the ones already passed show in grey and can't be chosen (it only
                       // moves forward). Entregado and Cancelado are final.
-                      const flow = ["Por confirmar", ...ORDER_STEPS]
+                      const flow = [...((Number(row?.[6]) || 0) >= APPROVAL_MIN ? ["Por confirmar"] : []), ...ORDER_STEPS]
                       const current = String(row?.[7] ?? "")
                       const at = flow.indexOf(current)
                       const final = ["Entregado", "Cancelado"].includes(current)
@@ -6502,6 +6556,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                     <div className="text-xl font-semibold" style={{ color: C.mustard }}>{fmt(Number(row[7]) || 0)}</div>
                   </div>
                 </div>
+                <div className="md:col-start-2">{paymentSummary(rows.pedidos?.find((order) => String(order[0]) === String(row[9])), row)}</div>
                 <div className="rounded-2xl px-4 py-3 md:row-span-2" style={{ border: `1px solid ${t.border}` }}>
                   {title(`Productos (${groups.length})`)}
                   {groups.length ? (
