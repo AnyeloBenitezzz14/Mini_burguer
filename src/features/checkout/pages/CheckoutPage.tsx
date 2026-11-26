@@ -29,6 +29,7 @@ import { EMPTY_CHECKOUT_ADDRESS_PARTS, SHOP_LOCATION, STREET_TYPES, addressParts
 import type { CheckoutAddressParts } from "@/shared/utils/address"
 import { fmt, formatDuration } from "@/shared/utils/format"
 import { appAlert } from "@/shared/components/AppDialog"
+import { loadLS, saveLS } from "@/shared/utils/storage"
 import { DOC_TYPES, digitsOnly, normalizeAccountDocumentInput, validatePhoneNumber } from "@/shared/utils/validation"
 
 // ── Checkout Page (split: cart+form | auth) ────────────────────────────────────
@@ -42,6 +43,11 @@ type CheckoutDraft = {
   deliverToOtherPerson?: boolean
   voucher?: string
   voucherAmount?: string
+  // A new address being typed, whether to save it and what it's called
+  editingAddress?: boolean
+  saveAddress?: boolean
+  addressLabel?: string
+  customAddressLabel?: string
 }
 const readDraft = (): CheckoutDraft => {
   try {
@@ -49,6 +55,28 @@ const readDraft = (): CheckoutDraft => {
   } catch {
     return {}
   }
+}
+
+// What each delivery address is called (Casa, Trabajo or a name of the client's own under «Otra»)
+const ADDRESS_LABELS = ["Casa", "Trabajo", "Otra"]
+// The same address written with other spaces or capitals is the same address
+const addressLabelKey = (address: string) => address.trim().replace(/\s+/g, " ").toLowerCase()
+// The address the client was typing last time (offered again as «Recuperar dirección anterior»)
+type AddressDraft = { parts: CheckoutAddressParts; neighborhoodQuery: string | null; label: string; customLabel?: string }
+
+// The payment method's mark: cash, or the bank app the transfer is made from
+function PaymentMethodIcon({ method }: { method: string }) {
+  const look: Record<string, { color: string; background: string; icon: React.ReactNode }> = {
+    Efectivo: { color: C.forest, background: `${C.forest}14`, icon: Ico.cash },
+    Nequi: { color: "#B5006B", background: "#DA008114", icon: Ico.phone },
+    Bancolombia: { color: "#2C2A29", background: "#FDDA2440", icon: Ico.phone },
+  }
+  const { color, background, icon } = look[method] ?? { color: C.mustard, background: `${C.mustard}14`, icon: Ico.cash }
+  return (
+    <span aria-hidden="true" className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl" style={{ color, background }}>
+      {icon}
+    </span>
+  )
 }
 
 export default function CheckoutPage({
@@ -86,6 +114,21 @@ export default function CheckoutPage({
   const [registrationPending, setRegistrationPending] = useState(false)
   const [registrationCode, setRegistrationCode] = useState("")
   const [draft] = useState(readDraft)
+  const accountKey = user?.email.toLowerCase() ?? ""
+  const addressLabelsKey = accountKey ? `address-labels:${accountKey}` : ""
+  const addressDraftKey = accountKey ? `address-draft:${accountKey}` : ""
+  const addressLabels = ADDRESS_LABELS
+  const [addressLabel, setAddressLabel] = useState(draft.addressLabel ?? "Casa")
+  const [customAddressLabel, setCustomAddressLabel] = useState(draft.customAddressLabel ?? "")
+  const savedAddressLabels = addressLabelsKey ? loadLS<Record<string, string>>(addressLabelsKey, {}) : {}
+  // The account whose address is being typed (only then its draft is saved) and the one already prefilled
+  const editedAddressKey = useRef("")
+  const initializedAddressKey = useRef("")
+  // Read once per account: the draft of a previous visit, not the address being typed now
+  const [addressDraft, setAddressDraft] = useState<AddressDraft | null>(null)
+  useEffect(() => {
+    setAddressDraft(addressDraftKey ? loadLS<AddressDraft | null>(addressDraftKey, null) : null)
+  }, [addressDraftKey])
   const [delivForm, setDelivForm] = useState(() => draft.delivForm ?? {
     nombre: "",
     telefono: "",
@@ -110,7 +153,10 @@ export default function CheckoutPage({
   const [neighborhoodsLoading, setNeighborhoodsLoading] = useState(true)
   const [neighborhoodsError, setNeighborhoodsError] = useState("")
   const setAddressPart = (key: keyof CheckoutAddressParts, value: string, edited = true) => {
-    if (edited) editedAddressKey.current = addressDraftKey
+    if (edited) {
+      editedAddressKey.current = addressDraftKey
+      markTouched(key)
+    }
     setAddressParts((current) => ({ ...current, [key]: value }))
   }
   // Where the address is on the map and whether it's inside the delivery zone
@@ -170,7 +216,7 @@ export default function CheckoutPage({
     return () => controller.abort()
   }, [user?.email])
   const [editingAddress, setEditingAddress] = useState(
-    () => !(user?.addresses?.length),
+    () => draft.editingAddress ?? !(user?.addresses?.length),
   )
   // Locate the address (1 s after the last change: OpenStreetMap allows ~1 search per second)
   const streetAddress = composeStreetAddress(addressParts)
@@ -317,9 +363,38 @@ export default function CheckoutPage({
   }, [user?.email])
   const [deliverToOtherPerson, setDeliverToOtherPerson] = useState(!!draft.deliverToOtherPerson)
   const [saveAddress, setSaveAddress] = useState(
-    () => !(user?.addresses?.length),
+    () => draft.saveAddress ?? !(user?.addresses?.length),
   )
+  // A saved address (shown, not edited, not saved again) or a new / recovered one (edited and offered to save)
+  const chooseAddress = (parts: CheckoutAddressParts, edit: boolean, query: string | null = null, label?: string) => {
+    const known = !!label && ADDRESS_LABELS.includes(label)
+    setAddressParts(parts)
+    setNeighborhoodQuery(query)
+    setEditingAddress(edit)
+    setSaveAddress(edit)
+    setAddressLabel(!label ? "Casa" : known ? label : "Otra")
+    setCustomAddressLabel(label && !known ? label : "")
+  }
+  // Offered only when it isn't empty and isn't one of the saved addresses already
+  const previousAddress = (() => {
+    const text = addressDraft ? composeDeliveryAddress(addressDraft.parts) : ""
+    return addressDraft && text && !(user?.addresses ?? []).some((a) => addressLabelKey(a) === addressLabelKey(text)) ? addressDraft : null
+  })()
+  // While the client types an address, it's kept for next time
+  useEffect(() => {
+    if (!addressDraftKey || editedAddressKey.current !== addressDraftKey || !editingAddress) return
+    saveLS(addressDraftKey, { parts: addressParts, neighborhoodQuery, label: addressLabel, customLabel: customAddressLabel })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressParts, neighborhoodQuery, addressLabel, customAddressLabel])
+  // The address sent with the order is always the one its parts spell
+  useEffect(() => {
+    const direccion = composeDeliveryAddress(addressParts)
+    setDelivForm((form) => (form.direccion === direccion ? form : { ...form, direccion }))
+  }, [addressParts])
   const [deliveryTried, setDeliveryTried] = useState(false)
+  const [touched, setTouched] = useState<Record<string, boolean>>({})
+  const markTouched = (key: string) => setTouched((current) => (current[key] ? current : { ...current, [key]: true }))
+  const showErr = (key: string) => deliveryTried || !!touched[key]
   const toggleDeliveryRecipient = () => {
     const nextIsOtherPerson = !deliverToOtherPerson
     setDeliverToOtherPerson(nextIsOtherPerson)
@@ -343,6 +418,8 @@ export default function CheckoutPage({
       nombre: f.nombre || user.name,
       telefono: f.telefono || user.phone || "",
     }))
+    if (initializedAddressKey.current === addressDraftKey) return
+    initializedAddressKey.current = addressDraftKey
     // After a reload the address the client was typing stays (not the saved one)
     if (draft.addressParts) return
     const savedAddress = user.addresses?.[0] || ""
@@ -364,11 +441,12 @@ export default function CheckoutPage({
       else
         sessionStorage.setItem(DRAFT_KEY, JSON.stringify({
           step: checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount,
+          editingAddress, saveAddress, addressLabel, customAddressLabel,
         } satisfies CheckoutDraft))
     } catch {
       // Storage full or blocked: the checkout still works, it just won't survive a reload
     }
-  }, [ordered, checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount])
+  }, [ordered, checkoutStep, delivForm, deliveryMethod, addressParts, deliverToOtherPerson, voucher, voucherAmount, editingAddress, saveAddress, addressLabel, customAddressLabel])
   // Guests see only their cart until they press "Hacer pedido"
   const [showAuth, setShowAuth] = useState(false)
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -435,18 +513,21 @@ export default function CheckoutPage({
           ? confirmedTotal
           : orderTotal,
       )
+      // The order exists from here on: nothing below may make it look failed (and get it sent twice)
+      setOrdered(true)
       if (isDelivery && editingAddress && addressLabelsKey && (saveAddress || !user.addresses?.length)) {
         saveLS(addressLabelsKey, {
           ...loadLS<Record<string, string>>(addressLabelsKey, {}),
           [addressLabelKey(delivForm.direccion)]: addressLabel === "Otra" ? customAddressLabel.trim() || "Otra" : addressLabel,
         })
       }
-      if (isDelivery && addressDraftKey && previousAddress && composeDeliveryAddress(previousAddress.parts) === delivForm.direccion) {
+      // The address in the draft was used: it isn't «anterior» any more
+      const storedDraft = addressDraftKey ? loadLS<AddressDraft | null>(addressDraftKey, null) : null
+      if (isDelivery && storedDraft && composeDeliveryAddress(storedDraft.parts) === delivForm.direccion) {
         editedAddressKey.current = ""
         saveLS(addressDraftKey, null)
         setAddressDraft(null)
       }
-      setOrdered(true)
     } catch (err) {
       setOrderError((err as Error).message)
       appAlert((err as Error).message, "No pudimos hacer tu pedido")
@@ -1210,14 +1291,18 @@ export default function CheckoutPage({
                           type={t}
                           placeholder={ph}
                           value={delivForm[k as keyof typeof delivForm]}
-                          onChange={(v) => setDelivForm((f) => ({ ...f, [k]: v }))}
+                          onChange={(v) => {
+                            setDelivForm((f) => ({ ...f, [k]: v }))
+                            markTouched(k)
+                          }}
+                          onBlur={() => markTouched(k)}
                           required={k === "nombre" || k === "telefono"}
                           error={
-                            deliveryTried &&
+                            showErr(k) &&
                             k === "nombre" &&
                             !delivForm.nombre.trim()
                               ? "El nombre es obligatorio."
-                              : deliveryTried && k === "telefono"
+                              : showErr(k) && k === "telefono"
                                 ? delivForm.telefono.trim()
                                   ? validatePhoneNumber(delivForm.telefono)
                                   : "El teléfono es obligatorio."
@@ -1353,12 +1438,13 @@ export default function CheckoutPage({
                         onQueryChange={(query) => {
                           editedAddressKey.current = addressDraftKey
                           setNeighborhoodQuery(query)
+                          markTouched("barrio")
                         }}
                         onSelect={(n) => {
                           setAddressPart("barrio", n === null ? "" : typeof n === "string" ? n : n.nombre)
                           setNeighborhoodQuery(null)
                         }}
-                        error={deliveryTried && isDelivery && !selectedNeighborhood && !geocodedInsideBello
+                        error={showErr("barrio") && isDelivery && !selectedNeighborhood && !geocodedInsideBello
                           ? "Elige un barrio habilitado o verifica que la dirección esté en Bello."
                           : undefined}
                       />
@@ -1432,18 +1518,18 @@ export default function CheckoutPage({
                             required
                             value={addressParts.tipoVia}
                             onChange={(event) => setAddressPart("tipoVia", event.target.value)}
-                            aria-invalid={deliveryTried && !addressParts.tipoVia}
+                            aria-invalid={showErr("tipoVia") && !addressParts.tipoVia}
                             className="w-full rounded-xl px-3 py-2 text-sm outline-none"
                             style={{
                               background: "rgba(30,30,30,0.05)",
-                              border: `1.5px solid ${deliveryTried && !addressParts.tipoVia ? C.red : "rgba(30,30,30,0.12)"}`,
+                              border: `1.5px solid ${showErr("tipoVia") && !addressParts.tipoVia ? C.red : "rgba(30,30,30,0.12)"}`,
                               color: C.dark,
                             }}
                           >
                             <option value="">Selecciona el tipo de vía</option>
                             {[...STREET_TYPES, ...(addressParts.tipoVia === "Circular" ? ["Circular"] : [])].map((type) => <option key={type} value={type}>{type}</option>)}
                           </select>
-                          {deliveryTried && !addressParts.tipoVia && (
+                          {showErr("tipoVia") && !addressParts.tipoVia && (
                             <span className="text-xs font-normal" role="alert" style={{ color: C.red }}>Selecciona el tipo de vía.</span>
                           )}
                         </label>
@@ -1452,8 +1538,9 @@ export default function CheckoutPage({
                           placeholder="Ej: 49"
                           value={addressParts.numeroVia}
                           onChange={(value) => setAddressPart("numeroVia", value)}
+                          onBlur={() => markTouched("numeroVia")}
                           required
-                          error={deliveryTried
+                          error={showErr("numeroVia")
                             ? !addressParts.numeroVia.trim()
                               ? "Ingresa el número."
                               : !validAddressNumber(addressParts.numeroVia)
@@ -1466,7 +1553,7 @@ export default function CheckoutPage({
                           placeholder="Ej: A"
                           value={addressParts.letraVia}
                           onChange={(value) => setAddressPart("letraVia", value.toUpperCase())}
-                          error={deliveryTried && !validAddressLetter(addressParts.letraVia)
+                          error={showErr("letraVia") && !validAddressLetter(addressParts.letraVia)
                             ? "Ingresa una sola letra."
                             : undefined}
                         />
@@ -1475,18 +1562,18 @@ export default function CheckoutPage({
                           <select
                             value={addressParts.tipoViaSecundaria}
                             onChange={(event) => setAddressPart("tipoViaSecundaria", event.target.value)}
-                            aria-invalid={deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria)}
+                            aria-invalid={showErr("tipoViaSecundaria") && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria)}
                             className="w-full rounded-xl px-3 py-2 text-sm outline-none"
                             style={{
                               background: "rgba(30,30,30,0.05)",
-                              border: `1.5px solid ${deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) ? C.red : "rgba(30,30,30,0.12)"}`,
+                              border: `1.5px solid ${showErr("tipoViaSecundaria") && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) ? C.red : "rgba(30,30,30,0.12)"}`,
                               color: C.dark,
                             }}
                           >
                             <option value="">Selecciona el tipo de vía</option>
                             {[...STREET_TYPES, ...(addressParts.tipoViaSecundaria === "Circular" ? ["Circular"] : [])].map((type) => <option key={type} value={type}>{type}</option>)}
                           </select>
-                          {deliveryTried && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) && (
+                          {showErr("tipoViaSecundaria") && !!addressParts.tipoViaSecundaria && !validStreetType(addressParts.tipoViaSecundaria) && (
                             <span className="text-xs font-normal" role="alert" style={{ color: C.red }}>Selecciona el tipo de vía.</span>
                           )}
                         </label>
@@ -1495,8 +1582,9 @@ export default function CheckoutPage({
                           placeholder="Ej: 57"
                           value={addressParts.numeroViaSecundaria}
                           onChange={(value) => setAddressPart("numeroViaSecundaria", value)}
+                          onBlur={() => markTouched("numeroViaSecundaria")}
                           required
-                          error={deliveryTried
+                          error={showErr("numeroViaSecundaria")
                             ? !addressParts.numeroViaSecundaria.trim()
                               ? "Ingresa el segundo número."
                               : !validAddressNumber(addressParts.numeroViaSecundaria)
@@ -1509,7 +1597,7 @@ export default function CheckoutPage({
                           placeholder="Ej: A"
                           value={addressParts.letraViaSecundaria}
                           onChange={(value) => setAddressPart("letraViaSecundaria", value.toUpperCase())}
-                          error={deliveryTried && !validAddressLetter(addressParts.letraViaSecundaria)
+                          error={showErr("letraViaSecundaria") && !validAddressLetter(addressParts.letraViaSecundaria)
                             ? "Ingresa una sola letra."
                             : undefined}
                         />
@@ -1518,8 +1606,9 @@ export default function CheckoutPage({
                           placeholder="Ej: 18"
                           value={addressParts.numeroPlaca}
                           onChange={(value) => setAddressPart("numeroPlaca", value)}
+                          onBlur={() => markTouched("numeroPlaca")}
                           required
-                          error={deliveryTried
+                          error={showErr("numeroPlaca")
                             ? !addressParts.numeroPlaca.trim()
                               ? "Ingresa el tercer número."
                               : !validAddressNumber(addressParts.numeroPlaca)
@@ -1532,7 +1621,7 @@ export default function CheckoutPage({
                           placeholder="Ej: C"
                           value={addressParts.letraPlaca}
                           onChange={(value) => setAddressPart("letraPlaca", value.toUpperCase())}
-                          error={deliveryTried && !validAddressLetter(addressParts.letraPlaca)
+                          error={showErr("letraPlaca") && !validAddressLetter(addressParts.letraPlaca)
                             ? "Ingresa una sola letra."
                             : undefined}
                         />
@@ -2020,6 +2109,20 @@ export default function CheckoutPage({
               >
                 Inicia sesión o regístrate para continuar.
               </p>
+            )}
+            {((user && checkoutStep > 1) || (!user && showAuth)) && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!user) setShowAuth(false)
+                  else setCheckoutStep(checkoutStep === 3 ? 2 : 1)
+                  window.scrollTo({ top: 0, behavior: "smooth" })
+                }}
+                className="mt-2 w-full cursor-pointer rounded-xl py-3 text-sm font-bold transition hover:bg-black/[0.03]"
+                style={{ border: "1.5px solid rgba(30,30,30,0.14)", color: C.dark, background: "#fff" }}
+              >
+                ← {checkoutStep === 3 ? "Volver a los datos de entrega" : "Volver al carrito"}
+              </button>
             )}
             {user && checkoutStep >= 2 && (!delivFilled || !deliveryCostConfigured || !payReady) && (
               <p className="mt-3 text-xs text-center" style={{ color: MUTED }}>
