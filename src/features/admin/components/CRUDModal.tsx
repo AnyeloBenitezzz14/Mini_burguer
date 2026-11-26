@@ -937,7 +937,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
     const deposited = Number(shop?.deposit) || Number(order?.[14]) || 0
     const transfer = split
       ? deposited || Math.ceil(total / 2)
-      : isTransferPaymentMethod(method) || mixed ? (status === "Abonado" && deposited ? Math.min(deposited, total) : total) : 0
+      : isTransferPaymentMethod(method) || mixed ? deposited || total : 0
     const rest = Math.max(0, total - transfer)
     const paid = status === "Pagado" ? Math.max(total, deposited) : status === "Abonado" ? deposited || transfer : 0
     const stateColor = (state: string) => (["Verificada", "Cobrado"].includes(state) ? "#2E7D60" : state === "Rechazada" ? C.red : "var(--admin-heading-gold)")
@@ -953,7 +953,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
         <div className="mb-2 flex items-baseline justify-between gap-2">
           <h4 className="text-[10px] font-bold uppercase tracking-wider" style={{ color: C.mustard, fontFamily: "League Spartan, sans-serif" }}>Pago</h4>
           <span className="text-xs font-semibold" style={{ color: t.text }}>
-            {mixed ? `Mixto: ${bank} + efectivo` : split ? `${bank} (abono 50%) + saldo` : method || "—"}
+            {mixed ? `Mixto: ${bank} + efectivo` : split ? `${bank} (abono) + saldo` : method || "—"}
           </span>
         </div>
         <div className="flex flex-col gap-1.5 text-sm">
@@ -2769,7 +2769,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                       <span className="text-[11px]" style={{ color: t.muted }}>
                         {payment.modalidad === "Abono 50%"
                           ? `Pedido de $150.000 o más: se abona el 50% (${fmt(Math.ceil(orderTotal / 2))}) por adelantado y el saldo (${fmt(orderTotal - Math.ceil(orderTotal / 2))}) al entregar. Con transferencia y comprobante queda «Abonado».`
-                          : "Automático: efectivo en el local = pagado; transferencia con comprobante = pagado; efectivo a domicilio o para recoger = contraentrega, y queda pagado al marcarlo «Entregado»."}
+                          : "Automático: efectivo en el local = pagado; transferencia con comprobante = pagado; efectivo a domicilio o para recoger = contraentrega. Registra el pago antes de marcarlo «Entregado»."}
                       </span>
                     )}
                   </div>
@@ -6382,8 +6382,7 @@ export default function CRUDModal(adminState: AdminPanelState, inline = false): 
                                   {/* «Aprobar comprobante» (below) sets the payment and sends the order to production */}
                                   {suggestion && received >= owed && status === "Pendiente de verificación" && (
                                     <p className="mt-2 font-semibold" style={{ color: "#2E7D60" }}>
-                                      ✓ Cubre lo que debía: al aprobar el comprobante, el pago queda «{isSplitModality(String(row?.[5] ?? "")) ? "Abonado" : "Pagado"}».
-                                      {isSplitModality(String(row?.[5] ?? "")) && left <= 0 && " Como ya pagó todo, después pásalo a «Pagado» en «Estado de pago»."}
+                                      ✓ Cubre lo que debía: al aprobar el comprobante, el pago queda «{left > 0 ? "Abonado" : "Pagado"}».
                                     </p>
                                   )}
                                 </div>

@@ -121,6 +121,7 @@ export function clientOrderToPanelRow(order: Order, products: (string | number)[
     order.paymentRejectionReason ?? "",
     order.notas,
     order.telefono,
+    order.deposit ?? "",
   ]
 }
 

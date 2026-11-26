@@ -3316,16 +3316,24 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     if (difference < 0) return `El cliente ya pagó ${fmt(paid)} y ahora el total es ${fmt(total)}: devuélvele ${fmt(-difference)}.`
     return `El total sigue en ${fmt(total)} y ya está pagado.`
   }
-  const approveOrderForProduction = (orderIndex: number) => {
+  const approveOrderForProduction = async (orderIndex: number) => {
     const order = rows.pedidos?.[orderIndex]
     const proof = proofOf(orderIndex)
     const paymentStatus = String(order?.[8] ?? "")
     // Any order with an uploaded proof is checked like a transfer
     const transferPayment = isTransferPaymentMethod(String(order?.[4] ?? "")) || !!proof
     const payOnDelivery = String(order?.[5]) === "Contraentrega"
-    // $150.000 or more: the approved proof is the 50% deposit; the rest is collected on delivery
+    // Split payments may cover the required deposit or the entire order.
     const deposit = isSplitModality(String(order?.[5] ?? ""))
-    const approvedPayment = deposit ? "Abonado" : "Pagado"
+    const storedOrders = loadOrders()
+    const storedOrder = storedOrders.find((item) => item.id === order?.[0])
+    const latestProof = storedOrder?.proofs?.at(-1)
+    const received = transferPayment && paymentStatus === "Pendiente de verificación" && storedOrder
+      ? Number(receivedAmount || latestProof?.amount)
+      : undefined
+    const total = Number(order?.[6])
+    const required = storedOrder?.deposit || total
+    const approvedPayment = received !== undefined ? (received >= total ? "Pagado" : "Abonado") : deposit ? "Abonado" : "Pagado"
     if (
       !order ||
       ["Autorizada", "Enviada a producción"].includes(String(order[9])) ||
@@ -3341,15 +3349,30 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       return
     }
 
-    const storedOrders = loadOrders()
-    const storedOrder = storedOrders.find((item) => item.id === order[0])
+    if (received !== undefined && (!Number.isSafeInteger(received) || received <= 0 || received > 10_000_000 || received < required)) {
+      notifyError(`Ingresa un valor recibido válido que cubra el pago requerido de ${fmt(required)}.`)
+      return
+    }
     if (storedOrder?.productionAuthorized) return
     // One production order with every product of the order; a store order already got its own from the server
     const existingProduction = (rows.produccion || []).filter((op) => String(op[15] ?? "") === String(order[0])).slice(0, 1)
     const productionRecords = existingProduction.length
       ? existingProduction
       : buildProductionRows(requestedItems, rows.produccion || [], String(order[0])).slice(0, 1)
-    saveOrders(
+    if (received !== undefined) {
+      try {
+        const saved = await api<DbRecord>(`/pedidos/${orderDbId(String(order[0]))}`, "PATCH", {
+          estado: "Confirmado",
+          valor_recibido: received,
+          produccion_autorizada: true,
+          registros_produccion: productionRecords,
+        })
+        saveOrders(loadOrders().map((item) => item.id === order[0] ? { ...item, ...orderFromDb(saved) } : item))
+      } catch (error) {
+        notifyError((error as Error).message)
+        return
+      }
+    } else saveOrders(
       storedOrders.map((item) =>
         item.id === order[0]
           ? {
@@ -3364,16 +3387,18 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     )
     // Approving isn't selling: the sale is created by the server only when the order is paid (a transfer is,
     // right here). Then the sales list is reloaded so it shows up
-    pushOrder(String(order[0])).then(() => { if (transferPayment && !deposit) loadPanel("ventas") })
+    if (received === undefined) await pushOrder(String(order[0]))
+    if (transferPayment && approvedPayment === "Pagado") loadPanel("ventas")
 
     setRows((current) => {
       const currentOrder = current.pedidos?.[orderIndex]
-      if (!currentOrder || String(currentOrder[9]) === "Autorizada") {
+      if (!currentOrder || currentOrder[0] !== order[0] || String(currentOrder[9]) === "Autorizada") {
         return current
       }
       const orderRows = [...(current.pedidos || [])]
       const updatedOrder = [...currentOrder]
       updatedOrder[8] = transferPayment && updatedOrder[8] !== "Pagado" ? approvedPayment : updatedOrder[8]
+      if (received !== undefined) updatedOrder[14] = received
       updatedOrder[9] = "Autorizada"
       if (
         transferPayment ||
@@ -3441,10 +3466,15 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
       return { ...current, pedidos, ventas }
     })
   }
+  const unpaidDeliveryMessage = "El pedido no se ha cancelado del todo. Actualiza el estado del pago a «Pagado» antes de marcarlo como «Entregado»."
   const setClientOrderStatus = async (orderIndex: number, status: string, fromProduction = false) => {
     const order = rows.pedidos?.[orderIndex]
     if (!order) return
     const orderId = String(order[0])
+    if (status === "Entregado" && order[7] !== status && order[8] !== "Pagado") {
+      notifyError(unpaidDeliveryMessage)
+      return
+    }
     // Move the order's production first; "En cocina" takes the supplies out of the stock
     const target = fromProduction ? undefined : ORDER_TO_PRODUCTION[status]
     const hasProductionOrder =
@@ -3519,10 +3549,6 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
         return updated
       }),
     }))
-    // Cash on delivery / on pickup: handing it over means it was paid (this also records its sale)
-    // Delivered: cash on delivery, or the rest after a 50% deposit, was collected at the door
-    if (status === "Entregado" && (String(order[5]) === "Contraentrega" || isSplitModality(String(order[5])) || String(order[8]) === "Abonado") && nextPaymentStatus(String(order[8] || "Pendiente"), String(order[5])) === "Pagado")
-      setOrderPayment(orderIndex, "Pagado")
   }
   const rejectTransferPayment = () => {
     if (paymentRejectionTarget === null) return
@@ -3936,6 +3962,11 @@ export function useAdminPanel({ onSwitchToClient, onLogout, user }: {
     const sourceRow = rows.produccion?.[rowIndex]
     if (!sourceRow) return false
     if (String(sourceRow[8]) === nextStatus) return true
+    const linkedOrder = (rows.pedidos || []).find((order) => String(order[0]) === String(sourceRow[15] ?? ""))
+    if (nextStatus === "Entregado" && linkedOrder && linkedOrder[8] !== "Pagado") {
+      notifyError(unpaidDeliveryMessage)
+      return false
+    }
     // Supplies leave the stock once, when the order reaches «En cocina» (or jumps past it, e.g. straight to
     // «En camino»); the backend refuses a second time for the same order
     const rankOf = (status: string) => PRODUCTION_STATUSES.indexOf(status as (typeof PRODUCTION_STATUSES)[number])
